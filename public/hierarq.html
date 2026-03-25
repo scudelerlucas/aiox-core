@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HIERARQ Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+  h1 {
+    font-size: 1.6rem;
+    margin-bottom: 0.3rem;
+    color: #58a6ff;
+  }
+  .subtitle {
+    color: #8b949e;
+    font-size: 0.85rem;
+    margin-bottom: 2rem;
+  }
+  .date-badge {
+    display: inline-block;
+    background: #1f2937;
+    color: #7ee787;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    margin-left: 8px;
+  }
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .frente-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 200px 60px;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid #21262d;
+  }
+  .frente-row:last-child { border-bottom: none; }
+  .frente-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .bar-container {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 28px;
+  }
+  .bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.6s ease;
+    min-width: 2px;
+  }
+  .bar-s1 { background: #58a6ff; }
+  .bar-s2 { background: #7ee787; }
+  .bar-s3 { background: #d2a8ff; }
+  .metrics {
+    display: flex;
+    gap: 6px;
+    font-size: 0.75rem;
+  }
+  .metric-pill {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .pill-s1 { background: rgba(88,166,255,0.15); color: #58a6ff; }
+  .pill-s2 { background: rgba(126,231,135,0.15); color: #7ee787; }
+  .pill-s3 { background: rgba(210,168,255,0.15); color: #d2a8ff; }
+  .score {
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-align: right;
+    color: #f0f6fc;
+  }
+  .legend {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    color: #8b949e;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+  .actions {
+    display: flex;
+    gap: 0.8rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  button {
+    background: #21262d;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    padding: 8px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.2s;
+  }
+  button:hover { background: #30363d; }
+  button.primary {
+    background: #238636;
+    border-color: #2ea043;
+  }
+  button.primary:hover { background: #2ea043; }
+  button.danger {
+    background: #da3633;
+    border-color: #f85149;
+  }
+  button.danger:hover { background: #f85149; }
+
+  /* Modal de edição */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 2rem;
+    width: 90%;
+    max-width: 600px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal h2 {
+    font-size: 1.2rem;
+    margin-bottom: 1.2rem;
+    color: #58a6ff;
+  }
+  .edit-row {
+    display: grid;
+    grid-template-columns: 100px repeat(3, 1fr);
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.6rem;
+  }
+  .edit-row label {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+  }
+  .edit-row input {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    width: 100%;
+    text-align: center;
+  }
+  .edit-row input:focus {
+    outline: none;
+    border-color: #58a6ff;
+  }
+  .edit-header {
+    display: grid;
+    grid-template-columns: 100px repeat(3, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    color: #8b949e;
+    text-align: center;
+  }
+  .edit-header span:first-child { text-align: left; }
+  .modal-actions {
+    display: flex;
+    gap: 0.8rem;
+    margin-top: 1.5rem;
+    justify-content: flex-end;
+  }
+  .new-frente-row {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #30363d;
+  }
+  .new-frente-row input {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: #238636;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+
+  /* JSON output */
+  .json-output {
+    display: none;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: #7ee787;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .json-output.active { display: block; }
+
+  @media (max-width: 700px) {
+    .frente-row {
+      grid-template-columns: 80px 1fr 60px;
+    }
+    .metrics { display: none; }
+    .edit-row { grid-template-columns: 80px repeat(3, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<h1>HIERARQ <span class="date-badge" id="date-badge"></span></h1>
+<p class="subtitle">S1 (Frequencia) x S2 (Controlabilidade) x S3 (Alavancagem) = Score</p>
+
+<div class="actions">
+  <button class="primary" onclick="openEditor()">Atualizar valores</button>
+  <button onclick="toggleJson()">Ver JSON</button>
+  <button onclick="reloadData()">Recarregar</button>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div> S1 Frequencia</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#7ee787"></div> S2 Controlabilidade</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#d2a8ff"></div> S3 Alavancagem</div>
+</div>
+
+<div class="card" id="chart"></div>
+<div class="json-output" id="json-output"></div>
+
+<!-- Modal de edição -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>Atualizar HIERARQ</h2>
+    <div class="edit-header">
+      <span>Frente</span><span>S1</span><span>S2</span><span>S3</span>
+    </div>
+    <div id="edit-fields"></div>
+    <div class="new-frente-row">
+      <div class="edit-row">
+        <input type="text" id="new-name" placeholder="Nova frente">
+        <input type="number" id="new-s1" min="1" max="5" placeholder="S1">
+        <input type="number" id="new-s2" min="1" max="5" placeholder="S2">
+        <input type="number" id="new-s3" min="1" max="5" placeholder="S3">
+      </div>
+      <button style="margin-top:0.5rem;font-size:0.8rem" onclick="addFrente()">+ Adicionar frente</button>
+    </div>
+    <div class="modal-actions">
+      <button onclick="closeEditor()">Cancelar</button>
+      <button onclick="removeSelected()" class="danger" id="btn-remove" style="display:none">Remover selecionadas</button>
+      <button onclick="saveChanges()" class="primary">Salvar e copiar JSON</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let data = null;
+const MAX_SCORE = 125;
+
+async function loadData() {
+  try {
+    const res = await fetch('hierarq-data.json?t=' + Date.now());
+    data = await res.json();
+    render();
+  } catch (e) {
+    document.getElementById('chart').innerHTML = '<p style="color:#f85149">Erro ao carregar hierarq-data.json</p>';
+  }
+}
+
+function render() {
+  const chart = document.getElementById('chart');
+  document.getElementById('date-badge').textContent = data.meta.date;
+
+  const sorted = [...data.frentes].sort((a, b) => b.score - a.score);
+
+  chart.innerHTML = sorted.map(f => {
+    const pct = (v) => (v / 5 * 100).toFixed(0);
+    const barW = (f.score / MAX_SCORE * 100).toFixed(1);
+    return `
+      <div class="frente-row">
+        <div class="frente-name">${f.nome}</div>
+        <div class="bar-container">
+          <div class="bar bar-s1" style="width:${pct(f.S1)}%"></div>
+          <div class="bar bar-s2" style="width:${pct(f.S2)}%"></div>
+          <div class="bar bar-s3" style="width:${pct(f.S3)}%"></div>
+        </div>
+        <div class="metrics">
+          <span class="metric-pill pill-s1">S1:${f.S1}</span>
+          <span class="metric-pill pill-s2">S2:${f.S2}</span>
+          <span class="metric-pill pill-s3">S3:${f.S3}</span>
+        </div>
+        <div class="score">${f.score}</div>
+      </div>`;
+  }).join('');
+}
+
+function openEditor() {
+  const fields = document.getElementById('edit-fields');
+  fields.innerHTML = data.frentes.map((f, i) => `
+    <div class="edit-row">
+      <label><input type="checkbox" data-idx="${i}" style="margin-right:4px">${f.nome}</label>
+      <input type="number" min="1" max="5" value="${f.S1}" data-field="S1" data-idx="${i}">
+      <input type="number" min="1" max="5" value="${f.S2}" data-field="S2" data-idx="${i}">
+      <input type="number" min="1" max="5" value="${f.S3}" data-field="S3" data-idx="${i}">
+    </div>
+  `).join('');
+
+  document.querySelectorAll('#edit-fields input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const any = document.querySelector('#edit-fields input[type=checkbox]:checked');
+      document.getElementById('btn-remove').style.display = any ? 'inline-block' : 'none';
+    });
+  });
+
+  document.getElementById('modal').classList.add('active');
+}
+
+function closeEditor() {
+  document.getElementById('modal').classList.remove('active');
+  document.getElementById('btn-remove').style.display = 'none';
+}
+
+function addFrente() {
+  const name = document.getElementById('new-name').value.trim();
+  const s1 = parseInt(document.getElementById('new-s1').value);
+  const s2 = parseInt(document.getElementById('new-s2').value);
+  const s3 = parseInt(document.getElementById('new-s3').value);
+  if (!name || isNaN(s1) || isNaN(s2) || isNaN(s3)) {
+    toast('Preencha todos os campos', '#da3633');
+    return;
+  }
+  data.frentes.push({ nome: name, S1: clamp(s1), S2: clamp(s2), S3: clamp(s3), score: clamp(s1)*clamp(s2)*clamp(s3) });
+  document.getElementById('new-name').value = '';
+  document.getElementById('new-s1').value = '';
+  document.getElementById('new-s2').value = '';
+  document.getElementById('new-s3').value = '';
+  openEditor();
+  toast('Frente adicionada');
+}
+
+function removeSelected() {
+  const checks = document.querySelectorAll('#edit-fields input[type=checkbox]:checked');
+  const idxs = [...checks].map(c => parseInt(c.dataset.idx)).sort((a,b) => b-a);
+  idxs.forEach(i => data.frentes.splice(i, 1));
+  openEditor();
+  toast(idxs.length + ' frente(s) removida(s)');
+}
+
+function clamp(v) { return Math.max(1, Math.min(5, v)); }
+
+function saveChanges() {
+  document.querySelectorAll('#edit-fields input[type=number]').forEach(inp => {
+    const idx = parseInt(inp.dataset.idx);
+    const field = inp.dataset.field;
+    data.frentes[idx][field] = clamp(parseInt(inp.value) || 1);
+  });
+
+  const today = new Date().toISOString().split('T')[0];
+  data.meta.date = today;
+  data.frentes.forEach(f => { f.score = f.S1 * f.S2 * f.S3; });
+  data.frentes.sort((a, b) => b.score - a.score);
+
+  const json = JSON.stringify(data, null, 2);
+
+  navigator.clipboard.writeText(json).then(() => {
+    toast('JSON copiado para o clipboard!');
+  }).catch(() => {
+    toast('Salvo! Copie o JSON abaixo.', '#d29922');
+    document.getElementById('json-output').textContent = json;
+    document.getElementById('json-output').classList.add('active');
+  });
+
+  closeEditor();
+  render();
+}
+
+function toggleJson() {
+  const el = document.getElementById('json-output');
+  if (el.classList.contains('active')) {
+    el.classList.remove('active');
+  } else {
+    el.textContent = JSON.stringify(data, null, 2);
+    el.classList.add('active');
+  }
+}
+
+function reloadData() {
+  loadData();
+  toast('Dados recarregados');
+}
+
+function toast(msg, color) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.background = color || '#238636';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+loadData();
+</script>
+</body>
+</html>
