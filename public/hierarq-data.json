@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "date": "2026-03-25",
+    "method": "S1 × S2 × S3",
+    "scales": {
+      "S1_frequencia": "1-5 | Frequência nos últimos 7 dias (1 = não tocada, 5 = tocada todo dia)",
+      "S2_controlabilidade": "1-5 | Autonomia de execução (1 = bloqueado/delegado, 5 = 100% nas suas mãos)",
+      "S3_alavancagem": "1-5 | Multiplicador da hora investida (1 = retorno linear/nulo, 5 = multiplicador sistêmico)"
+    }
+  },
+  "frentes": [
+    { "nome": "artefatos",  "S1": 5, "S2": 5, "S3": 5, "score": 125 },
+    { "nome": "conteudo",   "S1": 5, "S2": 5, "S3": 4, "score": 100 },
+    { "nome": "meta",       "S1": 4, "S2": 4, "S3": 4, "score": 64 },
+    { "nome": "tnf",        "S1": 3, "S2": 5, "S3": 4, "score": 60 },
+    { "nome": "idforge",    "S1": 3, "S2": 4, "S3": 5, "score": 60 },
+    { "nome": "phd",        "S1": 2, "S2": 5, "S3": 2, "score": 20 },
+    { "nome": "livros",     "S1": 1, "S2": 5, "S3": 3, "score": 15 },
+    { "nome": "ordena",     "S1": 2, "S2": 1, "S3": 2, "score": 4 },
+    { "nome": "mentes",     "S1": 1, "S2": 1, "S3": 1, "score": 1 }
+  ]
+}
