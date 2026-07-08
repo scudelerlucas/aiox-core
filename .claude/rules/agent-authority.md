@@ -1,3 +1,13 @@
+---
+paths:
+  - "docs/stories/**"
+  - ".aiox-core/**"
+  - "packages/**"
+  - "bin/**"
+  - "tests/**"
+  - "squads/**"
+---
+
 # Agent Authority — Detailed Rules
 
 ## Delegation Matrix
