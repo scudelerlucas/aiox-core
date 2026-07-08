@@ -1,3 +1,9 @@
+---
+paths:
+  - ".aiox-core/development/agents/**"
+  - "docs/stories/**"
+---
+
 # Agent Handoff Protocol — Context Compaction
 
 ## Purpose

@@ -1,3 +1,10 @@
+---
+paths:
+  - ".aiox-core/**"
+  - "packages/**"
+  - "bin/**"
+---
+
 # Tool Input Examples — Selection Guidance
 
 ## Purpose
