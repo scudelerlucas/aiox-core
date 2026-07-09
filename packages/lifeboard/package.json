@@ -1,0 +1,20 @@
+{
+  "name": "@aiox/lifeboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OS-LIFEBOARD — painel único multi-fonte (ALMA PETRA). Rodada atual: E1→E5 com fixtures; migration/credenciais reais PAUSADAS.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
