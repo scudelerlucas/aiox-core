@@ -1,13 +1,16 @@
 -- =============================================================================
 -- OS-LIFEBOARD · Migration 0001_init · Épico E1 (Fundação de dados)
 -- =============================================================================
--- ATENÇÃO: migration escrita mas NÃO aplicada no Supabase real nesta rodada.
--- Aplicar apenas após revisão manual com --confirm-destructive se necessário.
--- (Kill-switch nº 1 do PRD: migração destrutiva → exige --confirm-destructive.)
+-- APLICADA no Supabase real (hciiilopyivjaekaxfqp) em 2026-07-09, com aprovação
+-- explícita de Lucas. Migration só-aditiva (nenhum DROP destrutivo), portanto
+-- o kill-switch nº 1 (--confirm-destructive) não se aplicou.
+-- Ver 0002_harden_function_search_path.sql para o hardening pós-apply.
 -- -----------------------------------------------------------------------------
 -- Autor: Dara (@data-engineer) · Comando: *create-schema · Data: 2026-07-09
 -- Fonte da verdade: packages/lifeboard/PRD.md §7 + architecture.md §5/§9
--- Projeto alvo (quando aplicado): Supabase hciiilopyivjaekaxfqp (São Paulo)
+-- Projeto alvo: Supabase hciiilopyivjaekaxfqp (nome real "quiz-diagnosys",
+-- região us-east-1 — o PRD dizia "São Paulo", correção de doc, não de infra;
+-- é o mesmo projeto compartilhado por vários outros produtos de Lucas).
 -- -----------------------------------------------------------------------------
 -- Conteúdo:
 --   4 tabelas canônicas: sources, projects, tasks, sync_log
@@ -286,5 +289,5 @@ drop policy if exists sync_log_delete on public.sync_log;
 create policy sync_log_delete on public.sync_log for delete using (owner = auth.uid());
 
 -- =============================================================================
--- FIM 0001_init — lembrete: NÃO aplicada no Supabase real nesta rodada.
+-- FIM 0001_init — aplicada no Supabase real em 2026-07-09.
 -- =============================================================================
