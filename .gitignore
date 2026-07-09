@@ -155,6 +155,12 @@ examples/
 !docs/examples/
 supabase/
 
+# OS-LIFEBOARD migrations are versioned artifacts — override the broad supabase/ ignore
+# (scoped to the migrations subtree; local Supabase CLI runtime state stays ignored)
+!packages/lifeboard/supabase/
+!packages/lifeboard/supabase/migrations/
+!packages/lifeboard/supabase/migrations/**
+
 # Output directories (generated artifacts)
 outputs/
 
