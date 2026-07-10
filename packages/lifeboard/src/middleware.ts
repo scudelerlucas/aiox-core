@@ -1,54 +1,78 @@
 /**
- * OS-LIFEBOARD — Portão de acesso (HTTP Basic Auth) para o dashboard publicado.
+ * OS-LIFEBOARD — Portão de acesso por LOGIN GOOGLE (Supabase Auth) + allowlist.
  *
- * O dashboard é single-user (dados pessoais de Lucas). Publicado na Vercel, a URL
- * é pública; este middleware exige a senha `LIFEBOARD_ACCESS_SECRET` antes de
- * servir qualquer página/rota — EXCETO `/api/health`, que precisa responder sem
- * auth para o uptime-check e o rollback automático (kill-switch nº 6 do PRD).
+ * Substitui o Basic Auth: só quem loga com uma conta Google cujo email está na
+ * allowlist (`LIFEBOARD_ALLOWED_EMAILS`, default = os 2 emails de Lucas) acessa o
+ * dashboard. A RLS do Supabase (owner = auth.uid()) é a segunda camada — mesmo se
+ * outro email entrasse, só veria os próprios dados (vazios), nunca os de Lucas.
  *
- * Se `LIFEBOARD_ACCESS_SECRET` não estiver setado (dev local em modo fixture), o
- * gate fica DESATIVADO — não atrapalha o desenvolvimento. Em produção (Vercel),
- * a env é obrigatória para o dashboard não ficar aberto.
+ * Público (sem login): `/login`, `/auth/*` (callback/signout) e `/api/health`
+ * (sonda de uptime + rollback, kill-switch nº 6).
  *
- * Basic Auth: usuário é ignorado (single-user), valida só a senha. Comparação
- * simples de string — o segredo é forte e aleatório (24 chars).
+ * Se `NEXT_PUBLIC_SUPABASE_URL` não estiver setado (dev fixture), o gate fica
+ * DESATIVADO — não atrapalha o desenvolvimento local.
  */
 
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const REALM = 'Basic realm="OS-LIFEBOARD", charset="UTF-8"';
+type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-function unauthorized(): NextResponse {
-  return new NextResponse("Acesso restrito — OS-LIFEBOARD.", {
-    status: 401,
-    headers: { "WWW-Authenticate": REALM },
+const ALLOWED = (
+  process.env.LIFEBOARD_ALLOWED_EMAILS ??
+  "lucas.scudeler@pandoratreinamentos.com.br,lucasscudeler@gmail.com"
+)
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
+
+function isPublicPath(path: string): boolean {
+  return (
+    path === "/login" ||
+    path.startsWith("/auth/") ||
+    path.startsWith("/api/health")
+  );
+}
+
+export async function middleware(request: NextRequest): Promise<NextResponse> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+  const path = request.nextUrl.pathname;
+
+  // Gate desativado em dev/fixture (sem Supabase configurado).
+  if (url === "" || anon === "") return NextResponse.next();
+  if (isPublicPath(path)) return NextResponse.next();
+
+  let response = NextResponse.next({ request });
+  const supabase = createServerClient(url, anon, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet: CookieToSet[]) {
+        for (const { name, value, options } of cookiesToSet) {
+          response.cookies.set(name, value, options);
+        }
+      },
+    },
   });
-}
 
-export function middleware(request: NextRequest): NextResponse {
-  const secret = process.env.LIFEBOARD_ACCESS_SECRET ?? "";
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // Gate desativado em dev/fixture quando não há senha configurada.
-  if (secret === "") {
-    return NextResponse.next();
+  const email = (user?.email ?? "").toLowerCase();
+  if (!user || !ALLOWED.includes(email)) {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.search = user ? "?error=forbidden" : "";
+    return NextResponse.redirect(redirectUrl);
   }
 
-  const header = request.headers.get("authorization") ?? "";
-  if (header.startsWith("Basic ")) {
-    const decoded = atob(header.slice("Basic ".length));
-    const password = decoded.slice(decoded.indexOf(":") + 1);
-    if (password === secret) {
-      return NextResponse.next();
-    }
-  }
-  return unauthorized();
+  return response;
 }
 
-/**
- * Matcher: intercepta tudo EXCETO `/api/health` (health-check sem auth) e os
- * assets internos do Next (_next, favicon). A negative lookahead cobre ambos.
- */
 export const config = {
-  matcher: ["/((?!api/health|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };

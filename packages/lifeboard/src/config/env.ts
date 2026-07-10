@@ -2,17 +2,17 @@
  * OS-LIFEBOARD — Acesso validado a variáveis de ambiente.
  *
  * Coding standard (architecture.md §11): segredo/config só via `@/config/env`,
- * NUNCA `process.env` cru espalhado pelo código. `.env.example` sem valores reais
- * (camada G do CHC).
+ * NUNCA `process.env` cru espalhado pelo código.
  *
- * `LIFEBOARD_DATA_MODE` é o flip que troca fixture (default, dev/test) por live
- * (produção, lê o Supabase real via RPC `lifeboard_load`). Ver `factory.ts`.
+ * `LIFEBOARD_DATA_MODE` troca fixture (dev/test) por live (produção, Supabase real).
  *
- * As variáveis Supabase (URL, ANON_KEY, LOAD_SECRET) são server-only — NUNCA
- * prefixadas com `NEXT_PUBLIC_`, então nunca entram no bundle client (camada G).
- * O ACCESS_SECRET protege o dashboard publicado (Basic Auth no middleware).
+ * A URL do Supabase e a chave anon/publishable são lidas de `NEXT_PUBLIC_*`
+ * (necessárias no browser para o login Google) com fallback para as versões
+ * server-only. A chave anon/publishable é PÚBLICA por design (Supabase) — pode ir
+ * ao client. Já `LIFEBOARD_LOAD_SECRET` (destrava a RPC de leitura) é server-only.
  *
- * Extensão ADITIVA: novos campos são adicionados sem remover os existentes.
+ * Proteção do dashboard: login Google (Supabase Auth) + allowlist de emails
+ * (`LIFEBOARD_ALLOWED_EMAILS`). Só emails da lista entram (middleware).
  */
 
 import type { DataMode } from "@/adapters/types";
@@ -21,52 +21,63 @@ function readDataMode(): DataMode {
   return process.env.LIFEBOARD_DATA_MODE === "live" ? "live" : "fixture";
 }
 
-/** Lança erro claro quando uma var obrigatória do modo live está ausente. */
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === "") {
+function firstNonEmpty(...vals: (string | undefined)[]): string {
+  for (const v of vals) if (v !== undefined && v !== "") return v;
+  return "";
+}
+
+function requireLive(name: string, value: string): string {
+  if (readDataMode() === "live" && value === "") {
     throw new Error(
-      `[lifeboard/env] Variável ${name} é obrigatória em LIFEBOARD_DATA_MODE=live ` +
-        `mas está ausente. Configure-a (Vercel env / .env) antes de subir em modo live.`,
+      `[lifeboard/env] ${name} é obrigatória em LIFEBOARD_DATA_MODE=live mas está ` +
+        `ausente. Configure-a (Vercel env / .env) antes de subir em modo live.`,
     );
   }
   return value;
 }
 
+/** Allowlist default: os dois emails de Lucas (pandora + gmail). */
+const DEFAULT_ALLOWED_EMAILS =
+  "lucas.scudeler@pandoratreinamentos.com.br,lucasscudeler@gmail.com";
+
 export interface LifeboardEnv {
-  /** 'fixture' (default, dev/test) | 'live' (produção, Supabase real). */
   readonly LIFEBOARD_DATA_MODE: DataMode;
-  /** URL do projeto Supabase (ex: https://xxxx.supabase.co). Obrigatória em live. */
   readonly SUPABASE_URL: string;
-  /** Chave anon/publishable (server-only aqui). Obrigatória em live. */
   readonly SUPABASE_ANON_KEY: string;
-  /** Segredo que destrava a RPC `lifeboard_load`. Server-only. Obrigatória em live. */
   readonly LIFEBOARD_LOAD_SECRET: string;
-  /** Senha do Basic Auth do dashboard publicado. '' = gate desativado (dev). */
-  readonly LIFEBOARD_ACCESS_SECRET: string;
+  /** Emails autorizados a logar (lowercase, sem espaços). */
+  readonly ALLOWED_EMAILS: string[];
 }
 
-/** Config validada. Reavaliada por getter para respeitar overrides em teste. */
 export const env: LifeboardEnv = {
   get LIFEBOARD_DATA_MODE(): DataMode {
     return readDataMode();
   },
   get SUPABASE_URL(): string {
-    return readDataMode() === "live"
-      ? requireEnv("SUPABASE_URL")
-      : (process.env.SUPABASE_URL ?? "");
+    return requireLive(
+      "NEXT_PUBLIC_SUPABASE_URL",
+      firstNonEmpty(process.env.SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_URL),
+    );
   },
   get SUPABASE_ANON_KEY(): string {
-    return readDataMode() === "live"
-      ? requireEnv("SUPABASE_ANON_KEY")
-      : (process.env.SUPABASE_ANON_KEY ?? "");
+    return requireLive(
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      firstNonEmpty(
+        process.env.SUPABASE_ANON_KEY,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      ),
+    );
   },
   get LIFEBOARD_LOAD_SECRET(): string {
-    return readDataMode() === "live"
-      ? requireEnv("LIFEBOARD_LOAD_SECRET")
-      : (process.env.LIFEBOARD_LOAD_SECRET ?? "");
+    return requireLive(
+      "LIFEBOARD_LOAD_SECRET",
+      process.env.LIFEBOARD_LOAD_SECRET ?? "",
+    );
   },
-  get LIFEBOARD_ACCESS_SECRET(): string {
-    return process.env.LIFEBOARD_ACCESS_SECRET ?? "";
+  get ALLOWED_EMAILS(): string[] {
+    return firstNonEmpty(process.env.LIFEBOARD_ALLOWED_EMAILS, DEFAULT_ALLOWED_EMAILS)
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
   },
 };

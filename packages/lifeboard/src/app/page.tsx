@@ -41,11 +41,31 @@ export default async function Page(): Promise<JSX.Element> {
   const sourceStatuses = computeSourceStatuses(sources, syncLogs, tasks);
 
   return (
-    <DashboardClient
-      tasks={tasks}
-      sources={sources}
-      sourceStatuses={sourceStatuses}
-      initialToday={initialToday}
-    />
+    <>
+      <a
+        href="/auth/signout"
+        style={{
+          position: "fixed",
+          top: 12,
+          right: 14,
+          zIndex: 50,
+          fontSize: 12,
+          color: "#8593A8",
+          textDecoration: "none",
+          background: "#0F1E33",
+          border: "1px solid #1E3350",
+          borderRadius: 8,
+          padding: "6px 11px",
+        }}
+      >
+        Sair
+      </a>
+      <DashboardClient
+        tasks={tasks}
+        sources={sources}
+        sourceStatuses={sourceStatuses}
+        initialToday={initialToday}
+      />
+    </>
   );
 }
