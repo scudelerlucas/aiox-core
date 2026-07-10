@@ -160,6 +160,12 @@ supabase/
 !packages/lifeboard/supabase/
 !packages/lifeboard/supabase/migrations/
 !packages/lifeboard/supabase/migrations/**
+!packages/lifeboard/supabase/functions/
+!packages/lifeboard/supabase/functions/**
+# App source dir literally named "supabase" (client/auth) — also caught by the
+# broad supabase/ ignore above; it is versioned application code, not CLI state.
+!packages/lifeboard/src/lib/supabase/
+!packages/lifeboard/src/lib/supabase/**
 
 # Output directories (generated artifacts)
 outputs/
