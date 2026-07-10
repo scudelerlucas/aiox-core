@@ -21,13 +21,9 @@
  */
 
 import {
-  FixtureSourcesRepository,
-  type SourcesRepository,
-} from "@/lib/repositories/sources.fixture";
-import {
-  FixtureTasksRepository,
-  type TasksRepository,
-} from "@/lib/repositories/tasks.fixture";
+  getSourcesRepository,
+  getTasksRepository,
+} from "@/lib/repositories/factory";
 import { computeSourceStatuses } from "@/lib/source-status";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -37,13 +33,12 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-// Fixtures nesta rodada; troca mecânica pelos repos Supabase reais (arch §5.2).
-const sourcesRepo: SourcesRepository = new FixtureSourcesRepository();
-const tasksRepo: TasksRepository = new FixtureTasksRepository();
-
 export async function GET(): Promise<Response> {
   const checkedAt = new Date().toISOString();
   try {
+    // Origem (fixture | Supabase live) decidida pelo factory via LIFEBOARD_DATA_MODE.
+    const sourcesRepo = getSourcesRepository();
+    const tasksRepo = getTasksRepository();
     const [sources, syncLogs, tasks] = await Promise.all([
       sourcesRepo.listAll(),
       sourcesRepo.listSyncLogs(),

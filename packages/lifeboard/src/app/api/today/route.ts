@@ -18,10 +18,7 @@
  */
 
 import { buildTodayList } from "@/core/prioritize/server-only";
-import {
-  FixtureTasksRepository,
-  type TasksRepository,
-} from "@/lib/repositories/tasks.fixture";
+import { getTasksRepository } from "@/lib/repositories/factory";
 
 interface ApiError {
   error: {
@@ -45,12 +42,10 @@ function errorResponse(code: string, message: string, status: number): Response 
   return jsonResponse(payload, status);
 }
 
-// Fixture nesta rodada; troca mecânica pelo repo Supabase real (arch §5.2).
-const repository: TasksRepository = new FixtureTasksRepository();
-
 export async function GET(): Promise<Response> {
   try {
-    const tasks = await repository.listAll();
+    // Origem (fixture | Supabase live) decidida pelo factory via LIFEBOARD_DATA_MODE.
+    const tasks = await getTasksRepository().listAll();
     const { items, excludedCycles } = buildTodayList(tasks);
 
     if (excludedCycles.length > 0) {

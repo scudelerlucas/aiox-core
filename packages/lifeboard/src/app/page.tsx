@@ -1,13 +1,9 @@
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { buildTodayList } from "@/core/prioritize/server-only";
 import {
-  FixtureSourcesRepository,
-  type SourcesRepository,
-} from "@/lib/repositories/sources.fixture";
-import {
-  FixtureTasksRepository,
-  type TasksRepository,
-} from "@/lib/repositories/tasks.fixture";
+  getSourcesRepository,
+  getTasksRepository,
+} from "@/lib/repositories/factory";
 import { computeSourceStatuses } from "@/lib/source-status";
 import type { TodayResponse } from "@/types/dashboard";
 
@@ -24,13 +20,13 @@ import type { TodayResponse } from "@/types/dashboard";
  * Fixtures nesta rodada; troca fixture→Supabase é mecânica (arch §5.2).
  */
 
-// Fixture in-memory → render estável; sem prerender estático agressivo.
+// Lê o estado do dia por request (fixture ou Supabase live); sem prerender estático.
 export const dynamic = "force-dynamic";
 
-const tasksRepo: TasksRepository = new FixtureTasksRepository();
-const sourcesRepo: SourcesRepository = new FixtureSourcesRepository();
-
 export default async function Page(): Promise<JSX.Element> {
+  // Origem (fixture | Supabase live) decidida pelo factory via LIFEBOARD_DATA_MODE.
+  const tasksRepo = getTasksRepository();
+  const sourcesRepo = getSourcesRepository();
   const [tasks, sources, syncLogs] = await Promise.all([
     tasksRepo.listAll(),
     sourcesRepo.listAll(),
