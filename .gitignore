@@ -167,6 +167,11 @@ supabase/
 !packages/lifeboard/src/lib/supabase/
 !packages/lifeboard/src/lib/supabase/**
 
+# idea-inbox migration (memoria permanente do idea-inbox) — same carve-out pattern
+!packages/idea-inbox/supabase/
+!packages/idea-inbox/supabase/migrations/
+!packages/idea-inbox/supabase/migrations/**
+
 # Output directories (generated artifacts)
 outputs/
 

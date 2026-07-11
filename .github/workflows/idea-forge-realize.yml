@@ -1,0 +1,63 @@
+name: IdeaForge Realize
+# Fecha o laco disparado por packages/idea-inbox (repository_dispatch) ou manual.
+# Roda o pipeline idea-forge (run) e o executor (realize) fora do request
+# serverless — o endpoint publico so despacha o evento, nunca espera por isto.
+
+on:
+  repository_dispatch:
+    types: [idea-forge-realize]
+  workflow_dispatch:
+    inputs:
+      text:
+        description: 'Texto da ideia a processar'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  realize:
+    name: Run + Realize
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run idea-forge pipeline
+        run: |
+          TEXT="${{ github.event.client_payload.idea || inputs.text }}"
+          if [ -z "$TEXT" ]; then
+            echo "erro: nenhum texto de ideia recebido (client_payload.idea / inputs.text)" >&2
+            exit 1
+          fi
+          node packages/idea-forge/bin/idea-forge.mjs run --text "$TEXT" --dir "$RUNNER_TEMP/if"
+
+      - name: Realize (dispatch -> build do projeto-filho)
+        run: |
+          RUN_ID=$(ls -t "$RUNNER_TEMP/if/runs"/*.json | head -n1 | xargs -n1 basename | sed 's/\.json$//')
+          if [ -z "$RUN_ID" ]; then
+            echo "erro: nenhum run encontrado em $RUNNER_TEMP/if/runs" >&2
+            exit 1
+          fi
+          echo "runId=$RUN_ID"
+          node packages/idea-forge/bin/idea-forge.mjs realize "$RUN_ID" --dir "$RUNNER_TEMP/if" --target "$RUNNER_TEMP/child"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: idea-forge-runs
+          path: ${{ runner.temp }}/if/runs
+          if-no-files-found: warn
+          retention-days: 14

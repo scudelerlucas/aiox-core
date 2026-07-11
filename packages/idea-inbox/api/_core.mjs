@@ -11,6 +11,10 @@
 import { resolve } from "../src/normalize.mjs";
 import { verifySignature } from "../src/verify.mjs";
 import { runSync } from "../src/pipeline-sync.mjs";
+import { transcribe } from "../src/transcribe.mjs";
+import { persistIdea } from "../src/store-remote.mjs";
+import { fireRealize } from "../src/dispatch-ci.mjs";
+import { newRunId } from "../src/inbox.mjs";
 
 const MAX_BODY = 256 * 1024; // 256KB — teto anti-DoS
 const RATE_LIMIT = Number(process.env.IDEAINBOX_RATE_LIMIT || 30); // req/janela/IP
@@ -131,14 +135,60 @@ export function makeHandler(channel) {
 
       // 3) normaliza
       const norm = resolve(channel)(payload);
-      const text = (norm.text || "").trim();
-      if (!text && !norm.audioRef) return send(res, 422, { accepted: false, reason: "sem texto nem audio" });
+      const rawText = (norm.text || "").trim();
+
+      // 3b) voz -> texto (best-effort, nunca lanca). Passthrough sem rede se ja
+      //     houver texto; so busca/transcreve audio quando necessario (F3/F7).
+      const tr = await transcribe({ source: norm.source || channel, audioRef: norm.audioRef, text: rawText });
+      const finalText = rawText || tr.text;
+
+      if (!finalText && !norm.audioRef) return send(res, 422, { accepted: false, reason: "sem texto nem audio" });
+      if (!finalText && norm.audioRef) {
+        // audio recebido mas STT indisponivel/nao configurado: nao roda o
+        // pipeline em texto vazio, mas confirma recebimento (nunca perde a ideia).
+        return send(res, 202, {
+          accepted: true,
+          runId: newRunId(),
+          channel,
+          source: norm.source || channel,
+          audio: norm.audioRef,
+          transcription: tr.via,
+          note: "audio recebido; transcricao indisponivel",
+        });
+      }
 
       // 4) roda o pipeline BOUNDED (ingest..dispatch) — captura + validacao rapida.
       //    A simulacao E2E pesada (99.9%) + RETROFORJA rodam no laco assincrono
       //    (idea-forge realize / CI), nao no endpoint publico. (F3/F7)
-      const result = await runSync({ source: norm.source || channel, text, audioRef: norm.audioRef });
-      return send(res, 202, { accepted: true, ...result });
+      const result = await runSync({ source: norm.source || channel, text: finalText, audioRef: norm.audioRef });
+
+      // 5) efeitos colaterais best-effort (memoria permanente + fecha o laco na
+      //    CI) — nunca bloqueiam nem quebram a resposta 202 (Promise.allSettled).
+      const [memSettled, ciSettled] = await Promise.allSettled([
+        persistIdea({
+          run_id: result.runId,
+          source: norm.source || channel,
+          channel,
+          text: finalText.slice(0, 4000),
+          score: result.score,
+          project: result.project,
+          branch: result.branch,
+          blocked: result.blocked,
+          created_at: new Date().toISOString(),
+        }),
+        fireRealize({ runId: result.runId, idea: finalText, score: result.score }),
+      ]);
+      const memResult = memSettled.status === "fulfilled" ? memSettled.value : undefined;
+      const ciResult = ciSettled.status === "fulfilled" ? ciSettled.value : undefined;
+
+      return send(res, 202, {
+        accepted: true,
+        ...result,
+        transcription: tr.via,
+        stored: memResult?.ok ?? false,
+        memory: memResult?.via,
+        ci: ciResult?.via,
+      });
     } catch (err) {
       // Nunca vaza a mensagem interna (F5); loga server-side com um id de correlacao.
       const errorId = Math.random().toString(36).slice(2, 10);
