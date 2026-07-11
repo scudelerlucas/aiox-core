@@ -13,12 +13,20 @@
   "files": [
     "bin/",
     "src/",
+    "api/",
+    "vercel.json",
     "README.md"
   ],
+  "dependencies": {
+    "@aiox/idea-forge": "file:../idea-forge"
+  },
   "scripts": {
     "start": "node bin/idea-inbox.mjs",
     "test": "node --test test/*.test.mjs",
-    "typecheck": "node --check bin/idea-inbox.mjs"
+    "typecheck": "node --check bin/idea-inbox.mjs",
+    "preflight": "node scripts/preflight.mjs",
+    "deploy:preview": "vercel deploy",
+    "deploy": "vercel deploy --prod"
   },
   "engines": {
     "node": ">=20"

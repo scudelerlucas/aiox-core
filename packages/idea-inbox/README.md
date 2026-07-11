@@ -4,6 +4,32 @@ Capture front-door do **IdeaForge**: um servidor webhook zero-dependencia que re
 
 CLI First: o inbox e um processo de servidor, mas toda a inteligencia (normalizacao, verificacao, despacho) roda em Node puro, sem framework HTTP e sem dependencias npm.
 
+Dois modos de execucao:
+- **Servidor standalone** (`bin/idea-inbox.mjs`, `node:http`): fire-and-forget — responde 202 e roda o pipeline em segundo plano, persistindo os artefatos em disco. Ideal para VPS/container.
+- **Serverless (Vercel)** (`api/*.mjs`): sem processo de fundo — roda o pipeline **sincrono** (offline, ~100ms) e devolve o resumo (score/percentil/RETROFORJA) inline. FS efemero (`/tmp`).
+
+## Deploy (Vercel)
+
+```bash
+npm run preflight        # valida prontidao (arquivos, sintaxe, dep, secrets, token)
+npm run deploy:preview   # vercel deploy (preview)
+npm run deploy           # vercel deploy --prod
+```
+
+Configuracao do projeto Vercel: **Root Directory = `packages/idea-inbox`** (monorepo npm workspaces resolve `@aiox/idea-forge`). `vercel.json` mapeia `/health`, `/ingest`, `/webhook/telegram`, `/webhook/whatsapp` para as funcoes em `api/`.
+
+Variaveis de ambiente (Vercel → Settings → Environment Variables):
+
+| Var | Efeito | Recomendacao producao |
+|-----|--------|------------------------|
+| `TELEGRAM_WEBHOOK_SECRET` | verifica header `x-telegram-bot-api-secret-token` | **defina** (senao aceita sem verificar) |
+| `WHATSAPP_APP_SECRET` | verifica HMAC `x-hub-signature-256` | **defina** (senao aceita sem verificar) |
+| `IDEAFORGE_DIR` | dir do store (efemero na Vercel) | `/tmp/idea-inbox` |
+| `ANTHROPIC_API_KEY` | liga enriquecimento por LLM | opcional |
+
+> ⚠️ **HMAC do WhatsApp na Vercel:** a verificacao HMAC precisa do corpo **cru**. Se a plataforma pre-parsear o JSON, configure a funcao para nao fazer body-parse (o handler ja tenta reconstruir, mas o ideal e o raw). Em duvida, prefira o modo standalone para WhatsApp com HMAC.
+> ⚠️ **Modo dev sem secrets:** se os secrets nao estiverem definidos, os webhooks aceitam **sem verificar assinatura** (fallback documentado). Nunca exponha em producao sem os secrets.
+
 ## Endpoints
 
 | Metodo | Rota                | Descricao                                                        | Resposta                              |
