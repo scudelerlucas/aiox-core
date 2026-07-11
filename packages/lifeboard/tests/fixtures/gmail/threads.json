@@ -1,0 +1,20 @@
+[
+  {
+    "threadId": "thr-almapetra-001",
+    "subject": "Contrato ALMA PETRA — revisão final",
+    "labels": ["Projeto/AlmaPetra", "Importante"],
+    "snippet": "Segue o contrato para revisão final antes da assinatura."
+  },
+  {
+    "threadId": "thr-newsletter-001",
+    "subject": "Newsletter semanal de novidades",
+    "labels": ["Promoções"],
+    "snippet": "Confira as novidades desta semana."
+  },
+  {
+    "threadId": "thr-lifeboard-001",
+    "subject": "Kickoff Lifeboard — escopo do MVP",
+    "labels": ["Projeto/Lifeboard"],
+    "snippet": "Vamos alinhar o escopo do MVP e as 3 fontes Google."
+  }
+]
