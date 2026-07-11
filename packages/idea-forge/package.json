@@ -1,0 +1,40 @@
+{
+  "name": "@aiox/idea-forge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema Agentico de Ideias — audio/idea -> atomizacao -> TGM+OP3LIF+AF -> arquitetura AIOX PRO -> dispatch Claude Code -> simulacao E2E (p99.9) -> RETROFORJA-P -> relatorio -> canonizacao. Zero-dependencia, CLI First, offline por fallback deterministico.",
+  "bin": {
+    "idea-forge": "./bin/idea-forge.mjs",
+    "iforge": "./bin/idea-forge.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node bin/idea-forge.mjs",
+    "test": "node --test test/*.test.mjs",
+    "e2e": "node bin/idea-forge.mjs run --demo",
+    "typecheck": "node --check bin/idea-forge.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "aiox",
+    "agentic",
+    "idea-to-deploy",
+    "tgm",
+    "op3lif",
+    "antifragility",
+    "retroforja",
+    "cli-first"
+  ],
+  "license": "MIT"
+}
