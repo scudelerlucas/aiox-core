@@ -1,8 +1,4 @@
----
-paths: **/*
----
-
-# Roteamento Automático de Modelo (ATOM-01 · executável)
+# Roteamento Automático de Modelo (ATOM-01 · executável · sempre-on)
 
 Aplicar **sem pedir permissão**, em toda tarefa. Objetivo: valor/token máximo. Este é o comportamento padrão, não uma opção.
 
