@@ -149,6 +149,18 @@ test("retroforja falls back to synthetic DB @95% and produces cycles", () => {
   assert.ok(rf.backwardScore >= 0 && rf.backwardScore <= 100);
 });
 
+test("retroforja does not penalize beating a lower-is-better target", () => {
+  const bp = { name: "P", slug: "p", prd: "", architecture: "", stories: [], qualityGates: [], risks: [], flows: ["f1"] };
+  const sim = { iterations: 1, percentile: 100, reachedTarget: true, history: [], fixedBreaks: [] };
+  const s = { failureModes: [], tgm: {}, op3lif: {}, antifragility: {}, confidence: 90 };
+  // dados reais: sistema muito mais rapido que o previsto e 100% completo
+  const realData = { sessions: Array.from({ length: 100 }, () => ({ completed: true, duration_ms: 120 })) };
+  const rf = retroforjaDeterministic(/** @type any */ (bp), /** @type any */ (sim), /** @type any */ (s), realData);
+  const dur = rf.cycles.find((c) => c.metric === "avgDurationMs");
+  assert.equal(dur.diagnosis, "ok", "bater a meta de latencia nao e problema");
+  assert.equal(rf.backwardScore, 100, "sem penalidade quando tudo bate ou supera a meta");
+});
+
 test("retroforja uses real data when provided", () => {
   const bp = { name: "P", slug: "p", prd: "", architecture: "", stories: [], qualityGates: [], risks: [], flows: ["f1"] };
   const sim = { iterations: 1, percentile: 100, reachedTarget: true, history: [], fixedBreaks: [] };

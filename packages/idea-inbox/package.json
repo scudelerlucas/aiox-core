@@ -1,0 +1,35 @@
+{
+  "name": "@aiox/idea-inbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Capture front-door do IdeaForge — servidor webhook (Telegram/WhatsApp/generico) que normaliza audio/texto e despacha o pipeline @aiox/idea-forge. Zero-dependencia, CLI First, nunca perde uma ideia (fallback em fila).",
+  "bin": {
+    "idea-inbox": "./bin/idea-inbox.mjs"
+  },
+  "exports": {
+    ".": "./src/inbox.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node bin/idea-inbox.mjs",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "node --check bin/idea-inbox.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "aiox",
+    "idea-forge",
+    "webhook",
+    "telegram",
+    "whatsapp",
+    "cli-first"
+  ],
+  "license": "MIT"
+}

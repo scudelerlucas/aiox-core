@@ -45,8 +45,12 @@ export function retroforjaDeterministic(bp, sim, ster, realData) {
     const result = db.metrics[metric] ?? 0;
     const delta = round2(result - prediction);
     const tol = TOLERANCE[metric];
+    // direcao: completionRate quanto maior melhor; errorRate/avgDuration quanto menor melhor.
+    // Bater a meta (resultado melhor que a predicao) NAO e problema — so o desvio "pior" conta.
+    const higherBetter = metric === "completionRate";
+    const worse = higherBetter ? prediction - result > tol : result - prediction > tol;
     let diagnosis = "ok";
-    if (Math.abs(delta) > tol) {
+    if (worse) {
       // arquitetural se ha modo de fracasso nao-vacinado ligado a taxa; senao operacional
       const rateMetric = metric === "completionRate" || metric === "errorRate";
       diagnosis = rateMetric && unvaccinated > 0 ? "arquitetural" : "operacional";
