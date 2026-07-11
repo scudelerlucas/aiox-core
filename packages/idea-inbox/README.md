@@ -86,6 +86,18 @@ curl -X POST http://localhost:8787/ingest \
   -d '{"text":"minha ideia de teste"}'
 ```
 
+## Áudio (STT) · Memória (Supabase) · CI (realize)
+
+Três camadas aditivas, best-effort e zero-dependência (`fetch`/`FormData` globais do Node): sem as variáveis abaixo, cada uma degrada graciosamente (`via` explica o motivo) e a resposta HTTP nunca é bloqueada.
+
+| Variável | Efeito |
+|----------|--------|
+| `TELEGRAM_BOT_TOKEN` | Baixa o áudio de voice/audio messages do Telegram (`getFile` + download) para transcrever |
+| `OPENAI_API_KEY` | Transcreve o áudio via `POST /v1/audio/transcriptions` (Whisper) — alternativa: `STT_URL`/`STT_KEY`/`STT_MODEL` (endpoint STT compatível) |
+| `WHATSAPP_TOKEN` | Baixa o áudio de mensagens do WhatsApp Cloud API para transcrever |
+| `SUPABASE_URL` + `SUPABASE_SERVICE_KEY` | Persiste cada ideia na tabela `public.ideas` (memória permanente, fora do `/tmp` efêmero) |
+| `GITHUB_DISPATCH_TOKEN` + `GITHUB_REPO` | Dispara `repository_dispatch` (`idea-forge-realize`) para fechar o laço via CI (`.github/workflows/idea-forge-realize.yml`) |
+
 ## Como despacha o idea-forge
 
 Cada requisicao aceita:
