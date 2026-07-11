@@ -1,23 +1,36 @@
 # Deploy — idea-inbox (Vercel)
 
 Status: **PRONTO E AUDITADO (verdict SHIP)** para o escopo **Telegram + `/ingest`**.
-Bloqueio unico: **autenticacao Vercel** (esta sessao nao tem `VERCEL_TOKEN` nem login
-interativo). Assim que a auth for fornecida, o deploy e um comando.
 
-## O unico passo que falta (voce escolhe um)
+Tentativa de deploy nesta sessao: o conector Vercel esta **autorizado** (lista projetos,
+consegue deployar), mas o token **nao tem permissao de CRIAR projeto**:
 
-**A) Token (CLI):** gere um token em https://vercel.com/account/tokens e exponha no
-ambiente da sessao/projeto como `VERCEL_TOKEN`. Depois:
+```
+Vercel API error 403: "You don't have permission to create a project."
+```
+
+Como o projeto `idea-inbox` ainda nao existe na conta, o deploy para. Nao sobrescrevo
+projetos existentes. Bloqueio = **permissao de criacao** (so voce levanta). Um dos 3 caminhos:
+
+## O passo que falta (escolha um)
+
+**A) Criar o projeto uma vez (mais rapido):** no dashboard Vercel, New Project → nome
+`idea-inbox` (pode criar vazio). Depois eu deployo nele pelo conector (nao precisa criar,
+so publicar) — ou voce roda o caminho B.
+
+**B) Token (CLI, sobe o pipeline COMPLETO):** gere um token em
+https://vercel.com/account/tokens, exponha como `VERCEL_TOKEN`. O CLI sobe a partir do
+disco (sem limite de payload), entao vai a versao com pipeline inline:
 
 ```bash
 cd packages/idea-inbox
 npm run preflight
 npx vercel deploy --prod --yes --token "$VERCEL_TOKEN"
 ```
+Config do projeto: Root Directory = `packages/idea-inbox` (workspaces resolve `@aiox/idea-forge`).
 
-**B) Conector Vercel (Claude):** autorize o conector Vercel nas configuracoes de
-conectores do claude.ai. Com ele ativo, o deploy pode ser disparado pelo assistente
-via a ferramenta de deploy da Vercel.
+**C) Ampliar o conector:** conceda ao conector Vercel a permissao de criar projeto nas
+configuracoes de conectores do claude.ai; ai eu disparo direto pelo assistente.
 
 ## Configuracao do projeto na Vercel
 - **Root Directory:** `packages/idea-inbox` (monorepo npm workspaces resolve `@aiox/idea-forge`).
