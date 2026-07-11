@@ -1,0 +1,8 @@
+# OS-LIFEBOARD — artefatos gerados (nunca commitar)
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.env
+.env.local
+.vercel/
