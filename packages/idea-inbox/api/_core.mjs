@@ -18,19 +18,37 @@ const RATE_WINDOW_MS = 60_000;
 
 /** Rate limiter fixed-window em memoria (best-effort; por instancia no serverless). */
 const buckets = new Map();
+const BUCKET_CAP = 10_000; // teto anti-crescimento de memoria (N2)
 function rateLimited(ip) {
   const now = Date.now();
   const b = buckets.get(ip);
   if (!b || now - b.start >= RATE_WINDOW_MS) {
+    if (buckets.size >= BUCKET_CAP) pruneBuckets(now);
     buckets.set(ip, { start: now, count: 1 });
     return false;
   }
   b.count++;
   return b.count > RATE_LIMIT;
 }
+function pruneBuckets(now) {
+  for (const [k, v] of buckets) if (now - v.start >= RATE_WINDOW_MS) buckets.delete(k);
+  // se ainda cheio (flood ativo), zera para nao vazar memoria
+  if (buckets.size >= BUCKET_CAP) buckets.clear();
+}
+/**
+ * IP confiavel: prioriza `x-real-ip` (setado pela plataforma, nao spoofavel pelo
+ * cliente) e, no XFF, usa a entrada MAIS A DIREITA (o hop adicionado pelo proxy
+ * confiavel) — nunca a mais a esquerda, que o cliente controla (N1).
+ */
 function clientIp(req) {
-  const xff = req.headers?.["x-forwarded-for"];
-  if (typeof xff === "string" && xff) return xff.split(",")[0].trim();
+  const h = req.headers || {};
+  const real = h["x-real-ip"];
+  if (typeof real === "string" && real.trim()) return real.trim();
+  const xff = h["x-forwarded-for"];
+  if (typeof xff === "string" && xff) {
+    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
   return req.socket?.remoteAddress || "unknown";
 }
 
@@ -63,9 +81,18 @@ export async function readRawBody(req) {
   });
 }
 
-/** Rejeita chaves perigosas antes de qualquer manuseio do objeto (F8). */
-function hasPollutionKeys(raw) {
-  return /"(?:__proto__|constructor|prototype)"\s*:/.test(raw);
+/**
+ * Rejeita chaves perigosas apos o parse (F8/N4) — cobre escape unicode que um
+ * regex sobre o texto cru nao pega (ex: "__proto__").
+ */
+const DANGEROUS = new Set(["__proto__", "constructor", "prototype"]);
+function hasDangerousKeys(obj, depth = 0) {
+  if (!obj || typeof obj !== "object" || depth > 6) return false;
+  for (const k of Object.keys(obj)) {
+    if (DANGEROUS.has(k)) return true;
+    if (hasDangerousKeys(obj[k], depth + 1)) return true;
+  }
+  return false;
 }
 
 function send(res, status, obj) {
@@ -89,18 +116,18 @@ export function makeHandler(channel) {
 
       const { raw, reconstructed, truncated } = await readRawBody(req);
       if (truncated) return send(res, 413, { error: "payload muito grande" });
-      if (hasPollutionKeys(raw)) return send(res, 400, { error: "payload rejeitado" });
 
       // 1) verificacao de assinatura (fail-closed em prod; HMAC exige corpo fiel)
       if (!verifySignature(channel, req, raw, { reconstructed })) return send(res, 401, { error: "nao autorizado" });
 
-      // 2) parse seguro
+      // 2) parse seguro + guarda de prototype pollution (pos-parse, N4)
       let payload;
       try {
         payload = raw ? JSON.parse(raw) : {};
       } catch {
         return send(res, 400, { error: "json invalido" });
       }
+      if (hasDangerousKeys(payload)) return send(res, 400, { error: "payload rejeitado" });
 
       // 3) normaliza
       const norm = resolve(channel)(payload);

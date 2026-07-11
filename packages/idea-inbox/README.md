@@ -27,8 +27,23 @@ Variaveis de ambiente (Vercel → Settings → Environment Variables):
 | `IDEAFORGE_DIR` | dir do store (efemero na Vercel) | `/tmp/idea-inbox` |
 | `ANTHROPIC_API_KEY` | liga enriquecimento por LLM | opcional |
 
-> ⚠️ **HMAC do WhatsApp na Vercel:** a verificacao HMAC precisa do corpo **cru**. Se a plataforma pre-parsear o JSON, configure a funcao para nao fazer body-parse (o handler ja tenta reconstruir, mas o ideal e o raw). Em duvida, prefira o modo standalone para WhatsApp com HMAC.
-> ⚠️ **Modo dev sem secrets:** se os secrets nao estiverem definidos, os webhooks aceitam **sem verificar assinatura** (fallback documentado). Nunca exponha em producao sem os secrets.
+### Escopo recomendado deste deploy: **Telegram + /ingest**
+
+Endpoints prontos para producao na Vercel: `/webhook/telegram` (token) e `/ingest` (Bearer `INGEST_TOKEN`). Ambos com verificacao fail-closed em producao, rate limit e pipeline bounded.
+
+### Endurecimento de seguranca (pos-auditoria)
+
+| Item | Comportamento |
+|------|---------------|
+| Fail-closed em producao | Sem secret/token do canal em `VERCEL=1`/`NODE_ENV=production` → **401** (a menos que `IDEAINBOX_ALLOW_UNSIGNED=1`) |
+| `/ingest` | Exige `Authorization: Bearer $INGEST_TOKEN` |
+| Rate limit | Por IP confiavel (`x-real-ip` / XFF mais a direita, nao spoofavel), `IDEAINBOX_RATE_LIMIT` req/min → **429** |
+| Custo por request | Pipeline **bounded ate `dispatch`** (sem a simulacao 99.9% inline); `maxDuration: 10` |
+| Corpo | Teto 256KB → **413**; prototype pollution (`__proto__`/`constructor`/`prototype`) → **400** |
+| Erro interno | **500** so com `errorId` (stack apenas no log do servidor) |
+
+> ⚠️ **WhatsApp na Vercel (N3):** o HMAC exige o corpo **cru**; se a plataforma pre-parsear o JSON, o handler rejeita (401, fail-closed) em vez de validar errado. Para WhatsApp com HMAC garantido, rode o **servidor standalone** (`bin/idea-inbox.mjs`), que le o corpo cru.
+> ⚠️ **Servidor standalone = local/VPS confiavel (N6):** `bin/idea-inbox.mjs`/`src/server.mjs` nao passam pela mesma camada endurecida (`api/_core.mjs`). Nao exponha o standalone na internet publica sem colocar um proxy/auth na frente; para internet publica, use a camada serverless.
 
 ## Endpoints
 
