@@ -18,6 +18,7 @@ import { Store } from "../src/store.mjs";
 import { createRun, runAll } from "../src/orchestrator.mjs";
 import { STAGES } from "../src/index.mjs";
 import { isOffline } from "../src/llm.mjs";
+import { realize } from "../src/executor/realize.mjs";
 
 const DEMO_IDEA =
   "Quero um sistema onde eu gravo um audio com uma ideia, ela e atomizada pra ter maximo sinal e minimo ruido, " +
@@ -84,6 +85,25 @@ async function cmdResume(args) {
   printSummary(state, store);
 }
 
+function cmdRealize(args) {
+  const store = new Store(baseDir(args));
+  const runId = args._[1];
+  if (!runId) return fail("uso: idea-forge realize <runId> [--target <dir>] [--executor \"claude -p\"]");
+  const state = store.load(runId);
+  const rec = realize(state, {
+    store,
+    targetDir: args.target ? String(args.target) : undefined,
+    executor: args.executor ? String(args.executor) : undefined,
+  });
+  console.log(`\n🚀 realize ${runId}`);
+  console.log(`   branch : ${rec.branch}`);
+  console.log(`   target : ${rec.targetDir}`);
+  console.log(`   kickoff: ${rec.kickoffPath}`);
+  console.log(`   status : ${rec.executed ? (rec.ok ? "✅ executado" : "❌ falhou") : "⏸️  handoff (sem executor)"}`);
+  console.log(`   nota   : ${rec.note}`);
+  if (!rec.executed) console.log(`\n   Para executar de fato:\n     ${rec.suggestedCommand}\n`);
+}
+
 function cmdShow(args) {
   const store = new Store(baseDir(args));
   const runId = args._[1];
@@ -123,6 +143,7 @@ function help() {
   idea-forge run --file ideia.txt           roda a partir de um arquivo
   idea-forge run --source telegram --text   define o canal de captura
   idea-forge resume <runId>                 retoma um run interrompido
+  idea-forge realize <runId> [--target d]   constroi o projeto-filho (dispatch->build)
   idea-forge show <runId>                   mostra o resumo + log de um run
   idea-forge stages                         lista os estagios
 
@@ -144,6 +165,7 @@ async function main() {
     switch (cmd) {
       case "run": await cmdRun(args); break;
       case "resume": await cmdResume(args); break;
+      case "realize": cmdRealize(args); break;
       case "show": cmdShow(args); break;
       case "stages": cmdStages(); break;
       case undefined:

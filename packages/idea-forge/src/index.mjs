@@ -16,6 +16,7 @@ export { simulate, simulateDeterministic } from "./stages/simulate.mjs";
 export { retroforja, retroforjaDeterministic } from "./stages/retroforja.mjs";
 export { report, generateReportHtml, generateGuide } from "./stages/report.mjs";
 export { canonize, generateCanon } from "./stages/canonize.mjs";
+export { realize } from "./executor/realize.mjs";
 export { tgm } from "./frameworks/tgm.mjs";
 export { op3lif } from "./frameworks/op3lif.mjs";
 export { antifragility } from "./frameworks/antifragility.mjs";
