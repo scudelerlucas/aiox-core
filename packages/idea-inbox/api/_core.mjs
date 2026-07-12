@@ -13,6 +13,7 @@ import { verifySignature } from "../src/verify.mjs";
 import { runSync } from "../src/pipeline-sync.mjs";
 import { transcribe } from "../src/transcribe.mjs";
 import { persistIdea } from "../src/store-remote.mjs";
+import { enrichWithSeeds } from "../src/enrich.mjs";
 import { fireRealize } from "../src/dispatch-ci.mjs";
 import { newRunId } from "../src/inbox.mjs";
 
@@ -162,6 +163,11 @@ export function makeHandler(channel) {
       //    (idea-forge realize / CI), nao no endpoint publico. (F3/F7)
       const result = await runSync({ source: norm.source || channel, text: finalText, audioRef: norm.audioRef });
 
+      // 4b) enriquecimento best-effort: ASSIMETRIA/SINERGIA contra o seed bank
+      //     do operador (packages/idea-forge/src/seeds). Nunca bloqueia — sem
+      //     Supabase/seeds configurados, devolve campos nulos (F3/F7).
+      const enrichment = await enrichWithSeeds(finalText);
+
       // 5) efeitos colaterais best-effort (memoria permanente + fecha o laco na
       //    CI) — nunca bloqueiam nem quebram a resposta 202 (Promise.allSettled).
       const [memSettled, ciSettled] = await Promise.allSettled([
@@ -175,6 +181,7 @@ export function makeHandler(channel) {
           branch: result.branch,
           blocked: result.blocked,
           created_at: new Date().toISOString(),
+          ...enrichment,
         }),
         fireRealize({ runId: result.runId, idea: finalText, score: result.score }),
       ]);
@@ -188,6 +195,7 @@ export function makeHandler(channel) {
         stored: memResult?.ok ?? false,
         memory: memResult?.via,
         ci: ciResult?.via,
+        ...enrichment,
       });
     } catch (err) {
       // Nunca vaza a mensagem interna (F5); loga server-side com um id de correlacao.
