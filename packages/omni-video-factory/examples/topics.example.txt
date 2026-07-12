@@ -1,0 +1,7 @@
+# Um tema por linha. Linhas com # sao ignoradas.
+# Use: omni-video batch examples/topics.example.txt --format reel-viral
+disciplina vs motivacao
+o mito do overnight success
+como precificar seu trabalho
+rotina matinal que funciona
+sair da estagnacao de carreira

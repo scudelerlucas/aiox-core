@@ -1,0 +1,7 @@
+# saida gerada
+/output/
+# credenciais
+.env
+# imagens de referencia reais das personas (mantenha so os exemplos com README/json)
+/personas/
+examples/personas/*/ref-*

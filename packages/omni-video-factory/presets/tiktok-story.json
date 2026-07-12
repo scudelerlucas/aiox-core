@@ -1,0 +1,11 @@
+{
+  "id": "tiktok-story",
+  "label": "TikTok storytime (9:16, multi-cena)",
+  "aspectRatio": "9:16",
+  "clipSeconds": 8,
+  "targetSeconds": 24,
+  "provider": "veo",
+  "pacing": "storytime: gancho, virada, licao",
+  "styleTags": ["cinematic", "intimate", "natural-light", "vlog"],
+  "hookStyle": "comeca no meio da acao (in medias res) nos primeiros 2s"
+}

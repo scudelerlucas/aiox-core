@@ -1,0 +1,43 @@
+{
+  "name": "@aiox/omni-video-factory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fabrica de videos infinitos com o Google Gemini OMNI (Omni Flash) + Veo 3.1. Persona-consistente ('comigo'), reels virais 9:16 e YouTube horizontal 16:9. Zero-dependencia, CLI First, offline por fallback deterministico (dry-run).",
+  "bin": {
+    "omni-video": "./bin/omni-video.mjs",
+    "ovf": "./bin/omni-video.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "presets/",
+    "examples/",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node bin/omni-video.mjs",
+    "test": "node --test test/*.test.mjs",
+    "e2e": "node bin/omni-video.mjs generate --preset reel-viral --topic \"demo\" --dry-run",
+    "typecheck": "node --check bin/omni-video.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "aiox",
+    "google-omni",
+    "gemini-omni-flash",
+    "veo",
+    "google-flow",
+    "video-automation",
+    "reels",
+    "shorts",
+    "youtube",
+    "cli-first"
+  ],
+  "license": "MIT"
+}
