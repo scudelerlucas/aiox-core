@@ -20,3 +20,7 @@ export { realize } from "./executor/realize.mjs";
 export { tgm } from "./frameworks/tgm.mjs";
 export { op3lif } from "./frameworks/op3lif.mjs";
 export { antifragility } from "./frameworks/antifragility.mjs";
+export { parseSeedBank, seedText } from "./seeds/parse.mjs";
+export { tokenize, cosine } from "./seeds/similarity.mjs";
+export { scoreAgainstSeeds } from "./seeds/score.mjs";
+export { importSeeds } from "./seeds/import-seeds.mjs";

@@ -19,6 +19,9 @@ import { createRun, runAll } from "../src/orchestrator.mjs";
 import { STAGES } from "../src/index.mjs";
 import { isOffline } from "../src/llm.mjs";
 import { realize } from "../src/executor/realize.mjs";
+import { parseSeedBank } from "../src/seeds/parse.mjs";
+import { scoreAgainstSeeds } from "../src/seeds/score.mjs";
+import { importSeeds } from "../src/seeds/import-seeds.mjs";
 
 const DEMO_IDEA =
   "Quero um sistema onde eu gravo um audio com uma ideia, ela e atomizada pra ter maximo sinal e minimo ruido, " +
@@ -128,6 +131,37 @@ function printSummary(state, store) {
   console.log(`Run dir      : ${join(store.runsDir, state.runId)}\n`);
 }
 
+async function cmdSeedsImport(args) {
+  const file = args._[2];
+  if (!file) return fail("uso: idea-forge seeds import <file.md>");
+  const md = readFileSync(String(file), "utf8");
+  const result = await importSeeds({
+    md,
+    supabaseUrl: process.env.SUPABASE_URL,
+    serviceKey: process.env.SUPABASE_SERVICE_KEY,
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+function cmdSeedsScore(args) {
+  const file = args.file;
+  const text = args.text;
+  if (!file || !text) return fail('uso: idea-forge seeds score --file <file.md> --text "<ideia>"');
+  const md = readFileSync(String(file), "utf8");
+  const seeds = parseSeedBank(md);
+  const result = scoreAgainstSeeds(String(text), seeds);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdSeeds(args) {
+  const sub = args._[1];
+  switch (sub) {
+    case "import": return cmdSeedsImport(args);
+    case "score": return cmdSeedsScore(args);
+    default: return fail('uso: idea-forge seeds <import|score> ...\n  idea-forge seeds import <file.md>\n  idea-forge seeds score --file <file.md> --text "<ideia>"');
+  }
+}
+
 function cmdStages() {
   console.log("\nEstagios do fluxo canonico:\n");
   STAGES.forEach((s, i) => console.log(`  ${String(i + 1).padStart(2)}. ${s}`));
@@ -146,6 +180,8 @@ function help() {
   idea-forge realize <runId> [--target d]   constroi o projeto-filho (dispatch->build)
   idea-forge show <runId>                   mostra o resumo + log de um run
   idea-forge stages                         lista os estagios
+  idea-forge seeds import <file.md>         parseia + upsert do seed bank no Supabase
+  idea-forge seeds score --file f --text t  pontua uma ideia (ASSIMETRIA/SINERGIA) contra o seed bank
 
   Opcoes: --dir <path> (base, default .idea-forge) · --run-id <id> · --audio <ref>
   Env: ANTHROPIC_API_KEY (liga LLM) · IDEAFORGE_OFFLINE=1 (forca offline) · IDEAFORGE_MODEL
@@ -168,6 +204,7 @@ async function main() {
       case "realize": cmdRealize(args); break;
       case "show": cmdShow(args); break;
       case "stages": cmdStages(); break;
+      case "seeds": await cmdSeeds(args); break;
       case undefined:
       case "help":
       case "--help":
