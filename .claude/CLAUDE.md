@@ -390,3 +390,19 @@ tail -f .aiox/logs/agent.log
 - **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0-5) em `bench/token-value-log.csv`.
 
 **Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
+
+# ══════════════════════════════════════════════════════════
+# FORMATO DE RESPOSTA PADRÃO PARA O OPERADOR (LUCAS) — SEMPRE
+# Adicionado em: 2026-07-13
+# ══════════════════════════════════════════════════════════
+
+> Regra de comunicação inegociável. Vale para TODA resposta ao Lucas, em QUALQUER repo, mesmo respostas curtas.
+
+Toda resposta DEVE terminar com estas quatro seções, nesta ordem, em português simples (sem jargão):
+
+1. **📋 Resumo simples** — em palavras fáceis: o que foi feito ou dito.
+2. **🔀 Decisões a tomar** — lista das escolhas que dependem do Lucas. Se não houver, escrever explicitamente "Nenhuma decisão pendente".
+3. **✅ Recomendação** — qual opção eu escolho e por quê (só quando houver decisão).
+4. **⚠️ Riscos** — o que pode dar errado em cada opção.
+
+**Nunca omitir estas seções.** Se a resposta for trivial, manter ao menos "Resumo simples" + "Riscos" e marcar "Nenhuma decisão pendente".
