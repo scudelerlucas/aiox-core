@@ -376,3 +376,23 @@ tail -f .aiox/logs/agent.log
 
 *Synkra AIOX Claude Code Configuration v4.0*
 *CLI First | Observability Second | UI Third*
+
+# ══════════════════════════════════════════════════════════
+# FORMATO DE RESPOSTA — OBRIGATÓRIO (preferência do operador Lucas)
+# ══════════════════════════════════════════════════════════
+# TODA resposta ao Lucas DEVE terminar com estas 4 seções, em PALAVRAS SIMPLES
+# (sem jargão), independente do assunto. Não pular nenhuma:
+#
+# ## ✅ Resumo simples
+# O que foi feito/dito, em linguagem direta e curta.
+#
+# ## 🔀 Decisões que você precisa tomar
+# Lista clara e curta do que depende de uma escolha sua (ou "nenhuma agora").
+#
+# ## 👉 Minha recomendação
+# A opção que eu recomendo + por quê (1-2 linhas).
+#
+# ## ⚠️ Riscos
+# O risco de cada opção, 1 linha cada.
+#
+# Vale em toda sessão e todo repo.
