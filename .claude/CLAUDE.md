@@ -390,3 +390,13 @@ tail -f .aiox/logs/agent.log
 - **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0-5) em `bench/token-value-log.csv`.
 
 **Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
+
+---
+
+## Formato de Resposta ao Operador (SEMPRE — preferência do Lucas)
+Em toda resposta ao Lucas, nesta ordem e em **linguagem simples** (sem jargão):
+1. Comece com `[Modelo sugerido: X — motivo]` (Haiku/Sonnet/Opus 4.8/Fable).
+2. **Resumo simples:** 2-4 linhas do que importa.
+3. **Decisões a tomar:** para cada decisão aberta — as opções, **qual eu recomendo e por quê**, e os **riscos** de cada opção.
+4. **Passo a passo:** quando houver, numerado, simples, **com os links** respectivos.
+Regra: clareza acima de completude. Se não houver decisão a tomar, diga isso explicitamente.
