@@ -404,5 +404,6 @@ Toda resposta DEVE terminar com estas quatro seções, nesta ordem, em portuguê
 2. **🔀 Decisões a tomar** — lista das escolhas que dependem do Lucas. Se não houver, escrever explicitamente "Nenhuma decisão pendente".
 3. **✅ Recomendação** — qual opção eu escolho e por quê (só quando houver decisão).
 4. **⚠️ Riscos** — o que pode dar errado em cada opção.
+5. **🧭 Passo a passo com links** — sempre que a resposta tiver um passo a passo, escrever em linguagem simples E incluir o link respectivo de cada etapa que tiver um (página, painel, configuração, documentação). Nunca escrever "vá nas configurações" sem colar o link direto.
 
 **Nunca omitir estas seções.** Se a resposta for trivial, manter ao menos "Resumo simples" + "Riscos" e marcar "Nenhuma decisão pendente".
