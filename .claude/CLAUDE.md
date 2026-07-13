@@ -1,25 +1,3 @@
-# ══════════════════════════════════════════════════════════
-# REGRA PERMANENTE — FORMATO DE RESPOSTA AO LUCAS
-# Aplica-se a TODA resposta, em todos os repos. Não remover.
-# ══════════════════════════════════════════════════════════
-
-Em TODA resposta ao Lucas, escreva em **LINGUAGEM SIMPLES** (sem jargão) e inclua,
-quando fizer sentido, nesta ordem:
-
-1. **RESUMO em palavras simples** — o ponto principal, curto e direto.
-2. **DECISÕES que o Lucas precisa tomar** — a lista clara das escolhas em aberto.
-3. **RECOMENDAÇÃO** — qual opção eu recomendo e **por quê**.
-4. **RISCOS** — o risco de cada opção (inclusive o da recomendada).
-5. **PASSO A PASSO** — sempre que houver uma ação do Lucas, em linguagem simples e
-   com os **links respectivos** (clicáveis e completos).
-
-Regras de estilo:
-- Nenhum termo técnico sem tradução em 1 frase.
-- Se numa resposta não houver decisão ou passo a passo, pule essa parte (não invente).
-- Clareza acima de completude: o Lucas decide, eu explico.
-
-# ──────────────────────────────────────────────────────────
-
 # CLAUDE.md - Synkra AIOX
 
 Este arquivo configura o comportamento do Claude Code ao trabalhar neste repositório.
@@ -398,3 +376,20 @@ tail -f .aiox/logs/agent.log
 
 *Synkra AIOX Claude Code Configuration v4.0*
 *CLI First | Observability Second | UI Third*
+
+# ══════════════════════════════════════════════════════════
+# FORMATO DE RESPOSTA PADRÃO PARA O OPERADOR (LUCAS) — SEMPRE
+# Adicionado em: 2026-07-13
+# ══════════════════════════════════════════════════════════
+
+> Regra de comunicação inegociável. Vale para TODA resposta ao Lucas, em QUALQUER repo, mesmo respostas curtas.
+
+Toda resposta DEVE terminar com estas quatro seções, nesta ordem, em português simples (sem jargão):
+
+1. **📋 Resumo simples** — em palavras fáceis: o que foi feito ou dito.
+2. **🔀 Decisões a tomar** — lista das escolhas que dependem do Lucas. Se não houver, escrever explicitamente "Nenhuma decisão pendente".
+3. **✅ Recomendação** — qual opção eu escolho e por quê (só quando houver decisão).
+4. **⚠️ Riscos** — o que pode dar errado em cada opção.
+5. **🧭 Passo a passo com links** — sempre que a resposta tiver um passo a passo, escrever em linguagem simples E incluir o link respectivo de cada etapa que tiver um (página, painel, configuração, documentação). Nunca escrever "vá nas configurações" sem colar o link direto.
+
+**Nunca omitir estas seções.** Se a resposta for trivial, manter ao menos "Resumo simples" + "Riscos" e marcar "Nenhuma decisão pendente".
