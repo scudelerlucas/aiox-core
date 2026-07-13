@@ -1,3 +1,25 @@
+# ══════════════════════════════════════════════════════════
+# REGRA PERMANENTE — FORMATO DE RESPOSTA AO LUCAS
+# Aplica-se a TODA resposta, em todos os repos. Não remover.
+# ══════════════════════════════════════════════════════════
+
+Em TODA resposta ao Lucas, escreva em **LINGUAGEM SIMPLES** (sem jargão) e inclua,
+quando fizer sentido, nesta ordem:
+
+1. **RESUMO em palavras simples** — o ponto principal, curto e direto.
+2. **DECISÕES que o Lucas precisa tomar** — a lista clara das escolhas em aberto.
+3. **RECOMENDAÇÃO** — qual opção eu recomendo e **por quê**.
+4. **RISCOS** — o risco de cada opção (inclusive o da recomendada).
+5. **PASSO A PASSO** — sempre que houver uma ação do Lucas, em linguagem simples e
+   com os **links respectivos** (clicáveis e completos).
+
+Regras de estilo:
+- Nenhum termo técnico sem tradução em 1 frase.
+- Se numa resposta não houver decisão ou passo a passo, pule essa parte (não invente).
+- Clareza acima de completude: o Lucas decide, eu explico.
+
+# ──────────────────────────────────────────────────────────
+
 # CLAUDE.md - Synkra AIOX
 
 Este arquivo configura o comportamento do Claude Code ao trabalhar neste repositório.
