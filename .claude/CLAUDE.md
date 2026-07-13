@@ -395,4 +395,8 @@ tail -f .aiox/logs/agent.log
 # ## ⚠️ Riscos
 # O risco de cada opção, 1 linha cada.
 #
+#
+# ## 🧭 Passo a passo (quando houver)
+# Sempre que a resposta incluir um passo a passo, escreva em LINGUAGEM SIMPLES
+# (sem jargão) e inclua os LINKS respectivos de cada ferramenta/etapa.
 # Vale em toda sessão e todo repo.
