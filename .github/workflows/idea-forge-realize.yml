@@ -37,11 +37,21 @@ jobs:
       - name: Run idea-forge pipeline
         run: |
           TEXT="${{ github.event.client_payload.idea || inputs.text }}"
+          RUN_ID="${{ github.event.client_payload.runId }}"
           if [ -z "$TEXT" ]; then
             echo "erro: nenhum texto de ideia recebido (client_payload.idea / inputs.text)" >&2
             exit 1
           fi
-          node packages/idea-forge/bin/idea-forge.mjs run --text "$TEXT" --dir "$RUNNER_TEMP/if"
+          # Alinha o runId do idea-inbox com o run do CI (T0.2) — sem isso o
+          # inbox gera um runId (ib-...) que nunca aparece nesta execucao,
+          # dificultando rastreio ponta-a-ponta. workflow_dispatch manual nao
+          # tem client_payload.runId: cai no fallback (idea-forge gera o dele).
+          if [ -n "$RUN_ID" ]; then
+            echo "runId recebido do idea-inbox: $RUN_ID"
+            node packages/idea-forge/bin/idea-forge.mjs run --run-id "$RUN_ID" --text "$TEXT" --dir "$RUNNER_TEMP/if"
+          else
+            node packages/idea-forge/bin/idea-forge.mjs run --text "$TEXT" --dir "$RUNNER_TEMP/if"
+          fi
 
       - name: Realize (dispatch -> build do projeto-filho)
         run: |

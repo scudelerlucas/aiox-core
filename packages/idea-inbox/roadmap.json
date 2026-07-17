@@ -1,0 +1,37 @@
+{
+  "title": "IdeaForge — Roadmap de Valor Exponencial",
+  "subtitle": "Auditoria multi-disciplina -> execucao. Dash atualizado a cada rodada.",
+  "updatedAt": "2026-07-11",
+  "round": 1,
+  "legend": {
+    "done": "concluido e no ar",
+    "in_progress": "em execucao nesta rodada",
+    "planned": "planejado (proxima rodada)",
+    "needs_user": "depende de 1 acao/credencial sua",
+    "blocked": "bloqueado por pre-requisito"
+  },
+  "items": [
+    { "id": "T0.3", "tier": 0, "title": "Resposta no Telegram (score + top seed) — mata o silencio", "discipline": "Produto/UX + Growth", "impact": 5, "effort": 2, "status": "done", "note": "sendMessage best-effort; usa TELEGRAM_BOT_TOKEN" },
+    { "id": "T0.2", "tier": 0, "title": "Alinhar runId inbox->CI (sem execucao duplicada)", "discipline": "Escala", "impact": 4, "effort": 1, "status": "done", "note": "CI roda com --run-id do payload" },
+    { "id": "T0.1", "tier": 0, "title": "realize = deploy real (IDEAFORGE_EXECUTOR no CI)", "discipline": "Estrategia", "impact": 5, "effort": 2, "status": "needs_user", "note": "precisa do claude CLI + auth no runner do CI; sem isso, realize fica handoff" },
+    { "id": "T0.4", "tier": 0, "title": "Ligar LLM real (ANTHROPIC_API_KEY na Vercel)", "discipline": "AI-moat", "impact": 4, "effort": 1, "status": "needs_user", "note": "1 variavel de ambiente; fallback ja e a rede de seguranca" },
+    { "id": "T1.3", "tier": 1, "title": "Relatorio duravel + linkavel (GET /report/:runId)", "discipline": "Produto/UX + Growth", "impact": 5, "effort": 3, "status": "planned", "note": "salva RELATORIO.html em bucket; link na resposta" },
+    { "id": "T1.1", "tier": 1, "title": "Sink de resultado real -> RETROFORJA aprende", "discipline": "AI-moat + Estrategia", "impact": 5, "effort": 3, "status": "planned", "note": "idea-forge outcome <runId> --result --value" },
+    { "id": "T1.2", "tier": 1, "title": "Auto-promover ideias vencedoras a seeds", "discipline": "AI-moat", "impact": 5, "effort": 2, "status": "planned", "note": "backwardScore alto -> novo seed" },
+    { "id": "T2.1", "tier": 2, "title": "Multi-tenant operator_id + seed pool (privacy-preserving)", "discipline": "Growth+Escala+Estrategia+Monetizacao+AI (5/6)", "impact": 5, "effort": 4, "status": "planned", "note": "O 10x bet; destrava toda a monetizacao" },
+    { "id": "T2.2", "tier": 2, "title": "Chave por operador (substitui rate-limit por IP)", "discipline": "Escala + Monetizacao", "impact": 4, "effort": 3, "status": "planned", "note": "API key metered por tenant" },
+    { "id": "T3.1", "tier": 3, "title": "API metered + billing no passo realize", "discipline": "Monetizacao", "impact": 5, "effort": 3, "status": "planned", "note": "cobra o custo variavel real" },
+    { "id": "T3.2", "tier": 3, "title": "Score-como-due-diligence (endpoint pago)", "discipline": "Monetizacao", "impact": 3, "effort": 2, "status": "planned", "note": "VC/aceleradora paga pelo relatorio" },
+    { "id": "T3.3", "tier": 3, "title": "Seed-Bank-as-a-Service", "discipline": "Monetizacao", "impact": 4, "effort": 2, "status": "planned", "note": "scorer de assimetria/sinergia como assinatura" },
+    { "id": "T4.1", "tier": 4, "title": "Fila duravel + retry/DLQ (nada se perde)", "discipline": "Escala", "impact": 5, "effort": 3, "status": "planned", "note": "dispatch/persist hoje sao best-effort sem retry" },
+    { "id": "T4.2", "tier": 4, "title": "Idempotencia/dedup (retry de webhook duplica)", "discipline": "Escala", "impact": 5, "effort": 2, "status": "planned", "note": "runId por hash estavel do delivery" },
+    { "id": "T4.3", "tier": 4, "title": "Status API (GET /runs/:id)", "discipline": "Escala", "impact": 4, "effort": 3, "status": "planned", "note": "Store duravel -> job API" },
+    { "id": "T4.4", "tier": 4, "title": "Similaridade por embeddings (cosine -> semantico)", "discipline": "AI-moat", "impact": 4, "effort": 3, "status": "planned", "note": "sinergia real, nao lexica" },
+    { "id": "T4.5", "tier": 4, "title": "Memoria de falhas antifragil (architect aprende)", "discipline": "Estrategia", "impact": 3, "effort": 3, "status": "planned", "note": "persistir failure_patterns; architect consulta" },
+    { "id": "B.1", "tier": 5, "title": "Governanca de custo antes de 'ligar o motor' em escala", "discipline": "Ponto cego", "impact": 5, "effort": 2, "status": "planned", "note": "LLM+CI+deploy custam por webhook; hoje so rate-limit IP" },
+    { "id": "B.2", "tier": 5, "title": "Gate de qualidade/seguranca do auto-deploy", "discipline": "Ponto cego", "impact": 4, "effort": 3, "status": "planned", "note": "codigo-filho gerado precisa de gate antes de deploy" },
+    { "id": "B.3", "tier": 5, "title": "Compartilhamento de seeds privacy-preserving (proteger IP)", "discipline": "Ponto cego", "impact": 5, "effort": 3, "status": "planned", "note": "seed cru e estrategia; compartilhar so agregados/embeddings, opt-in" },
+    { "id": "B.4", "tier": 5, "title": "Multi-canal real (WhatsApp/Claude/Cowork)", "discipline": "Ponto cego", "impact": 3, "effort": 3, "status": "planned", "note": "hoje so Telegram/ingest funcionam ponta-a-ponta" },
+    { "id": "DASH", "tier": 0, "title": "Dashboard de progresso (grafico, /dashboard)", "discipline": "Observabilidade", "impact": 4, "effort": 2, "status": "done", "note": "esta pagina" }
+  ]
+}
