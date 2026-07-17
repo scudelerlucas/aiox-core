@@ -16,6 +16,7 @@ import { persistIdea } from "../src/store-remote.mjs";
 import { enrichWithSeeds } from "../src/enrich.mjs";
 import { fireRealize } from "../src/dispatch-ci.mjs";
 import { newRunId } from "../src/inbox.mjs";
+import { formatReply, sendTelegramReply } from "../src/reply.mjs";
 
 const MAX_BODY = 256 * 1024; // 256KB — teto anti-DoS
 const RATE_LIMIT = Number(process.env.IDEAINBOX_RATE_LIMIT || 30); // req/janela/IP
@@ -147,6 +148,15 @@ export function makeHandler(channel) {
       if (!finalText && norm.audioRef) {
         // audio recebido mas STT indisponivel/nao configurado: nao roda o
         // pipeline em texto vazio, mas confirma recebimento (nunca perde a ideia).
+        // Resposta best-effort no Telegram pra nao deixar o operador no silencio
+        // (T0.3) — Promise.allSettled evita unhandled rejection mesmo em falha.
+        const noSttMsg = "recebi seu audio, mas a transcricao nao esta ligada ainda — manda em texto por enquanto 🙏";
+        const [noSttReplySettled] = await Promise.allSettled([
+          channel === "telegram"
+            ? sendTelegramReply(norm.meta?.chatId, noSttMsg)
+            : Promise.resolve({ ok: false, via: "canal-nao-telegram" }),
+        ]);
+        const noSttReply = noSttReplySettled.status === "fulfilled" ? noSttReplySettled.value : undefined;
         return send(res, 202, {
           accepted: true,
           runId: newRunId(),
@@ -154,6 +164,7 @@ export function makeHandler(channel) {
           source: norm.source || channel,
           audio: norm.audioRef,
           transcription: tr.via,
+          reply: noSttReply?.via,
           note: "audio recebido; transcricao indisponivel",
         });
       }
@@ -169,8 +180,9 @@ export function makeHandler(channel) {
       const enrichment = await enrichWithSeeds(finalText);
 
       // 5) efeitos colaterais best-effort (memoria permanente + fecha o laco na
-      //    CI) — nunca bloqueiam nem quebram a resposta 202 (Promise.allSettled).
-      const [memSettled, ciSettled] = await Promise.allSettled([
+      //    CI + resposta no canal, T0.3) — nunca bloqueiam nem quebram a
+      //    resposta 202 (Promise.allSettled).
+      const [memSettled, ciSettled, replySettled] = await Promise.allSettled([
         persistIdea({
           run_id: result.runId,
           source: norm.source || channel,
@@ -184,9 +196,13 @@ export function makeHandler(channel) {
           ...enrichment,
         }),
         fireRealize({ runId: result.runId, idea: finalText, score: result.score }),
+        channel === "telegram"
+          ? sendTelegramReply(norm.meta?.chatId, formatReply({ result, enrichment, transcription: tr.via }))
+          : Promise.resolve({ ok: false, via: "canal-nao-telegram" }),
       ]);
       const memResult = memSettled.status === "fulfilled" ? memSettled.value : undefined;
       const ciResult = ciSettled.status === "fulfilled" ? ciSettled.value : undefined;
+      const replyResult = replySettled.status === "fulfilled" ? replySettled.value : undefined;
 
       return send(res, 202, {
         accepted: true,
@@ -195,6 +211,7 @@ export function makeHandler(channel) {
         stored: memResult?.ok ?? false,
         memory: memResult?.via,
         ci: ciResult?.via,
+        reply: replyResult?.via,
         ...enrichment,
       });
     } catch (err) {
