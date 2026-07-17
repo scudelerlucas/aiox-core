@@ -9,6 +9,8 @@
     { "source": "/webhook/telegram", "destination": "/api/webhook/telegram" },
     { "source": "/webhook/whatsapp", "destination": "/api/webhook/whatsapp" },
     { "source": "/dashboard", "destination": "/api/dashboard" },
-    { "source": "/diagnose", "destination": "/api/diagnose" }
+    { "source": "/diagnose", "destination": "/api/diagnose" },
+    { "source": "/report/:id", "destination": "/api/report?runId=:id" },
+    { "source": "/runs/:id", "destination": "/api/runs?id=:id" }
   ]
 }

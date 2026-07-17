@@ -1,8 +1,8 @@
 {
   "title": "IdeaForge — Roadmap de Valor Exponencial",
   "subtitle": "Auditoria multi-disciplina -> execucao. Dash atualizado a cada rodada.",
-  "updatedAt": "2026-07-11",
-  "round": 3,
+  "updatedAt": "2026-07-17",
+  "round": 4,
   "legend": {
     "done": "concluido e no ar",
     "in_progress": "em execucao nesta rodada",
@@ -52,14 +52,24 @@
       "note": "1 variavel de ambiente; fallback ja e a rede de seguranca"
     },
     {
+      "id": "MEM",
+      "tier": 1,
+      "title": "Memoria de seeds ativada (assimetria + sinergia + clusters)",
+      "discipline": "AI-moat + Memoria permanente",
+      "impact": 5,
+      "effort": 3,
+      "status": "done",
+      "note": "banco de 47 seeds no Supabase (projeto quiz-diagnosys / hciiilopyivjaekaxfqp): 35 com destrava (assimetria), 44 com compoe_com (sinergia), 34 mapeadas em 10 clusters K1-K10. enrich.mjs pontua TODA ideia recebida contra o banco (asymmetry_score/synergy_score/cluster_reach/matched_seeds). Depende de SUPABASE_URL+SUPABASE_SERVICE_KEY na Vercel apontarem p/ hciiilopyivjaekaxfqp"
+    },
+    {
       "id": "T1.3",
       "tier": 1,
       "title": "Relatorio duravel + linkavel (GET /report/:runId)",
       "discipline": "Produto/UX + Growth",
       "impact": 5,
       "effort": 3,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "done",
+      "note": "GET /report/:id renderiza relatorio grafico persistente (score + gauge + PASS/BLOCKED + painel assimetria/sinergia/clusters + seeds casadas) lendo a tabela ideas (read-remote.mjs). Link duravel por run"
     },
     {
       "id": "T1.1",
@@ -68,8 +78,8 @@
       "discipline": "AI-moat + Estrategia",
       "impact": 5,
       "effort": 3,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "planned",
+      "note": "Supabase pronto (tabelas ideas+seeds no ar); falta o webhook de resultado real alimentar RETROFORJA. Proxima rodada"
     },
     {
       "id": "T1.2",
@@ -78,8 +88,8 @@
       "discipline": "AI-moat",
       "impact": 5,
       "effort": 2,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "planned",
+      "note": "Supabase pronto; falta a regra de promocao (ideia score alto -> nova seed). Proxima rodada"
     },
     {
       "id": "T2.1",
@@ -88,8 +98,8 @@
       "discipline": "Growth+Escala+Estrategia+Monetizacao+AI (5/6)",
       "impact": 5,
       "effort": 4,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "planned",
+      "note": "Supabase pronto; falta coluna operator_id + RLS por operador. Proxima rodada"
     },
     {
       "id": "T2.2",
@@ -98,8 +108,8 @@
       "discipline": "Escala + Monetizacao",
       "impact": 4,
       "effort": 3,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "planned",
+      "note": "Supabase pronto; depende de multi-tenant (T2.1). Proxima rodada"
     },
     {
       "id": "T3.1",
@@ -109,7 +119,7 @@
       "impact": 5,
       "effort": 3,
       "status": "blocked",
-      "note": "aguarda Supabase+Stripe"
+      "note": "Supabase pronto; ainda aguarda Stripe (credencial sua)"
     },
     {
       "id": "T3.2",
@@ -128,8 +138,8 @@
       "discipline": "Monetizacao",
       "impact": 4,
       "effort": 2,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "planned",
+      "note": "Supabase pronto (tabela seeds no ar com 47 seeds); falta endpoint pago de consulta ao banco. Proxima rodada"
     },
     {
       "id": "T4.1",
@@ -138,8 +148,8 @@
       "discipline": "Escala",
       "impact": 5,
       "effort": 3,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "planned",
+      "note": "Supabase pronto; falta tabela de fila + retry/DLQ. Proxima rodada"
     },
     {
       "id": "T4.2",
@@ -158,8 +168,8 @@
       "discipline": "Escala",
       "impact": 4,
       "effort": 3,
-      "status": "blocked",
-      "note": "aguarda Supabase"
+      "status": "done",
+      "note": "GET /runs/:id devolve JSON compacto (score, project, branch, blocked, assimetria/sinergia/cluster_reach, matched_seeds_count) lendo a tabela ideas (read-remote.mjs)"
     },
     {
       "id": "T4.4",
