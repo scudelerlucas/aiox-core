@@ -17,15 +17,16 @@ import { enrichWithSeeds } from "../src/enrich.mjs";
 import { fireRealize } from "../src/dispatch-ci.mjs";
 import { newRunId } from "../src/inbox.mjs";
 import { formatReply, sendTelegramReply } from "../src/reply.mjs";
+import { dedupKey, stableRunId, seenRecently } from "../src/dedup.mjs";
 
-const MAX_BODY = 256 * 1024; // 256KB — teto anti-DoS
+export const MAX_BODY = 256 * 1024; // 256KB — teto anti-DoS
 const RATE_LIMIT = Number(process.env.IDEAINBOX_RATE_LIMIT || 30); // req/janela/IP
 const RATE_WINDOW_MS = 60_000;
 
 /** Rate limiter fixed-window em memoria (best-effort; por instancia no serverless). */
 const buckets = new Map();
 const BUCKET_CAP = 10_000; // teto anti-crescimento de memoria (N2)
-function rateLimited(ip) {
+export function rateLimited(ip) {
   const now = Date.now();
   const b = buckets.get(ip);
   if (!b || now - b.start >= RATE_WINDOW_MS) {
@@ -46,7 +47,7 @@ function pruneBuckets(now) {
  * cliente) e, no XFF, usa a entrada MAIS A DIREITA (o hop adicionado pelo proxy
  * confiavel) — nunca a mais a esquerda, que o cliente controla (N1).
  */
-function clientIp(req) {
+export function clientIp(req) {
   const h = req.headers || {};
   const real = h["x-real-ip"];
   if (typeof real === "string" && real.trim()) return real.trim();
@@ -92,7 +93,7 @@ export async function readRawBody(req) {
  * regex sobre o texto cru nao pega (ex: "__proto__").
  */
 const DANGEROUS = new Set(["__proto__", "constructor", "prototype"]);
-function hasDangerousKeys(obj, depth = 0) {
+export function hasDangerousKeys(obj, depth = 0) {
   if (!obj || typeof obj !== "object" || depth > 6) return false;
   for (const k of Object.keys(obj)) {
     if (DANGEROUS.has(k)) return true;
@@ -139,6 +140,16 @@ export function makeHandler(channel) {
       const norm = resolve(channel)(payload);
       const rawText = (norm.text || "").trim();
 
+      // 3a) idempotencia (T4.2): Telegram/WhatsApp reenviam o MESMO webhook em
+      //     timeout — sem dedup, cada retry roda o pipeline + persist + CI de
+      //     novo. Chave estavel (id nativo do canal ou hash do conteudo) ->
+      //     runId deterministico (mesma chave -> mesmo runId sempre). Se ja
+      //     vimos esta chave na janela recente, devolve o MESMO runId sem
+      //     rodar nada de novo (no-op idempotente, 200).
+      const dedup = dedupKey(channel, payload, norm);
+      const stableId = stableRunId(dedup);
+      if (seenRecently(dedup)) return send(res, 200, { accepted: true, deduped: true, runId: stableId });
+
       // 3b) voz -> texto (best-effort, nunca lanca). Passthrough sem rede se ja
       //     houver texto; so busca/transcreve audio quando necessario (F3/F7).
       const tr = await transcribe({ source: norm.source || channel, audioRef: norm.audioRef, text: rawText });
@@ -172,7 +183,7 @@ export function makeHandler(channel) {
       // 4) roda o pipeline BOUNDED (ingest..dispatch) — captura + validacao rapida.
       //    A simulacao E2E pesada (99.9%) + RETROFORJA rodam no laco assincrono
       //    (idea-forge realize / CI), nao no endpoint publico. (F3/F7)
-      const result = await runSync({ source: norm.source || channel, text: finalText, audioRef: norm.audioRef });
+      const result = await runSync({ source: norm.source || channel, text: finalText, audioRef: norm.audioRef, runId: stableId });
 
       // 4b) enriquecimento best-effort: ASSIMETRIA/SINERGIA contra o seed bank
       //     do operador (packages/idea-forge/src/seeds). Nunca bloqueia — sem
@@ -230,4 +241,12 @@ export function healthHandler(_req, res) {
   res.end(JSON.stringify({ ok: true, service: "idea-inbox", ts: new Date().toISOString() }));
 }
 
-export default { makeHandler, healthHandler, readRawBody };
+export default {
+  makeHandler,
+  healthHandler,
+  readRawBody,
+  hasDangerousKeys,
+  rateLimited,
+  clientIp,
+  MAX_BODY,
+};
