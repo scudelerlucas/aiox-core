@@ -54,6 +54,21 @@ export function realize(state, ctx) {
     return rec;
   }
 
+  // B.2 — gate de qualidade do auto-deploy: mesmo que o dispatch nao esteja
+  // marcado como bloqueado, um executor real NUNCA deve construir/deployar um
+  // blueprint cujo score nao passou (state.scored.passed === false). So se
+  // aplica quando ha executor configurado — sem executor, o handoff (abaixo)
+  // ja deixa claro que e so um handoff pendente, nao uma execucao.
+  if (executor && state.scored && state.scored.passed === false) {
+    const rec = {
+      ...handoff,
+      executed: false,
+      note: `RECUSADO pelo gate de qualidade (B.2): score ${state.scored.score} nao passou — executor NAO foi chamado.`,
+    };
+    store.writeArtifact(state.runId, "realize.json", JSON.stringify(rec, null, 2));
+    return rec;
+  }
+
   if (!executor) {
     const rec = { ...handoff, executed: false, note: "sem IDEAFORGE_EXECUTOR — handoff pronto para agente/humano executar" };
     store.writeArtifact(state.runId, "realize.json", JSON.stringify(rec, null, 2));
