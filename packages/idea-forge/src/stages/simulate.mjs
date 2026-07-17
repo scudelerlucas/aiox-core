@@ -8,6 +8,7 @@
  */
 import { PERCENTILE_TARGET } from "../types.mjs";
 import { makeRng, seedFrom } from "../store.mjs";
+import { recordFailures } from "../frameworks/failure-memory.mjs";
 
 const RUNS_PER_ITER = 2000; // 1 falha em 2000 = 99.95%
 const MAX_ITER = 10;
@@ -42,6 +43,9 @@ function deriveBreaks(bp, ster) {
 export function simulateDeterministic(bp, ster, seed) {
   const rng = makeRng(seed);
   let active = deriveBreaks(bp, ster);
+  // categorias detectadas nesta rodada (independente de terem sido corrigidas
+  // ou nao) — e o que a memoria antifragil (T4.5) precisa para aprender.
+  const categories = active.map((b) => ({ id: b.id, desc: b.desc }));
   const fixedBreaks = [];
   const history = [];
 
@@ -56,7 +60,7 @@ export function simulateDeterministic(bp, ster, seed) {
     history.push({ iteration: iter, runs: RUNS_PER_ITER, passed, percentile, breaks });
 
     if (percentile >= PERCENTILE_TARGET || active.length === 0) {
-      return { iterations: iter, percentile, reachedTarget: percentile >= PERCENTILE_TARGET, history, fixedBreaks };
+      return { iterations: iter, percentile, reachedTarget: percentile >= PERCENTILE_TARGET, history, fixedBreaks, categories };
     }
     // corrige a quebra de maior peso (a mais impactante primeiro)
     active.sort((a, b) => b.weight - a.weight);
@@ -71,16 +75,26 @@ export function simulateDeterministic(bp, ster, seed) {
     reachedTarget: last.percentile >= PERCENTILE_TARGET,
     history,
     fixedBreaks,
+    categories,
   };
 }
 
-/** @param {import("../types.mjs").PipelineState} state */
-export async function simulate(state) {
+/**
+ * @param {import("../types.mjs").PipelineState} state
+ * @param {{store?:{baseDir:string}}} [ctx]
+ */
+export async function simulate(state, ctx) {
   const seed = seedFrom(state.runId + ":" + (state.blueprint?.slug || ""));
   const report = simulateDeterministic(state.blueprint, state.steroided, seed);
   state.log.push(
     `[simulate] ${report.iterations} iteracoes -> percentil ${report.percentile}% (alvo ${PERCENTILE_TARGET}%), ${report.fixedBreaks.length} quebras corrigidas, alvo ${report.reachedTarget ? "ATINGIDO" : "NAO atingido"}`
   );
+  // T4.5 — memoria de falhas antifragil: best-effort, nunca bloqueia o pipeline.
+  try {
+    if (ctx?.store?.baseDir) recordFailures(ctx.store.baseDir, report.categories, { runId: state.runId });
+  } catch {
+    /* nunca lanca a partir do estagio */
+  }
   return { simulation: report };
 }
 

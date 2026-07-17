@@ -18,6 +18,7 @@ import { fireRealize } from "../src/dispatch-ci.mjs";
 import { newRunId } from "../src/inbox.mjs";
 import { formatReply, sendTelegramReply } from "../src/reply.mjs";
 import { dedupKey, stableRunId, seenRecently } from "../src/dedup.mjs";
+import { meter, snapshot as costSnapshot } from "../src/cost.mjs";
 
 export const MAX_BODY = 256 * 1024; // 256KB — teto anti-DoS
 const RATE_LIMIT = Number(process.env.IDEAINBOX_RATE_LIMIT || 30); // req/janela/IP
@@ -184,6 +185,7 @@ export function makeHandler(channel) {
       //    A simulacao E2E pesada (99.9%) + RETROFORJA rodam no laco assincrono
       //    (idea-forge realize / CI), nao no endpoint publico. (F3/F7)
       const result = await runSync({ source: norm.source || channel, text: finalText, audioRef: norm.audioRef, runId: stableId });
+      meter("pipeline_runs"); // governanca de custo (B.1) — observabilidade do volume de runs
 
       // 4b) enriquecimento best-effort: ASSIMETRIA/SINERGIA contra o seed bank
       //     do operador (packages/idea-forge/src/seeds). Nunca bloqueia — sem
@@ -238,7 +240,9 @@ export function makeHandler(channel) {
 export function healthHandler(_req, res) {
   res.statusCode = 200;
   res.setHeader("content-type", "application/json");
-  res.end(JSON.stringify({ ok: true, service: "idea-inbox", ts: new Date().toISOString() }));
+  // B.1: expoe o snapshot de custo (pipeline_runs/ci_fires/ci_capped) no
+  // /health existente — observabilidade sem precisar de rota nova.
+  res.end(JSON.stringify({ ok: true, service: "idea-inbox", ts: new Date().toISOString(), cost: costSnapshot() }));
 }
 
 export default {

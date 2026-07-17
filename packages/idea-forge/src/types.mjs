@@ -160,6 +160,7 @@ export const SYNTHETIC_DB_CONFIDENCE = 95;
  * @property {boolean} reachedTarget       percentile >= PERCENTILE_TARGET
  * @property {Array<{iteration:number, runs:number, passed:number, percentile:number, breaks:string[]}>} history
  * @property {string[]} fixedBreaks        quebras de fluxo corrigidas ao longo dos ciclos
+ * @property {Array<{id:string, desc:string}>} categories  categorias de falha detectadas nesta rodada (T4.5 — memoria antifragil)
  */
 
 /**

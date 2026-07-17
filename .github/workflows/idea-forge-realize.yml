@@ -53,13 +53,46 @@ jobs:
             node packages/idea-forge/bin/idea-forge.mjs run --text "$TEXT" --dir "$RUNNER_TEMP/if"
           fi
 
-      - name: Realize (dispatch -> build do projeto-filho)
+      - name: Resolver runId do pipeline
+        id: resolve_run
         run: |
           RUN_ID=$(ls -t "$RUNNER_TEMP/if/runs"/*.json | head -n1 | xargs -n1 basename | sed 's/\.json$//')
           if [ -z "$RUN_ID" ]; then
             echo "erro: nenhum run encontrado em $RUNNER_TEMP/if/runs" >&2
             exit 1
           fi
+          echo "runId=$RUN_ID"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Gate de qualidade (B.2) — bloqueia o auto-deploy de blueprint reprovado
+        # Le o estado persistido do run (runs/<runId>.json) e falha o job ANTES
+        # de qualquer passo de realize/deploy se o dispatch estiver bloqueado
+        # ou o score nao tiver atingido o gate (95). O executor real (T0.1,
+        # quando IDEAFORGE_EXECUTOR estiver ligado no runner) so deve ser
+        # chamado sobre blueprints aprovados — este step e a guarda que
+        # garante isso mesmo antes de haver um deploy de fato.
+        run: |
+          RUN_ID="${{ steps.resolve_run.outputs.run_id }}"
+          STATE_FILE="$RUNNER_TEMP/if/runs/$RUN_ID.json"
+          node -e '
+            const fs = require("node:fs");
+            const path = process.argv[1];
+            const state = JSON.parse(fs.readFileSync(path, "utf8"));
+            const blocked = !!(state.dispatch && state.dispatch.blocked);
+            const score = state.scored ? state.scored.score : null;
+            const gate = 95;
+            console.log(`dispatch.blocked=${blocked} scored.score=${score} gate=${gate}`);
+            if (blocked || score === null || score < gate) {
+              console.error("GATE DE QUALIDADE (B.2) FALHOU: blueprint reprovado — auto-deploy bloqueado.");
+              if (state.dispatch && state.dispatch.note) console.error(`nota do dispatch: ${state.dispatch.note}`);
+              process.exit(1);
+            }
+            console.log("gate de qualidade OK — liberado para realize/deploy.");
+          ' "$STATE_FILE"
+
+      - name: Realize (dispatch -> build do projeto-filho)
+        run: |
+          RUN_ID="${{ steps.resolve_run.outputs.run_id }}"
           echo "runId=$RUN_ID"
           node packages/idea-forge/bin/idea-forge.mjs realize "$RUN_ID" --dir "$RUNNER_TEMP/if" --target "$RUNNER_TEMP/child"
 

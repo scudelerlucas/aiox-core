@@ -5,14 +5,17 @@
  * Artigo IV (No Invention): todo enunciado rastreia a um atomo / modo de fracasso / alavanca.
  */
 import { askJson } from "../llm.mjs";
+import { topFailures } from "../frameworks/failure-memory.mjs";
 
 /**
  * @param {import("../types.mjs").RawIdea} raw
  * @param {import("../types.mjs").BrainstormedIdea} brain
  * @param {import("../types.mjs").SteroidedIdea} ster
+ * @param {{topFailures?:Array<{id:string, count:number, desc:string}>}} [opts] T4.5 — memoria antifragil (historico de falhas de simulacoes anteriores). Vazio/ausente -> no-op.
  * @returns {import("../types.mjs").ProjectBlueprint}
  */
-export function architectDeterministic(raw, brain, ster) {
+export function architectDeterministic(raw, brain, ster, opts = {}) {
+  const lessons = Array.isArray(opts.topFailures) ? opts.topFailures : [];
   const name = deriveName(brain.sharpenedThesis);
   const slug = slugify(name);
   const goals = brain.converged.length ? brain.converged : [brain.sharpenedThesis];
@@ -26,25 +29,38 @@ export function architectDeterministic(raw, brain, ster) {
     "build (sucesso)",
     "simulacao E2E >= percentil-alvo (99.9%)",
     ...ster.failureModes.map((f) => `gate-vacina ${f.id}: ${f.vaccine}`),
+    ...buildAntifragileGates(lessons),
   ];
   const risks = ster.failureModes.map((f) => `${f.id} ${f.name}${f.lethal ? " (LETAL)" : ""} — mitigacao: ${f.vaccine}`);
 
   const prd = buildPrd({ name, raw, brain, ster, goals, flows });
-  const architecture = buildArchitecture({ name, ster, flows, stories });
+  const architecture = buildArchitecture({ name, ster, flows, stories, lessons });
 
   return { name, slug, prd, architecture, stories, qualityGates, risks, flows };
 }
 
-/** @param {import("../types.mjs").PipelineState} state */
-export async function architect(state) {
+/**
+ * @param {import("../types.mjs").PipelineState} state
+ * @param {{store?:{baseDir:string}}} [ctx]
+ */
+export async function architect(state, ctx) {
   const { raw, brainstormed: brain, steroided: ster } = state;
-  const fallback = () => architectDeterministic(raw, brain, ster);
+  // T4.5 — antes de propor a arquitetura, consulta a memoria de falhas
+  // antifragil (historico de simulacoes anteriores). Best-effort: sem
+  // historico/store, `lessons` fica vazio e o blueprint sai identico a antes.
+  let lessons = [];
+  try {
+    if (ctx?.store?.baseDir) lessons = topFailures(ctx.store.baseDir);
+  } catch {
+    lessons = [];
+  }
+  const fallback = () => architectDeterministic(raw, brain, ster, { topFailures: lessons });
   const { value, note } = await askJson({
     system:
       "Voce e o arquiteto AIOX PRO. Gere um blueprint {name, slug, prd(markdown), architecture(markdown), " +
       "stories[{id,title,acceptanceCriteria[]}], qualityGates[], risks[], flows[]}. " +
       "Artigo IV No Invention: cada item rastreia a um atomo, modo de fracasso ou alavanca TGM. Preserve o formato do fallback.",
-    user: `Tese: ${brain.sharpenedThesis}\nFluxos-alvo (goals): ${JSON.stringify(brain.converged)}\nModos de fracasso: ${JSON.stringify(ster.failureModes)}`,
+    user: `Tese: ${brain.sharpenedThesis}\nFluxos-alvo (goals): ${JSON.stringify(brain.converged)}\nModos de fracasso: ${JSON.stringify(ster.failureModes)}${lessons.length ? `\nLicoes de falhas anteriores (antifragil): ${JSON.stringify(lessons)}` : ""}`,
     fallback,
     validate: (x) => !!x && typeof (/** @type {any} */ (x).prd) === "string" && Array.isArray(/** @type {any} */ (x).stories) && Array.isArray(/** @type {any} */ (x).flows),
   });
@@ -121,7 +137,7 @@ ${ster.antifragility.convexResponses.map((c) => `- **[${c.type}]** ${c.action}`)
 `;
 }
 
-function buildArchitecture({ name, ster, flows, stories }) {
+function buildArchitecture({ name, ster, flows, stories, lessons = [] }) {
   const iso = ster.tgm.isomorfismos[0] || "pipeline resumivel";
   return `# Arquitetura — ${name}
 
@@ -148,7 +164,34 @@ ${flows.map((f) => `- \`${f}\``).join("\n")}
 
 ## Loop de fechamento (RETROFORJA — TGM A6)
 ${ster.tgm.retroforjaHook}
+${buildLessonsSection(lessons)}`;
+}
+
+/**
+ * Secao "Licoes de falhas anteriores" (T4.5 — memoria antifragil). So aparece
+ * quando ha historico real de simulacoes anteriores; sem historico -> no-op
+ * (string vazia, arquitetura sai identica a antes da feature).
+ * @param {Array<{id:string, count:number, desc:string}>} lessons
+ */
+function buildLessonsSection(lessons) {
+  if (!lessons || !lessons.length) return "";
+  return `
+## Licoes de falhas anteriores (antifragil — T4.5)
+O pipeline ganha com as proprias quebras de simulacoes passadas: as categorias abaixo
+sao as mais recorrentes no historico de \`failure-patterns.json\` e foram reforcadas
+com quality-gates extras nesta blueprint.
+${lessons.map((l) => `- **${l.id}** (${l.count}x no historico)${l.desc ? `: ${l.desc}` : ""}`).join("\n")}
 `;
+}
+
+/**
+ * Quality-gates extras mirando as categorias de falha mais recorrentes do
+ * historico de simulacoes (T4.5). Vazio quando nao ha historico -> no-op.
+ * @param {Array<{id:string, count:number, desc:string}>} lessons
+ */
+function buildAntifragileGates(lessons) {
+  if (!lessons || !lessons.length) return [];
+  return lessons.map((l) => `gate-antifragil ${l.id}: prevenir recorrencia (visto ${l.count}x em simulacoes anteriores)`);
 }
 
 // helpers
