@@ -22,7 +22,9 @@ import { loadFormats } from "../src/formats.mjs";
 import { loadPersona, listPersonas } from "../src/persona.mjs";
 import { runBrief } from "../src/pipeline.mjs";
 import { runFactory, briefsFromSeed, loadBriefsFile } from "../src/factory.mjs";
-import { hasFfmpeg } from "../src/util.mjs";
+import { parseEditorPlan, normalizePlan, planToClipSpecs } from "../src/plan.mjs";
+import { hasFfmpeg, ensureDir, writeJson } from "../src/util.mjs";
+import { readFileSync } from "node:fs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PRESET_DIR = join(HERE, "..", "presets");
@@ -46,6 +48,8 @@ async function main() {
       return cmdLoop(args, formats);
     case "batch":
       return cmdBatch(args, formats);
+    case "from-plan":
+      return cmdFromPlan(args, formats);
     case "presets":
       return cmdPresets(formats);
     case "personas":
@@ -123,6 +127,42 @@ async function cmdBatch(args, formats) {
   report(results, ctx);
 }
 
+async function cmdFromPlan(args, formats) {
+  // Ponte Editor OS -> máquina de vídeos: consome o plano do radar-editor-ia.
+  const file = args.file || args._[0];
+  if (!file) throw new Error("Informe o plano: omni-video from-plan plano.txt|plano.json");
+  const ctx = buildCtx(args, formats);
+  banner(ctx);
+
+  const raw = readFileSync(file, "utf8");
+  let plan;
+  if (file.endsWith(".json")) {
+    plan = normalizePlan(JSON.parse(raw));
+  } else {
+    plan = parseEditorPlan(raw, {
+      tema: args.topic || "",
+      aspectRatio: ctx.preset.aspectRatio,
+      language: args.language || "pt-BR",
+    });
+  }
+
+  const specs = planToClipSpecs(plan, ctx.persona);
+  const slug = (args.topic || plan.tema || "editor-os").toString().slice(0, 40).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  const dir = ensureDir(`${ctx.config.outDir}/plan-${slug}`);
+  writeJson(`${dir}/plan.json`, plan);
+  writeJson(`${dir}/clip-specs.json`, specs);
+
+  log(`∷ plano lido: ${plan.cuts.length} corte(s), ${plan.totalSeconds}s total, ${plan.aspectRatio}`);
+  for (const s of specs) {
+    const tag = s.sourceType === "talking_head" ? "🗣  você" : "🎞  b-roll";
+    log(`  [${s.index}] ${tag} ${s.durationSeconds}s ${s.block ? `<${s.block}>` : ""} — ${s.prompt.slice(0, 70)}…`);
+  }
+  log(`\n  ✓ estruturado: ${dir}/plan.json + clip-specs.json`);
+  if (ctx.config.dryRun) {
+    log("  (dry-run) specs prontos para render. Defina GEMINI_API_KEY/FAL_KEY para gerar os clipes.");
+  }
+}
+
 function cmdPresets(formats) {
   log("Formatos disponiveis:\n");
   for (const p of Object.values(formats)) {
@@ -186,6 +226,7 @@ Uso:
   omni-video generate --topic "tema" [--format reel-viral] [--persona lucas]
   omni-video loop --seed "tema base" --count 20 [--format shorts]
   omni-video batch briefs.json [--format youtube-horizontal]
+  omni-video from-plan plano.txt [--persona lucas]   # ponte Editor OS -> vídeo
   omni-video presets
   omni-video personas
   omni-video doctor
