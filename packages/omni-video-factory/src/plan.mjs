@@ -151,11 +151,12 @@ function parseCut(line, index) {
     raw: line,
   };
 
+  // Só BLOCO e BROLL são rotulados no formato do Editor OS; o resto é posicional
+  // (o texto-na-tela é o VALOR do segmento, não vem com prefixo "TEXTO:").
   const unlabeled = [];
   for (const seg of segs) {
+    const bloco = seg.match(/^BLOCO\s*:?\s*([a-z_]+)/i);
     const broll = seg.match(/(?:🎬\s*)?B-?ROLL\s*:?\s*(.+)/i);
-    const bloco = seg.match(/BLOCO\s*:?\s*([a-z_]+)/i);
-    const texto = seg.match(/(?:TEXTO(?:\s+NA\s+TELA)?)\s*:?\s*(.+)/i);
     if (bloco) {
       const key = bloco[1].toLowerCase();
       cut.block = BLOCK_KEYS.has(key) ? key : null;
@@ -165,15 +166,13 @@ function parseCut(line, index) {
         cut.brollQuery = q;
         cut.sourceType = "broll";
       }
-    } else if (texto) {
-      cut.onScreenText = texto[1].trim();
     } else {
       unlabeled.push(seg);
     }
   }
   // Posicional para os não-rotulados: zoom, texto-na-tela, trilha, transição.
   if (unlabeled[0]) cut.zoom = unlabeled[0];
-  if (!cut.onScreenText && unlabeled[1]) cut.onScreenText = unlabeled[1];
+  if (unlabeled[1]) cut.onScreenText = unlabeled[1];
   if (unlabeled[2]) cut.track = unlabeled[2];
   if (unlabeled[3]) cut.transition = unlabeled[3];
 

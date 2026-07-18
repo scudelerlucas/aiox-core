@@ -77,6 +77,25 @@ Instalado como bin: `omni-video` / `ovf`.
 
 ---
 
+## Ponte Editor OS → vídeo (`from-plan` + compositor)
+
+O **Editor OS** (`radar-editor-ia`, modo=plano) emite um plano shot-by-shot com
+tag de bloco e query de B-roll por corte. A fábrica consome esse plano e monta o
+vídeo final:
+
+```bash
+omni-video from-plan examples/editor-os-plan.example.txt --persona lucas
+```
+
+Fluxo: `parseEditorPlan()` estrutura o texto pipe → `editor-os.plan/v1` (JSON) →
+`planToClipSpecs()` mapeia cada corte para geração (talking-head usa você;
+B-roll usa a query) → o **compositor** (`renderTimeline`) normaliza cada clipe
+para o enquadramento, corta na duração, **queima o texto-na-tela**, concatena e
+exporta. Sem ffmpeg no ambiente, emite `render.sh` + filtergraph reproduzível.
+
+Saída em `output/plan-<slug>/`: `plan.json`, `clip-specs.json`, `clip-NN.mp4`,
+`<slug>.mp4` (final) ou `render.sh`.
+
 ## Formatos (presets)
 
 | id | ratio | duração | provider | uso |

@@ -14,6 +14,7 @@ export { buildPrompt } from "./prompt-builder.mjs";
 export { createProvider, buildRequestBody, extractVideoUri } from "./providers/gemini.mjs";
 export { runBrief } from "./pipeline.mjs";
 export { parseEditorPlan, normalizePlan, planToClipSpecs } from "./plan.mjs";
+export { renderTimeline, buildFilterComplex, buildFfmpegArgs, dimensionsFor } from "./compositor.mjs";
 export {
   runFactory,
   briefsFromSeed,

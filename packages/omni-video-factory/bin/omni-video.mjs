@@ -23,8 +23,10 @@ import { loadPersona, listPersonas } from "../src/persona.mjs";
 import { runBrief } from "../src/pipeline.mjs";
 import { runFactory, briefsFromSeed, loadBriefsFile } from "../src/factory.mjs";
 import { parseEditorPlan, normalizePlan, planToClipSpecs } from "../src/plan.mjs";
+import { renderTimeline } from "../src/compositor.mjs";
+import { createProvider } from "../src/providers/gemini.mjs";
 import { hasFfmpeg, ensureDir, writeJson } from "../src/util.mjs";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PRESET_DIR = join(HERE, "..", "presets");
@@ -157,9 +159,32 @@ async function cmdFromPlan(args, formats) {
     const tag = s.sourceType === "talking_head" ? "🗣  você" : "🎞  b-roll";
     log(`  [${s.index}] ${tag} ${s.durationSeconds}s ${s.block ? `<${s.block}>` : ""} — ${s.prompt.slice(0, 70)}…`);
   }
-  log(`\n  ✓ estruturado: ${dir}/plan.json + clip-specs.json`);
-  if (ctx.config.dryRun) {
-    log("  (dry-run) specs prontos para render. Defina GEMINI_API_KEY/FAL_KEY para gerar os clipes.");
+  log(`  ✓ estruturado: ${dir}/plan.json + clip-specs.json`);
+
+  // Gera um clipe por corte (live) e monta a timeline final. Em dry-run, os
+  // clipes não são gerados, mas o compositor emite o pacote de render completo.
+  const clipPaths = specs.map((s) => join(dir, `clip-${String(s.index).padStart(2, "0")}.mp4`));
+  const provider = createProvider(ctx.preset.provider, ctx.config);
+  let generated = 0;
+  if (!ctx.config.dryRun) {
+    for (const s of specs) {
+      const r = await provider.generate({
+        prompt: s.prompt,
+        aspectRatio: s.aspectRatio,
+        durationSeconds: s.durationSeconds,
+        references: s.references,
+      });
+      if (r.bytes) { writeFileSync(clipPaths[s.index], r.bytes); generated++; }
+    }
+    log(`  ✓ ${generated}/${specs.length} clipe(s) gerado(s)`);
+  }
+
+  const render = renderTimeline({ plan, clips: clipPaths, outPath: join(dir, `${slug}.mp4`), log });
+  if (render.rendered) {
+    log(`\n  🎬 vídeo final: ${render.outPath}`);
+  } else {
+    log(`\n  📦 pacote de render pronto (rode onde houver ffmpeg): ${render.script}`);
+    if (ctx.config.dryRun) log("  (dry-run) Defina GEMINI_API_KEY/FAL_KEY para gerar os clipes automaticamente.");
   }
 }
 
