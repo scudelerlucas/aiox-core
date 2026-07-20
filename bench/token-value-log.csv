@@ -1,1 +1,4 @@
 date,env,repo,task_id,model,input_tokens,output_tokens,cache_read,cache_creation,total_tokens,value_0_5,notes
+2026-07-20,ccr-remote,aiox-core,ATOM-WEB-SWEEP,fable,60000,8000,400000,20000,488000,5,"varredura web custos de token; relatorio docs/guides/token-cost-web-sweep-2026-07.md; tokens estimados (sem /usage no ambiente)"
+2026-07-20,ccr-remote,4-repos,ATOM-CONTEXT-DIET,fable,80000,12000,600000,30000,722000,5,"dieta de contexto: CLAUDE.md 411→93 (aiox) 474→26 (lucas) 29→16 (pandora) 94→87 (quiz); protocolo unificado 9 linhas; 3 skills novas; tokens estimados"
+2026-07-20,ccr-remote,4-repos,ATOM-SELF-AUDIT,fable,30000,4000,300000,10000,344000,4,"auditoria !atom: ponteiros OK; rules escopadas OK; AGENTS.md mantido (Codex, sem duplicacao); violacao ATOM-01 registrada: trabalho mecanico executado em Fable em vez de subagente Sonnet"
