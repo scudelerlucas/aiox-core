@@ -91,3 +91,9 @@ Preferência de idioma via setting nativo `language` em `.claude/settings.json` 
 ---
 
 *Synkra AIOX Claude Code Configuration v4.1 — CLI First | Observability Second | UI Third*
+## Instruções de Compactação (economia automática)
+
+Ao compactar (`/compact` ou auto-compact), preservar: decisões tomadas + arquivos
+alterados + estado atual da tarefa + links de produção. Descartar: exploração de
+código já concluída, output verboso de ferramentas, raciocínio intermediário.
+Compactar cedo (~60% de contexto) rende resumo melhor e menos retrabalho.
