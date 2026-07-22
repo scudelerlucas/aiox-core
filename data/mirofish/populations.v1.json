@@ -1,0 +1,459 @@
+{
+  "name": "mirofish-populations",
+  "version": "1.0.0",
+  "generated_from": "KOINONIA Anexo D + upgrade LATAM r2-3 (Edelman 2026 / GEM / IMD / DataReportal)",
+  "hofstede_order": [
+    "pdi",
+    "idv",
+    "mas",
+    "uai",
+    "lto",
+    "ivr"
+  ],
+  "quality_legend": {
+    "firm": "fonte primária confirmada",
+    "placeholder": "hipótese a validar (não travar preço/mensagem)"
+  },
+  "strategic_note": "A variável que mais separa os mercados p/ copy de infoproduto é IDV (individualismo): EUA/Hungria pedem conquista pessoal; Indonésia/Colômbia/China exigem benefício de família/grupo.",
+  "regions": [
+    "latam",
+    "eastern_europe",
+    "west",
+    "asia"
+  ],
+  "markets": [
+    {
+      "code": "BR",
+      "name": "Brasil",
+      "region": "latam",
+      "hofstede": {
+        "pdi": 69,
+        "idv": 38,
+        "mas": 49,
+        "uai": 76,
+        "lto": 44,
+        "ivr": 59
+      },
+      "digital": {
+        "internet_penetration_pct": 90.5,
+        "quality": "firm",
+        "source": "IBGE 2025"
+      },
+      "trust": {
+        "edelman_trust_index_2026": 56,
+        "quality": "firm",
+        "source": "Edelman Trust Barometer 2026"
+      },
+      "entrepreneurship": {
+        "gem_tea_pct": 20.3,
+        "quality": "firm",
+        "source": "GEM 2024/25"
+      },
+      "quality": "firm"
+    },
+    {
+      "code": "MX",
+      "name": "México",
+      "region": "latam",
+      "hofstede": {
+        "pdi": 81,
+        "idv": 30,
+        "mas": 69,
+        "uai": 82,
+        "lto": 24,
+        "ivr": 97
+      },
+      "digital": {
+        "internet_penetration_pct": 83,
+        "quality": "firm",
+        "source": "DataReportal Digital 2024"
+      },
+      "trust": {
+        "edelman_trust_index_2026": 57,
+        "quality": "firm",
+        "source": "Edelman 2026"
+      },
+      "entrepreneurship": {
+        "gem_tea_pct": 19.6,
+        "quality": "firm",
+        "source": "GEM 2023 (Tec de Monterrey)"
+      },
+      "imd_digital_rank_2024": 59,
+      "quality": "firm"
+    },
+    {
+      "code": "CO",
+      "name": "Colômbia",
+      "region": "latam",
+      "hofstede": {
+        "pdi": 67,
+        "idv": 13,
+        "mas": 64,
+        "uai": 80,
+        "lto": 34,
+        "ivr": 83
+      },
+      "digital": {
+        "internet_penetration_pct": 75.7,
+        "quality": "firm",
+        "source": "DataReportal Digital 2024"
+      },
+      "trust": {
+        "edelman_trust_index_2026": 48,
+        "quality": "firm",
+        "source": "Edelman 2026 (fontes 47–49)"
+      },
+      "entrepreneurship": {
+        "gem_tea_pct": 23.6,
+        "quality": "firm",
+        "source": "GEM 2023/24 (7ª do mundo)"
+      },
+      "imd_digital_rank_2024": 58,
+      "quality": "firm"
+    },
+    {
+      "code": "AR",
+      "name": "Argentina",
+      "region": "latam",
+      "hofstede": {
+        "pdi": 49,
+        "idv": 46,
+        "mas": 56,
+        "uai": 86,
+        "lto": 20,
+        "ivr": 62
+      },
+      "digital": {
+        "internet_penetration_pct": 88.4,
+        "quality": "firm",
+        "source": "DataReportal Digital 2024"
+      },
+      "trust": {
+        "edelman_trust_index_2026": 50,
+        "quality": "firm",
+        "source": "Edelman 2026 (subindo de 48)"
+      },
+      "entrepreneurship": {
+        "gem_tea_pct": 23.4,
+        "quality": "firm",
+        "source": "GEM 2024/25"
+      },
+      "imd_digital_rank_2024": 62,
+      "quality": "firm"
+    },
+    {
+      "code": "CL",
+      "name": "Chile",
+      "region": "latam",
+      "hofstede": {
+        "pdi": 63,
+        "idv": 23,
+        "mas": 28,
+        "uai": 86,
+        "lto": 31,
+        "ivr": 68
+      },
+      "digital": {
+        "internet_penetration_pct": 91,
+        "quality": "firm",
+        "source": "DataReportal Digital 2024"
+      },
+      "trust": {
+        "latinobarometro_2024": {
+          "congresso_pct": 19,
+          "satisfacao_democracia_pct": 39
+        },
+        "quality": "placeholder",
+        "source": "Latinobarómetro 2024 (fonte ≠ Edelman)"
+      },
+      "entrepreneurship": {
+        "gem_tea_pct": 27.2,
+        "quality": "firm",
+        "source": "GEM 2024/25 (top 4 mundial)"
+      },
+      "imd_digital_rank_2024": 43,
+      "quality": "firm"
+    },
+    {
+      "code": "PE",
+      "name": "Peru",
+      "region": "latam",
+      "hofstede": {
+        "pdi": 64,
+        "idv": 16,
+        "mas": 42,
+        "uai": 87,
+        "lto": 25,
+        "ivr": 46
+      },
+      "digital": {
+        "internet_penetration_pct": 74.7,
+        "quality": "firm",
+        "source": "DataReportal Digital 2024"
+      },
+      "trust": {
+        "latinobarometro_2024": {
+          "congresso_pct": 15,
+          "satisfacao_democracia_pct": 10
+        },
+        "quality": "placeholder",
+        "source": "Latinobarómetro 2024"
+      },
+      "entrepreneurship": {
+        "gem_tea_pct": 25,
+        "quality": "placeholder",
+        "source": "GEM Peru/ESAN (1 em 4; survey 2018-19)"
+      },
+      "imd_digital_rank_2024": 63,
+      "quality": "placeholder"
+    },
+    {
+      "code": "PL",
+      "name": "Polônia",
+      "region": "eastern_europe",
+      "hofstede": {
+        "pdi": 68,
+        "idv": 60,
+        "mas": 64,
+        "uai": 93,
+        "lto": 38,
+        "ivr": 29
+      },
+      "digital": {
+        "internet_penetration_pct": 86,
+        "quality": "firm",
+        "source": "Reuters Institute 2025"
+      },
+      "quality": "firm"
+    },
+    {
+      "code": "RO",
+      "name": "Romênia",
+      "region": "eastern_europe",
+      "hofstede": {
+        "pdi": 90,
+        "idv": 30,
+        "mas": 42,
+        "uai": 90,
+        "lto": 52,
+        "ivr": 20
+      },
+      "digital": {
+        "internet_penetration_pct": 89,
+        "quality": "firm",
+        "source": "Reuters Institute 2025"
+      },
+      "quality": "placeholder",
+      "note": "MAS/UAI/LTO/IVR placeholder (Hofstede 403)"
+    },
+    {
+      "code": "CZ",
+      "name": "Rep. Tcheca",
+      "region": "eastern_europe",
+      "hofstede": {
+        "pdi": 57,
+        "idv": 58,
+        "mas": 57,
+        "uai": 74,
+        "lto": 70,
+        "ivr": 29
+      },
+      "digital": {
+        "internet_penetration_pct": 86,
+        "quality": "firm",
+        "source": "Reuters Institute 2025"
+      },
+      "quality": "placeholder"
+    },
+    {
+      "code": "HU",
+      "name": "Hungria",
+      "region": "eastern_europe",
+      "hofstede": {
+        "pdi": 46,
+        "idv": 80,
+        "mas": 88,
+        "uai": 82,
+        "lto": 58,
+        "ivr": 31
+      },
+      "digital": {
+        "internet_penetration_pct": 92,
+        "quality": "firm",
+        "source": "Reuters Institute 2025"
+      },
+      "quality": "placeholder"
+    },
+    {
+      "code": "BG",
+      "name": "Bulgária",
+      "region": "eastern_europe",
+      "hofstede": {
+        "pdi": 70,
+        "idv": 30,
+        "mas": 40,
+        "uai": 85,
+        "lto": 69,
+        "ivr": 16
+      },
+      "digital": {
+        "internet_penetration_pct": 80,
+        "quality": "firm",
+        "source": "Reuters Institute 2025"
+      },
+      "quality": "placeholder"
+    },
+    {
+      "code": "UA",
+      "name": "Ucrânia",
+      "region": "eastern_europe",
+      "hofstede": {
+        "pdi": null,
+        "idv": null,
+        "mas": null,
+        "uai": null,
+        "lto": null,
+        "ivr": null
+      },
+      "digital": {
+        "internet_penetration_pct": 89.6,
+        "quality": "firm",
+        "source": "DataReportal Digital 2026: Ukraine"
+      },
+      "quality": "placeholder",
+      "note": "Hofstede não localizado"
+    },
+    {
+      "code": "US",
+      "name": "EUA",
+      "region": "west",
+      "hofstede": {
+        "pdi": 40,
+        "idv": 91,
+        "mas": null,
+        "uai": 46,
+        "lto": 26,
+        "ivr": 68
+      },
+      "digital": {
+        "internet_penetration_pct": 93.1,
+        "quality": "firm",
+        "source": "DataReportal 2025"
+      },
+      "quality": "firm",
+      "note": "MAS placeholder"
+    },
+    {
+      "code": "UK",
+      "name": "Reino Unido",
+      "region": "west",
+      "hofstede": {
+        "pdi": 35,
+        "idv": 89,
+        "mas": null,
+        "uai": 35,
+        "lto": 51,
+        "ivr": 69
+      },
+      "digital": {
+        "internet_penetration_pct": 90,
+        "quality": "placeholder",
+        "source": "DataReportal (Europa Ocidental)"
+      },
+      "quality": "placeholder"
+    },
+    {
+      "code": "DE",
+      "name": "Alemanha",
+      "region": "west",
+      "hofstede": {
+        "pdi": 35,
+        "idv": 67,
+        "mas": null,
+        "uai": 65,
+        "lto": 83,
+        "ivr": 40
+      },
+      "digital": {
+        "internet_penetration_pct": 90,
+        "quality": "placeholder",
+        "source": "DataReportal (Europa Ocidental)"
+      },
+      "quality": "placeholder"
+    },
+    {
+      "code": "ES",
+      "name": "Espanha",
+      "region": "west",
+      "hofstede": {
+        "pdi": 57,
+        "idv": 51,
+        "mas": null,
+        "uai": 86,
+        "lto": null,
+        "ivr": null
+      },
+      "quality": "placeholder",
+      "note": "MAS/LTO/IVR placeholder"
+    },
+    {
+      "code": "IN",
+      "name": "Índia",
+      "region": "asia",
+      "hofstede": {
+        "pdi": 77,
+        "idv": 48,
+        "mas": 56,
+        "uai": 40,
+        "lto": 61,
+        "ivr": 26
+      },
+      "digital": {
+        "internet_penetration_pct": 66.9,
+        "quality": "firm",
+        "source": "IAMAI-Kantar 2025 (~958mi)"
+      },
+      "quality": "firm",
+      "note": "IVR placeholder"
+    },
+    {
+      "code": "ID",
+      "name": "Indonésia",
+      "region": "asia",
+      "hofstede": {
+        "pdi": 78,
+        "idv": 14,
+        "mas": 46,
+        "uai": 48,
+        "lto": 62,
+        "ivr": 38
+      },
+      "digital": {
+        "internet_penetration_pct": 80.66,
+        "quality": "firm",
+        "source": "APJII 2025"
+      },
+      "quality": "firm"
+    },
+    {
+      "code": "CN",
+      "name": "China",
+      "region": "asia",
+      "hofstede": {
+        "pdi": 80,
+        "idv": 20,
+        "mas": 66,
+        "uai": 30,
+        "lto": 87,
+        "ivr": 24
+      },
+      "digital": {
+        "internet_penetration_pct": 79.7,
+        "quality": "firm",
+        "source": "CNNIC jun/2025"
+      },
+      "quality": "firm",
+      "note": "Great Firewall: funil = reconstrução total (WeChat/Douyin/Alipay)"
+    }
+  ]
+}

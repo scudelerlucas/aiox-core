@@ -1,0 +1,8 @@
+{
+  "name": "mirofish-populations",
+  "version": "1.0.0",
+  "dataset": "populations.v1.json",
+  "checksum": "sha256:2f0c155cd18a1bcd0cc416dd531e705d36ddecd32fe9720824c3dafa72615a14",
+  "markets": 19,
+  "regions": 4
+}
