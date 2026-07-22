@@ -34,3 +34,6 @@ export function hofstede(code) {
   const m = getMarket(code);
   return m ? m.hofstede : null;
 }
+
+// Camada-feature: dado bruto -> diretivas acionáveis (o que FAZER por mercado).
+export { calibrate, calibrateMany } from "./calibrate.mjs";

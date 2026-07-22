@@ -1,6 +1,6 @@
 {
   "name": "mirofish-populations",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "generated_from": "KOINONIA Anexo D + upgrade LATAM r2-3 (Edelman 2026 / GEM / IMD / DataReportal)",
   "hofstede_order": [
     "pdi",

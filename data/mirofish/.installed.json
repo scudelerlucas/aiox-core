@@ -1,7 +1,7 @@
 {
   "name": "mirofish-populations",
-  "version": "1.0.0",
-  "checksum": "sha256:2f0c155cd18a1bcd0cc416dd531e705d36ddecd32fe9720824c3dafa72615a14",
-  "installed_at": "2026-07-22T20:34:03.532Z",
+  "version": "1.1.0",
+  "checksum": "sha256:cd545c766fa6cf43f91b9d8e0e043361d4280ad7ed813d28ad872b9d36d97716",
+  "installed_at": "2026-07-22T20:47:32.131Z",
   "source": "mirofish-populations pack"
 }
