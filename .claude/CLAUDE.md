@@ -402,7 +402,7 @@ tail -f .aiox/logs/agent.log
 
 > Objetivo: **máximo valor por dólar de token.** Regras que valem SEMPRE nesta sessão.
 
-- **Roteamento de modelo:** padrão = Sonnet. Opus 4.8 só em arquitetura/refactor complexo/debug profundo. Fable só no problema mais difícil e long-horizon do dia. Haiku/subagente para grep, contagem, formatação, lint.
+- **Roteamento de modelo:** padrão = Sonnet 5. Opus 5 só em arquitetura/refactor complexo/debug profundo. Fable 5 só no problema mais difícil e long-horizon do dia. Haiku/subagente para grep, contagem, formatação, lint. Tabela vigente + IDs + preços: `.claude/rules/model-routing.md` (fonte única — não duplicar versões aqui).
 - **Effort:** `low`/`medium` para tarefas mecânicas; `high`/`xhigh` só em raciocínio complexo.
 - **Saída:** sem preâmbulo ("Aqui está...", "Baseado em..."); extração/classificação em JSON/tabela, nunca prosa; não recapitular o já dito.
 - **Contexto:** planejar antes de executar tarefa não-trivial; reusar output existente antes de gerar; um assunto por sessão.
