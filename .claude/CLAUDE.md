@@ -409,3 +409,18 @@ tail -f .aiox/logs/agent.log
 - **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0-5) em `bench/token-value-log.csv`.
 
 **Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
+
+## 🧠 Memória Compartilhada entre Chats (SEMPRE)
+
+> Fonte central: repo `scudelerlucas/lucas-contexto-geral`, pasta `memoria/`.
+> Regra completa: `.claude/rules/memoria-compartilhada.md` daquele repo. Não duplicar aqui.
+
+- **Início de sessão substantiva:** ler os 10 resumos mais recentes de `memoria/` do repo
+  central (diretório irmão `../Lucas-Contexto-Geral/memoria/` ou via GitHub em
+  `scudelerlucas/lucas-contexto-geral`). Se inacessível, seguir sem — não perguntar ao Lucas.
+- **Fim de sessão com trabalho real:** gravar 1 resumo novo lá
+  (`memoria/AAAA-MM-DD--<repo-ou-tema>--<slug>.md`, template `memoria/_TEMPLATE.md`),
+  commit + push. Se o repo central não estiver gravável: fallback na pasta `memoria/`
+  DESTE repo (a próxima sessão no central migra).
+- **Nunca gravar:** segredos, tokens, dados de clientes/membros — só o destilado
+  (feito / decisões / pendências / links).
