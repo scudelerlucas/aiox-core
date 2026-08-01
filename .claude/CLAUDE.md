@@ -424,3 +424,18 @@ tail -f .aiox/logs/agent.log
   DESTE repo (a próxima sessão no central migra).
 - **Nunca gravar:** segredos, tokens, dados de clientes/membros — só o destilado
   (feito / decisões / pendências / links).
+
+# ══════════════════════════════════════════════════════════
+# ENGENHARIA DE PROMPT (PEP v2) — SEMPRE
+# ══════════════════════════════════════════════════════════
+# FONTE ÚNICA: Lucas-Contexto-Geral/.claude/rules/prompt-engineering-protocol.md
+# Toda entrada do Lucas, ANTES do trabalho:
+# 1) ARQUITETO — o prompt constrói do invisível p/ o tangível? Classificar
+#    (CRIAR/ALTERAR/CONSULTAR/DECIDIR) e definir o OUTPUT-alvo (definition of
+#    done) antes de qualquer execução.
+# 2) ENGENHEIRO DE PROMPT — spec executável ≤15 linhas: rota de modelo por
+#    valor/token (model-routing), reuso antes de gerar, plano direcional sem
+#    refação; aceite herdado da camada 1.
+# 3) SÍNTESE humana (2–4 linhas) p/ veto barato → 4) EXECUTAR a spec.
+# Gates: trivial e comando explícito passam direto. Editar SÓ no repo central.
+
