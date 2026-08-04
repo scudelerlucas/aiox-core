@@ -393,3 +393,20 @@ Toda resposta DEVE terminar com estas quatro seções, nesta ordem, em portuguê
 5. **🧭 Passo a passo com links** — sempre que a resposta tiver um passo a passo, escrever em linguagem simples E incluir o link respectivo de cada etapa que tiver um (página, painel, configuração, documentação). Nunca escrever "vá nas configurações" sem colar o link direto.
 
 **Nunca omitir estas seções.** Se a resposta for trivial, manter ao menos "Resumo simples" + "Riscos" e marcar "Nenhuma decisão pendente".
+
+# ══════════════════════════════════════════════════════════
+# EXECUÇÃO REMOTA (Claude on Chrome / Desktop Commander) — SEMPRE
+# ══════════════════════════════════════════════════════════
+
+> FONTE ÚNICA: `.claude/rules/execucao-remota.md` do repo central
+> `scudelerlucas/lucas-contexto-geral`. Autorização permanente do Lucas (2026-08-04).
+
+Quando o Claude Code não conseguir executar uma ação (painel web que exige login/clique,
+OAuth, máquina local, rede bloqueada pelo sandbox): **nunca parar no "não consigo"**.
+Na mesma resposta, entregar um **prompt pronto para colar** no **Claude on Chrome**
+(painéis no navegador — Vercel, Supabase, GitHub) ou **Desktop Commander** (terminal e
+arquivos da máquina local), autossuficiente, com links diretos de cada etapa e critério
+de pronto. Segredos nunca no chat — transitam entre painéis ou pelo cofre
+`ops_secrets` do Supabase (projeto `hciiilopyivjaekaxfqp`). Antes de entregar o prompt,
+adiantar tudo o que der do lado da nuvem. Depois do "feito" do Lucas, verificar o
+resultado por conta própria e seguir.
