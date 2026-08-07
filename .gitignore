@@ -384,3 +384,10 @@ build/
 .aiox-core/local/
 .claude/settings.local.json
 .aiox/install-log.txt
+
+# ELENCHOS: skill canônica global — exceção deliberada do operador (2026-07-26)
+!.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/elenchos/
