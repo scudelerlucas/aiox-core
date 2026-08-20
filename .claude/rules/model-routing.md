@@ -21,3 +21,10 @@ Quando a tarefa tem fan-out (buscar/ler/checar N itens) ou passos mecânicos:
 ## Guard-rail
 
 Se rotear para modelo mais barato baixar o valor entregue, subir o modelo. Otimiza-se `valor/token`, nunca token sozinho.
+
+## Aviso antes de rodar sub-ótimo
+
+A diretiva acima cobre subagentes (sobem sozinhos, sem perguntar). A **sessão principal**
+é o inverso: só o Lucas troca de modelo (`/model`), então quando o sinal bate Opus/Fable
+e a sessão está em Sonnet, **avisar antes de continuar** — 1 linha, no topo da resposta.
+Regra completa (FONTE ÚNICA): `Lucas-Contexto-Geral/.claude/rules/aviso-troca-de-modelo.md`.
