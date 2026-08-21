@@ -410,6 +410,15 @@ tail -f .aiox/logs/agent.log
 
 **Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
 
+# ══════════════════════════════════════════════════════════
+# AVISO DE TROCA DE MODELO — SEMPRE
+# ══════════════════════════════════════════════════════════
+# FONTE ÚNICA: Lucas-Contexto-Geral/.claude/rules/aviso-troca-de-modelo.md
+# Sessão principal em Sonnet + sinal de Opus/Fable (rubrica acima) → avisar o
+# Lucas em 1 linha, ANTES de entregar, com o sinal + comando `/model` sugerido.
+# Não é bloqueio: sem resposta, segue como exceção declarada. Gates de trivial/
+# comando explícito passam direto. Editar SÓ no repo central.
+
 ## 🧠 Memória Compartilhada entre Chats (SEMPRE)
 
 > Fonte central: repo `scudelerlucas/lucas-contexto-geral`, pasta `memoria/`.
