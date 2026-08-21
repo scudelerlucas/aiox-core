@@ -439,3 +439,11 @@ tail -f .aiox/logs/agent.log
 # 3) SÍNTESE humana (2–4 linhas) p/ veto barato → 4) EXECUTAR a spec.
 # Gates: trivial e comando explícito passam direto. Editar SÓ no repo central.
 
+# ══════════════════════════════════════════════════════════
+# GATE DE MODELO — a política tem gatilho, e o gatilho é hook
+# ══════════════════════════════════════════════════════════
+# POLÍTICA: `.claude/rules/model-routing.md` § Gate de veredito — toda resposta
+# substantiva declara o modelo na 1ª linha; insuficiente/excessivo não executa.
+# GATILHO: `.claude/rules/model-gate.md` + hook `UserPromptSubmit`
+# (.claude/hooks/model-gate-check.sh) — skill NÃO dispara sozinha.
+# Fonte única das duas regras: repo Lucas-Contexto-Geral. Não duplicar aqui.
