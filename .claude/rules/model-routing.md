@@ -22,9 +22,34 @@ Quando a tarefa tem fan-out (buscar/ler/checar N itens) ou passos mecânicos:
 
 Se rotear para modelo mais barato baixar o valor entregue, subir o modelo. Otimiza-se `valor/token`, nunca token sozinho.
 
-## Aviso antes de rodar sub-ótimo
+## Gate de veredito — TODA resposta declara o modelo (v2 · ordem do operador, 2026-08-21)
 
-A diretiva acima cobre subagentes (sobem sozinhos, sem perguntar). A **sessão principal**
-é o inverso: só o Lucas troca de modelo (`/model`), então quando o sinal bate Opus/Fable
-e a sessão está em Sonnet, **avisar antes de continuar** — 1 linha, no topo da resposta.
-Regra completa (FONTE ÚNICA): `Lucas-Contexto-Geral/.claude/rules/aviso-troca-de-modelo.md`.
+> Ordem direta do Lucas (21/08, sessão da auditoria Pandora), repetindo pedido que ele já
+> tinha feito em outro chat e que não estava gravado na fonte única — por isso não disparava.
+> Complementa a skill `model-gate`; esta é a versão executável que vale em toda sessão.
+> Substitui a v1 (`aviso-troca-de-modelo.md`), que avisava e seguia mesmo assim — esta é
+> mandatória: **NÃO executar** até o modelo estar certo.
+
+**Antes de responder qualquer prompt substantivo, avaliar: um modelo superior mudaria a
+resposta? O atual é excessivo?** Três saídas, sem quarta:
+
+1. **Modelo insuficiente** (a tarefa é de tier superior ao modelo atual):
+   **NÃO executar.** A resposta é só o pedido de troca: qual é o modelo ideal e por quê
+   (1 linha). Exceção única: o usuário reenvia o pedido sem trocar = consentimento implícito.
+2. **Modelo correto:** declarar na primeira linha (`🎚️ Modelo: <X> — correto para esta
+   tarefa`) e responder diretamente.
+3. **Modelo excessivo:** **NÃO executar.** Pedir para descer ao ideal, dizendo qual é.
+   Exceções (declarar o excesso na 1ª linha e executar): (a) o usuário acabou de escolher
+   o modelo manualmente nesta conversa; (b) confirmação trivial de continuação, em que a
+   troca custaria mais que a execução.
+
+**Régua:** a tabela de rota deste arquivo. Comandos de modo, trabalho canônico (ADR/IO/regra)
+e decisão estratégica = tier máximo (Fable). Reavaliar o veredito **a cada mudança de
+natureza da tarefa dentro da mesma sessão** — o gate do 1º turno não vale para o turno 12.
+
+**Sinal de violação:** uma resposta substantiva sem a linha de veredito; ou uma tarefa de
+tier máximo executada em modelo inferior sem pedido de troca.
+
+**Fonte:** `Lucas-Contexto-Geral/.claude/rules/model-routing.md` (mesma seção, texto
+espelhado aqui porque este arquivo não é FONTE ÚNICA centralizada — cada repo já carrega
+sua própria rubrica).

@@ -411,13 +411,13 @@ tail -f .aiox/logs/agent.log
 **Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
 
 # ══════════════════════════════════════════════════════════
-# AVISO DE TROCA DE MODELO — SEMPRE
+# GATE DE VEREDITO DE MODELO — TODA resposta declara o modelo (v2, 2026-08-21)
 # ══════════════════════════════════════════════════════════
-# FONTE ÚNICA: Lucas-Contexto-Geral/.claude/rules/aviso-troca-de-modelo.md
-# Sessão principal em Sonnet + sinal de Opus/Fable (rubrica acima) → avisar o
-# Lucas em 1 linha, ANTES de entregar, com o sinal + comando `/model` sugerido.
-# Não é bloqueio: sem resposta, segue como exceção declarada. Gates de trivial/
-# comando explícito passam direto. Editar SÓ no repo central.
+# FONTE: `.claude/rules/model-routing.md` (seção "Gate de veredito"). Ordem
+# direta do Lucas: antes de responder qualquer prompt substantivo, avaliar o
+# modelo. Insuficiente ou excessivo → NÃO executar, só pedir a troca certa.
+# Modelo correto → declarar na 1ª linha (🎚️ Modelo: X — correto) e responder.
+# Supersede a v1 (avisar-e-seguir); v1 mantida só como redirect no repo central.
 
 ## 🧠 Memória Compartilhada entre Chats (SEMPRE)
 
