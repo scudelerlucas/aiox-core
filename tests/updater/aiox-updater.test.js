@@ -8,6 +8,13 @@ const path = require('path');
 const fs = require('fs-extra');
 const os = require('os');
 
+// applyUpdate() shells out to `npm install`; keep the tests offline
+jest.mock('child_process', () => ({
+  ...jest.requireActual('child_process'),
+  execSync: jest.fn(),
+}));
+const { execSync } = require('child_process');
+
 const { AIOXUpdater, UpdateStatus, formatCheckResult, formatUpdateResult } = require('../../packages/installer/src/updater');
 
 describe('AIOXUpdater', () => {
@@ -233,6 +240,138 @@ describe('AIOXUpdater', () => {
       const versionJson = await fs.readJson(path.join(tempDir, '.aiox-core', 'version.json'));
       expect(versionJson.version).toBe('2.0.0');
       expect(versionJson.updatedAt).toBeDefined();
+    });
+  });
+
+  describe('copyFrameworkFiles', () => {
+    let sourceDir;
+
+    beforeEach(async () => {
+      // Simulate node_modules/aiox-core/.aiox-core with the new version's files
+      sourceDir = path.join(tempDir, 'node_modules', 'aiox-core', '.aiox-core');
+      await fs.ensureDir(path.join(sourceDir, 'core'));
+      await fs.writeFile(path.join(sourceDir, 'core', 'engine.js'), 'v2 engine');
+      await fs.writeFile(path.join(sourceDir, 'core', 'novo.js'), 'arquivo novo');
+      await fs.writeFile(path.join(sourceDir, 'constitution.md'), 'v2 constitution');
+
+      await fs.ensureDir(path.join(tempDir, '.aiox-core', 'core'));
+      await fs.writeFile(path.join(tempDir, '.aiox-core', 'core', 'engine.js'), 'v1 engine');
+    });
+
+    it('should copy new and updated files into .aiox-core', async () => {
+      const result = await updater.copyFrameworkFiles(sourceDir, []);
+
+      expect(result.filesUpdated).toBe(3);
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'core', 'engine.js'), 'utf8'),
+      ).toBe('v2 engine');
+      expect(
+        fs.existsSync(path.join(tempDir, '.aiox-core', 'core', 'novo.js')),
+      ).toBe(true);
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'constitution.md'), 'utf8'),
+      ).toBe('v2 constitution');
+    });
+
+    it('should not overwrite customized files', async () => {
+      await fs.writeFile(
+        path.join(tempDir, '.aiox-core', 'core', 'engine.js'),
+        'minha customizacao',
+      );
+
+      const result = await updater.copyFrameworkFiles(sourceDir, ['core/engine.js']);
+
+      expect(result.filesPreserved).toBe(1);
+      expect(result.filesUpdated).toBe(2);
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'core', 'engine.js'), 'utf8'),
+      ).toBe('minha customizacao');
+    });
+
+    it('should hash copied files and keep the old baseline for preserved ones', async () => {
+      updater.versionInfo = { fileHashes: { 'core/engine.js': 'sha256:baseline-v1' } };
+
+      const result = await updater.copyFrameworkFiles(sourceDir, ['core/engine.js']);
+
+      expect(result.fileHashes['core/engine.js']).toBe('sha256:baseline-v1');
+      expect(result.fileHashes['core/novo.js']).toMatch(/^sha256:[a-f0-9]{64}$/);
+    });
+
+    it('should back up overwritten files so rollback can restore them', async () => {
+      await updater.createBackup();
+      await updater.copyFrameworkFiles(sourceDir, []);
+
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'core', 'engine.js'), 'utf8'),
+      ).toBe('v2 engine');
+
+      await updater.rollback();
+
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'core', 'engine.js'), 'utf8'),
+      ).toBe('v1 engine');
+    });
+
+    it('should skip hidden and backup files', async () => {
+      await fs.writeFile(path.join(sourceDir, 'core', 'engine.js.backup'), 'lixo');
+      await fs.writeFile(path.join(sourceDir, 'core', '.oculto'), 'lixo');
+
+      await updater.copyFrameworkFiles(sourceDir, []);
+
+      expect(fs.existsSync(path.join(tempDir, '.aiox-core', 'core', 'engine.js.backup'))).toBe(false);
+      expect(fs.existsSync(path.join(tempDir, '.aiox-core', 'core', '.oculto'))).toBe(false);
+    });
+  });
+
+  describe('applyUpdate', () => {
+    beforeEach(() => {
+      execSync.mockClear();
+    });
+
+    it('should copy the package files into .aiox-core, preserving customizations', async () => {
+      const sourceDir = path.join(tempDir, 'node_modules', 'aiox-core', '.aiox-core');
+      await fs.ensureDir(path.join(sourceDir, 'core'));
+      await fs.writeFile(path.join(sourceDir, 'core', 'engine.js'), 'v2 engine');
+      await fs.writeFile(path.join(sourceDir, 'core', 'custom.js'), 'v2 custom');
+
+      await fs.ensureDir(path.join(tempDir, '.aiox-core', 'core'));
+      await fs.writeFile(path.join(tempDir, '.aiox-core', 'core', 'custom.js'), 'meu codigo');
+
+      const result = await updater.applyUpdate('2.0.0', ['core/custom.js']);
+
+      expect(execSync).toHaveBeenCalledWith(
+        'npm install aiox-core@2.0.0 --save-exact',
+        expect.any(Object),
+      );
+      expect(result.success).toBe(true);
+      expect(result.filesUpdated).toBe(1);
+      expect(result.filesPreserved).toBe(1);
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'core', 'engine.js'), 'utf8'),
+      ).toBe('v2 engine');
+      expect(
+        await fs.readFile(path.join(tempDir, '.aiox-core', 'core', 'custom.js'), 'utf8'),
+      ).toBe('meu codigo');
+    });
+
+    it('should succeed without copying when the package has no framework source', async () => {
+      // framework-development installs have no node_modules/aiox-core to copy from
+      const result = await updater.applyUpdate('2.0.0', []);
+
+      expect(result.success).toBe(true);
+      expect(result.filesUpdated).toBe(1);
+      expect(result.fileHashes).toBeNull();
+    });
+
+    it('should return the npm error instead of throwing', async () => {
+      execSync.mockImplementationOnce(() => {
+        throw new Error('npm ERR! 404 Not Found');
+      });
+
+      const result = await updater.applyUpdate('9.9.9', []);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('404');
     });
   });
 

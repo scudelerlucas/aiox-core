@@ -22,6 +22,19 @@ const https = require('https');
 const { execSync } = require('child_process');
 const { hashFile, hashesMatch } = require('../installer/file-hasher');
 const { PostInstallValidator, formatReport: formatValidationReport } = require('../installer/post-install-validator');
+const {
+  copyFileWithRootReplacement,
+  generateFileHashes,
+  FOLDERS_TO_COPY,
+  ROOT_FILES_TO_COPY,
+} = require('../installer/aiox-core-installer');
+
+/**
+ * Sub-directory of the backup where files overwritten by applyUpdate() are kept,
+ * so rollback() can put the previous framework back byte for byte.
+ * @constant {string}
+ */
+const OVERWRITE_BACKUP_DIR = '__framework-files__';
 
 /**
  * Update status types
@@ -467,11 +480,11 @@ class AIOXUpdater {
       }
 
       result.filesUpdated = updateApplied.filesUpdated;
-      result.filesPreserved = customizations.customized.length;
+      result.filesPreserved = updateApplied.filesPreserved || customizations.customized.length;
 
       // Update version.json
       onProgress('finalizing', 'Updating version info...');
-      await this.updateVersionInfo(checkResult.latest);
+      await this.updateVersionInfo(checkResult.latest, updateApplied.fileHashes);
 
       // Validate installation after update
       onProgress('validating', 'Validating installation...');
@@ -551,9 +564,16 @@ class AIOXUpdater {
     // Restore backed up files
     const backupFiles = await fs.readdir(this.backupDir);
     for (const file of backupFiles) {
+      if (file === OVERWRITE_BACKUP_DIR) continue; // restored below, recursively
       const src = path.join(this.backupDir, file);
       const dest = path.join(this.aioxCoreDir, file);
       await fs.copy(src, dest, { overwrite: true });
+    }
+
+    // Restore the framework files that applyUpdate() overwrote
+    const overwritten = path.join(this.backupDir, OVERWRITE_BACKUP_DIR);
+    if (fs.existsSync(overwritten)) {
+      await fs.copy(overwritten, this.aioxCoreDir, { overwrite: true });
     }
 
     this.log('Rollback completed');
@@ -572,16 +592,125 @@ class AIOXUpdater {
   }
 
   /**
+   * Path to the framework source inside the freshly installed npm package
+   *
+   * @returns {string} Absolute path to node_modules/aiox-core/.aiox-core
+   */
+  getPackageSourceDir() {
+    return path.join(this.projectRoot, 'node_modules', 'aiox-core', '.aiox-core');
+  }
+
+  /**
+   * Back up a file before it gets overwritten, so rollback() can restore it
+   *
+   * @param {string} relativePath - Path relative to .aiox-core
+   * @returns {Promise<void>}
+   */
+  async backupBeforeOverwrite(relativePath) {
+    if (!this.backupDir) return;
+
+    const current = path.join(this.aioxCoreDir, relativePath);
+    if (!fs.existsSync(current)) return;
+
+    const dest = path.join(this.backupDir, OVERWRITE_BACKUP_DIR, relativePath);
+    await fs.ensureDir(path.dirname(dest));
+    await fs.copy(current, dest, { overwrite: true });
+  }
+
+  /**
+   * Copy one source entry (file or directory) into .aiox-core
+   * Skips preserved files and applies the same exclusions as a fresh install.
+   *
+   * @param {string} sourcePath - Absolute path in the package
+   * @param {string} relativePath - Path relative to .aiox-core (POSIX separators)
+   * @param {Set<string>} preserved - Relative paths that must not be overwritten
+   * @param {Object} tally - Accumulator: { copied: string[], preserved: string[] }
+   * @returns {Promise<void>}
+   */
+  async copyEntry(sourcePath, relativePath, preserved, tally) {
+    const stats = await fs.stat(sourcePath);
+
+    if (stats.isDirectory()) {
+      const items = await fs.readdir(sourcePath, { withFileTypes: true });
+      for (const item of items) {
+        // Same exclusions as a fresh install: backups and hidden files
+        if (item.name.includes('.backup') ||
+            (item.name.startsWith('.') && !item.name.startsWith('.session') && item.name !== '.gitignore')) {
+          continue;
+        }
+        await this.copyEntry(
+          path.join(sourcePath, item.name),
+          `${relativePath}/${item.name}`,
+          preserved,
+          tally,
+        );
+      }
+      return;
+    }
+
+    if (preserved.has(relativePath)) {
+      tally.preserved.push(relativePath);
+      return;
+    }
+
+    await this.backupBeforeOverwrite(relativePath);
+    const copied = await copyFileWithRootReplacement(
+      sourcePath,
+      path.join(this.aioxCoreDir, relativePath),
+    );
+    if (copied) tally.copied.push(relativePath);
+  }
+
+  /**
+   * Copy the new framework files from the installed package into .aiox-core
+   * User customizations are left exactly as they are.
+   *
+   * @param {string} sourceDir - .aiox-core inside node_modules/aiox-core
+   * @param {Array<string>} customizedFiles - Files to preserve
+   * @returns {Promise<Object>} { filesUpdated, filesPreserved, fileHashes }
+   */
+  async copyFrameworkFiles(sourceDir, customizedFiles = []) {
+    // version.json paths use POSIX separators; normalize before comparing
+    const preserved = new Set(
+      customizedFiles.map((f) => f.split(path.sep).join('/')),
+    );
+    const tally = { copied: [], preserved: [] };
+
+    for (const name of [...FOLDERS_TO_COPY, ...ROOT_FILES_TO_COPY]) {
+      const source = path.join(sourceDir, name);
+      if (!fs.existsSync(source)) continue;
+      await this.copyEntry(source, name, preserved, tally);
+    }
+
+    // New baseline for the next update: fresh hashes for what we copied,
+    // and the PREVIOUS baseline for what we preserved — so a customized file
+    // keeps reading as customized instead of being silently overwritten later.
+    const fileHashes = await generateFileHashes(this.aioxCoreDir, tally.copied);
+    const oldHashes = this.versionInfo?.fileHashes || {};
+    for (const relativePath of tally.preserved) {
+      if (oldHashes[relativePath]) fileHashes[relativePath] = oldHashes[relativePath];
+    }
+
+    return {
+      filesUpdated: tally.copied.length,
+      filesPreserved: tally.preserved.length,
+      fileHashes,
+    };
+  }
+
+  /**
    * Apply the update
    *
    * @param {string} targetVersion - Target version
    * @param {Array<string>} customizedFiles - Files to preserve
    * @returns {Promise<Object>} Apply result
    */
-  async applyUpdate(targetVersion, _customizedFiles = []) {
+  async applyUpdate(targetVersion, customizedFiles = []) {
     const result = {
       success: false,
       filesUpdated: 0,
+      filesPreserved: 0,
+      fileHashes: null,
       error: null,
     };
 
@@ -599,8 +728,22 @@ class AIOXUpdater {
       result.success = true;
       result.filesUpdated = 1; // At least package updated
 
-      // TODO: Copy new files from node_modules to .aiox-core
+      // Copy the new framework files out of node_modules into .aiox-core,
       // preserving customizedFiles
+      const sourceDir = this.getPackageSourceDir();
+      if (!fs.existsSync(sourceDir)) {
+        // framework-development installs have no npm copy to pull from
+        this.log(`No framework source at ${sourceDir} — package updated, files untouched`);
+        return result;
+      }
+
+      const copied = await this.copyFrameworkFiles(sourceDir, customizedFiles);
+      result.filesUpdated = copied.filesUpdated;
+      result.filesPreserved = copied.filesPreserved;
+      result.fileHashes = copied.fileHashes;
+      this.log(
+        `Copied ${copied.filesUpdated} file(s), preserved ${copied.filesPreserved} customization(s)`,
+      );
 
       return result;
     } catch (error) {
@@ -613,9 +756,11 @@ class AIOXUpdater {
    * Update version.json after successful update
    *
    * @param {string} newVersion - New version
+   * @param {Object} [fileHashes] - Hashes produced by the file copy; when omitted
+   *   the previous baseline is kept so customization detection keeps working
    * @returns {Promise<void>}
    */
-  async updateVersionInfo(newVersion) {
+  async updateVersionInfo(newVersion, fileHashes = null) {
     const versionJsonPath = path.join(this.aioxCoreDir, 'version.json');
 
     const versionInfo = {
@@ -623,7 +768,7 @@ class AIOXUpdater {
       installedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       mode: this.versionInfo?.mode || 'project-development',
-      fileHashes: {}, // Will be populated by file copy
+      fileHashes: fileHashes || this.versionInfo?.fileHashes || {},
     };
 
     await fs.writeJson(versionJsonPath, versionInfo, { spaces: 2 });
