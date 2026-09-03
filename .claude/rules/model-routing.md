@@ -9,7 +9,7 @@ Aplicar **sem pedir permissão**, em toda tarefa. Objetivo: valor/token máximo.
 | grep, contagem, listagem, formatação, lint, ler N arquivos | **Haiku** (subagente) | low |
 | código comum, teste, edição, story, extração estruturada | **Sonnet** | low/medium |
 | arquitetura, refactor complexo, debug profundo, auditoria de segurança | **Opus 4.8** | high/xhigh |
-| o problema mais difícil e long-horizon do dia | **Fable** | high |
+| rodar `/forja`, decisão estratégica, o problema mais difícil e long-horizon do dia | **Fable** | high |
 
 ## Diretiva de subagente (a parte que EXECUTA de verdade)
 
@@ -22,34 +22,39 @@ Quando a tarefa tem fan-out (buscar/ler/checar N itens) ou passos mecânicos:
 
 Se rotear para modelo mais barato baixar o valor entregue, subir o modelo. Otimiza-se `valor/token`, nunca token sozinho.
 
-## Gate de veredito — TODA resposta declara o modelo (v2 · ordem do operador, 2026-08-21)
+## Gate de veredito — TODA resposta declara o modelo (v3 · ordem do operador, 2026-08-21)
 
-> Ordem direta do Lucas (21/08, sessão da auditoria Pandora), repetindo pedido que ele já
-> tinha feito em outro chat e que não estava gravado na fonte única — por isso não disparava.
+> v2: ordem direta do Lucas (21/08, sessão da auditoria Pandora). **v3, mesma noite, por
+> nova ordem:** as exceções da v2 viraram brecha — respostas como *"🎚️ Modelo: Opus 5 —
+> acima do tier (verificação). Sigo pela exceção (b)"* e *"excessivo, executando pela
+> escolha manual"* declaravam o erro e executavam mesmo assim. Ordem literal do operador:
+> **"Quando o modelo estiver errado, NÃO RESPONDER, e pedir para mudar o modelo!!!"**
 > Complementa a skill `model-gate`; esta é a versão executável que vale em toda sessão.
-> Substitui a v1 (`aviso-troca-de-modelo.md`), que avisava e seguia mesmo assim — esta é
-> mandatória: **NÃO executar** até o modelo estar certo.
 
 **Antes de responder qualquer prompt substantivo, avaliar: um modelo superior mudaria a
-resposta? O atual é excessivo?** Três saídas, sem quarta:
+resposta? O atual é excessivo?** Duas saídas, sem terceira:
 
-1. **Modelo insuficiente** (a tarefa é de tier superior ao modelo atual):
-   **NÃO executar.** A resposta é só o pedido de troca: qual é o modelo ideal e por quê
-   (1 linha). Exceção única: o usuário reenvia o pedido sem trocar = consentimento implícito.
-2. **Modelo correto:** declarar na primeira linha (`🎚️ Modelo: <X> — correto para esta
+1. **Modelo correto:** declarar na primeira linha (`🎚️ Modelo: <X> — correto para esta
    tarefa`) e responder diretamente.
-3. **Modelo excessivo:** **NÃO executar.** Pedir para descer ao ideal, dizendo qual é.
-   Exceções (declarar o excesso na 1ª linha e executar): (a) o usuário acabou de escolher
-   o modelo manualmente nesta conversa; (b) confirmação trivial de continuação, em que a
-   troca custaria mais que a execução.
+2. **Modelo errado — insuficiente OU excessivo: NÃO executar. Sem exceção de conveniência.**
+   A resposta é SÓ o pedido de troca: qual é o modelo ideal e por quê (1 linha). Não se
+   adianta "parte do trabalho", não se executa "só desta vez", não se declara o erro e
+   segue. **Exceção única (anti-deadlock):** o usuário reenvia o pedido sem trocar o
+   modelo = consentimento implícito — declarar isso na 1ª linha e executar.
 
-**Régua:** a tabela de rota deste arquivo. Comandos de modo, trabalho canônico (ADR/IO/regra)
-e decisão estratégica = tier máximo (Fable). Reavaliar o veredito **a cada mudança de
-natureza da tarefa dentro da mesma sessão** — o gate do 1º turno não vale para o turno 12.
+**A régua de "errado" continua a tabela deste arquivo — o gate não vira desculpa para
+degradar entrega:** na dúvida entre dois tiers, ou em turno que MISTURA tiers (ex.:
+mesclar um PR + produzir um visual dentro de uma frente de tier máximo), vale o tier da
+frente, não o do gesto. O gate dispara quando a NATUREZA da tarefa muda de verdade.
 
-**Sinal de violação:** uma resposta substantiva sem a linha de veredito; ou uma tarefa de
-tier máximo executada em modelo inferior sem pedido de troca.
+**Régua:** a tabela de rota deste arquivo. Comandos de modo (`!atom`, `!estressar`,
+`!elenchos`, `/forja`), trabalho canônico (ADR/IO/regra) e decisão estratégica = tier
+máximo (Fable). Reavaliar o veredito **a cada mudança de natureza da tarefa dentro da
+mesma sessão** — o gate do 1º turno não vale para o turno 12.
 
-**Fonte:** `Lucas-Contexto-Geral/.claude/rules/model-routing.md` (mesma seção, texto
-espelhado aqui porque este arquivo não é FONTE ÚNICA centralizada — cada repo já carrega
-sua própria rubrica).
+**Sinal de violação:** uma resposta substantiva sem a linha de veredito; uma tarefa de
+tier máximo executada em modelo inferior sem pedido de troca (caso real que gerou a v2:
+auditoria do plano do CFO da Pandora executada em Opus 5 em 21/08, quando deveria ter
+parado e pedido Fable); **ou qualquer resposta que declare o modelo errado e execute
+mesmo assim** — "sigo pela exceção (b)", "executando pela escolha manual" (casos reais
+de 21/08 que geraram a v3). Declarar o erro não autoriza cometê-lo.
