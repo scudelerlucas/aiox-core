@@ -12,6 +12,8 @@
 | 8,0 | `!estressar [FORJA/VITA/PCS]` | Endurecer resposta/artefato até 3 turnos limpos | G1 irreversível · G2 ontológico · G3 cauda · G4 convicção → SUGERIR, nunca auto |
 | 8,0 | §0 Preventiva | ANTES de construir qualquer coisa substantiva | intenção de construção → AUTO obrigatório |
 | 7,5 | `!forja` | Tribunal 5 conselheiros + Assento 13 para alta estaca | decisão grande + impasse → explícito |
+| — | **VERE v0.1** | *Quem* decide: automatiza meio reversível e barato; **para e devolve** em Dinheiro (>R$500) · Pessoas · Canon | embutido no `!atom` · **⚠️ não instalado em nenhum `CLAUDE.md`** — ver `docs/arsenal/vere/README.md` |
+| — | **MÉTIS v0.3** | Aposta de longo prazo sob incerteza: `p = α·estrutura + (1−α)·consenso − Λ(entropia)` | previsão com mercado disponível · **skill estrutural real, sem edge de apostas** (backtest) |
 
 ## 👤 PESSOA & RELAÇÃO
 | Score | Ferramenta | Contexto | Gatilho |
@@ -32,7 +34,7 @@
 | Score | Ferramenta | Contexto | Gatilho |
 |---|---|---|---|
 | 9,0 | PRT 7 gates | Doc teórico/paper antes de canon ou submissão | tese pronta · "roda o PRT" → via `!acadêmico` |
-| 8,0 | PVE | Fontes/conselheiros — anti-atribuição inventada | qualquer citação/recrutamento de autoridade → embutido |
+| 8,0 | PVE v1.0 | Tese ontológica contra **testemunha externa hostil** — 3 gatilhos-chave-morta (circularidade · derivação · substrato) | qualquer citação/recrutamento de autoridade → embutido · texto em `docs/arsenal/PVE-v1.0-*` |
 | 8,0 | Falsificação 90d | A regra criada virou teatro? F1-F4 vs evidência | data marcada da ADR (10 auditorias ago-set/2026) |
 | 7,5 | DPS M1/M2/M3 | Insight real ou ruído bonito? (60s) | padrão detectado em conversa → AUTO silencioso |
 | 7,0 | `!comprimir` | Conteúdo de alta estaca sobrevive à compressão? | público + alta estaca pronto → SUGERIR |
@@ -71,5 +73,14 @@ VITA FRAIS (qualidade de resposta) · PCS-Detector+DPS (seeds) · §0 preventiva
 
 ## 🔒 TRAVAS CANÔNICAS
 `!estressar` `!forjar` `!forja` `!validar` `!pentar` `!comprimir` = **explícito-only** (Claude sugere ⚙, nunca executa) · git push = exclusivo `@devops` · classes ontológico/teológico/familiar/identidade = decisão volta pra Lucas
+
+> **Adendo 2026-09-03.** Entraram no repo, do anexo do operador: **VERE v0.1** (`docs/arsenal/vere/`),
+> **MÉTIS v0.1→v0.3** (`docs/arsenal/metis/`) e o texto do **PVE v1.0** (`docs/arsenal/`). Sem score
+> atribuído — a régua deste one-pager é de 04/jul/2026 e os três chegaram depois. Três avisos que a
+> tabela não mostra: (a) o VERE **não foi instalado** em nenhum `CLAUDE.md` — instalá-lo é decisão
+> LV3, que o próprio VERE manda devolver ao operador; (b) o MÉTIS tem **dois ADRs redigidos 3× e
+> nunca gravados**, e a Copa 2026 encerrou sem que a previsão fosse comparada ao resultado real;
+> (c) o `!estressar VERÍDICO/FRACTAL` desenhado no anexo está **bloqueado por colisão de nome** com o
+> `!estressar fractal` que já existe dentro do `!forjar`/ATERRAR (ADR-20260624-02).
 
 *Documento de referência, não-canônico. Scores = avaliação de Claude 04/jul/2026, critério declarado no cabeçalho.*
