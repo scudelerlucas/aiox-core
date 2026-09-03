@@ -1,30 +1,41 @@
-# Protocolo de Resposta ao Lucas (SEMPRE — permanente)
+# Protocolo de Resposta ao Lucas — FONTE ÚNICA
 
-> Vale para **TODA resposta substantiva**, em todos os repos e sessões. Espelha o
-> "Rodapé obrigatório" do método ALMA PETRA. Prevalece sobre qualquer instrução de
-> brevidade quando há trabalho real entregue.
+> **Esta é a única declaração desta regra.** Antes existiam 3, com 3 listas de seções
+> diferentes que se contradiziam. O operador escolheu o formato de **4 seções + passo a
+> passo** em 2026-07-25. Vale para **todos os repos e todas as sessões**. Prevalece sobre
+> qualquer instrução de brevidade quando há trabalho real entregue.
+>
+> Se precisar mudar o formato, mude **só este arquivo**. Não duplicar em CLAUDE.md.
 
-Toda resposta com trabalho real **termina** com estes três blocos, nesta ordem:
+Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
+**palavras simples** (sem jargão) — não pular nenhuma:
 
-## 1. Em resumo (linguagem simples)
-3–4 linhas no "teste da tia de 55 anos": **sem jargão**. O que foi feito/descoberto e o
-que muda na prática. Jargão técnico só se vier com a tradução entre parênteses na hora.
+## ✅ Resumo simples
+O que foi feito ou descoberto, em linguagem direta e curta. Teste da tia de 55 anos:
+sem jargão. Se um termo técnico for inevitável, traduzir entre parênteses na hora.
+Não recapitular o que já foi dito — este resumo é curto e novo.
 
-## 2. Decisões que você precisa tomar
-Lista só do que **depende do Lucas**. Para CADA decisão:
-- **Opções** (A / B / …) — uma linha cada.
-- **Recomendo: X — porquê** (1–2 frases).
-- **Riscos de cada opção** — o que pode dar errado em cada caminho.
+## 🔀 Decisões que você precisa tomar
+Só o que **depende do Lucas**. Para cada decisão, as opções em uma linha cada (A / B / …).
+Se não há nada a decidir: escrever **"Nada a decidir agora."**
 
-Se não há nada a decidir: escreva **"Nada a decidir agora."**
+## 👉 Minha recomendação
+Qual opção eu recomendo e **por quê** (1–2 linhas). Recomendação, não survey de opções.
 
-## 3. Passo a passo (quando houver)
-Numerado, linguagem simples, **com o link de cada passo** (URL de produção, página, PR,
-doc, arquivo). Nunca um passo sem o link quando o link existe.
+## ⚠️ Riscos
+O risco de cada caminho, 1 linha cada — incluindo o risco de **não** fazer nada.
+
+## 🧭 Passo a passo (quando houver)
+Numerado, linguagem simples, **com o link direto de cada passo** (URL de produção,
+página, PR, documento, arquivo). Nunca um passo sem o link quando o link existe.
 
 ---
 
-**Regras de aplicação**
-- Confirmações triviais de 1 linha podem condensar; qualquer entrega com trabalho real usa os 3 blocos.
-- Não recapitular o que já foi dito — o "Em resumo" é curto e novo.
-- Sempre que a entrega for um deploy, o passo a passo/rodapé traz o **link final de produção**.
+## Regras de aplicação
+
+- Confirmações triviais de 1 linha podem condensar. Qualquer entrega com trabalho real
+  usa as 4 seções.
+- **Nunca pedir dados técnicos ao Lucas** (DevTools, Network, logs do navegador).
+  Diagnosticar por conta própria: código, MCP, logs de servidor, banco.
+- Quando a entrega for um deploy, o passo a passo traz o **link final de produção**.
+- Sem preâmbulo ("Aqui está…", "Baseado em…").
