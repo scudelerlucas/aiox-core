@@ -396,41 +396,4 @@ tail -f .aiox/logs/agent.log
 
 **Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
 
-# ══════════════════════════════════════════════════════════
-# GATE DE VEREDITO DE MODELO — TODA resposta declara o modelo (v2, 2026-08-21)
-# ══════════════════════════════════════════════════════════
-# FONTE: `.claude/rules/model-routing.md` (seção "Gate de veredito"). Ordem
-# direta do Lucas: antes de responder qualquer prompt substantivo, avaliar o
-# modelo. Insuficiente ou excessivo → NÃO executar, só pedir a troca certa.
-# Modelo correto → declarar na 1ª linha (🎚️ Modelo: X — correto) e responder.
-# Supersede a v1 (avisar-e-seguir); v1 mantida só como redirect no repo central.
-
-## 🧠 Memória Compartilhada entre Chats (SEMPRE)
-
-> Fonte central: repo `scudelerlucas/lucas-contexto-geral`, pasta `memoria/`.
-> Regra completa: `.claude/rules/memoria-compartilhada.md` daquele repo. Não duplicar aqui.
-
-- **Início de sessão substantiva:** ler os 10 resumos mais recentes de `memoria/` do repo
-  central (diretório irmão `../Lucas-Contexto-Geral/memoria/` ou via GitHub em
-  `scudelerlucas/lucas-contexto-geral`). Se inacessível, seguir sem — não perguntar ao Lucas.
-- **Fim de sessão com trabalho real:** gravar 1 resumo novo lá
-  (`memoria/AAAA-MM-DD--<repo-ou-tema>--<slug>.md`, template `memoria/_TEMPLATE.md`),
-  commit + push. Se o repo central não estiver gravável: fallback na pasta `memoria/`
-  DESTE repo (a próxima sessão no central migra).
-- **Nunca gravar:** segredos, tokens, dados de clientes/membros — só o destilado
-  (feito / decisões / pendências / links).
-
-# ══════════════════════════════════════════════════════════
-# ENGENHARIA DE PROMPT (PEP v2) — SEMPRE
-# ══════════════════════════════════════════════════════════
-# FONTE ÚNICA: Lucas-Contexto-Geral/.claude/rules/prompt-engineering-protocol.md
-# Toda entrada do Lucas, ANTES do trabalho:
-# 1) ARQUITETO — o prompt constrói do invisível p/ o tangível? Classificar
-#    (CRIAR/ALTERAR/CONSULTAR/DECIDIR) e definir o OUTPUT-alvo (definition of
-#    done) antes de qualquer execução.
-# 2) ENGENHEIRO DE PROMPT — spec executável ≤15 linhas: rota de modelo por
-#    valor/token (model-routing), reuso antes de gerar, plano direcional sem
-#    refação; aceite herdado da camada 1.
-# 3) SÍNTESE humana (2–4 linhas) p/ veto barato → 4) EXECUTAR a spec.
-# Gates: trivial e comando explícito passam direto. Editar SÓ no repo central.
-
+<!-- Gate de modelo, PEP e memória compartilhada: regras espelhadas em .claude/rules/ (fonte: Lucas-Contexto-Geral). -->
