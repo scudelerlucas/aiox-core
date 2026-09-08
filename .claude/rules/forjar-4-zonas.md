@@ -19,4 +19,4 @@ Sem alvo → perguntar 1 vez, nunca presumir. Explícito-only: Claude sugere (�
 
 **RADAR-4Z (automático, silencioso):** micro-scan quando entra material substantivo novo, plano prestes a executar, incerteza declarada ou pedido de auditoria. Só aflora achado material (≤4 linhas + oferta `⚙ !4z [alvo]`); RUÍNA material sempre aflora. Nunca bloqueia; máx 1 por natureza de tarefa. Arquitetura (alvo = negócio): genialidade puxa a assimetria · competência sustenta o piso · no consumo se compra · a ruína se cerca antes de se conhecer.
 
-*Norma. História, casos e sinais de violação: `docs/regras/historico/forjar-4-zonas.md`.*
+*Norma. História, casos e sinais de violação: no hub, `Lucas-Contexto-Geral/docs/regras/historico/forjar-4-zonas.md`.*

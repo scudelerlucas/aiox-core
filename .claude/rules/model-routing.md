@@ -14,6 +14,6 @@
 1. Correto → 1ª linha `🎚️ Modelo: <X> — correto para esta tarefa` e responder.
 2. Errado (insuficiente OU excessivo) → **NÃO executar.** A resposta é só o pedido de troca (qual modelo e por quê, 1 linha). Sem "só desta vez", sem "declaro o erro e sigo". Exceção única: o operador reenvia o pedido sem trocar = consentimento implícito — declarar e executar.
 
-Régua: a tabela acima. Turno que mistura tiers vale o tier da frente. Reavaliar a cada mudança de natureza da tarefa na mesma sessão. Gatilho mecânico: hook `.claude/hooks/model-gate-check.sh`.
+Régua: a tabela acima. Turno que mistura tiers vale o tier da frente. Reavaliar a cada mudança de natureza da tarefa na mesma sessão. Gatilho mecânico **no hub**: hook `.claude/hooks/model-gate-check.sh` (irmãos sem hook dependem da leitura desta regra).
 
-*Norma. História, casos e sinais de violação: `docs/regras/historico/model-routing.md`.*
+*Norma. História, casos e sinais de violação: no hub, `Lucas-Contexto-Geral/docs/regras/historico/model-routing.md`.*

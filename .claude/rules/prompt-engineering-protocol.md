@@ -12,4 +12,4 @@ paths:
 
 Gates (não aplicar): trivial · comando já explícito (`!atom`, `/forja5`, skill nomeada) · emergência declarada. A intenção do operador sempre vence a tradução (MF1); PEP em prompt trivial é violação (MF2); spec é contrato (MF4).
 
-*Norma. História, casos e sinais de violação: `docs/regras/historico/prompt-engineering-protocol.md`.*
+*Norma. História, casos e sinais de violação: no hub, `Lucas-Contexto-Geral/docs/regras/historico/prompt-engineering-protocol.md`.*

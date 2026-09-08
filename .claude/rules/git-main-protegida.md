@@ -9,4 +9,4 @@ paths:
 
 Push que devolver `Bypassed rule violations` = regra quebrada: avisar na mesma resposta.
 
-*Norma. História, casos e sinais de violação: `docs/regras/historico/git-main-protegida.md`.*
+*Norma. História, casos e sinais de violação: no hub, `Lucas-Contexto-Geral/docs/regras/historico/git-main-protegida.md`.*
