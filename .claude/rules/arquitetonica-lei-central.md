@@ -1,3 +1,8 @@
+---
+paths:
+  - "**"
+---
+<!-- espelho condicional (fase 2-A): carrega ao tocar arquivo deste repo; fonte sem frontmatter no hub -->
 # A lei central da ARQUITETÔNICA — os sete termos (copiar daqui, nunca de memória)
 
 > **POSICIONAMENTO = [ TERRITÓRIO × ARQUÉTIPO × SÍMBOLOS HEURÍSTICOS × NARRATIVA ] ^ COERÊNCIA × RITMO** — relativo a um **ADVERSÁRIO** nomeado, sustentado por **PROVA**, no slot que a **FERIDA** da audiência já abriu. Abreviada: `P = [T × A × S × N] ^C × R`.

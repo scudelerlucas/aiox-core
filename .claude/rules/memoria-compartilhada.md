@@ -1,3 +1,8 @@
+---
+paths:
+  - "**"
+---
+<!-- espelho condicional (fase 2-A): carrega ao tocar arquivo deste repo; fonte sem frontmatter no hub -->
 # Memória compartilhada entre chats (todos os repos)
 
 Fonte central: `Lucas-Contexto-Geral/memoria/`.

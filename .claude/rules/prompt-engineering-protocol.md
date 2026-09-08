@@ -1,3 +1,8 @@
+---
+paths:
+  - "**"
+---
+<!-- espelho condicional (fase 2-A): carrega ao tocar arquivo deste repo; fonte sem frontmatter no hub -->
 # PEP v2 — toda entrada do operador, antes do trabalho
 
 1. **ARQUITETO** — classificar (CRIAR / ALTERAR / CONSULTAR / DECIDIR) e definir o **output-alvo**: qual artefato, formato, onde vive, como se sabe que nasceu. Sem output definido não executa (MF5).
