@@ -386,6 +386,9 @@ tail -f .aiox/logs/agent.log
 
 ## Eficiência de token — norma espelhada
 
-Rota de modelo, effort, formato de saída e o guard-rail valor/token: `.claude/rules/model-routing.md`
-(espelho idêntico do hub `Lucas-Contexto-Geral`, por `scripts/sync-rules.mjs` + Action `rules-drift`).
-Medição de benchmark: `bench/token-value-log.csv`. **Não duplicar aqui.**
+Rota de modelo, effort e o guard-rail valor/token: `.claude/rules/model-routing.md`
+(espelho idêntico do hub `Lucas-Contexto-Geral`, por `scripts/sync-rules.mjs` + Action `rules-drift`). **Não duplicar aqui.**
+O que só vale neste repo e não está na norma espelhada:
+
+- **Saída:** extração/classificação em JSON/tabela, nunca prosa; sem preâmbulo; não recapitular o já dito.
+- **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0–5) em `bench/token-value-log.csv`.
