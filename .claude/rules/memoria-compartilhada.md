@@ -1,8 +1,20 @@
 ---
 paths:
-  - "**"
+  - "*/**"
+  - ".claude/**"
+  - ".github/**"
+  - ".aiox-core/**"
+  - "*.md"
+  - "*.json"
+  - "*.ts"
+  - "*.tsx"
+  - "*.js"
+  - "*.mjs"
+  - "*.py"
+  - "*.sh"
+  - "*.sql"
 ---
-<!-- espelho condicional (fase 2-A): carrega ao tocar arquivo deste repo; fonte sem frontmatter no hub -->
+<!-- espelho condicional (fase 2-A) — carrega ao tocar arquivo deste repo; fonte sem frontmatter no hub -->
 # Memória compartilhada entre chats (todos os repos)
 
 Fonte central: `Lucas-Contexto-Geral/memoria/`. **Ordem de busca:** (1) este repo, se for o hub; (2) diretório irmão `../Lucas-Contexto-Geral/memoria/`; (3) GitHub `scudelerlucas/lucas-contexto-geral`, path `memoria/`.
