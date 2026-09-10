@@ -392,4 +392,4 @@ O que só vale neste repo e não está na norma espelhada:
 
 - **Saída:** extração/classificação em JSON/tabela, nunca prosa; sem preâmbulo; não recapitular o já dito.
 - **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0–5) em `bench/token-value-log.csv`.
-- **Contexto:** reusar output existente antes de gerar; um assunto por sessão (abrir só os repos que a tarefa toca). Planejar antes de executar já é o PEP do `kernel-inicio` item 2.
+- **Contexto:** reusar output existente antes de gerar; um assunto por sessão (abrir só os repos que a tarefa toca). Planejar antes de executar tarefa não-trivial: a spec ≤15 linhas do PEP (`kernel-inicio` item 2) é esse plano, e nada roda antes dela.
