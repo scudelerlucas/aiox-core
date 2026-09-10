@@ -5,7 +5,7 @@
 > passo** em 2026-07-25. Vale para **todos os repos e todas as sessões**. Prevalece sobre
 > qualquer instrução de brevidade quando há trabalho real entregue.
 >
-> Se precisar mudar o formato, mude **só este arquivo**. Não duplicar em CLAUDE.md.
+> Se precisar mudar o formato, mude **só este arquivo, no hub** `Lucas-Contexto-Geral` — os espelhos são regravados pelo `sync-rules`. Não duplicar em CLAUDE.md.
 
 Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:

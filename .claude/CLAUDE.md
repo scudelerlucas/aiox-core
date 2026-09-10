@@ -384,16 +384,12 @@ tail -f .aiox/logs/agent.log
 
 ---
 
-## Eficiência de Tokens — Política Automática (ATOM-01/07/08)
+## Eficiência de token — norma espelhada
 
-> Objetivo: **máximo valor por dólar de token.** Regras que valem SEMPRE nesta sessão.
+Rota de modelo, effort e o guard-rail valor/token: `.claude/rules/model-routing.md`
+(espelho idêntico do hub `Lucas-Contexto-Geral`, por `scripts/sync-rules.mjs` + Action `rules-drift`). **Não duplicar aqui.**
+O que só vale neste repo e não está na norma espelhada:
 
-- **Roteamento de modelo:** padrão = Sonnet. Opus 4.8 só em arquitetura/refactor complexo/debug profundo. Fable só no problema mais difícil e long-horizon do dia. Haiku/subagente para grep, contagem, formatação, lint.
-- **Effort:** `low`/`medium` para tarefas mecânicas; `high`/`xhigh` só em raciocínio complexo.
-- **Saída:** sem preâmbulo ("Aqui está...", "Baseado em..."); extração/classificação em JSON/tabela, nunca prosa; não recapitular o já dito.
-- **Contexto:** planejar antes de executar tarefa não-trivial; reusar output existente antes de gerar; um assunto por sessão.
-- **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0-5) em `bench/token-value-log.csv`.
-
-**Guard-rail:** se reduzir token cortar valor entregue, reverter. Otimiza-se `valor/token`, nunca token sozinho.
-
-<!-- Gate de modelo, PEP e memória compartilhada: regras espelhadas em .claude/rules/ (fonte: Lucas-Contexto-Geral). -->
+- **Saída:** extração/classificação em JSON/tabela, nunca prosa; sem preâmbulo; não recapitular o já dito.
+- **Medição:** ao concluir tarefa de benchmark, registrar tokens + nota de valor (0–5) em `bench/token-value-log.csv`.
+- **Contexto:** reusar output existente antes de gerar; um assunto por sessão (abrir só os repos que a tarefa toca). Planejar antes de executar tarefa não-trivial: a spec ≤15 linhas do PEP (`kernel-inicio` item 2) é esse plano, e nada roda antes dela.
