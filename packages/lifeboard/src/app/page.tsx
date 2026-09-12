@@ -42,6 +42,25 @@ export default async function Page(): Promise<JSX.Element> {
 
   return (
     <>
+      {/* Atalho para o quadro de assuntos das três contas (tela /frentes). */}
+      <a
+        href="/frentes"
+        style={{
+          position: "fixed",
+          top: 12,
+          right: 78,
+          zIndex: 50,
+          fontSize: 12,
+          color: "#C9AE82",
+          textDecoration: "none",
+          background: "#0F1E33",
+          border: "1px solid #1E3350",
+          borderRadius: 8,
+          padding: "6px 11px",
+        }}
+      >
+        Assuntos
+      </a>
       <a
         href="/auth/signout"
         style={{
