@@ -127,8 +127,10 @@ export interface Assunto {
   contaFiltro: string | null;
   /** Nome curto do repositório (depois da barra) — null quando não se aplica. */
   repo: string | null;
-  /** Momento da última atividade (ISO) — base da ordenação e das janelas. */
+  /** Momento da última atividade (ISO) — base da ordenação e das janelas vivas. */
   atividadeEm: string | null;
+  /** Quando o assunto FECHOU (ISO); null enquanto está vivo. */
+  fechadoEm: string | null;
   /** "há 3 dias", "há 2 h" — já pronto para a tela. */
   atividadeTexto: string;
   /** Situação em palavras simples. */

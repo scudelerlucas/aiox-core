@@ -11,29 +11,38 @@
  * janela) e estas funções PURAS costuram os resultados sem duplicar ninguém.
  */
 
+import { maisRecente, ms } from "@/lib/frentes/tempo";
 import type { BranchSemPr, Pr } from "@/lib/frentes/types";
 
-function ms(iso: string | null | undefined): number {
-  if (!iso) return 0;
-  const valor = Date.parse(iso);
-  return Number.isNaN(valor) ? 0 : valor;
+/** Momento em que a mudança se mexeu por último. */
+function quandoPr(p: Pr): number {
+  return ms(maisRecente(p.atualizado_em, p.mergeado_em, p.fechado_em));
 }
 
-/** Une mudanças abertas (nunca cortadas) e encerradas, sem repetir. */
+/**
+ * Une mudanças abertas (nunca cortadas) e encerradas, sem repetir. Quando a
+ * mesma mudança vem nas duas consultas — corrida entre o `merge` e a leitura —
+ * vale a cópia de estado MAIS AVANÇADO: se uma diz "mergeado" e a outra ainda
+ * diz "aberto", a verdade é que ela fechou.
+ */
 export function unirPrs(abertas: Pr[], encerradas: Pr[]): Pr[] {
-  const vistas = new Set<string>();
-  const saida: Pr[] = [];
+  const porChave = new Map<string, Pr>();
   for (const p of [...abertas, ...encerradas]) {
     const chave = `${p.repo}#${p.numero}`;
-    if (vistas.has(chave)) continue;
-    vistas.add(chave);
-    saida.push(p);
+    const anterior = porChave.get(chave);
+    if (!anterior) {
+      porChave.set(chave, p);
+      continue;
+    }
+    // Encerrada vence aberta; entre duas iguais, a que se mexeu mais tarde.
+    const anteriorAberta = anterior.estado === "aberto";
+    const atualAberta = p.estado === "aberto";
+    if (anteriorAberta && !atualAberta) porChave.set(chave, p);
+    else if (anteriorAberta === atualAberta && quandoPr(p) > quandoPr(anterior)) {
+      porChave.set(chave, p);
+    }
   }
-  return saida.sort(
-    (a, b) =>
-      ms(b.atualizado_em ?? b.mergeado_em ?? b.fechado_em) -
-      ms(a.atualizado_em ?? a.mergeado_em ?? a.fechado_em),
-  );
+  return [...porChave.values()].sort((a, b) => quandoPr(b) - quandoPr(a));
 }
 
 /** Une trabalho commitado sem mudança (nunca cortado) e o resto, sem repetir. */
@@ -41,13 +50,15 @@ export function unirBranches(
   semMudanca: BranchSemPr[],
   comMudanca: BranchSemPr[],
 ): BranchSemPr[] {
-  const vistas = new Set<string>();
-  const saida: BranchSemPr[] = [];
+  const porChave = new Map<string, BranchSemPr>();
   for (const b of [...semMudanca, ...comMudanca]) {
     const chave = `${b.repo}@@${b.branch}`;
-    if (vistas.has(chave)) continue;
-    vistas.add(chave);
-    saida.push(b);
+    const anterior = porChave.get(chave);
+    if (!anterior || ms(b.ultimo_commit_em) > ms(anterior.ultimo_commit_em)) {
+      porChave.set(chave, b);
+    }
   }
-  return saida.sort((a, b) => ms(b.ultimo_commit_em) - ms(a.ultimo_commit_em));
+  return [...porChave.values()].sort(
+    (a, b) => ms(b.ultimo_commit_em) - ms(a.ultimo_commit_em),
+  );
 }

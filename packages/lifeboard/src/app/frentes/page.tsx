@@ -15,8 +15,11 @@ import { getFrentesRepository } from "@/lib/frentes/repository";
  * Dois cuidados que vêm de erro medido:
  *  • a falha de leitura é REGISTRADA no log do servidor (um `catch` mudo apagava
  *    a única pista do problema) e a pessoa vê uma frase de gente, nunca um JSON;
- *  • quando não veio absolutamente nada do banco, a tela diz que não conseguiu
- *    ler — jamais o "Nada esperando o Lucas 🎉", que seria uma mentira festiva.
+ *  • três desfechos diferentes, nunca um só: ERRO de leitura ("não consegui
+ *    ler"), SESSÃO SEM ACESSO (login válido, mas a RLS não devolve linha
+ *    nenhuma — o caso da conta recém-criada) e quadro normal. O que nunca
+ *    aparece nesses dois primeiros é o "Nada esperando o Lucas 🎉", que seria
+ *    uma mentira festiva.
  */
 export const metadata: Metadata = {
   title: "Assuntos · ALMA PETRA",
@@ -34,15 +37,18 @@ export default async function PaginaAssuntos(): Promise<JSX.Element> {
     return <NaoConsegui />;
   }
 
-  // Silêncio total das quatro consultas = leitura falhou de verdade.
+  // Login válido + nenhuma linha em nada = a RLS não libera esta conta. Não é
+  // erro de rede (isso lançaria exceção acima) nem painel vazio.
   const semNada =
     dados.sync.length === 0 &&
     dados.prs.length === 0 &&
     dados.branches.length === 0 &&
     dados.sessoes.length === 0;
   if (semNada) {
-    console.error("[frentes] as quatro consultas voltaram vazias (nenhuma linha).");
-    return <NaoConsegui />;
+    console.error(
+      "[frentes] sessão válida mas as quatro consultas voltaram vazias — conta provavelmente sem acesso.",
+    );
+    return <SemAcesso />;
   }
 
   const quadro = composeAssuntos(
@@ -54,6 +60,22 @@ export default async function PaginaAssuntos(): Promise<JSX.Element> {
   );
 
   return <Board quadro={quadro} />;
+}
+
+/** Conta logada que a RLS ainda não libera: o que fazer está na frase. */
+function SemAcesso(): JSX.Element {
+  return (
+    <main className="mx-auto w-full max-w-[640px] px-4 pb-16 pt-16 sm:px-6">
+      <h1 className="text-2xl font-semibold tracking-tight text-bone-50">Assuntos</h1>
+      <div
+        role="status"
+        className="mt-4 rounded-lg border border-state-warning/50 px-4 py-3 text-sm text-bone-100"
+      >
+        Sua conta ainda não tem acesso a este painel. Peça ao Lucas para liberar o seu
+        e-mail.
+      </div>
+    </main>
+  );
 }
 
 /** Aviso de leitura falhada: frase curta, sem detalhe técnico, com saída. */

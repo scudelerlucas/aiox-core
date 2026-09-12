@@ -9,6 +9,13 @@
  * Público (sem login): `/login`, `/auth/*` (callback/signout) e `/api/health`
  * (sonda de uptime + rollback, kill-switch nº 6).
  *
+ * FONTE DUPLA DE AUTORIZAÇÃO (12/09/2026): além da env `LIFEBOARD_ALLOWED_EMAILS`,
+ * vale estar na tabela `painel_frentes_leitores` — assim liberar a esposa (ou
+ * qualquer pessoa) é INSERT no banco, sem redeploy. A policy
+ * `painel_frentes_leitores_proprio` deixa cada um ler só a própria linha, então a
+ * consulta vai na identidade de quem está entrando. O resultado fica 5 min em
+ * memória por e-mail para não bater no banco a cada requisição.
+ *
  * Se `NEXT_PUBLIC_SUPABASE_URL` não estiver setado (dev fixture), o gate fica
  * DESATIVADO — não atrapalha o desenvolvimento local.
  */
@@ -26,6 +33,44 @@ const ALLOWED = (
   .split(",")
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
+
+/** Cache do "pode ler" por e-mail (5 min) — uma instância do middleware. */
+const CACHE_MS = 5 * 60_000;
+const cacheLeitores = new Map<string, { pode: boolean; expira: number }>();
+
+type ClienteLeitura = {
+  from: (tabela: string) => {
+    select: (colunas: string) => {
+      eq: (coluna: string, valor: string) => {
+        maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+      };
+    };
+  };
+};
+
+/** Está na env OU tem linha em `painel_frentes_leitores`? */
+async function podeLer(supabase: ClienteLeitura, email: string): Promise<boolean> {
+  if (ALLOWED.includes(email)) return true;
+
+  const agora = Date.now();
+  const guardado = cacheLeitores.get(email);
+  if (guardado && guardado.expira > agora) return guardado.pode;
+
+  let pode = false;
+  try {
+    const { data, error } = await supabase
+      .from("painel_frentes_leitores")
+      .select("email")
+      .eq("email", email)
+      .maybeSingle();
+    pode = !error && data !== null;
+  } catch {
+    // Banco fora do ar não é autorização: quem não está na env continua fora.
+    pode = false;
+  }
+  cacheLeitores.set(email, { pode, expira: agora + CACHE_MS });
+  return pode;
+}
 
 function isPublicPath(path: string): boolean {
   return (
@@ -63,7 +108,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   } = await supabase.auth.getUser();
 
   const email = (user?.email ?? "").toLowerCase();
-  if (!user || !ALLOWED.includes(email)) {
+  const autorizado = user ? await podeLer(supabase as unknown as ClienteLeitura, email) : false;
+  if (!user || !autorizado) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.search = user ? "?error=forbidden" : "";

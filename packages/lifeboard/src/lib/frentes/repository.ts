@@ -49,11 +49,16 @@ const TETO_SYNC = 20;
 /** Teto do histórico (a tela corta ainda antes de virar prop). */
 export const TETO_HISTORICO = 300;
 
+/** O histórico avisa quando bateu no teto — a tela precisa dizer isso. */
+export interface DadosHistorico extends DadosFrentes {
+  cortouNoTeto: boolean;
+}
+
 export interface FrentesRepository {
   /** Dados do quadro: janela de 90 dias, com teto por tabela. */
   carregar(): Promise<DadosFrentes>;
   /** Dados do histórico: consulta própria, só o que já encerrou. */
-  carregarHistorico(): Promise<DadosFrentes>;
+  carregarHistorico(): Promise<DadosHistorico>;
 }
 
 /** Erro de leitura já com mensagem de gente (a tela mostra ela, nunca um JSON). */
@@ -69,15 +74,16 @@ class FixtureFrentesRepository implements FrentesRepository {
     return fixtureFrentes(Date.now());
   }
 
-  async carregarHistorico(): Promise<DadosFrentes> {
+  async carregarHistorico(): Promise<DadosHistorico> {
     const dados = fixtureFrentes(Date.now());
+    const prs = dados.prs.filter((p) => p.estado !== "aberto");
+    const sessoes = dados.sessoes.filter((s) => ENCERRADAS.has(s.estado));
     return {
-      prs: dados.prs.filter((p) => p.estado !== "aberto").slice(0, TETO_HISTORICO),
+      prs: prs.slice(0, TETO_HISTORICO),
       branches: [],
-      sessoes: dados.sessoes
-        .filter((s) => ENCERRADAS.has(s.estado))
-        .slice(0, TETO_HISTORICO),
+      sessoes: sessoes.slice(0, TETO_HISTORICO),
       sync: dados.sync,
+      cortouNoTeto: prs.length > TETO_HISTORICO || sessoes.length > TETO_HISTORICO,
     };
   }
 }
@@ -158,7 +164,7 @@ class SupabaseFrentesRepository implements FrentesRepository {
     };
   }
 
-  async carregarHistorico(): Promise<DadosFrentes> {
+  async carregarHistorico(): Promise<DadosHistorico> {
     const supabase = await createSupabaseUserClient();
 
     const [prs, sessoes] = await Promise.all([
@@ -179,11 +185,16 @@ class SupabaseFrentesRepository implements FrentesRepository {
     const falha = [prs.error, sessoes.error].find(Boolean);
     if (falha) throw new FrentesIndisponivel(falha.message);
 
+    const linhasPrs = (prs.data ?? []) as unknown as Pr[];
+    const linhasSessoes = (sessoes.data ?? []) as unknown as Sessao[];
     return {
-      prs: (prs.data ?? []) as unknown as Pr[],
+      prs: linhasPrs,
       branches: [],
-      sessoes: (sessoes.data ?? []) as unknown as Sessao[],
+      sessoes: linhasSessoes,
       sync: [],
+      // Bateu no teto = existe mais história do que esta tela está mostrando.
+      cortouNoTeto:
+        linhasPrs.length >= TETO_HISTORICO || linhasSessoes.length >= TETO_HISTORICO,
     };
   }
 }

@@ -80,10 +80,12 @@ function sessao(over: Partial<Sessao> = {}): Sessao {
   };
 }
 
-/** Sync sempre fresco, para o frescor não poluir os testes de coluna. */
+/** Sync sempre fresco nas quatro fontes, para o frescor não poluir os outros testes. */
 const SYNC_FRESCO: Sync[] = [
   { fonte: "github", executado_em: h(1), ok: true },
   { fonte: "sessoes:lucasscudeler@gmail.com", executado_em: h(2), ok: true },
+  { fonte: "sessoes:lsgpandora@gmail.com", executado_em: h(2), ok: true },
+  { fonte: "sessoes:almapetra.ltda@gmail.com", executado_em: h(2), ok: true },
 ];
 
 function col(quadro: QuadroAssuntos, id: ColunaId): Coluna {
@@ -447,13 +449,16 @@ describe("composeAssuntos — contas, textos, datas e frescor", () => {
       ],
       AGORA,
     );
-    expect(quadro.frescor.avisos).toHaveLength(2);
-    expect(quadro.frescor.avisos[0]).toEqual({
-      texto:
-        "Os dados podem estar velhos: as mudanças no código não atualizam desde 11/09.",
-      conta: null,
-    });
-    expect(quadro.frescor.avisos[1]!.conta).toBe("Alma Petra");
+    const textos = quadro.frescor.avisos.map((a) => a.texto);
+    expect(textos).toContain(
+      "Os dados podem estar velhos: as mudanças no código não atualizam desde 11/09.",
+    );
+    expect(textos).toContain(
+      "Os dados podem estar velhos: as conversas da conta Alma Petra não atualizam desde 09/09.",
+    );
+    // As duas contas que nunca apareceram em sync também são declaradas.
+    expect(textos).toContain("as conversas da conta Lucas ainda não foram lidas nenhuma vez");
+    expect(textos).toContain("as conversas da conta Pandora ainda não foram lidas nenhuma vez");
     for (const aviso of quadro.frescor.avisos) {
       expect(aviso.texto).not.toMatch(/\b(PR|branch|merge|draft|CI)\b/i);
     }
@@ -474,7 +479,11 @@ describe("composeAssuntos — contas, textos, datas e frescor", () => {
       AGORA,
     );
     expect(quadro.frescor.atualizadoTexto).toBe("há 2 dias");
-    expect(quadro.frescor.avisos).toHaveLength(1);
+    expect(
+      quadro.frescor.avisos.filter((a) => a.conta === null).map((a) => a.texto),
+    ).toEqual([
+      "Os dados podem estar velhos: as mudanças no código não atualizam desde 10/09.",
+    ]);
   });
 });
 
@@ -497,7 +506,12 @@ describe("fixtureFrentes — dados de demonstração", () => {
       expect(c.assuntos.length + c.antigos.length).toBeGreaterThan(0);
     }
     expect(quadro.contas).toEqual(["Lucas", "Pandora", "Alma Petra"]);
-    expect(quadro.frescor.avisos).toHaveLength(1); // a conta Alma Petra está velha
+    // A conta Alma Petra está velha; Pandora e Lucas ainda não têm linha em sync.
+    expect(quadro.frescor.avisos.map((a) => a.conta).sort()).toEqual([
+      "Alma Petra",
+      "Lucas",
+      "Pandora",
+    ]);
     expect(quadro.historico.length).toBeGreaterThan(col(quadro, "fechado").assuntos.length);
     // A conversa dupla da mesma branch virou um cartão com dois links.
     const painel = todos(quadro).find((a) => a.titulo.startsWith("Painel de assuntos"));
@@ -659,7 +673,9 @@ describe("composeAssuntos — com a forma real dos dados (800 / 300 / 200)", () 
       }
     }
     for (const c of col(quadro, "fechado").assuntos) {
-      expect(AGORA - Date.parse(c.atividadeEm!)).toBeLessThanOrEqual(7 * DIA);
+      expect(AGORA - Date.parse((c.fechadoEm ?? c.atividadeEm)!)).toBeLessThanOrEqual(
+        7 * DIA,
+      );
     }
   });
 
@@ -703,7 +719,7 @@ describe("composeAssuntos — com a forma real dos dados (800 / 300 / 200)", () 
         },
         "fechado": {
           "antigos": 0,
-          "janela": 67,
+          "janela": 50,
           "mostra": 25,
         },
         "parado": {
@@ -719,7 +735,7 @@ describe("composeAssuntos — com a forma real dos dados (800 / 300 / 200)", () 
   it("não perde nem duplica cartão: colunas + encerrados antigos = total", () => {
     const nasColunas = todos(quadro).length;
     const fechadosAntigos = quadro.historico.filter(
-      (a) => AGORA - Date.parse(a.atividadeEm!) > 7 * DIA,
+      (a) => AGORA - Date.parse((a.fechadoEm ?? a.atividadeEm)!) > 7 * DIA,
     ).length;
     expect(nasColunas + fechadosAntigos).toBe(quadro.totalAssuntos);
     const ids = new Set(todos(quadro).map((a) => a.id));
@@ -799,18 +815,22 @@ describe("frescor sem linha de github em painel_frentes_sync", () => {
     );
     expect(quadro.frescor.temLeituraOk).toBe(true);
     expect(quadro.frescor.atualizadoTexto).toBe("há 2 h");
-    expect(quadro.frescor.avisos).toEqual([]);
+    // Nada sobre o GitHub; só as duas contas que não têm linha em sync.
+    expect(quadro.frescor.avisos.filter((a) => a.conta === null)).toEqual([]);
   });
 
   it("avisa quando o carimbo das linhas está velho", () => {
     const quadro = composeAssuntos([pr({ sincronizado_em: h(40) })], [], [], [], AGORA);
-    expect(quadro.frescor.avisos).toHaveLength(1);
-    expect(quadro.frescor.avisos[0]!.texto).toContain("não atualizam desde");
+    const doGithub = quadro.frescor.avisos.filter((a) => a.conta === null);
+    expect(doGithub).toHaveLength(1);
+    expect(doGithub[0]!.texto).toContain("não atualizam desde");
   });
 
   it("só diz 'nunca foram lidas' quando não há mudança nenhuma", () => {
     const vazio = composeAssuntos([], [], [], [], AGORA);
-    expect(vazio.frescor.avisos[0]!.texto).toContain("ainda não foram lidas");
+    expect(vazio.frescor.avisos[0]!.texto).toContain(
+      "as mudanças no código ainda não foram lidas",
+    );
     const comDados = composeAssuntos(
       [pr({ sincronizado_em: null })],
       [],
@@ -818,7 +838,7 @@ describe("frescor sem linha de github em painel_frentes_sync", () => {
       [],
       AGORA,
     );
-    expect(comDados.frescor.avisos).toEqual([]);
+    expect(comDados.frescor.avisos.filter((a) => a.conta === null)).toEqual([]);
   });
 });
 
@@ -879,5 +899,96 @@ describe("o primeiro paint é curto", () => {
 
   it("o filtro de conta é sempre o mesmo, com as três contas da casa", () => {
     expect(CONTAS_CONHECIDAS).toEqual(["Lucas", "Pandora", "Alma Petra"]);
+  });
+});
+
+describe("rodada 4 — avisos por conta, janela do fecho e teto de links", () => {
+  it("declara conta conhecida que nunca apareceu em painel_frentes_sync", () => {
+    const quadro = composeAssuntos(
+      [pr({ sincronizado_em: h(1) })],
+      [],
+      [],
+      [{ fonte: "sessoes:lucasscudeler@gmail.com", executado_em: h(2), ok: true }],
+      AGORA,
+    );
+    const porConta = quadro.frescor.avisos.map((a) => [a.conta, a.texto] as const);
+    expect(porConta).toEqual([
+      ["Pandora", "as conversas da conta Pandora ainda não foram lidas nenhuma vez"],
+      [
+        "Alma Petra",
+        "as conversas da conta Alma Petra ainda não foram lidas nenhuma vez",
+      ],
+    ]);
+  });
+
+  it("'Fechou esta semana' olha a data do fecho, não a última mexida", () => {
+    const quadro = composeAssuntos(
+      [
+        pr({
+          branch: "claude/velha",
+          estado: "mergeado",
+          mergeado_em: d(20),
+          atualizado_em: d(20),
+        }),
+      ],
+      [],
+      // A conversa foi tocada ontem, mas a mudança entrou na versão oficial há 20 dias.
+      [sessao({ branches: ["claude/velha"], estado: "completed", atualizado_em: d(1) })],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    expect(col(quadro, "fechado").assuntos).toHaveLength(0);
+    expect(quadro.historico).toHaveLength(1);
+    expect(quadro.historico[0]!.fechadoEm).toBe(d(20));
+  });
+
+  it("um cartão com 49 mudanças mostra 3 links e resume o resto", () => {
+    const muitas = Array.from({ length: 49 }, (_, i) =>
+      pr({
+        numero: 500 + i,
+        branch: "claude/muitas",
+        checks: "verde",
+        atualizado_em: h(i + 1),
+        url: `https://github.com/scudelerlucas/hub/pull/${500 + i}`,
+      }),
+    );
+    const quadro = composeAssuntos(
+      muitas,
+      [],
+      [sessao({ branches: ["claude/muitas"], estado: "review_ready" })],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    const cartao = todos(quadro)[0]!;
+    const rotulos = cartao.links.map((l) => l.rotulo);
+    expect(rotulos).toEqual([
+      "abrir conversa",
+      "mudança 1",
+      "mudança 2",
+      "mudança 3",
+      "e outras 46 mudanças no GitHub",
+    ]);
+    // Nenhum rótulo mostra o número cru da mudança.
+    for (const r of rotulos) expect(r).not.toMatch(/#\d+/);
+    expect(cartao.links.at(-1)!.url).toBe(
+      "https://github.com/scudelerlucas/hub/pulls?q=is%3Apr%20head%3Aclaude%2Fmuitas",
+    );
+  });
+
+  it("com uma só mudança o link continua sendo 'ver no GitHub'", () => {
+    const quadro = composeAssuntos([pr({ checks: "verde" })], [], [], SYNC_FRESCO, AGORA);
+    expect(todos(quadro)[0]!.links.map((l) => l.rotulo)).toEqual(["ver no GitHub"]);
+  });
+
+  it("no dedup das duas consultas, o estado mais avançado vence", () => {
+    const aberta = pr({ numero: 9, estado: "aberto", atualizado_em: h(1) });
+    const mergeada = pr({
+      numero: 9,
+      estado: "mergeado",
+      mergeado_em: h(3),
+      atualizado_em: h(3),
+    });
+    expect(unirPrs([aberta], [mergeada])[0]!.estado).toBe("mergeado");
+    expect(unirPrs([aberta], [mergeada])).toHaveLength(1);
   });
 });

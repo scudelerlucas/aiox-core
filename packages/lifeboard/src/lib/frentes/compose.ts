@@ -16,6 +16,7 @@
  *      recolhido "mais antigos", senão "Parado" viraria um depósito de 273 itens.
  */
 
+import { FUSO, dataCurta, maisRecente, ms, tempoRelativo } from "@/lib/frentes/tempo";
 import type {
   Assunto,
   AvisoFonte,
@@ -40,6 +41,8 @@ export const JANELA_ATIVA_DIAS = 21;
 export const JANELA_FECHADO_DIAS = 7;
 /** Teto de cartões visíveis por coluna antes do "mostrar mais". */
 export const TETO_VISIVEL = 25;
+/** Quantos links de mudança um cartão mostra antes de resumir o resto. */
+export const TETO_LINKS = 3;
 /** Quantos cartões nascem abertos por coluna: 6 no desktop, 4 no celular. */
 export const PRIMEIRO_PAINT_DESKTOP = 6;
 export const PRIMEIRO_PAINT_CELULAR = 4;
@@ -122,35 +125,9 @@ export function repoCurto(repo: string | null | undefined): string | null {
   return partes[partes.length - 1] ?? repo;
 }
 
-/** "há 3 dias" / "há 2 h" / "agora mesmo". */
-export function tempoRelativo(iso: string | null, now: number): string {
-  if (!iso) return "sem data";
-  const quando = Date.parse(iso);
-  if (Number.isNaN(quando)) return "sem data";
-  const dif = Math.max(0, now - quando);
-  if (dif < 60_000) return "agora mesmo";
-  if (dif < HORA) return `há ${Math.round(dif / 60_000)} min`;
-  if (dif < DIA) return `há ${Math.round(dif / HORA)} h`;
-  const dias = Math.round(dif / DIA);
-  return dias === 1 ? "há 1 dia" : `há ${dias} dias`;
-}
-
-/** Fuso da casa: as datas na tela são as de São Paulo, não as de UTC. */
-export const FUSO = "America/Sao_Paulo";
-
-const FORMATO_CURTO = new Intl.DateTimeFormat("pt-BR", {
-  day: "2-digit",
-  month: "2-digit",
-  timeZone: FUSO,
-});
-
-/** "11/09" no fuso de São Paulo. */
-export function dataCurta(iso: string | null): string {
-  if (!iso) return "";
-  const data = new Date(iso);
-  if (Number.isNaN(data.getTime())) return "";
-  return FORMATO_CURTO.format(data);
-}
+// Tempo e datas vêm de `@/lib/frentes/tempo` (uma só implementação, reexportada
+// aqui porque a tela e os testes já importam daqui).
+export { FUSO, dataCurta, maisRecente, ms, tempoRelativo };
 
 /** Os testes automáticos, em palavras de gente. */
 function textoDosTestes(checks: Pr["checks"]): string | null {
@@ -178,25 +155,6 @@ interface Grupo {
   prs: Pr[];
   branch: BranchSemPr | null;
   branches: Set<string>;
-}
-
-function ms(iso: string | null | undefined): number {
-  if (!iso) return 0;
-  const v = Date.parse(iso);
-  return Number.isNaN(v) ? 0 : v;
-}
-
-function maisRecente(...isos: (string | null | undefined)[]): string | null {
-  let melhor: string | null = null;
-  let melhorMs = -Infinity;
-  for (const iso of isos) {
-    if (!iso) continue;
-    const valor = ms(iso);
-    if (valor <= melhorMs) continue;
-    melhorMs = valor;
-    melhor = iso;
-  }
-  return melhor;
 }
 
 /** Branch que serve para juntar assuntos (ignora `main` e companhia). */
@@ -478,6 +436,18 @@ function montarAssunto(grupo: Grupo, now: number): Assunto {
   const etiqueta = daConta ? daConta.rotulo : (repo ?? "sem repositório");
   const corConta: CorConta = daConta ? daConta.cor : "neutra";
 
+  // Quando o assunto FECHOU (não quando alguém mexeu nele depois): é isto que
+  // decide a coluna "Fechou esta semana" e a data do histórico.
+  const fechadoEm =
+    coluna === "fechado"
+      ? maisRecente(
+          principal?.estado === "mergeado" ? principal.mergeado_em : null,
+          principal?.estado === "fechado" ? principal.fechado_em : null,
+          principal && principal.estado !== "aberto" ? principal.atualizado_em : null,
+          !principal && sessao ? (sessao.atualizado_em ?? sessao.criado_em) : null,
+        )
+      : null;
+
   const atividadeEm = maisRecente(
     sessao?.atualizado_em ?? sessao?.criado_em,
     ...grupo.prs.map((p) => maisRecente(p.atualizado_em, p.mergeado_em, p.fechado_em)),
@@ -492,15 +462,30 @@ function montarAssunto(grupo: Grupo, now: number): Assunto {
       url: s.url,
     });
   });
-  const mudancasOrdenadas = [...grupo.prs].sort(
-    (a, b) => ms(b.atualizado_em) - ms(a.atualizado_em),
-  );
-  for (const p of mudancasOrdenadas) {
-    if (!p.url) continue;
+  // Mudanças: no máximo TETO_LINKS links, e nunca o número cru da mudança —
+  // "#4821" não diz nada a quem não vive no GitHub.
+  const mudancasOrdenadas = [...grupo.prs]
+    .filter((p) => p.url)
+    .sort((a, b) => ms(b.atualizado_em) - ms(a.atualizado_em));
+  const mostradas = mudancasOrdenadas.slice(0, TETO_LINKS);
+  mostradas.forEach((p, indice) => {
     links.push({
       rotulo:
-        mudancasOrdenadas.length > 1 ? `ver no GitHub (#${p.numero})` : "ver no GitHub",
+        mudancasOrdenadas.length > 1 ? `mudança ${indice + 1}` : "ver no GitHub",
       url: p.url,
+    });
+  });
+  const sobraram = mudancasOrdenadas.length - mostradas.length;
+  if (sobraram > 0) {
+    const referencia = mostradas[0];
+    links.push({
+      rotulo: `e outras ${sobraram} mudanças no GitHub`,
+      // Leva para a lista de mudanças daquela branch, não para uma delas.
+      url: referencia
+        ? `https://github.com/${referencia.repo}/pulls?q=${encodeURIComponent(
+            `is:pr head:${referencia.branch}`,
+          )}`
+        : "",
     });
   }
 
@@ -523,6 +508,7 @@ function montarAssunto(grupo: Grupo, now: number): Assunto {
   return {
     id,
     titulo,
+    fechadoEm,
     etiqueta,
     corConta,
     contaFiltro: daConta ? daConta.rotulo : null,
@@ -585,6 +571,21 @@ function montarFrescor(
     });
   }
 
+  // Conta conhecida que nunca apareceu em `painel_frentes_sync`: dizer isso é
+  // diferente de dizer que ela está velha — e é melhor que o silêncio.
+  const contasLidas = new Set<string>();
+  for (const fonte of ultimaOk.keys()) {
+    if (!fonte.startsWith("sessoes:")) continue;
+    contasLidas.add(rotuloDaConta(fonte.slice("sessoes:".length)).rotulo);
+  }
+  for (const conta of CONTAS_CONHECIDAS) {
+    if (contasLidas.has(conta)) continue;
+    avisos.push({
+      texto: `as conversas da conta ${conta} ainda não foram lidas nenhuma vez`,
+      conta,
+    });
+  }
+
   for (const [fonte, iso] of ultimaOk) {
     if (!fonte.startsWith("sessoes:")) continue;
     if (now - ms(iso) <= AVISO_SESSOES_HORAS * HORA) continue;
@@ -627,15 +628,17 @@ export function composeAssuntos(
 ): QuadroAssuntos {
   const assuntos = agrupar(prs, branches, sessoes).map((g) => montarAssunto(g, now));
 
-  const porAtividade = (a: Assunto, b: Assunto): number =>
-    ms(b.atividadeEm) - ms(a.atividadeEm);
-
   const colunas: Coluna[] = ORDEM.map((id) => {
     const janela = (id === "fechado" ? JANELA_FECHADO_DIAS : JANELA_ATIVA_DIAS) * DIA;
-    const daColuna = assuntos.filter((a) => a.coluna === id).sort(porAtividade);
-    const dentro = daColuna.filter((a) => now - ms(a.atividadeEm) <= janela);
+    // A coluna que fechou se mede pela data do fecho; as vivas, pela atividade.
+    const quando = (a: Assunto): number =>
+      id === "fechado" ? ms(a.fechadoEm ?? a.atividadeEm) : ms(a.atividadeEm);
+    const daColuna = assuntos
+      .filter((a) => a.coluna === id)
+      .sort((a, b) => quando(b) - quando(a));
+    const dentro = daColuna.filter((a) => now - quando(a) <= janela);
     // Na coluna que fechou, o que é mais velho que a semana vive no histórico.
-    const fora = id === "fechado" ? [] : daColuna.filter((a) => now - ms(a.atividadeEm) > janela);
+    const fora = id === "fechado" ? [] : daColuna.filter((a) => now - quando(a) > janela);
     return {
       id,
       nome: NOMES[id].nome,
@@ -645,7 +648,9 @@ export function composeAssuntos(
     };
   });
 
-  const historico = assuntos.filter((a) => a.coluna === "fechado").sort(porAtividade);
+  const historico = assuntos
+    .filter((a) => a.coluna === "fechado")
+    .sort((a, b) => ms(b.fechadoEm ?? b.atividadeEm) - ms(a.fechadoEm ?? a.atividadeEm));
 
   // Filtro de conta: só as contas de verdade (3 conhecidas primeiro).
   const ORDEM_CONTAS = CONTAS_CONHECIDAS;

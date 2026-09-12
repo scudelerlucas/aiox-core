@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ContaChip } from "@/components/frentes/conta-chip";
 import { Filtros } from "@/components/frentes/filtros";
@@ -21,9 +21,13 @@ import type { Assunto, Coluna, ColunaId, QuadroAssuntos } from "@/lib/frentes/ty
  * palavra de bastidor na tela.
  *
  * O que o volume real obrigou a existir aqui: um resumo em uma linha no topo
- * (senão a primeira leitura é uma parede de cartões), teto de 25 cartões por
- * coluna, bloco recolhido "mais antigos" e, no celular, "Parado" e "Fechou esta
+ * (senão a primeira leitura é uma parede de cartões), primeiro paint de 6
+ * cartões por coluna no desktop e 4 no celular (o "mostrar mais" revela de 25
+ * em 25), bloco recolhido "mais antigos" e, no celular, "Parado" e "Fechou esta
  * semana" nascendo fechados — a tela do celular não pode ter três metros.
+ *
+ * Tudo o que depende do tamanho da tela é CSS, nunca estado de JavaScript: o
+ * servidor e o navegador desenham a MESMA coisa e nada salta depois de carregar.
  */
 const RECOLHIDAS_NO_CELULAR: ColunaId[] = ["parado", "fechado"];
 
@@ -63,64 +67,81 @@ function Cartao({ assunto }: { assunto: Assunto }): JSX.Element {
   );
 }
 
-/** Uma coluna: cabeçalho colado no topo, cartões, "mostrar mais" e "mais antigos". */
+/**
+ * Uma coluna: cabeçalho colado no topo, cartões, "mostrar mais" e "mais antigos".
+ *
+ * O acordeão do celular é uma caixa de seleção escondida + `peer-checked` do
+ * Tailwind: HTML e CSS, zero JavaScript, zero salto no primeiro paint. Acima de
+ * `sm` o conteúdo é sempre visível (`sm:flex`) e o rótulo "mostrar" desaparece.
+ */
 function ColunaQuadro({
   coluna,
   temLeituraOk,
   filtroAtivo,
-  recolhida,
-  podeRecolher,
-  primeiroPaint,
-  alternar,
+  recolhivelNoCelular,
 }: {
   coluna: Coluna;
   temLeituraOk: boolean;
   filtroAtivo: boolean;
-  recolhida: boolean;
-  podeRecolher: boolean;
-  primeiroPaint: number;
-  alternar: () => void;
+  recolhivelNoCelular: boolean;
 }): JSX.Element {
   // Quantos cartões a mais que o primeiro paint já foram pedidos.
   const [extra, setExtra] = useState(0);
   const total = coluna.assuntos.length + coluna.antigos.length;
-  const visiveis = coluna.assuntos.slice(0, primeiroPaint + extra);
-  const faltam = coluna.assuntos.length - visiveis.length;
 
-  const rotulo = (
-    <>
-      <span>{coluna.nome}</span>
-      <span className="text-xs font-normal text-state-neutral">
-        {coluna.assuntos.length}
-        {coluna.antigos.length > 0 ? ` (+${coluna.antigos.length})` : ""}
-        {recolhida ? " · mostrar" : ""}
-      </span>
-    </>
+  const limiteDesktop = PRIMEIRO_PAINT_DESKTOP + extra;
+  const limiteCelular = PRIMEIRO_PAINT_CELULAR + extra;
+  const visiveis = coluna.assuntos.slice(0, limiteDesktop);
+  const faltamNoDesktop = coluna.assuntos.length - limiteDesktop;
+  const faltamNoCelular = coluna.assuntos.length - limiteCelular;
+
+  const contador = (
+    <span className="text-xs font-normal text-state-neutral">
+      {coluna.assuntos.length}
+      {coluna.antigos.length > 0 ? ` (+${coluna.antigos.length})` : ""}
+      {recolhivelNoCelular ? (
+        <span className="peer-checked:hidden sm:hidden"> · mostrar</span>
+      ) : null}
+    </span>
   );
 
   return (
     <section aria-labelledby={`coluna-${coluna.id}`}>
+      {recolhivelNoCelular ? (
+        <input
+          type="checkbox"
+          id={`abrir-${coluna.id}`}
+          className="peer sr-only"
+          aria-label={`Mostrar a coluna ${coluna.nome}`}
+        />
+      ) : null}
+
       <div className="sticky top-0 z-10 -mx-1 border-b border-navy-700 bg-navy-950/95 px-1 pb-2 pt-1 backdrop-blur">
         <h2 id={`coluna-${coluna.id}`} className="text-sm font-semibold text-bone-100">
-          {podeRecolher ? (
-            // No celular o cabeçalho é o botão do acordeão…
-            <button
-              type="button"
-              onClick={alternar}
-              aria-expanded={!recolhida}
-              aria-controls={`lista-${coluna.id}`}
-              className="flex min-h-[44px] w-full items-center justify-between gap-2 text-left"
+          {recolhivelNoCelular ? (
+            <label
+              htmlFor={`abrir-${coluna.id}`}
+              className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 sm:min-h-0 sm:cursor-default"
             >
-              {rotulo}
-            </button>
+              <span>{coluna.nome}</span>
+              {contador}
+            </label>
           ) : (
-            // …e no desktop é só um título: nada de botão focável que não faz nada.
-            <span className="flex items-baseline justify-between gap-2">{rotulo}</span>
+            <span className="flex items-baseline justify-between gap-2">
+              <span>{coluna.nome}</span>
+              {contador}
+            </span>
           )}
         </h2>
       </div>
 
-      <div id={`lista-${coluna.id}`} hidden={recolhida} className="mt-3 flex flex-col gap-3">
+      <div
+        className={
+          recolhivelNoCelular
+            ? "mt-3 hidden flex-col gap-3 peer-checked:flex sm:flex"
+            : "mt-3 flex flex-col gap-3"
+        }
+      >
         {total === 0 ? (
           filtroAtivo ? null : (
             <p className="rounded-lg border border-dashed border-navy-700 px-3 py-4 text-[13px] text-state-neutral">
@@ -128,16 +149,35 @@ function ColunaQuadro({
             </p>
           )
         ) : (
-          visiveis.map((assunto) => <Cartao key={assunto.id} assunto={assunto} />)
+          visiveis.map((assunto, indice) => (
+            // Do 5º cartão em diante: só no desktop (no celular nascem 4).
+            <div
+              key={assunto.id}
+              className={indice >= limiteCelular ? "hidden sm:block" : undefined}
+            >
+              <Cartao assunto={assunto} />
+            </div>
+          ))
         )}
 
-        {faltam > 0 ? (
+        {/* Dois botões, um por tamanho de tela: o número tem de bater com o que
+            aquela tela está escondendo. Só um deles é visível de cada vez. */}
+        {faltamNoCelular > 0 ? (
           <button
             type="button"
             onClick={() => setExtra((v) => v + TETO_VISIVEL)}
-            className="min-h-[44px] rounded-md border border-navy-700 bg-navy-850 px-3 text-[13px] text-bone-100 hover:border-gold-600 sm:min-h-[36px]"
+            className="min-h-[44px] rounded-md border border-navy-700 bg-navy-850 px-3 text-[13px] text-bone-100 hover:border-gold-600 sm:hidden"
           >
-            mostrar mais (+{faltam})
+            mostrar mais (+{faltamNoCelular})
+          </button>
+        ) : null}
+        {faltamNoDesktop > 0 ? (
+          <button
+            type="button"
+            onClick={() => setExtra((v) => v + TETO_VISIVEL)}
+            className="hidden min-h-[36px] rounded-md border border-navy-700 bg-navy-850 px-3 text-[13px] text-bone-100 hover:border-gold-600 sm:block"
+          >
+            mostrar mais (+{faltamNoDesktop})
           </button>
         ) : null}
 
@@ -166,17 +206,6 @@ function ColunaQuadro({
 
 export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
   const { conta, busca, definirConta, definirBusca, limpar } = useFiltros();
-  const [celular, setCelular] = useState(false);
-  const [recolhidas, setRecolhidas] = useState<Partial<Record<ColunaId, boolean>>>({});
-
-  // No celular, as duas últimas colunas nascem recolhidas (só o contador).
-  useEffect(() => {
-    const consulta = window.matchMedia("(max-width: 639px)");
-    const aplicar = (): void => setCelular(consulta.matches);
-    aplicar();
-    consulta.addEventListener("change", aplicar);
-    return () => consulta.removeEventListener("change", aplicar);
-  }, []);
 
   const colunas = useMemo(
     () =>
@@ -283,32 +312,15 @@ export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
         </div>
       ) : (
         <div className="mt-4 grid gap-x-4 gap-y-6 md:grid-cols-2 xl:grid-cols-4">
-          {colunas.map((coluna) => {
-            // Acordeão só existe no celular; no desktop a coluna é sempre aberta.
-            const nasceFechada =
-              RECOLHIDAS_NO_CELULAR.includes(coluna.id) && !filtroAtivo;
-            const recolhida = celular
-              ? (recolhidas[coluna.id] ?? nasceFechada)
-              : false;
-            return (
-              <ColunaQuadro
-                key={coluna.id}
-                coluna={coluna}
-                temLeituraOk={quadro.frescor.temLeituraOk}
-                filtroAtivo={filtroAtivo}
-                recolhida={recolhida}
-                podeRecolher={celular}
-                primeiroPaint={celular ? PRIMEIRO_PAINT_CELULAR : PRIMEIRO_PAINT_DESKTOP}
-                alternar={() => {
-                  if (!celular) return;
-                  setRecolhidas((atual) => ({
-                    ...atual,
-                    [coluna.id]: !(atual[coluna.id] ?? nasceFechada),
-                  }));
-                }}
-              />
-            );
-          })}
+          {colunas.map((coluna) => (
+            <ColunaQuadro
+              key={coluna.id}
+              coluna={coluna}
+              temLeituraOk={quadro.frescor.temLeituraOk}
+              filtroAtivo={filtroAtivo}
+              recolhivelNoCelular={RECOLHIDAS_NO_CELULAR.includes(coluna.id)}
+            />
+          ))}
         </div>
       )}
     </main>

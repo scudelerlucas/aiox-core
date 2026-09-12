@@ -47,6 +47,8 @@ export default async function PaginaHistorico(): Promise<JSX.Element> {
     <HistoricoLista
       historico={quadro.historico.slice(0, TETO_HISTORICO)}
       contas={CONTAS_CONHECIDAS}
+      cortouNoTeto={dados.cortouNoTeto}
+      teto={TETO_HISTORICO}
     />
   );
 }

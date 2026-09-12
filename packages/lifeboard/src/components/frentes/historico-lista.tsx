@@ -40,9 +40,14 @@ function dataCompleta(iso: string | null): string {
 export function HistoricoLista({
   historico,
   contas,
+  cortouNoTeto = false,
+  teto,
 }: {
   historico: Assunto[];
   contas: string[];
+  /** A consulta bateu no teto? Então existe mais história do que esta lista. */
+  cortouNoTeto?: boolean;
+  teto?: number;
 }): JSX.Element {
   const { conta, busca, definirConta, definirBusca, limpar } = useFiltros();
   const [visiveis, setVisiveis] = useState(PASSO);
@@ -61,7 +66,7 @@ export function HistoricoLista({
   const grupos = useMemo(() => {
     const vistos = new Set<string>();
     return mostrados.map((assunto) => {
-      const mes = mesAno(assunto.atividadeEm);
+      const mes = mesAno(assunto.fechadoEm ?? assunto.atividadeEm);
       const primeiro = !vistos.has(mes);
       vistos.add(mes);
       return { assunto, mes, primeiro };
@@ -115,7 +120,9 @@ export function HistoricoLista({
         </div>
       ) : (
         <p className="mt-3 text-xs text-state-neutral">
-          {`${filtrados.length} ${filtrados.length === 1 ? "assunto" : "assuntos"} · mostrando ${mostrados.length}`}
+          {cortouNoTeto && teto
+            ? `os ${teto} mais recentes · mostrando ${mostrados.length}`
+            : `${filtrados.length} ${filtrados.length === 1 ? "assunto" : "assuntos"} · mostrando ${mostrados.length}`}
         </p>
       )}
 
@@ -159,7 +166,7 @@ export function HistoricoLista({
                 ) : null}
                 <tr className="border-b border-navy-800 align-top">
                   <td className="whitespace-nowrap py-2 pr-3 text-xs text-state-neutral">
-                    {dataCompleta(assunto.atividadeEm)}
+                    {dataCompleta(assunto.fechadoEm ?? assunto.atividadeEm)}
                   </td>
                   <td className="py-2 pr-3">
                     <span className="text-bone-100">{assunto.titulo}</span>
