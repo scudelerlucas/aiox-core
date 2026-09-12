@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CONTAS_CONHECIDAS,
   ENCERRADAS,
   JANELA_ATIVA_DIAS,
   JANELA_FECHADO_DIAS,
+  PRIMEIRO_PAINT_CELULAR,
+  PRIMEIRO_PAINT_DESKTOP,
   TETO_VISIVEL,
   composeAssuntos,
   dataCurta,
@@ -12,6 +15,7 @@ import {
   rotuloDaConta,
 } from "@/lib/frentes/compose";
 import { fixtureFrentes } from "@/lib/frentes/fixture";
+import { unirBranches, unirPrs } from "@/lib/frentes/unir-leituras";
 import type {
   Assunto,
   BranchSemPr,
@@ -732,5 +736,148 @@ describe("composeAssuntos — com a forma real dos dados (800 / 300 / 200)", () 
       cartoes.flatMap((c) => c.links.filter((l) => l.rotulo.startsWith("ver")).map((l) => l.url)),
     );
     expect(comMudanca.size).toBe(800);
+  });
+});
+
+describe("leituras parciais — o que está aberto nunca cai fora do corte", () => {
+  it("mudança aberta antiga sobrevive a 500 mudanças encerradas recentes", () => {
+    // Espelha o banco real: 823 na janela, só 29 abertas. Um único `.limit(400)`
+    // por data deixava 2 abertas de fora — este é o teste que impede a volta disso.
+    const encerradas: Pr[] = Array.from({ length: 500 }, (_, i) =>
+      pr({
+        numero: 1000 + i,
+        branch: `claude/encerrada-${i}`,
+        estado: "mergeado",
+        mergeado_em: d(1),
+        atualizado_em: d(1),
+      }),
+    );
+    const abertaAntiga = pr({
+      numero: 7,
+      branch: "claude/aberta-velha",
+      estado: "aberto",
+      checks: "verde",
+      atualizado_em: d(200),
+    });
+
+    const unidas = unirPrs([abertaAntiga], encerradas);
+    expect(unidas).toHaveLength(501);
+    expect(unidas.some((p) => p.numero === 7)).toBe(true);
+
+    // E ela aparece no quadro, no bloco "mais antigos" da coluna de espera.
+    const quadro = composeAssuntos(unidas, [], [], SYNC_FRESCO, AGORA);
+    const naEspera = inteira(quadro, "esperando").some((a) =>
+      a.busca.includes("claude/aberta-velha"),
+    );
+    expect(naEspera).toBe(true);
+  });
+
+  it("não duplica quando a mesma linha vem nas duas consultas", () => {
+    const linha = pr({ numero: 42, branch: "claude/x" });
+    expect(unirPrs([linha], [linha])).toHaveLength(1);
+    const b = branch({ branch: "claude/solta" });
+    expect(unirBranches([b], [b])).toHaveLength(1);
+  });
+
+  it("trabalho commitado sem mudança entra sem janela e vem ordenado", () => {
+    const antigo = branch({ branch: "claude/antiga", ultimo_commit_em: d(180) });
+    const novo = branch({ branch: "claude/nova", ultimo_commit_em: d(1), tem_pr: true });
+    const unidas = unirBranches([antigo], [novo]);
+    expect(unidas.map((x) => x.branch)).toEqual(["claude/nova", "claude/antiga"]);
+  });
+});
+
+describe("frescor sem linha de github em painel_frentes_sync", () => {
+  it("usa o carimbo das próprias linhas de mudança (nunca diz 'nunca lidas' com dados na mesa)", () => {
+    const quadro = composeAssuntos(
+      [pr({ sincronizado_em: h(2) })],
+      [branch({ sincronizado_em: h(3) })],
+      [],
+      // Só a linha de sessões existe — exatamente o estado do banco em 12/09.
+      [{ fonte: "sessoes:lucasscudeler@gmail.com", executado_em: h(5), ok: true }],
+      AGORA,
+    );
+    expect(quadro.frescor.temLeituraOk).toBe(true);
+    expect(quadro.frescor.atualizadoTexto).toBe("há 2 h");
+    expect(quadro.frescor.avisos).toEqual([]);
+  });
+
+  it("avisa quando o carimbo das linhas está velho", () => {
+    const quadro = composeAssuntos([pr({ sincronizado_em: h(40) })], [], [], [], AGORA);
+    expect(quadro.frescor.avisos).toHaveLength(1);
+    expect(quadro.frescor.avisos[0]!.texto).toContain("não atualizam desde");
+  });
+
+  it("só diz 'nunca foram lidas' quando não há mudança nenhuma", () => {
+    const vazio = composeAssuntos([], [], [], [], AGORA);
+    expect(vazio.frescor.avisos[0]!.texto).toContain("ainda não foram lidas");
+    const comDados = composeAssuntos(
+      [pr({ sincronizado_em: null })],
+      [],
+      [],
+      [],
+      AGORA,
+    );
+    expect(comDados.frescor.avisos).toEqual([]);
+  });
+});
+
+describe("conversa encerrada não escreve 'concluído' em coluna viva", () => {
+  it("mudança aberta com testes ok + conversa 'completed' fica em espera, sem contradição", () => {
+    const quadro = composeAssuntos(
+      [pr({ branch: "claude/vivo", checks: "verde" })],
+      [],
+      [sessao({ branches: ["claude/vivo"], estado: "completed" })],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    const cartao = col(quadro, "esperando").assuntos[0]!;
+    expect(cartao.situacao).not.toContain("concluído");
+    // E diz o que fazer, mesmo sem `precisa_de` preenchido (item 4).
+    expect(cartao.situacao).toBe("você olhar e aprovar · testes ok");
+  });
+
+  it("em 'Andando' também não vaza 'concluído'", () => {
+    const quadro = composeAssuntos(
+      [pr({ branch: "claude/meio", checks: "pendente" })],
+      [],
+      [sessao({ branches: ["claude/meio"], estado: "archived" })],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    expect(col(quadro, "andando").assuntos[0]!.situacao).toBe("testes rodando");
+  });
+});
+
+describe("mudança órfã em branch genérica", () => {
+  it("cada mudança no main é um cartão (nunca um cartão só para o repositório)", () => {
+    const quadro = composeAssuntos(
+      [
+        pr({ numero: 1, branch: "main", checks: "verde" }),
+        pr({ numero: 2, branch: "main", checks: "verde" }),
+        pr({ numero: 3, branch: "master", checks: "verde" }),
+        pr({ numero: 4, branch: "", checks: "verde" }),
+      ],
+      [],
+      [],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    expect(todos(quadro)).toHaveLength(4);
+    const ids = todos(quadro).map((a) => a.id);
+    expect(new Set(ids).size).toBe(4);
+    expect(ids).toContain("mudanca:scudelerlucas/hub#1");
+  });
+});
+
+describe("o primeiro paint é curto", () => {
+  it("nasce com 6 cartões por coluna no desktop e 4 no celular", () => {
+    expect(PRIMEIRO_PAINT_DESKTOP).toBe(6);
+    expect(PRIMEIRO_PAINT_CELULAR).toBe(4);
+    expect(PRIMEIRO_PAINT_DESKTOP).toBeLessThan(TETO_VISIVEL);
+  });
+
+  it("o filtro de conta é sempre o mesmo, com as três contas da casa", () => {
+    expect(CONTAS_CONHECIDAS).toEqual(["Lucas", "Pandora", "Alma Petra"]);
   });
 });

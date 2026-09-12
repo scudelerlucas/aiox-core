@@ -28,6 +28,13 @@ export default async function PaginaHistorico(): Promise<JSX.Element> {
     return <NaoConsegui />;
   }
 
+  // Silêncio das duas consultas = leitura falhou. "Nada fechou ainda" seria
+  // uma conclusão sobre a vida do Lucas tirada de um erro de rede.
+  if (dados.prs.length === 0 && dados.sessoes.length === 0) {
+    console.error("[frentes/historico] as duas consultas voltaram vazias.");
+    return <NaoConsegui />;
+  }
+
   const quadro = composeAssuntos(
     dados.prs,
     dados.branches,

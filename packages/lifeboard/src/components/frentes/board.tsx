@@ -6,7 +6,11 @@ import { useEffect, useMemo, useState } from "react";
 import { ContaChip } from "@/components/frentes/conta-chip";
 import { Filtros } from "@/components/frentes/filtros";
 import { casaBusca, useFiltros } from "@/components/frentes/use-filtros";
-import { TETO_VISIVEL } from "@/lib/frentes/compose";
+import {
+  PRIMEIRO_PAINT_CELULAR,
+  PRIMEIRO_PAINT_DESKTOP,
+  TETO_VISIVEL,
+} from "@/lib/frentes/compose";
 import type { Assunto, Coluna, ColunaId, QuadroAssuntos } from "@/lib/frentes/types";
 
 /**
@@ -66,6 +70,7 @@ function ColunaQuadro({
   filtroAtivo,
   recolhida,
   podeRecolher,
+  primeiroPaint,
   alternar,
 }: {
   coluna: Coluna;
@@ -73,31 +78,45 @@ function ColunaQuadro({
   filtroAtivo: boolean;
   recolhida: boolean;
   podeRecolher: boolean;
+  primeiroPaint: number;
   alternar: () => void;
 }): JSX.Element {
-  const [teto, setTeto] = useState(TETO_VISIVEL);
+  // Quantos cartões a mais que o primeiro paint já foram pedidos.
+  const [extra, setExtra] = useState(0);
   const total = coluna.assuntos.length + coluna.antigos.length;
-  const visiveis = coluna.assuntos.slice(0, teto);
+  const visiveis = coluna.assuntos.slice(0, primeiroPaint + extra);
   const faltam = coluna.assuntos.length - visiveis.length;
+
+  const rotulo = (
+    <>
+      <span>{coluna.nome}</span>
+      <span className="text-xs font-normal text-state-neutral">
+        {coluna.assuntos.length}
+        {coluna.antigos.length > 0 ? ` (+${coluna.antigos.length})` : ""}
+        {recolhida ? " · mostrar" : ""}
+      </span>
+    </>
+  );
 
   return (
     <section aria-labelledby={`coluna-${coluna.id}`}>
       <div className="sticky top-0 z-10 -mx-1 border-b border-navy-700 bg-navy-950/95 px-1 pb-2 pt-1 backdrop-blur">
         <h2 id={`coluna-${coluna.id}`} className="text-sm font-semibold text-bone-100">
-          <button
-            type="button"
-            onClick={alternar}
-            aria-expanded={!recolhida}
-            aria-controls={`lista-${coluna.id}`}
-            aria-disabled={!podeRecolher}
-            className="flex min-h-[44px] w-full items-center justify-between gap-2 text-left sm:min-h-[28px] sm:cursor-default"
-          >
-            <span>{coluna.nome}</span>
-            <span className="text-xs font-normal text-state-neutral">
-              {total}
-              {recolhida ? " · mostrar" : ""}
-            </span>
-          </button>
+          {podeRecolher ? (
+            // No celular o cabeçalho é o botão do acordeão…
+            <button
+              type="button"
+              onClick={alternar}
+              aria-expanded={!recolhida}
+              aria-controls={`lista-${coluna.id}`}
+              className="flex min-h-[44px] w-full items-center justify-between gap-2 text-left"
+            >
+              {rotulo}
+            </button>
+          ) : (
+            // …e no desktop é só um título: nada de botão focável que não faz nada.
+            <span className="flex items-baseline justify-between gap-2">{rotulo}</span>
+          )}
         </h2>
       </div>
 
@@ -105,7 +124,7 @@ function ColunaQuadro({
         {total === 0 ? (
           filtroAtivo ? null : (
             <p className="rounded-lg border border-dashed border-navy-700 px-3 py-4 text-[13px] text-state-neutral">
-              {temLeituraOk ? coluna.vazio : "Sem leitura recente desta fonte."}
+              {temLeituraOk ? coluna.vazio : "Sem leitura recente."}
             </p>
           )
         ) : (
@@ -115,7 +134,7 @@ function ColunaQuadro({
         {faltam > 0 ? (
           <button
             type="button"
-            onClick={() => setTeto((v) => v + TETO_VISIVEL)}
+            onClick={() => setExtra((v) => v + TETO_VISIVEL)}
             className="min-h-[44px] rounded-md border border-navy-700 bg-navy-850 px-3 text-[13px] text-bone-100 hover:border-gold-600 sm:min-h-[36px]"
           >
             mostrar mais (+{faltam})
@@ -174,16 +193,17 @@ export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
   );
 
   const contagem = useMemo(() => {
-    const numero = (id: ColunaId): number => {
-      const c = colunas.find((x) => x.id === id);
-      return c ? c.assuntos.length + c.antigos.length : 0;
-    };
+    // O resumo conta o que a coluna realmente mostra (a janela) — somar os
+    // "mais antigos" inflava o número que ele lê primeiro.
+    const numero = (id: ColunaId): number =>
+      colunas.find((x) => x.id === id)?.assuntos.length ?? 0;
     return {
       esperando: numero("esperando"),
       andando: numero("andando"),
       parado: numero("parado"),
       fechado: numero("fechado"),
-      total: colunas.reduce((s, c) => s + c.assuntos.length + c.antigos.length, 0),
+      antigos: colunas.reduce((soma, c) => soma + c.antigos.length, 0),
+      total: colunas.reduce((soma, c) => soma + c.assuntos.length + c.antigos.length, 0),
     };
   }, [colunas]);
 
@@ -223,6 +243,11 @@ export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
         esperando você · {contagem.andando} andando · {contagem.parado} parados ·{" "}
         {contagem.fechado} fechados esta semana
       </p>
+      {contagem.antigos > 0 ? (
+        <p className="mt-1 text-xs text-state-neutral">
+          + {contagem.antigos} mais antigos, guardados no fim de cada coluna
+        </p>
+      ) : null}
 
       {avisos.length > 0 ? (
         <div
@@ -273,6 +298,7 @@ export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
                 filtroAtivo={filtroAtivo}
                 recolhida={recolhida}
                 podeRecolher={celular}
+                primeiroPaint={celular ? PRIMEIRO_PAINT_CELULAR : PRIMEIRO_PAINT_DESKTOP}
                 alternar={() => {
                   if (!celular) return;
                   setRecolhidas((atual) => ({

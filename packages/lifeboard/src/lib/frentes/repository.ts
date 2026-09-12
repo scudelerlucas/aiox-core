@@ -23,20 +23,27 @@ import type {
   Sessao,
   Sync,
 } from "@/lib/frentes/types";
+import { unirBranches, unirPrs } from "@/lib/frentes/unir-leituras";
 import { createSupabaseUserClient } from "@/lib/supabase/user-server";
 
 /** Colunas que a tela realmente lê — nada de `select("*")`. */
 const COLUNAS_PR =
-  "repo,numero,titulo,estado,rascunho,branch,url,atualizado_em,fechado_em,mergeado_em,checks";
-const COLUNAS_BRANCH = "repo,branch,ultimo_commit_em,ultimo_commit_msg,tem_pr";
+  "repo,numero,titulo,estado,rascunho,branch,url,atualizado_em,fechado_em,mergeado_em,checks,sincronizado_em";
+const COLUNAS_BRANCH =
+  "repo,branch,ultimo_commit_em,ultimo_commit_msg,tem_pr,sincronizado_em";
 const COLUNAS_SESSAO =
   "sessao_id,conta,titulo,estado,estado_detalhe,precisa_de,branches,repos,url,criado_em,atualizado_em";
 const COLUNAS_SYNC = "fonte,executado_em,ok,itens,erro";
 
 /** Janela de leitura do quadro e tetos por tabela. */
 const JANELA_LEITURA_DIAS = 90;
+/** Teto das mudanças ENCERRADAS (essas sim passam pela janela de 90 dias). */
 const TETO_PRS = 400;
+/** Teto do que está ABERTO — lido sem janela nenhuma, custe o que custar. */
+const TETO_ABERTOS = 500;
 const TETO_BRANCHES = 400;
+/** Trabalho commitado que ainda não virou mudança: também sem janela. */
+const TETO_BRANCHES_SEM_PR = 500;
 const TETO_SESSOES = 600;
 const TETO_SYNC = 20;
 /** Teto do histórico (a tela corta ainda antes de virar prop). */
@@ -85,37 +92,67 @@ class SupabaseFrentesRepository implements FrentesRepository {
     const supabase = await createSupabaseUserClient();
     const corte = desde(JANELA_LEITURA_DIAS);
 
-    const [prs, branches, sessoes, sync] = await Promise.all([
-      supabase
-        .from("painel_frentes_prs")
-        .select(COLUNAS_PR)
-        .gte("atualizado_em", corte)
-        .order("atualizado_em", { ascending: false })
-        .limit(TETO_PRS),
-      supabase
-        .from("painel_frentes_branches")
-        .select(COLUNAS_BRANCH)
-        .order("ultimo_commit_em", { ascending: false })
-        .limit(TETO_BRANCHES),
-      supabase
-        .from("painel_frentes_sessoes")
-        .select(COLUNAS_SESSAO)
-        .gte("atualizado_em", corte)
-        .order("atualizado_em", { ascending: false })
-        .limit(TETO_SESSOES),
-      supabase
-        .from("painel_frentes_sync")
-        .select(COLUNAS_SYNC)
-        .order("executado_em", { ascending: false })
-        .limit(TETO_SYNC),
-    ]);
+    // Seis consultas, todas com colunas nomeadas, ordem e teto. As duas
+    // primeiras existem porque ABERTO nunca pode cair fora de janela ou teto.
+    const [abertos, encerrados, semMudanca, comMudanca, sessoes, sync] =
+      await Promise.all([
+        supabase
+          .from("painel_frentes_prs")
+          .select(COLUNAS_PR)
+          .eq("estado", "aberto")
+          .order("atualizado_em", { ascending: false })
+          .limit(TETO_ABERTOS),
+        supabase
+          .from("painel_frentes_prs")
+          .select(COLUNAS_PR)
+          .in("estado", ["mergeado", "fechado"])
+          .gte("atualizado_em", corte)
+          .order("atualizado_em", { ascending: false })
+          .limit(TETO_PRS),
+        supabase
+          .from("painel_frentes_branches")
+          .select(COLUNAS_BRANCH)
+          .eq("tem_pr", false)
+          .order("ultimo_commit_em", { ascending: false })
+          .limit(TETO_BRANCHES_SEM_PR),
+        supabase
+          .from("painel_frentes_branches")
+          .select(COLUNAS_BRANCH)
+          .eq("tem_pr", true)
+          .order("ultimo_commit_em", { ascending: false })
+          .limit(TETO_BRANCHES),
+        supabase
+          .from("painel_frentes_sessoes")
+          .select(COLUNAS_SESSAO)
+          .gte("atualizado_em", corte)
+          .order("atualizado_em", { ascending: false })
+          .limit(TETO_SESSOES),
+        supabase
+          .from("painel_frentes_sync")
+          .select(COLUNAS_SYNC)
+          .order("executado_em", { ascending: false })
+          .limit(TETO_SYNC),
+      ]);
 
-    const falha = [prs.error, branches.error, sessoes.error, sync.error].find(Boolean);
+    const falha = [
+      abertos.error,
+      encerrados.error,
+      semMudanca.error,
+      comMudanca.error,
+      sessoes.error,
+      sync.error,
+    ].find(Boolean);
     if (falha) throw new FrentesIndisponivel(falha.message);
 
     return {
-      prs: (prs.data ?? []) as unknown as Pr[],
-      branches: (branches.data ?? []) as unknown as BranchSemPr[],
+      prs: unirPrs(
+        (abertos.data ?? []) as unknown as Pr[],
+        (encerrados.data ?? []) as unknown as Pr[],
+      ),
+      branches: unirBranches(
+        (semMudanca.data ?? []) as unknown as BranchSemPr[],
+        (comMudanca.data ?? []) as unknown as BranchSemPr[],
+      ),
       sessoes: (sessoes.data ?? []) as unknown as Sessao[],
       sync: (sync.data ?? []) as unknown as Sync[],
     };

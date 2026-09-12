@@ -40,6 +40,9 @@ export const JANELA_ATIVA_DIAS = 21;
 export const JANELA_FECHADO_DIAS = 7;
 /** Teto de cartões visíveis por coluna antes do "mostrar mais". */
 export const TETO_VISIVEL = 25;
+/** Quantos cartões nascem abertos por coluna: 6 no desktop, 4 no celular. */
+export const PRIMEIRO_PAINT_DESKTOP = 6;
+export const PRIMEIRO_PAINT_CELULAR = 4;
 /** A partir daqui, trabalho commitado sem mudança aberta conta como parado. */
 const PARADO_BRANCH_DIAS = 7;
 /** A partir daqui, mudança aberta sem novidade conta como parada. */
@@ -288,7 +291,11 @@ function agrupar(prs: Pr[], branches: BranchSemPr[], sessoes: Sessao[]): Grupo[]
     const chave = chavePr(p);
     if (prUsado.has(chave)) continue;
     prUsado.add(chave);
-    const id = `${p.repo}@@${p.branch}`;
+    // Branch genérica (ou vazia) não identifica assunto: a chave passa a ser o
+    // número da mudança, senão todo o `main` do repositório viraria um cartão.
+    const id = branchUtil(p.branch)
+      ? `${p.repo}@@${p.branch}`
+      : `${p.repo}@@pr:${p.numero}`;
     let grupo = porRepoBranch.get(id);
     if (!grupo) {
       grupo = { sessoes: [], prs: [], branch: null, branches: new Set([p.branch]) };
@@ -304,7 +311,9 @@ function agrupar(prs: Pr[], branches: BranchSemPr[], sessoes: Sessao[]): Grupo[]
     if (branchUsada.has(chave)) continue;
     // Se já existe mudança nessa branch do mesmo repositório, o cartão dela conta a história.
     if (b.tem_pr) continue;
-    const jaTem = porRepoBranch.get(`${b.repo}@@${b.branch}`);
+    const jaTem = branchUtil(b.branch)
+      ? porRepoBranch.get(`${b.repo}@@${b.branch}`)
+      : undefined;
     if (jaTem) {
       jaTem.branch = jaTem.branch ?? b;
       branchUsada.add(chave);
@@ -407,7 +416,10 @@ function montarSituacao(
   }
   const estado = sessao?.estado ?? null;
   if (estado) {
-    const texto = TEXTO_ESTADO[estado];
+    // Conversa que se declara encerrada mas cujo assunto segue vivo NÃO escreve
+    // "concluído" numa coluna viva — era a contradição que vazava para a tela.
+    const encerradaForaDeLugar = ENCERRADAS.has(estado);
+    const texto = encerradaForaDeLugar ? undefined : TEXTO_ESTADO[estado];
     if (texto) partes.push(texto);
   }
   if (grupo.sessoes.length === 0) partes.push("sem conversa ligada");
@@ -418,12 +430,21 @@ function montarSituacao(
   // O texto do estado sai: "você olhar e aprovar" já diz o que "pronto para o
   // Lucas aprovar" diria, e repetir só gasta a linha.
   const precisa = sessao?.precisa_de?.trim();
-  if (coluna === "esperando" && precisa) {
-    const doEstado = estado ? TEXTO_ESTADO[estado] : undefined;
-    finais = [
-      precisa,
-      ...partes.filter((p) => p !== precisa && p !== doEstado).slice(0, 2),
-    ];
+  if (coluna === "esperando") {
+    const doEstado = estado && !ENCERRADAS.has(estado) ? TEXTO_ESTADO[estado] : undefined;
+    // Sem `precisa_de`, a própria tela diz o que fazer: ninguém deve adivinhar
+    // por que um cartão está na coluna "Esperando o Lucas".
+    const pedido =
+      precisa ||
+      (principal?.estado === "aberto" && principal.checks === "verde"
+        ? "você olhar e aprovar"
+        : null);
+    if (pedido) {
+      finais = [
+        pedido,
+        ...partes.filter((p) => p !== pedido && p !== doEstado).slice(0, 2),
+      ];
+    }
   }
 
   if (finais.length === 0) finais = ["sem novidade"];
@@ -518,7 +539,12 @@ function montarAssunto(grupo: Grupo, now: number): Assunto {
 
 // ─── frescor dos dados ───────────────────────────────────────────────────────
 
-function montarFrescor(sync: Sync[], now: number): Frescor {
+function montarFrescor(
+  sync: Sync[],
+  prs: Pr[],
+  branches: BranchSemPr[],
+  now: number,
+): Frescor {
   const ultimaOk = new Map<string, string>();
   for (const linha of sync) {
     if (!linha.ok) continue;
@@ -531,14 +557,27 @@ function montarFrescor(sync: Sync[], now: number): Frescor {
   let maisNova: string | null = null;
   for (const iso of ultimaOk.values()) maisNova = maisRecente(maisNova, iso);
 
+  // Segunda fonte de frescor do GitHub: o `sincronizado_em` das próprias linhas.
+  // Enquanto a leitura do GitHub não registra em `painel_frentes_sync`, é ELE que
+  // conta — dizer "nunca lidas" com 823 mudanças na tabela seria falso.
+  let carimboDasLinhas: string | null = null;
+  for (const p of prs) carimboDasLinhas = maisRecente(carimboDasLinhas, p.sincronizado_em);
+  for (const b of branches) {
+    carimboDasLinhas = maisRecente(carimboDasLinhas, b.sincronizado_em);
+  }
+  maisNova = maisRecente(maisNova, carimboDasLinhas);
+
   const avisos: AvisoFonte[] = [];
-  const github = ultimaOk.get("github") ?? null;
+  const github = ultimaOk.get("github") ?? carimboDasLinhas;
   if (!github) {
-    avisos.push({
-      texto:
-        "Os dados podem estar velhos: as mudanças no código ainda não foram lidas nenhuma vez.",
-      conta: null,
-    });
+    // Só é "nunca lida" quando não há mudança nenhuma para ter sido lida.
+    if (prs.length === 0) {
+      avisos.push({
+        texto:
+          "Os dados podem estar velhos: as mudanças no código ainda não foram lidas nenhuma vez.",
+        conta: null,
+      });
+    }
   } else if (now - ms(github) > AVISO_GITHUB_HORAS * HORA) {
     avisos.push({
       texto: `Os dados podem estar velhos: as mudanças no código não atualizam desde ${dataCurta(github)}.`,
@@ -558,7 +597,8 @@ function montarFrescor(sync: Sync[], now: number): Frescor {
 
   return {
     atualizadoTexto: maisNova ? tempoRelativo(maisNova, now) : null,
-    temLeituraOk: ultimaOk.size > 0,
+    // Houve leitura se alguma fonte registrou OU se as linhas têm carimbo.
+    temLeituraOk: ultimaOk.size > 0 || carimboDasLinhas !== null,
     avisos,
   };
 }
@@ -621,7 +661,7 @@ export function composeAssuntos(
   return {
     colunas,
     historico,
-    frescor: montarFrescor(sync, now),
+    frescor: montarFrescor(sync, prs, branches, now),
     contas,
     totalAssuntos: assuntos.length,
   };

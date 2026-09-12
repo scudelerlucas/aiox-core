@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { buildTodayList } from "@/core/prioritize/server-only";
 import {
@@ -43,8 +45,9 @@ export default async function Page(): Promise<JSX.Element> {
   return (
     <>
       {/* Atalho para o quadro de assuntos das três contas (tela /frentes). */}
-      <a
+      <Link
         href="/frentes"
+        prefetch={false}
         style={{
           position: "fixed",
           top: 12,
@@ -60,7 +63,7 @@ export default async function Page(): Promise<JSX.Element> {
         }}
       >
         Assuntos
-      </a>
+      </Link>
       <a
         href="/auth/signout"
         style={{
