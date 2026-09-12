@@ -25,6 +25,20 @@ import type { TodayResponse } from "@/types/dashboard";
 // Lê o estado do dia por request (fixture ou Supabase live); sem prerender estático.
 export const dynamic = "force-dynamic";
 
+/** Estilo comum dos dois links do cabeçalho (Assuntos · Sair). */
+const ESTILO_LINK_CABECALHO = {
+  fontSize: 12,
+  color: "#8593A8",
+  textDecoration: "none",
+  background: "#0F1E33",
+  border: "1px solid #1E3350",
+  borderRadius: 8,
+  padding: "6px 11px",
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 28,
+} as const;
+
 export default async function Page(): Promise<JSX.Element> {
   // Origem (fixture | Supabase live) decidida pelo factory via LIFEBOARD_DATA_MODE.
   const tasksRepo = getTasksRepository();
@@ -44,44 +58,23 @@ export default async function Page(): Promise<JSX.Element> {
 
   return (
     <>
-      {/* Atalho para o quadro de assuntos das três contas (tela /frentes). */}
-      <Link
-        href="/frentes"
-        prefetch={false}
+      {/* Cabeçalho no FLUXO (não fixo): link sobreposto cobria os avisos da
+          página. Mesmo estilo dos dois links, lado a lado, alinhados à direita. */}
+      <div
         style={{
-          position: "fixed",
-          top: 12,
-          right: 78,
-          zIndex: 50,
-          fontSize: 12,
-          color: "#C9AE82",
-          textDecoration: "none",
-          background: "#0F1E33",
-          border: "1px solid #1E3350",
-          borderRadius: 8,
-          padding: "6px 11px",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 8,
+          padding: "12px 14px 0",
         }}
       >
-        Assuntos
-      </Link>
-      <a
-        href="/auth/signout"
-        style={{
-          position: "fixed",
-          top: 12,
-          right: 14,
-          zIndex: 50,
-          fontSize: 12,
-          color: "#8593A8",
-          textDecoration: "none",
-          background: "#0F1E33",
-          border: "1px solid #1E3350",
-          borderRadius: 8,
-          padding: "6px 11px",
-        }}
-      >
-        Sair
-      </a>
+        <Link href="/frentes" prefetch={false} style={ESTILO_LINK_CABECALHO}>
+          Assuntos
+        </Link>
+        <a href="/auth/signout" style={ESTILO_LINK_CABECALHO}>
+          Sair
+        </a>
+      </div>
       <DashboardClient
         tasks={tasks}
         sources={sources}

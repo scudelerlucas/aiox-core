@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { HistoricoLista } from "@/components/frentes/historico-lista";
-import { CONTAS_CONHECIDAS, composeAssuntos } from "@/lib/frentes/compose";
+import { composeAssuntos } from "@/lib/frentes/compose";
 import { TETO_HISTORICO, getFrentesRepository } from "@/lib/frentes/repository";
 
 /**
@@ -28,12 +28,8 @@ export default async function PaginaHistorico(): Promise<JSX.Element> {
     return <NaoConsegui />;
   }
 
-  // Silêncio das duas consultas = leitura falhou. "Nada fechou ainda" seria
-  // uma conclusão sobre a vida do Lucas tirada de um erro de rede.
-  if (dados.prs.length === 0 && dados.sessoes.length === 0) {
-    console.error("[frentes/historico] as duas consultas voltaram vazias.");
-    return <NaoConsegui />;
-  }
+  // Erro de leitura já saiu acima (exceção). Consulta que respondeu com zero
+  // linhas é histórico vazio de verdade: a lista diz "Nada fechou ainda.".
 
   const quadro = composeAssuntos(
     dados.prs,
@@ -46,7 +42,7 @@ export default async function PaginaHistorico(): Promise<JSX.Element> {
   return (
     <HistoricoLista
       historico={quadro.historico.slice(0, TETO_HISTORICO)}
-      contas={CONTAS_CONHECIDAS}
+      contas={quadro.contas}
       cortouNoTeto={dados.cortouNoTeto}
       teto={TETO_HISTORICO}
     />

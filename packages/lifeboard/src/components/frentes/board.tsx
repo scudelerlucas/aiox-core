@@ -100,36 +100,53 @@ function ColunaQuadro({
       {coluna.assuntos.length}
       {coluna.antigos.length > 0 ? ` (+${coluna.antigos.length})` : ""}
       {recolhivelNoCelular ? (
-        <span className="peer-checked:hidden sm:hidden"> · mostrar</span>
+        <span className="sm:hidden">
+          {/* Os dois rótulos são irmãos; o CSS do input troca qual aparece. */}
+          <span className="lb-mostrar"> · mostrar</span>
+          <span className="lb-esconder hidden"> · esconder</span>
+        </span>
       ) : null}
     </span>
   );
 
+  const cabecalho = (
+    <>
+      <span>{coluna.nome}</span>
+      {contador}
+    </>
+  );
+
   return (
-    <section aria-labelledby={`coluna-${coluna.id}`}>
+    <section aria-labelledby={`coluna-${coluna.id}`} className="relative">
       {recolhivelNoCelular ? (
+        // Transparente em vez de `sr-only`: assim o anel de foco do teclado
+        // aparece no cabeçalho (`peer-focus-visible` abaixo).
         <input
           type="checkbox"
           id={`abrir-${coluna.id}`}
-          className="peer sr-only"
-          aria-label={`Mostrar a coluna ${coluna.nome}`}
+          className="peer absolute left-2 top-2 h-6 w-6 opacity-0"
+          aria-label={`Mostrar ou esconder a coluna ${coluna.nome}`}
         />
       ) : null}
 
-      <div className="sticky top-0 z-10 -mx-1 border-b border-navy-700 bg-navy-950/95 px-1 pb-2 pt-1 backdrop-blur">
+      <div
+        className={`sticky top-0 z-10 -mx-1 border-b border-navy-700 bg-navy-950 px-1 pb-2 pt-1 ${
+          recolhivelNoCelular
+            ? "rounded-sm peer-focus-visible:ring-2 peer-focus-visible:ring-gold-400 peer-checked:[&_.lb-mostrar]:hidden peer-checked:[&_.lb-esconder]:inline"
+            : ""
+        }`}
+      >
         <h2 id={`coluna-${coluna.id}`} className="text-sm font-semibold text-bone-100">
           {recolhivelNoCelular ? (
             <label
               htmlFor={`abrir-${coluna.id}`}
-              className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 sm:min-h-0 sm:cursor-default"
+              className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 sm:min-h-[24px] sm:cursor-default"
             >
-              <span>{coluna.nome}</span>
-              {contador}
+              {cabecalho}
             </label>
           ) : (
-            <span className="flex items-baseline justify-between gap-2">
-              <span>{coluna.nome}</span>
-              {contador}
+            <span className="flex min-h-[24px] items-baseline justify-between gap-2">
+              {cabecalho}
             </span>
           )}
         </h2>
@@ -244,6 +261,12 @@ export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
     (aviso) => conta === "" || aviso.conta === null || aviso.conta === conta,
   );
 
+  // Mesma regra para as contas que ainda não publicaram: filtrando por uma
+  // conta, não se fala das outras.
+  const contasFaltando = quadro.frescor.contasSemLeitura.filter(
+    (c) => conta === "" || c === conta,
+  );
+
   return (
     <main className="mx-auto w-full max-w-[1400px] px-4 pb-16 pt-5 sm:px-6">
       <header>
@@ -287,6 +310,18 @@ export function Board({ quadro }: { quadro: QuadroAssuntos }): JSX.Element {
             <p key={aviso.texto}>{aviso.texto}</p>
           ))}
         </div>
+      ) : null}
+
+      {/* Conta que ainda não publicou não é dado velho: é dado que não chegou.
+          Uma linha cinza, e ela desaparece no dia em que a conta publicar. */}
+      {contasFaltando.length > 0 ? (
+        <p className="mt-2 text-xs text-state-neutral">
+          {contasFaltando.length === 1
+            ? `As conversas da conta ${contasFaltando[0]} ainda não entram aqui.`
+            : `As conversas das contas ${contasFaltando
+                .slice(0, -1)
+                .join(", ")} e ${contasFaltando.at(-1)} ainda não entram aqui.`}
+        </p>
       ) : null}
 
       <div className="mt-4">

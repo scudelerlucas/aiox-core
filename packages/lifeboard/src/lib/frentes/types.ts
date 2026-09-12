@@ -167,7 +167,10 @@ export interface Frescor {
   atualizadoTexto: string | null;
   /** Houve alguma leitura bem-sucedida? Sem isso, vazio não é motivo de festa. */
   temLeituraOk: boolean;
+  /** Só dado VELHO de verdade (prefixo "Os dados podem estar velhos:"). */
   avisos: AvisoFonte[];
+  /** Contas conhecidas que ainda não publicaram leitura nenhuma. */
+  contasSemLeitura: string[];
 }
 
 /** O modelo completo devolvido por `composeAssuntos`. */

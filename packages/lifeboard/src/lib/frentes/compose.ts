@@ -438,15 +438,15 @@ function montarAssunto(grupo: Grupo, now: number): Assunto {
 
   // Quando o assunto FECHOU (não quando alguém mexeu nele depois): é isto que
   // decide a coluna "Fechou esta semana" e a data do histórico.
+  // Precedência, não máximo: a data do fecho é `mergeado_em`, senão `fechado_em`,
+  // senão a última mexida. Pegar o MAIOR dos três ressuscitava mudança mergeada
+  // há 20 dias que alguém comentou ontem.
   const fechadoEm =
-    coluna === "fechado"
-      ? maisRecente(
-          principal?.estado === "mergeado" ? principal.mergeado_em : null,
-          principal?.estado === "fechado" ? principal.fechado_em : null,
-          principal && principal.estado !== "aberto" ? principal.atualizado_em : null,
-          !principal && sessao ? (sessao.atualizado_em ?? sessao.criado_em) : null,
-        )
-      : null;
+    coluna !== "fechado"
+      ? null
+      : principal && principal.estado !== "aberto"
+        ? (principal.mergeado_em ?? principal.fechado_em ?? principal.atualizado_em)
+        : (sessao?.atualizado_em ?? sessao?.criado_em ?? null);
 
   const atividadeEm = maisRecente(
     sessao?.atualizado_em ?? sessao?.criado_em,
@@ -571,20 +571,15 @@ function montarFrescor(
     });
   }
 
-  // Conta conhecida que nunca apareceu em `painel_frentes_sync`: dizer isso é
-  // diferente de dizer que ela está velha — e é melhor que o silêncio.
+  // Conta conhecida que nunca apareceu em `painel_frentes_sync` NÃO é dado velho:
+  // é dado que ainda não chegou. Sai do bloco âmbar e vira uma linha cinza, que
+  // desaparece sozinha no dia em que aquela conta publicar.
   const contasLidas = new Set<string>();
   for (const fonte of ultimaOk.keys()) {
     if (!fonte.startsWith("sessoes:")) continue;
     contasLidas.add(rotuloDaConta(fonte.slice("sessoes:".length)).rotulo);
   }
-  for (const conta of CONTAS_CONHECIDAS) {
-    if (contasLidas.has(conta)) continue;
-    avisos.push({
-      texto: `as conversas da conta ${conta} ainda não foram lidas nenhuma vez`,
-      conta,
-    });
-  }
+  const contasSemLeitura = CONTAS_CONHECIDAS.filter((c) => !contasLidas.has(c));
 
   for (const [fonte, iso] of ultimaOk) {
     if (!fonte.startsWith("sessoes:")) continue;
@@ -601,6 +596,7 @@ function montarFrescor(
     // Houve leitura se alguma fonte registrou OU se as linhas têm carimbo.
     temLeituraOk: ultimaOk.size > 0 || carimboDasLinhas !== null,
     avisos,
+    contasSemLeitura,
   };
 }
 

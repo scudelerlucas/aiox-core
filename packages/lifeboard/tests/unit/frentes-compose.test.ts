@@ -456,9 +456,10 @@ describe("composeAssuntos — contas, textos, datas e frescor", () => {
     expect(textos).toContain(
       "Os dados podem estar velhos: as conversas da conta Alma Petra não atualizam desde 09/09.",
     );
-    // As duas contas que nunca apareceram em sync também são declaradas.
-    expect(textos).toContain("as conversas da conta Lucas ainda não foram lidas nenhuma vez");
-    expect(textos).toContain("as conversas da conta Pandora ainda não foram lidas nenhuma vez");
+    // Conta que nunca apareceu em sync NÃO entra no bloco de "dado velho":
+    // vira a linha cinza de contas que ainda não entram.
+    expect(textos.every((t) => t.startsWith("Os dados podem estar velhos:"))).toBe(true);
+    expect(quadro.frescor.contasSemLeitura).toEqual(["Lucas", "Pandora"]);
     for (const aviso of quadro.frescor.avisos) {
       expect(aviso.texto).not.toMatch(/\b(PR|branch|merge|draft|CI)\b/i);
     }
@@ -506,12 +507,10 @@ describe("fixtureFrentes — dados de demonstração", () => {
       expect(c.assuntos.length + c.antigos.length).toBeGreaterThan(0);
     }
     expect(quadro.contas).toEqual(["Lucas", "Pandora", "Alma Petra"]);
-    // A conta Alma Petra está velha; Pandora e Lucas ainda não têm linha em sync.
-    expect(quadro.frescor.avisos.map((a) => a.conta).sort()).toEqual([
-      "Alma Petra",
-      "Lucas",
-      "Pandora",
-    ]);
+    // A conta Alma Petra está velha (bloco âmbar); Lucas e Pandora ainda não
+    // têm linha em sync (linha cinza, fora do bloco).
+    expect(quadro.frescor.avisos.map((a) => a.conta)).toEqual(["Alma Petra"]);
+    expect(quadro.frescor.contasSemLeitura).toEqual(["Lucas", "Pandora"]);
     expect(quadro.historico.length).toBeGreaterThan(col(quadro, "fechado").assuntos.length);
     // A conversa dupla da mesma branch virou um cartão com dois links.
     const painel = todos(quadro).find((a) => a.titulo.startsWith("Painel de assuntos"));
@@ -903,7 +902,7 @@ describe("o primeiro paint é curto", () => {
 });
 
 describe("rodada 4 — avisos por conta, janela do fecho e teto de links", () => {
-  it("declara conta conhecida que nunca apareceu em painel_frentes_sync", () => {
+  it("lista as contas que ainda não entram, sem chamar isso de dado velho", () => {
     const quadro = composeAssuntos(
       [pr({ sincronizado_em: h(1) })],
       [],
@@ -911,14 +910,18 @@ describe("rodada 4 — avisos por conta, janela do fecho e teto de links", () =>
       [{ fonte: "sessoes:lucasscudeler@gmail.com", executado_em: h(2), ok: true }],
       AGORA,
     );
-    const porConta = quadro.frescor.avisos.map((a) => [a.conta, a.texto] as const);
-    expect(porConta).toEqual([
-      ["Pandora", "as conversas da conta Pandora ainda não foram lidas nenhuma vez"],
-      [
-        "Alma Petra",
-        "as conversas da conta Alma Petra ainda não foram lidas nenhuma vez",
-      ],
-    ]);
+    expect(quadro.frescor.contasSemLeitura).toEqual(["Pandora", "Alma Petra"]);
+    expect(quadro.frescor.avisos).toEqual([]);
+
+    // Quando as três publicam, a linha desaparece sozinha.
+    const completo = composeAssuntos(
+      [pr({ sincronizado_em: h(1) })],
+      [],
+      [],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    expect(completo.frescor.contasSemLeitura).toEqual([]);
   });
 
   it("'Fechou esta semana' olha a data do fecho, não a última mexida", () => {
@@ -940,6 +943,29 @@ describe("rodada 4 — avisos por conta, janela do fecho e teto de links", () =>
     expect(col(quadro, "fechado").assuntos).toHaveLength(0);
     expect(quadro.historico).toHaveLength(1);
     expect(quadro.historico[0]!.fechadoEm).toBe(d(20));
+  });
+
+  it("a data do fecho é mergeado_em, mesmo com a mudança tocada ontem", () => {
+    const quadro = composeAssuntos(
+      [
+        pr({
+          branch: "claude/tocada",
+          estado: "mergeado",
+          mergeado_em: d(20),
+          fechado_em: d(20),
+          // Alguém comentou ontem: não ressuscita o assunto.
+          atualizado_em: d(1),
+        }),
+      ],
+      [],
+      [],
+      SYNC_FRESCO,
+      AGORA,
+    );
+    expect(col(quadro, "fechado").assuntos).toHaveLength(0);
+    expect(quadro.historico).toHaveLength(1);
+    expect(quadro.historico[0]!.fechadoEm).toBe(d(20));
+    expect(quadro.historico[0]!.situacao).toBe("entrou na versão oficial em 23/08");
   });
 
   it("um cartão com 49 mudanças mostra 3 links e resume o resto", () => {
