@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 /**
  * Config Vitest do OS-LIFEBOARD (compartilhada E2 ‖ E3).
  * - alias `@/*` → `./src/*` (espelha tsconfig paths).
+ * - `esbuild.jsx: "automatic"` — testes .tsx renderam a árvore real (react/jsx-runtime),
+ *   sem precisar importar React em cada arquivo (mesmo modo do tsconfig do Next).
  * - alias `server-only` → stub vazio (rede de segurança; nenhum teste desta
  *   rodada importa `client.mcp.ts`, que é PAUSADO). O kill-switch nº 3 segue
  *   ativo no build real (react-server condition).
@@ -11,8 +13,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
   },
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

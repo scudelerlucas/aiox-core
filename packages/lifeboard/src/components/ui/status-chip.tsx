@@ -1,4 +1,11 @@
-import { Ban, CheckCircle2, Circle, Loader, type LucideIcon } from "lucide-react";
+import {
+  Ban,
+  CheckCircle2,
+  Circle,
+  HelpCircle,
+  Loader,
+  type LucideIcon,
+} from "lucide-react";
 
 import type { TaskStatus } from "@/types/canonical";
 
@@ -16,7 +23,7 @@ interface StatusConfig {
   border: string;
 }
 
-const STATUS: Record<TaskStatus, StatusConfig> = {
+const STATUS: Record<string, StatusConfig> = {
   open: {
     label: "aberta",
     icon: Circle,
@@ -43,8 +50,27 @@ const STATUS: Record<TaskStatus, StatusConfig> = {
   },
 };
 
+/**
+ * Estado que veio do banco e não está na união `TaskStatus`. Mesmo caso de
+ * `iconeDaFonte`: o tipo não protege, porque o valor chega do Postgres como
+ * texto. Sem este fallback, `STATUS[status]` devolve `undefined` e o `.icon`
+ * derruba a árvore inteira (a home caiu assim em 13/09/2026 pela fonte `lms`).
+ */
+const ESTADO_PADRAO: StatusConfig = {
+  label: "sem estado",
+  icon: HelpCircle,
+  text: "text-state-neutral",
+  border: "border-state-neutral/60",
+};
+
+/** Config de um estado; nunca devolve `undefined`, mesmo com estado novo no banco. */
+export function configDoEstado(status: string): StatusConfig {
+  return STATUS[status] ?? ESTADO_PADRAO;
+}
+
 export interface StatusChipProps {
-  status: TaskStatus;
+  /** Vem do banco como texto: aceitar `string` é o que impede a queda. */
+  status: TaskStatus | string;
   className?: string;
 }
 
@@ -52,7 +78,7 @@ export function StatusChip({
   status,
   className,
 }: StatusChipProps): JSX.Element {
-  const cfg = STATUS[status];
+  const cfg = configDoEstado(status);
   const Icon = cfg.icon;
   return (
     <span
