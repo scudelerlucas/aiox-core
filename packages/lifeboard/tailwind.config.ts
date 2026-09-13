@@ -78,6 +78,22 @@ const config: Config = {
           lms: "#FF9B54",
           neutra: "#9AA8C4",
         },
+        /**
+         * Aresta do grafo v3 (P4, 13/09/2026) — as 6 arestas do doc §5. "Predecessor"
+         * (destaque amarelo ao selecionar) e "sucessão" (verde, default) são a MESMA
+         * aresta lida dos dois lados — por isso não há um token "predecessor" e outro
+         * "sucessao" concorrentes: o segundo É o primeiro, só que sem destaque.
+         * "Crítico" reusa o vermelho de obsolescência — as duas se distinguem por
+         * FORMA (traço triplo × ❌), não por matiz (régua daltônico-safe).
+         */
+        aresta: {
+          sucessao: "#5FE39A",
+          predecessor: "#F7CE73",
+          correlacao: "#B9C4DC",
+          sinergia: "#C58CFF",
+          obsolescencia: "#FF7A6B",
+          critico: "#FF7A6B",
+        },
       },
       fontFamily: {
         sans: [

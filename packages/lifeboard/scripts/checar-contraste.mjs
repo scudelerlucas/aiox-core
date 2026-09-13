@@ -63,6 +63,14 @@ const PARES = [
   ["fonte-neutra", "navy-850", 4.5, "rótulo de fonte desconhecida"],
   ["navy-700", "navy-950", 3, "borda de cartão (só borda: 3:1)"],
   ["navy-600", "navy-850", 3, "borda forte (só borda: 3:1)"],
+  ["state-warning", "navy-850", 4.5, "aviso 'estimativa faltando' no cartão do grafo (P4)"],
+  // ── Arestas do grafo v3 (P4, 13/09/2026) — traço sobre o fundo do canvas (navy-950) ──
+  ["aresta-sucessao", "navy-950", 3, "aresta de sucessão — verde contínua (P4 §5)"],
+  ["aresta-predecessor", "navy-950", 3, "aresta destacada ao selecionar — amarela (P4 §5)"],
+  ["aresta-correlacao", "navy-950", 3, "aresta de correlação — pontilhada (P4 §5)"],
+  ["aresta-sinergia", "navy-950", 3, "aresta de sinergia — pontilhada roxa + rótulo % (P4 §5)"],
+  ["aresta-obsolescencia", "navy-950", 3, "aresta de obsolescência — ❌ no destino (P4 §5)"],
+  ["aresta-critico", "navy-950", 3, "traço triplo do caminho crítico (P4 §5)"],
 ];
 
 let falhou = 0;

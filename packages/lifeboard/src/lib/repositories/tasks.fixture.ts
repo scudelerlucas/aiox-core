@@ -24,6 +24,15 @@
  *   4 task-triage S18 · 5 task-standup S8 · 6 task-notes-idea S6
  * Fora de "hoje": task-deploy e task-chat-followup (predecessor aberto);
  * task-setup e task-archive (done).
+ *
+ * v3 (P4, 13/09/2026) — caminho crítico: `task-deploy` é o único `isGoal`, com
+ * `estimativaDias` em `task-setup`/`task-build`/`task-deploy`. Isso já é
+ * suficiente para o CPM computar 2 arestas críticas (setup→build→deploy, folga
+ * zero) sem precisar de nenhuma aresta nova — checado rodando `caminhoCritico`
+ * contra este fixture (`critico = [task-setup, task-build, task-deploy]`).
+ * `task-review` (a única aresta `TaskEdge` tipo=predecessor, →task-deploy) fica
+ * com folga 2, então NÃO entra no crítico — mantido assim de propósito: prova
+ * que o grafo mostra caminho crítico e aresta "sucessão comum" lado a lado.
  */
 
 import { sourceIdFor } from "@/lib/repositories/sources.fixture";

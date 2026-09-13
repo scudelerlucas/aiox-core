@@ -26,6 +26,7 @@ import { useTodayQuery } from "@/hooks/use-today-query";
 import { useSourceFilter } from "@/stores/source-filter";
 import type { Source, SourceKind, Task } from "@/types/canonical";
 import type { SourceStatus, TodayResponse } from "@/types/dashboard";
+import type { GrafoV3Props } from "@/types/grafo-v3";
 
 export interface DashboardClientProps {
   /** Universo de tarefas (grafo). */
@@ -36,6 +37,8 @@ export interface DashboardClientProps {
   sourceStatuses: SourceStatus[];
   /** Lista "hoje" pré-computada server-side (SSR → initialData do TanStack Query). */
   initialToday: TodayResponse;
+  /** v3 (P4): arestas + caminho crítico + scores, calculados no servidor. */
+  grafoV3: GrafoV3Props;
 }
 
 /** Painéis do celular. No desktop os três aparecem lado a lado. */
@@ -46,6 +49,7 @@ function DashboardInner({
   sources,
   sourceStatuses,
   initialToday,
+  grafoV3,
 }: DashboardClientProps): JSX.Element {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -304,6 +308,7 @@ function DashboardInner({
               selectedTaskId={selectedTaskId}
               onSelectTask={setSelectedTaskId}
               accessibleFallback={showFallback}
+              grafoV3={grafoV3}
             />
           </div>
         </section>

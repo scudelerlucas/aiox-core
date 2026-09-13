@@ -3,22 +3,34 @@ import { ArrowRight, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   Background,
-  MarkerType,
   Panel,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
   type Edge,
+  type EdgeTypes,
   type Node,
   type NodeTypes,
 } from "reactflow";
 import "reactflow/dist/style.css";
 
 import { GraphSelectionContext } from "@/components/graph/selection-context";
+import {
+  LayerTogglePanel,
+  useCamadasDoGrafo,
+} from "@/components/graph/layer-toggle-panel";
 import { TaskNode, type TaskNodeData } from "@/components/graph/task-node";
+import { V3Edge, type V3EdgeData } from "@/components/graph/v3-edge";
 import { SourceIcon } from "@/components/ui/source-icon";
 import { StatusChip } from "@/components/ui/status-chip";
-import type { Source, SourceKind, Task } from "@/types/canonical";
+import {
+  arestaEhCritica,
+  camadaBaseDeAresta,
+  construirArestasVisuais,
+  filtrarArestasPorCamada,
+} from "@/lib/camadas-do-grafo";
+import type { Source, SourceKind, Task, TaskEdge } from "@/types/canonical";
+import type { GrafoV3Props } from "@/types/grafo-v3";
 
 export interface DependencyGraphProps {
   /** Universo de tarefas (modelo canônico). Arestas derivadas de
@@ -37,12 +49,22 @@ export interface DependencyGraphProps {
   onSelectTask?: (taskId: string | null) => void;
   /** Renderiza a lista alternativa acessível em vez do canvas (§7). */
   accessibleFallback?: boolean;
+  /** v3 (P4): arestas declaradas + caminho crítico + scores, calculados e serializados no servidor. */
+  grafoV3?: GrafoV3Props;
 }
 
-// ── Cores de aresta (SVG stroke — API da lib exige literal; = tokens §1) ──────
-const EDGE_LIVE = "#8593A8"; // state-neutral (precedência ainda bloqueia)
-const EDGE_DONE = "#4FA97B"; // state-success (caminho liberado)
-const EDGE_HL = "#A8895A"; // gold-500 (incidente ao selecionado)
+/** `GrafoV3Props` vazio — usado quando a página ainda não passa o prop (compat). */
+const GRAFO_V3_VAZIO: GrafoV3Props = {
+  edges: [],
+  critico: [],
+  janelas: {},
+  semDuracao: [],
+  emCiclo: [],
+  goalId: null,
+  duracaoTotal: 0,
+  scores: {},
+};
+
 const BG_DOTS = "#13253D"; // navy-800
 
 const NODE_W = 200;
@@ -53,9 +75,18 @@ const GAP_Y = 84;
 const COLS_MAX = 4;
 
 const nodeTypes: NodeTypes = { task: TaskNode };
+const edgeTypes: EdgeTypes = { v3: V3Edge };
 
-/** Constrói adjacência de precedência (x→y) das DUAS representações + dedup. */
-function buildPrecedence(tasks: Task[]): {
+/**
+ * Constrói adjacência de precedência (x→y) das DUAS representações de array
+ * + as `TaskEdge` `tipo="predecessor"` (v3), com dedup — usada só para o
+ * LAYOUT (profundidade/coluna) e para `blockedByPredecessor`. As arestas
+ * VISUAIS (as 6 do grafo v3) vêm de `construirArestasVisuais` (`camadas-do-grafo.ts`).
+ */
+function buildPrecedence(
+  tasks: Task[],
+  edgesV3: TaskEdge[] = [],
+): {
   edges: { from: string; to: string }[];
   predsOf: Map<string, string[]>;
 } {
@@ -78,6 +109,9 @@ function buildPrecedence(tasks: Task[]): {
   for (const t of tasks) {
     for (const p of t.predecessorIds) add(p, t.id);
     for (const s of t.successorIds) add(t.id, s);
+  }
+  for (const e of edgesV3) {
+    if (e.tipo === "predecessor") add(e.origem, e.destino);
   }
   return { edges, predsOf };
 }
@@ -232,7 +266,12 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     selectedTaskId = null,
     onSelectTask,
     accessibleFallback = false,
+    grafoV3 = GRAFO_V3_VAZIO,
   } = props;
+
+  const { ativas: camadasAtivas, alternar: alternarCamada } = useCamadasDoGrafo();
+  const criticoSet = useMemo(() => new Set(grafoV3.critico), [grafoV3.critico]);
+  const semDuracaoSet = useMemo(() => new Set(grafoV3.semDuracao), [grafoV3.semDuracao]);
 
   const sourceByKind = useMemo(() => {
     const m = new Map<string, Source>();
@@ -256,7 +295,10 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     [filterActive, activeSourceKinds],
   );
 
-  const { edges: rawEdges, predsOf } = useMemo(() => buildPrecedence(tasks), [tasks]);
+  const { predsOf } = useMemo(
+    () => buildPrecedence(tasks, grafoV3.edges),
+    [tasks, grafoV3.edges],
+  );
   const depths = useMemo(() => computeDepths(tasks, predsOf), [tasks, predsOf]);
   const cycleSet = useMemo(() => new Set(cycleTaskIds), [cycleTaskIds]);
   const byId = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -324,35 +366,84 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
           inCycle: cycleSet.has(task.id),
           isTopToday: topTodayId === task.id,
           isFilteredOut: isOut(kind),
+          // v3 (P4): janela do CPM + score de assimetria + flags calculadas no servidor.
+          janela: grafoV3.janelas[task.id],
+          score: grafoV3.scores[task.id],
+          isCritico: criticoSet.has(task.id),
+          semDuracao: semDuracaoSet.has(task.id),
         },
       };
     });
-  }, [tasks, depths, sourceById, byId, cycleSet, topTodayId, selectedTaskId, isOut]);
+  }, [
+    tasks,
+    depths,
+    sourceById,
+    byId,
+    cycleSet,
+    topTodayId,
+    selectedTaskId,
+    isOut,
+    grafoV3.janelas,
+    grafoV3.scores,
+    criticoSet,
+    semDuracaoSet,
+  ]);
 
-  const edges = useMemo<Edge[]>(() => {
-    return rawEdges.map(({ from, to }) => {
-      const fromTask = byId.get(from);
-      const done = fromTask?.status === "done";
-      const incident = selectedTaskId === from || selectedTaskId === to;
+  // ── As 6 arestas (P4 §5): construídas a partir de tasks+edges+critico, e
+  //    filtradas pelas camadas ativas do painel "Camadas" (default: sucessão +
+  //    caminho crítico). Dimming por filtro de fonte (§5 antigo) só se aplica
+  //    quando os DOIS lados da aresta estão fora do filtro — mesma regra de antes.
+  const arestasVisuais = useMemo(
+    () =>
+      construirArestasVisuais({
+        tasks,
+        edges: grafoV3.edges,
+        criticoIds: criticoSet,
+        selectedTaskId,
+      }),
+    [tasks, grafoV3.edges, criticoSet, selectedTaskId],
+  );
+
+  const edges = useMemo<Edge<V3EdgeData>[]>(() => {
+    const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
+    const mapeadas = visiveis.map((aresta) => {
       const dimmed =
-        isOut(sourceById.get(fromTask?.sourceId ?? "")?.kind ?? "calendar") &&
-        isOut(sourceById.get(byId.get(to)?.sourceId ?? "")?.kind ?? "calendar");
-      const stroke = incident ? EDGE_HL : done ? EDGE_DONE : EDGE_LIVE;
+        isOut(sourceById.get(byId.get(aresta.origem)?.sourceId ?? "")?.kind ?? "calendar") &&
+        isOut(sourceById.get(byId.get(aresta.destino)?.sourceId ?? "")?.kind ?? "calendar");
+      const critica = camadasAtivas.has("critico") && arestaEhCritica(aresta);
       return {
-        id: `${from}->${to}`,
-        source: from,
-        target: to,
-        type: "smoothstep",
-        className: done ? undefined : "lb-edge-live",
-        style: {
-          stroke: incident ? EDGE_HL : done ? EDGE_DONE : EDGE_LIVE,
-          strokeWidth: incident ? 2 : 1.5,
-          opacity: dimmed ? 0.15 : 1,
+        id: aresta.id,
+        source: aresta.origem,
+        target: aresta.destino,
+        type: "v3",
+        focusable: false,
+        style: { opacity: dimmed ? 0.15 : 1 },
+        data: {
+          id: aresta.id,
+          camada: camadaBaseDeAresta(aresta),
+          critica,
+          destacadaPeloSelecionado: aresta.destacadaPeloSelecionado,
+          pesoPercent: aresta.pesoPercent,
         },
-        markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
       };
     });
-  }, [rawEdges, byId, selectedTaskId, sourceById, isOut]);
+    // Duas arestas podem convergir no MESMO handle (ex.: dois predecessores de
+    // um goal) e se sobrepor visualmente no trecho final — quem desenha por
+    // último fica por cima. Sem ordenar, a ordem era "a que apareceu primeiro
+    // no array de tarefas", o que enterrou uma aresta CRÍTICA (vermelha) atrás
+    // de uma sucessão comum (verde) só porque a outra task vinha depois na
+    // lista (achado no screenshot do fixture: task-review→task-deploy, verde,
+    // cobria task-build→task-deploy, vermelha/tripla). Desenhar por último =
+    // por cima: crítica > destacada > tipos raros (sinergia/obsolescência/
+    // correlação) > sucessão comum.
+    const prioridade = (e: (typeof mapeadas)[number]): number => {
+      if (e.data.critica) return 4;
+      if (e.data.destacadaPeloSelecionado) return 3;
+      if (e.data.camada !== "sucessao") return 2;
+      return 1;
+    };
+    return [...mapeadas].sort((a, b) => prioridade(a) - prioridade(b));
+  }, [arestasVisuais, camadasAtivas, byId, sourceById, isOut]);
 
   const selectionValue = useMemo(
     () => ({ selectedTaskId, onSelectTask: handleSelect }),
@@ -387,6 +478,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             nodesDraggable={false}
             nodesConnectable={false}
             elementsSelectable
@@ -402,6 +494,9 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             <FitOnChange signature={filterSignature} />
             <GraphControls />
             <GraphLegend />
+            <Panel position="top-right">
+              <LayerTogglePanel ativas={camadasAtivas} alternar={alternarCamada} />
+            </Panel>
           </ReactFlow>
         </ReactFlowProvider>
       </div>

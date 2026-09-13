@@ -1,5 +1,5 @@
 "use client";
-import { AlertTriangle, Lock } from "lucide-react";
+import { AlertTriangle, Lock, Target } from "lucide-react";
 import { useContext } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 
@@ -7,6 +7,7 @@ import { GraphSelectionContext } from "@/components/graph/selection-context";
 import { SourceIcon } from "@/components/ui/source-icon";
 import { corDaFonte } from "@/lib/cor-da-fonte";
 import { StatusChip } from "@/components/ui/status-chip";
+import type { JanelaCPM, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { SourceKind, Task } from "@/types/canonical";
 
 /** Estado DERIVADO do grafo (não persistido na Task). spec §8.1. */
@@ -25,6 +26,15 @@ export interface TaskNodeData {
   isTopToday?: boolean;
   /** Esmaecido por filtro de fonte inativo (§5). */
   isFilteredOut?: boolean;
+  // ── v3 (P4): janela do CPM + score de assimetria, calculados no servidor ──
+  /** Janela de CPM desta tarefa (`GrafoV3Props.janelas[task.id]`). Ausente = fora do CPM. */
+  janela?: JanelaCPM;
+  /** Score de assimetria (`GrafoV3Props.scores[task.id]`). `null` = sem átomos declarados. */
+  score?: ScoreAssimetria | null;
+  /** `true` quando `task.id` está em `GrafoV3Props.critico` — anel vermelho. */
+  isCritico?: boolean;
+  /** `true` quando `task.id` está em `GrafoV3Props.semDuracao` — usa duração-placeholder. */
+  semDuracao?: boolean;
 }
 
 /** Node customizado do React Flow. Puro de apresentação. spec §8.1. */
@@ -108,6 +118,10 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         data.isFilteredOut ? "pointer-events-none opacity-20" : "",
         data.isTopToday ? "shadow-focus ring-2 ring-gold-400" : "",
         isSelected && !data.isTopToday ? "ring-1 ring-gold-500" : "",
+        // v3: anel vermelho do caminho crítico — soma ao anel de ênfase/seleção
+        // via `outline` (propriedade CSS diferente de `ring`/box-shadow, então
+        // os dois convivem sem um sobrescrever o outro).
+        data.isCritico ? "outline outline-2 outline-offset-1 outline-state-error" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -126,10 +140,21 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
       />
 
       <div className="flex items-start justify-between gap-2">
-        <span
-          className={`text-sm font-medium text-bone-100 ${isDone ? "text-bone-400 line-through" : ""}`}
-        >
-          {task.title}
+        <span className="flex min-w-0 items-center gap-1">
+          {task.isGoal ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-state-error/20 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-state-error-fg"
+              title="Meta do caminho crítico"
+            >
+              <Target size={10} aria-hidden="true" />
+              META
+            </span>
+          ) : null}
+          <span
+            className={`truncate text-sm font-medium text-bone-100 ${isDone ? "text-bone-400 line-through" : ""}`}
+          >
+            {task.title}
+          </span>
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {isBlockedByPred ? (
@@ -161,9 +186,28 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         </p>
       ) : null}
 
+      {data.semDuracao ? (
+        <p className="mt-1 text-xs italic text-state-warning">estimativa faltando</p>
+      ) : null}
+
       <div className="mt-2 flex items-center justify-between border-t border-navy-700 pt-1.5">
-        <span className="font-mono text-xs text-bone-200">S {score}</span>
-        <StatusChip status={task.status} />
+        <span className="flex items-center gap-1.5 font-mono text-xs text-bone-200">
+          S {score}
+          {data.janela ? (
+            <span className="text-bone-400">· folga: {data.janela.folga} d</span>
+          ) : null}
+        </span>
+        <span className="flex items-center gap-1.5">
+          {data.score ? (
+            <span
+              title={data.score.porque}
+              className="inline-flex items-center rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1.5 py-0.5 font-mono text-[10px] text-fonte-notes"
+            >
+              A {data.score.valor}
+            </span>
+          ) : null}
+          <StatusChip status={task.status} />
+        </span>
       </div>
 
       <Handle
