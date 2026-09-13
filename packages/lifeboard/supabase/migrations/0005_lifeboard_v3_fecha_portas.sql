@@ -16,9 +16,12 @@
 -- 5. `assimetria` sem CHECK aceitava `{esforco: 0.0001}` → score 10⁴ para sempre.
 -- 6. RPC: banco novo nascia sem segredo e dizia "unauthorized" (mensagem
 --    mentirosa); e `v_owner` fixo. Agora: erro próprio para segredo ausente e
---    `coalesce(auth.uid(), <dono>)` — chamada anônima (o painel) continua
---    lendo o board do operador; usuário logado passa a ler o próprio.
--- Tudo idempotente. As tabelas novas tinham 0 linhas quando isto rodou.
+--    `coalesce(auth.uid(), <dono>)` — chamada anônima com o segredo (o painel,
+--    inclusive a leitora sem login) continua lendo o board do operador; um
+--    usuário LOGADO com conta própria lê o PRÓPRIO board (vazio, se não for o
+--    dono). Quem precisa ver o board do operador não loga: usa o painel.
+-- Reaplicável (provado com o arquivo inteiro dentro de begin/rollback contra o
+-- banco já migrado). As tabelas novas tinham 0 linhas quando isto rodou.
 -- =============================================================================
 
 -- ── 1 · Guarda de `tasks` passa a ver `task_edges` e `parent_id` ─────────────
@@ -104,6 +107,16 @@ alter table public.tasks
   add constraint tasks_parent_nao_e_si check (parent_id is null or parent_id <> id);
 
 -- ── 3 · Escopo por dono: unique e FKs compostas ──────────────────────────────
+-- Ordem importa para reaplicar: as FKs filhas (task_edges/task_notes) dependem
+-- de `tasks_id_owner_unica` — derrubar as filhas ANTES do pai, senão a 2ª
+-- execução para em "cannot drop constraint … other objects depend on it".
+alter table public.task_edges drop constraint if exists task_edges_origem_fkey;
+alter table public.task_edges drop constraint if exists task_edges_destino_fkey;
+alter table public.task_edges drop constraint if exists task_edges_origem_mesmo_dono_fkey;
+alter table public.task_edges drop constraint if exists task_edges_destino_mesmo_dono_fkey;
+alter table public.task_notes drop constraint if exists task_notes_task_id_fkey;
+alter table public.task_notes drop constraint if exists task_notes_task_mesmo_dono_fkey;
+
 alter table public.tasks drop constraint if exists tasks_id_owner_unica;
 alter table public.tasks add constraint tasks_id_owner_unica unique (id, owner);
 
@@ -112,10 +125,6 @@ alter table public.task_edges drop constraint if exists task_edges_por_dono_unic
 alter table public.task_edges
   add constraint task_edges_por_dono_unica unique (owner, origem, destino, tipo);
 
-alter table public.task_edges drop constraint if exists task_edges_origem_fkey;
-alter table public.task_edges drop constraint if exists task_edges_destino_fkey;
-alter table public.task_edges drop constraint if exists task_edges_origem_mesmo_dono_fkey;
-alter table public.task_edges drop constraint if exists task_edges_destino_mesmo_dono_fkey;
 alter table public.task_edges
   add constraint task_edges_origem_mesmo_dono_fkey
     foreign key (origem, owner) references public.tasks(id, owner) on delete cascade,
@@ -123,8 +132,6 @@ alter table public.task_edges
     foreign key (destino, owner) references public.tasks(id, owner) on delete cascade;
 
 -- ── 4 · Nota: mesmo dono, e apagar a tarefa exige apagar a nota antes ────────
-alter table public.task_notes drop constraint if exists task_notes_task_id_fkey;
-alter table public.task_notes drop constraint if exists task_notes_task_mesmo_dono_fkey;
 alter table public.task_notes
   add constraint task_notes_task_mesmo_dono_fkey
     foreign key (task_id, owner) references public.tasks(id, owner) on delete restrict;

@@ -181,9 +181,30 @@ function arredonda2(valor: number): number {
  * constrói os dois para UMA tarefa (uso avulso); a segunda constrói uma vez
  * só e reusa para todas (uso em lote — o que elimina o O(N²) medido).
  */
+/**
+ * Arestas de sinergia/obsolescência indexadas pelo DESTINO, ordenadas por
+ * `createdAt` e depois `id` — assim o "porquê" da obsolescência cita sempre a
+ * mesma origem, independentemente da ordem em que a RPC devolveu as linhas
+ * (a 0004 ordena por `created_at`, mas o núcleo não depende disso).
+ * Construída UMA vez por lote: o núcleo só olha as arestas da própria tarefa.
+ */
+export function arestasPorDestino(edges: TaskEdge[]): Map<string, TaskEdge[]> {
+  const porDestino = new Map<string, TaskEdge[]>();
+  for (const edge of edges) {
+    if (edge.tipo !== "sinergia" && edge.tipo !== "obsolescencia") continue;
+    const lista = porDestino.get(edge.destino);
+    if (lista) lista.push(edge);
+    else porDestino.set(edge.destino, [edge]);
+  }
+  for (const lista of porDestino.values()) {
+    lista.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  }
+  return porDestino;
+}
+
 function scoreAssimetriaNucleo(
   task: Task,
-  edges: TaskEdge[],
+  porDestino: Map<string, TaskEdge[]>,
   cpm: ResultadoCPM,
   byId: Map<string, Task>,
   grafo: Map<string, Set<string>>,
@@ -203,16 +224,15 @@ function scoreAssimetriaNucleo(
   //
   // Obsolescência: QUALQUER origem já `done` torna esta tarefa desnecessária
   // — zera o valor em vez de só descontar. Coletamos TODAS as ocorrências
-  // (não só a primeira aresta encontrada) e citamos a primeira no "porquê".
+  // (não só a primeira aresta encontrada) e citamos no "porquê" a mais antiga
+  // (`createdAt`, depois `id`) — ordem estável, não a ordem do array.
   //
   // As duas regras compartilham a MESMA guarda: origem que não existe em
   // `tasks`, ou `peso` que não é finito em 0..1, é ignorada em silêncio —
   // nunca desconta, nunca zera (`tipos-v3.ts`, "Regras do score (P3)").
   let produtoDescontos = 1;
   const origensObsoletas: Task[] = [];
-  for (const edge of edges) {
-    if (edge.destino !== task.id) continue;
-    if (edge.tipo !== "sinergia" && edge.tipo !== "obsolescencia") continue;
+  for (const edge of porDestino.get(task.id) ?? []) {
     const origem = byId.get(edge.origem);
     if (!origem) continue; // origem desconhecida — ignora
     if (!pesoValido(edge.peso)) continue; // peso inválido — ignora
@@ -259,15 +279,15 @@ export function scoreAssimetria(
 ): ScoreAssimetria | null {
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const grafo = grafoSucessao(tasks, edges);
-  return scoreAssimetriaNucleo(task, edges, cpm, byId, grafo);
+  return scoreAssimetriaNucleo(task, arestasPorDestino(edges), cpm, byId, grafo);
 }
 
 /**
  * Score de assimetria de TODAS as tarefas em uma só passada — constrói
- * `byId` e o grafo de sucessão UMA vez (não por tarefa) e reusa nos dois
- * átomos calculados (s1 via `cpm`, s3 via BFS no grafo pronto). Medido em
- * 2,5s/N=3000 quando cada tarefa reconstruía o grafo sozinha (`alcance`
- * chamado direto); esta função é o caminho de lote que evita isso.
+ * `byId`, o grafo de sucessão e o índice de arestas por destino UMA vez (não
+ * por tarefa): cada tarefa só olha as próprias arestas — O(N + E) no lote.
+ * Medido antes: 2,5 s em N=3000 (grafo por tarefa) e depois 226 ms (varredura
+ * de todas as arestas por tarefa, ainda quadrática); esta é a versão linear.
  */
 export function scoreAssimetriaLote(
   tasks: Task[],
@@ -276,9 +296,10 @@ export function scoreAssimetriaLote(
 ): Map<string, ScoreAssimetria | null> {
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const grafo = grafoSucessao(tasks, edges);
+  const porDestino = arestasPorDestino(edges);
   const resultado = new Map<string, ScoreAssimetria | null>();
   for (const task of tasks) {
-    resultado.set(task.id, scoreAssimetriaNucleo(task, edges, cpm, byId, grafo));
+    resultado.set(task.id, scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo));
   }
   return resultado;
 }

@@ -61,6 +61,17 @@ os passos abaixo.
    Rotação: rodar o mesmo comando com o valor novo e trocar a env var na Vercel no
    mesmo ato (redeploy). O valor nunca passa por chat, commit ou log.
 
+   Risco aceito por escrito: a RPC é pública (`anon` executa) e **não tem rate limit
+   nem lockout** — força bruta lenta contra um segredo de 24 caracteres é viável em
+   teoria e invisível na prática (tentativa errada não deixa rastro). Mitigação hoje
+   é a entropia do segredo e a rotação; quando o painel ganhar leitores fora da casa,
+   colocar a chamada atrás de uma Edge Function com contador por IP.
+
+   Quem chama: o servidor da Vercel chama com a chave anon + segredo → `auth.uid()`
+   é nulo → board do operador (é assim que a leitora sem login vê o painel). Um
+   usuário **logado** com conta própria recebe o **próprio** board (vazio, se não
+   for o dono) — para ver o board do operador, não logar.
+
    Também só existe no banco vivo, sem migration: `public.lifeboard_stats()` (agregado
    público, sem segredo) — em banco novo, recriar a partir de
    `supabase/functions/lifeboard/index.ts` antes de publicar a página de saúde.

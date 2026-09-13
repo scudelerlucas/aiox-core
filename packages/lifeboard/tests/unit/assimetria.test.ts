@@ -325,3 +325,42 @@ describe("alcance — átomo s3 (mesmas 3 fontes de precedência do CPM)", () =>
     expect(alcance("raiz", [raiz, ...filhos], [])).toBe(3);
   });
 });
+
+describe("scoreAssimetria — rodada 2 do crítico", () => {
+  it("obsolescência com duas origens done: o porquê cita a aresta mais antiga, seja qual for a ordem do array", () => {
+    const alvo = task({ id: "alvo", assimetria: { opcionalidade: 2, esforco: 1, custo: 1 } });
+    const d1 = task({ id: "d1", title: "Primeira Done", status: "done" });
+    const d2 = task({ id: "d2", title: "Segunda Done", status: "done" });
+    const e1 = edge({ id: "e1", origem: "d1", destino: "alvo", tipo: "obsolescencia", createdAt: "2026-01-01T00:00:00Z" });
+    const e2 = edge({ id: "e2", origem: "d2", destino: "alvo", tipo: "obsolescencia", createdAt: "2026-02-01T00:00:00Z" });
+    const a = scoreAssimetria(alvo, [alvo, d1, d2], [e1, e2], cpm());
+    const b = scoreAssimetria(alvo, [d2, alvo, d1], [e2, e1], cpm());
+    expect(a?.porque).toBe("desnecessária: Primeira Done já foi feita");
+    expect(b?.porque).toBe(a?.porque);
+    expect(a?.valor).toBe(0);
+  });
+
+  it("arredonda a 2 casas: 1/3 → 0.33 (a regra do contrato tem teste)", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 1, esforco: 3, custo: 1 } });
+    expect(scoreAssimetria(t, [t], [], cpm())?.valor).toBe(0.33);
+  });
+
+  it.each([
+    [1, "custa pouco"],
+    [1.01, "custa um valor moderado"],
+    [2, "custa um valor moderado"],
+    [2.5, "custa caro"],
+    [3, "custa caro"],
+    [3.01, "custa muito caro"],
+    [4.9, "custa muito caro"],
+    [5, "custa muito caro"],
+  ])("faixa do custo no porquê: c=%s → %s (nunca subestima)", (custoEfetivo, frase) => {
+    // custo declarado 5 com sinergia de peso p → c = max(1, 5·(1−p)); escolhe p para cair em custoEfetivo
+    const t = task({ id: "t", assimetria: { opcionalidade: 1, esforco: 1, custo: 5 } });
+    const o = task({ id: "o" });
+    const peso = Math.min(1, Math.max(0, 1 - custoEfetivo / 5));
+    const r = scoreAssimetria(t, [t, o], [edge({ origem: "o", destino: "t", tipo: "sinergia", peso })], cpm());
+    expect(r?.c).toBe(Math.round(custoEfetivo * 100) / 100);
+    expect(r?.porque).toContain(frase);
+  });
+});
