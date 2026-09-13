@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { SourceFilter } from "@/components/dashboard/source-filter";
 import { TodayList } from "@/components/dashboard/today-list";
+import { bordaDoEstado, fundoDoEstado } from "@/components/graph/task-node";
 import { SourceIcon } from "@/components/ui/source-icon";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { Source, SourceKind, Task, TaskStatus } from "@/types/canonical";
@@ -100,6 +101,20 @@ describe("render da home com a forma do banco vivo", () => {
     );
 
     expect(html).toContain("Cativa");
+  });
+
+  /**
+   * Achado do CodeRabbit no PR #17: `TaskNode` indexa os mapas de borda e de
+   * fundo com `task.status`. Não derruba a rota (o `.filter(Boolean)` engole o
+   * `undefined`), mas o nó perderia borda e fundo e sumiria no escuro do grafo.
+   */
+  it("o nó do grafo mantém borda e fundo com estado fora da união", () => {
+    for (const valor of [ESTADO_FORA_DA_UNIAO, "cancelled", "", "OPEN"]) {
+      expect(bordaDoEstado(valor)).toBeTruthy();
+      expect(fundoDoEstado(valor)).toBeTruthy();
+    }
+    expect(bordaDoEstado("zzz-1")).toBe(bordaDoEstado("zzz-2"));
+    expect(bordaDoEstado("in_progress")).not.toBe(bordaDoEstado("done"));
   });
 
   it("os dois componentes-folha aguentam qualquer texto vindo do banco", () => {
