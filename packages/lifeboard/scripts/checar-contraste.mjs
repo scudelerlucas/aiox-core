@@ -134,6 +134,13 @@ const PARES = [
   // `navy-800` sobre `navy-850` (1,14:1 — invisível). `navy-600` mede 4,01:1
   // sobre o mesmo cartão (o mínimo aqui é 3:1, decorativo/UI, não texto).
   ["navy-600", "navy-850", 3, "trilho da barra de progresso do cartão de conta (P7 #16, era navy-800 1,14:1)"],
+  // ── Linha do tempo / Gantt, rodada 4 do crítico hostil (P5e, 13/09/2026) ──
+  // Achado BAIXO #8: o marcador de atraso era SEMPRE vermelho (`state-error`)
+  // — sobre a barra crítica (preenchimento `aresta-critico`, também vermelho)
+  // ficava invisível. 1ª tentativa (`gold-400`) mediu 1,70:1 — pior que o
+  // problema original. `navy-950` pontilhado quando `row.critico` mede
+  // 7,90:1; par decorativo (só borda/marcador, nunca texto corrido) — régua 3:1.
+  ["navy-950", "aresta-critico", 3, "marcador pontilhado de atraso sobre a barra crítica do Gantt (P5e #8)"],
 ];
 
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */

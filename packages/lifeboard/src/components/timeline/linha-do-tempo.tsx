@@ -6,6 +6,7 @@ import {
   ARESTA_STROKE_CRITICO,
   ARESTA_STROKE_DESTACADA,
 } from "@/components/graph/aresta-svg";
+import { gerarEscalaEixo, TETO_DIAS_ESCALA } from "@/core/timeline/eixo-rotulos";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoProps,
@@ -55,15 +56,24 @@ const PX_POR_DIA_FIXO: Record<Exclude<Zoom, "auto">, number> = {
 /** Usado só antes da 1ª medição real do painel (SSR / primeiro paint sem `ResizeObserver`). */
 const PX_POR_DIA_AUTO_FALLBACK = 16;
 /**
- * P5c (achado ALTO #4, rodada 2): 24px/dia é o ALVO do "auto" (a densidade
- * confortável quando a janela cabe), NUNCA o piso — o piso de verdade é
- * `PX_POR_DIA_AUTO_PISO`. Antes `Math.max(24, largura/dias)` fazia o 24
- * SEMPRE vencer em janelas largas (>~41 dias a 1280px), forçando overflow
- * horizontal que "auto" deveria evitar encolhendo a densidade.
+ * P5c (achado ALTO #4, rodada 2): 24px/dia era tratado como o ALVO do "auto"
+ * (a densidade confortável quando a janela cabe), NUNCA o piso — o piso de
+ * verdade é `PX_POR_DIA_AUTO_PISO`. Antes `Math.max(24, largura/dias)` fazia
+ * o 24 SEMPRE vencer em janelas largas (>~41 dias a 1280px), forçando
+ * overflow horizontal que "auto" deveria evitar encolhendo a densidade.
  */
-const PX_POR_DIA_AUTO_ALVO = 24;
 /** Piso de verdade do "auto" — nunca encolhe além disto, mesmo com o horizonte inteiro. */
 const PX_POR_DIA_AUTO_PISO = 6;
+/**
+ * P5e (achado BAIXO #6 do crítico hostil, rodada 4): o 24px/dia acima virou o
+ * TETO na prática — uma janela ESTREITA (poucos dias) num painel largo
+ * (977–1280px) ficava presa em 24px/dia mesmo sobrando painel (medido:
+ * `totalW 624` num painel de até 1280px, 36% desperdiçado). Este é o teto de
+ * verdade agora: "auto" cresce até 64px/dia (ainda uma barra legível, nunca a
+ * escala tipo calendário gigante) para preencher o painel quando o horizonte
+ * é curto; continua encolhendo (piso `PX_POR_DIA_AUTO_PISO`) quando é largo.
+ */
+const PX_POR_DIA_AUTO_TETO = 64;
 /** Janela mínima do "auto" quando não há tarefa nenhuma: hoje − 7 d → hoje + 14 d. */
 const AUTO_MARGEM_PASSADO_DIAS = 7;
 const AUTO_MARGEM_FUTURO_DIAS = 14;
@@ -72,19 +82,18 @@ const AUTO_MARGEM_RESPIRO_PASSADO_DIAS = 2;
 const AUTO_MARGEM_RESPIRO_FUTURO_DIAS = 3;
 /** Piso visual de uma barra de tarefa — achado BAIXO #11 (sub-dia vira barra curta, nunca diamante nem 4px cru). */
 const LARGURA_MINIMA_BARRA = 12;
-/** Nenhum tick de data pode ficar mais longe que isto do vizinho — achado CRÍTICO #1, rodada 2. */
-const LIMIAR_TICK_PX = 160;
-/**
- * P5d (achado MÉDIO #4, rodada 3): nenhum rótulo de data pode ficar a menos
- * de 40px do vizinho — antes, o preenchimento da rede de segurança acima
- * (`LIMIAR_TICK_PX`) podia cair perto o bastante de um tick NATURAL para os
- * textos se sobreporem visualmente ("jul" + "ago" virando "juago").
- */
-const MINIMO_DIST_ROTULO_PX = 40;
 /** Namespaced — mesma disciplina de qualquer outra chave de `localStorage` da casa. */
 const CHAVE_ZOOM = "lifeboard:linha-do-tempo:zoom";
 
-const ROW_H = 34;
+/**
+ * P5e (achado MÉDIO #5 do crítico hostil, rodada 4): a 34px, a coluna de
+ * rótulo (108px a 390px de largura) truncava 11 de 22 nomes em ~10
+ * caracteres. A coluna larga a 42px (2 linhas de 12px cabem com folga) — o
+ * mesmo valor vale para a linha de CABEÇALHO de grupo (usa `ROW_H` também) e
+ * para o cálculo de `top` das barras, que continuam alinhadas 1:1 com o
+ * rótulo do lado esquerdo (mesma constante, sempre).
+ */
+const ROW_H = 42;
 const BAR_H = 16;
 const HEADER_H = 40;
 /**
@@ -95,8 +104,6 @@ const HEADER_H = 40;
  */
 const HEADER_MES_H = 18;
 const MS_POR_DIA = 86_400_000;
-/** Teto de dias na escala — rede de segurança contra datas podres/distantes. */
-const TETO_DIAS_ESCALA = 420;
 /** "Hoje" mira ~40% da largura visível do painel (achados CRÍTICO #1/#2). */
 const ANCORA_HOJE_FRACAO = 0.4;
 /**
@@ -150,107 +157,9 @@ function diaMesCurto(iso: string): string {
   const d = new Date(paraEpoch(iso));
   return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
-const MESES_PT = [
-  "jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez",
-];
-function mesCurto(iso: string): string {
-  return MESES_PT[new Date(paraEpoch(iso)).getUTCMonth()] ?? "";
-}
-
-interface Tick {
-  x: number;
-  label: string;
-  forte: boolean;
-}
-
-/**
- * P5c (achado CRÍTICO #1 do crítico hostil, rodada 2): a escala de ticks era
- * escolhida pelo NOME do zoom (`zoom === "semana" | "mes"`) — "auto" não batia
- * em nenhum dos dois nomes e caía no `else` (só início de mês), e num
- * horizonte de poucas semanas isso é ZERO ticks. A régua agora é a DENSIDADE
- * real (`pxPorDia`), não o nome: ≥24px/dia → rótulo por DIA; 8–24 → um rótulo
- * por SEMANA (dd/MM); <8 → rótulo por MÊS. Os 3 zooms fixos continuam caindo
- * nas mesmas faixas de antes (semana=46→dia, mes=16→semana, trimestre=6→mês) —
- * "auto" ganha a MESMA régua, nunca uma quarta regra à parte.
- *
- * Rede de segurança (mesmo achado): nenhum vão entre ticks pode passar de
- * `LIMIAR_TICK_PX` — sem isso, um horizonte que não cruza nenhum início de
- * mês (ex.: "auto" de 21 dias todo dentro do mesmo mês, na faixa <8px/dia)
- * ficaria com ZERO rótulos. Preenche o vão com ticks extras no mesmo formato.
- */
-function gerarEscala(
-  minIso: string,
-  maxIso: string,
-  pxPorDia: number,
-): { guiasSemana: number[]; ticks: Tick[]; ticksMes: Tick[]; faixa: "dia" | "semana" | "mes" } {
-  const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
-  const faixa: "dia" | "semana" | "mes" = pxPorDia >= 24 ? "dia" : pxPorDia >= 8 ? "semana" : "mes";
-  const guiasSemana: number[] = [];
-  const porX = new Map<number, Tick>();
-  const porXMes = new Map<number, Tick>();
-  for (let d = 0; d <= totalDias; d += 1) {
-    const iso = somaDiasIso(minIso, d);
-    const data = new Date(paraEpoch(iso));
-    const ehSegunda = data.getUTCDay() === 1;
-    const ehInicioMes = data.getUTCDate() === 1;
-    const x = d * pxPorDia;
-    if (ehSegunda) guiasSemana.push(x);
-    if (faixa === "dia") {
-      porX.set(x, { x, label: String(data.getUTCDate()), forte: ehSegunda });
-    } else if (faixa === "semana") {
-      if (ehSegunda) porX.set(x, { x, label: diaMesCurto(iso), forte: ehInicioMes });
-    } else if (ehInicioMes) {
-      porX.set(x, { x, label: mesCurto(iso), forte: true });
-    }
-    // P5d (achado MÉDIO #5, rodada 3): faixa de MESES — só existe (o chamador
-    // só a renderiza) na densidade "dia", onde os rótulos abaixo são números
-    // soltos sem nenhum contexto de mês. Um rótulo por início de mês, mais um
-    // no 1º dia visível (mesmo que não seja dia 1) — nunca começa "no vazio".
-    if (faixa === "dia" && (ehInicioMes || d === 0)) {
-      const xMes = ehInicioMes ? x : 0;
-      porXMes.set(xMes, { x: xMes, label: mesCurto(iso), forte: true });
-    }
-  }
-
-  // Rede de segurança: pelo menos 1 rótulo por ~160px, mesmo quando a faixa
-  // natural (semana/mês) não cruza nenhum marco dentro da janela visível.
-  // P5d (achado MÉDIO #4, rodada 3): o rótulo de PREENCHIMENTO é SEMPRE
-  // `dd/MM` — nunca nome de mês (`mesCurto`). Um "ago" de preenchimento do
-  // lado de um "ago" natural virava "juago" ilegível (dois rótulos de MÊS
-  // colados, cada um só um dígito visualmente distinguível do outro).
-  const largoDemais = pxPorDia * 1 <= 0 ? 1 : Math.max(1, Math.floor(LIMIAR_TICK_PX / pxPorDia));
-  const xsOrdenados = [...porX.keys()].sort((a, b) => a - b);
-  const fronteiras = [0, ...xsOrdenados, totalDias * pxPorDia];
-  for (let i = 0; i < fronteiras.length - 1; i += 1) {
-    const inicio = fronteiras[i]!;
-    const fim = fronteiras[i + 1]!;
-    if (fim - inicio <= LIMIAR_TICK_PX) continue;
-    for (let x = inicio + largoDemais * pxPorDia; x < fim; x += largoDemais * pxPorDia) {
-      if (porX.has(x)) continue;
-      const d = Math.round(x / pxPorDia);
-      const iso = somaDiasIso(minIso, d);
-      porX.set(x, { x, label: diaMesCurto(iso), forte: false });
-    }
-  }
-
-  // P5d (achado MÉDIO #4, rodada 3): rede de segurança FINAL — nenhum rótulo
-  // pode ficar a menos de `MINIMO_DIST_ROTULO_PX` do vizinho já escolhido,
-  // mesmo vindo de fontes diferentes (natural × preenchimento). Em colisão, o
-  // "forte" (início de mês/semana) vence; em empate, o mais à esquerda fica.
-  const todosOrdenados = [...porX.values()].sort((a, b) => a.x - b.x);
-  const ticks: Tick[] = [];
-  for (const t of todosOrdenados) {
-    const anterior = ticks[ticks.length - 1];
-    if (anterior && t.x - anterior.x < MINIMO_DIST_ROTULO_PX) {
-      if (t.forte && !anterior.forte) ticks[ticks.length - 1] = t;
-      continue;
-    }
-    ticks.push(t);
-  }
-
-  const ticksMes = [...porXMes.values()].sort((a, b) => a.x - b.x);
-  return { guiasSemana, ticks, ticksMes, faixa };
-}
+// P5e (rodada 4): `mesCurto`/`MESES_PT` saíram daqui — só serviam ao antigo
+// `gerarEscala` local, agora substituído por `gerarEscalaEixo` (`core/timeline/
+// eixo-rotulos.ts`, que já formata os rótulos de mês por conta própria).
 
 // ─── linha "achatada" (cabeçalho de grupo + linhas), para o 1:1 rótulo↔barra ──
 
@@ -290,6 +199,24 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   const [ativoId, setAtivoId] = useState<string | null>(null);
   const painelRef = useRef<HTMLDivElement | null>(null);
   const [larguraPainel, setLarguraPainel] = useState(0);
+  /**
+   * P5e (achado BAIXO #9 do crítico hostil, rodada 4): nenhuma pista de que
+   * o painel tem mais conteúdo além da borda (390/Semana: 3542px de
+   * conteúdo, ~250px visíveis, zero afordância). `esquerda`/`direita` dizem
+   * se HÁ de fato mais para rolar em cada direção — nunca um degradê
+   * decorativo fixo que mentiria num painel que já mostra tudo.
+   */
+  const [afordanciaScroll, setAfordanciaScroll] = useState<{ esquerda: boolean; direita: boolean }>({
+    esquerda: false,
+    direita: false,
+  });
+  const atualizarAfordanciaScroll = (el: HTMLDivElement): void => {
+    const FOLGA_PX = 1; // tolerância de arredondamento de subpixel
+    setAfordanciaScroll({
+      esquerda: el.scrollLeft > FOLGA_PX,
+      direita: el.scrollLeft + el.clientWidth < el.scrollWidth - FOLGA_PX,
+    });
+  };
   /**
    * P5c (achado ALTO #2 do crítico hostil, rodada 2): o cabeçalho de datas
    * vivia DENTRO do painel `overflow-x-auto` — `overflow-x` diferente de
@@ -407,20 +334,28 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   const maxIso = zoom === "auto" ? maxIsoAuto : maxIsoDados;
 
   // P5c (achado ALTO #4, rodada 2): 24px/dia é o ALVO, não o piso — quando o
-  // horizonte não cabe no painel a essa densidade, "auto" agora ENCOLHE
-  // (nunca abaixo de `PX_POR_DIA_AUTO_PISO`) em vez de forçar overflow
-  // horizontal fingindo que ainda é "auto".
+  // horizonte não cabe no painel a essa densidade, "auto" ENCOLHE (nunca
+  // abaixo de `PX_POR_DIA_AUTO_PISO`) em vez de forçar overflow horizontal
+  // fingindo que ainda é "auto". P5e (achado BAIXO #6, rodada 4): o inverso
+  // também vale — um horizonte ESTREITO não fica preso no alvo de 24 quando
+  // sobra painel; cresce até `PX_POR_DIA_AUTO_TETO` para preencher de verdade
+  // (antes: `totalW 624` num painel de até 1280px, 36% desperdiçado).
   const pxPorDiaAuto = useMemo(() => {
     const totalDiasAuto = Math.max(1, diffDias(minIsoAuto, maxIsoAuto));
     if (larguraPainel <= 0) return PX_POR_DIA_AUTO_FALLBACK;
     const ideal = larguraPainel / totalDiasAuto;
-    return Math.min(PX_POR_DIA_AUTO_ALVO, Math.max(PX_POR_DIA_AUTO_PISO, ideal));
+    return Math.min(PX_POR_DIA_AUTO_TETO, Math.max(PX_POR_DIA_AUTO_PISO, ideal));
   }, [minIsoAuto, maxIsoAuto, larguraPainel]);
 
   const pxPorDia = zoom === "auto" ? pxPorDiaAuto : PX_POR_DIA_FIXO[zoom];
-  const { guiasSemana, ticks, ticksMes, faixa } = useMemo(
-    () => gerarEscala(minIso, maxIso, pxPorDia),
-    [minIso, maxIso, pxPorDia],
+  // P5e (achado ALTO, rodada 4 — causa raiz "o eixo tem dono demais"): ÚNICA
+  // função de posicionamento dos rótulos do eixo (`core/timeline/eixo-
+  // rotulos.ts`, pura, testada isoladamente). `rotulos` já vem com "hoje" e a
+  // borda `x=0` inclusos e desconflitados — a VIEW só desenha o que ela
+  // devolve, nunca decide sozinha se cabe mais um rótulo.
+  const { guiasSemana, ticksMes, rotulos, faixa } = useMemo(
+    () => gerarEscalaEixo({ minIso, maxIso, pxPorDia, hojeIso: props.hoje }),
+    [minIso, maxIso, pxPorDia, props.hoje],
   );
   /** P5d (achado MÉDIO #5, rodada 3): 2ª faixa (nome do mês) só na densidade "dia". */
   const mostrarLinhaMeses = faixa === "dia";
@@ -515,23 +450,43 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     }
     el.scrollLeft = novoScrollLeft;
     sincronizarHeaderComPainel(novoScrollLeft);
+    // Achado BAIXO #9 (rodada 4): reavalia a afordância de scroll toda vez
+    // que o conteúdo muda de tamanho/posição por este efeito (zoom, resize,
+    // troca de janela) — não só quando o operador rola manualmente.
+    atualizarAfordanciaScroll(el);
     // `pxPorDia` muda em toda troca de zoom (inclusive "auto" recalculando)
     // — reancorar em "hoje" sempre que a escala muda é o que resolve o
     // "Semana" esvaziando a tela (achado CRÍTICO #2: a âncora era perdida).
-  }, [xHoje, pxPorDia, larguraPainel, xFimAlvo]);
+  }, [xHoje, pxPorDia, larguraPainel, xFimAlvo, totalWidth]);
 
   /**
-   * P5d (achado ALTO #2, rodada 3): quantos ASSUNTOS começam antes da janela
-   * vigente — só interessa em "auto" (os zooms fixos já mostram o histórico
-   * inteiro por construção, `minIsoDados`). Alimenta o aviso sob o seletor de
-   * zoom; cada assunto em si já ganha o chevron "◀ fora da janela" (com as
-   * datas reais no `title`) em vez de ser cortado em silêncio.
+   * P5d (achado ALTO #2, rodada 3): quantos itens começam (ou, para uma
+   * tarefa `done` fora do CPM, TERMINAM — seu único ponto no tempo) antes da
+   * janela vigente — só interessa em "auto" (os zooms fixos já mostram o
+   * histórico inteiro por construção, `minIsoDados`). Alimenta o aviso sob o
+   * seletor de zoom; cada item em si já ganha o chevron "◀ fora da janela"
+   * (com as datas reais no `title`) em vez de ser cortado em silêncio.
+   *
+   * P5e (achado MÉDIO #4, rodada 4): antes só contava ASSUNTOS — o chevron
+   * "◀" também aparece em TAREFAS (início antes da janela, ou o ponto de
+   * conclusão de uma `done` fora do CPM), e a nota dizia "4 assuntos" quando
+   * a tela tinha 6 chevrons de verdade (2 tarefas fora da contagem). Um único
+   * contador, os dois grupos, o mesmo critério (`foraDaJanela`) que a barra usa.
    */
-  const assuntosForaDaJanela = (() => {
+  const itensForaDaJanela = (() => {
     let n = 0;
     for (const l of linhas) {
-      if (l.tipo !== "linha" || l.linha.kind !== "assunto") continue;
-      if (l.linha.dataInvalida || l.linha.datasInconsistentes) continue;
+      if (l.tipo !== "linha") continue;
+      if (l.linha.kind === "assunto") {
+        if (l.linha.dataInvalida || l.linha.datasInconsistentes) continue;
+        if (foraDaJanela(l.linha.inicio)) n += 1;
+        continue;
+      }
+      if (l.linha.datasInconsistentes) continue;
+      if (l.linha.semBarra) {
+        if (l.linha.pontoConcluidoEm && foraDaJanela(l.linha.pontoConcluidoEm)) n += 1;
+        continue;
+      }
       if (foraDaJanela(l.linha.inicio)) n += 1;
     }
     return n;
@@ -584,6 +539,18 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
      * não é um "conflito" (erro de dado), é "não dá para saber" (dado que falta).
      */
     indefinido: boolean;
+    /**
+     * P5e (achado MÉDIO #2 do crítico hostil, rodada 4): quando a ponta
+     * (origem OU destino) tem data REAL do CPM mas essa data cai FORA da
+     * janela vigente, `xFor` clampa o `x` em silêncio para a borda — a
+     * aresta nascia com a aparência de uma tarefa que começa DENTRO da
+     * janela (às vezes até com o traço triplo do crítico), quando na
+     * verdade a barra virou chevron "◀" e não sabemos onde ela realmente
+     * está. Independente de `forasDeOrdem`/`datasConfiaveis`: sempre vence
+     * `critico` e `conflito` (nunca afirma prazo nem erro provado sobre uma
+     * posição fabricada pelo clamp).
+     */
+    janelaIncompleta: boolean;
   }
   /** Só conflito/indefinido quando as DUAS pontas têm data real (achado ALTO #3). */
   const temDataReal = (r: LinhaDoTempoTarefaRow): boolean =>
@@ -604,6 +571,12 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
       const x2 = xFor(destino.inicio);
       const forasDeOrdem = x2 < x1;
       const datasConfiaveis = temDataReal(origem) && temDataReal(destino);
+      // Achado MÉDIO #2 (rodada 4): a ponta pode ter data REAL do CPM e ainda
+      // assim cair fora da janela vigente — `xFor` clampa o `x` para a borda
+      // em silêncio, e sem este check a aresta nascia com o estilo/cor de
+      // uma tarefa comum (às vezes até "crítica"), começando exatamente onde
+      // o chevron "◀" da barra já avisa "não sei onde isto está de verdade".
+      const janelaIncompleta = foraDaJanela(origem.fim) || foraDaJanela(destino.inicio);
       conectores.push({
         chave: `${origem.id}->${destino.id}`,
         origemId: origem.id,
@@ -612,10 +585,11 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
         y1: j * ROW_H + ROW_H / 2,
         x2,
         y2: i * ROW_H + ROW_H / 2,
-        critico: origem.critico && destino.critico,
+        critico: !janelaIncompleta && origem.critico && destino.critico,
         destacado,
-        conflito: forasDeOrdem && datasConfiaveis,
-        indefinido: forasDeOrdem && !datasConfiaveis,
+        conflito: forasDeOrdem && datasConfiaveis && !janelaIncompleta,
+        indefinido: janelaIncompleta || (forasDeOrdem && !datasConfiaveis),
+        janelaIncompleta,
       });
     }
   });
@@ -658,14 +632,16 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
           </div>
           {/*
             Achado ALTO #2 (rodada 3): "auto" recorta a janela pelo horizonte
-            das TAREFAS — nunca clampa um assunto mais antigo em silêncio (ele
+            das TAREFAS — nunca clampa um item mais antigo em silêncio (ele
             ganha o chevron "◀ fora da janela"), mas o aviso aqui diz QUANTOS
-            e para onde ir para ver o histórico inteiro.
+            e para onde ir para ver o histórico inteiro. Achado MÉDIO #4
+            (rodada 4): "itens" — assuntos E tarefas, nunca só assuntos (o
+            chevron aparece nos dois grupos).
           */}
-          {zoom === "auto" && assuntosForaDaJanela > 0 ? (
+          {zoom === "auto" && itensForaDaJanela > 0 ? (
             <p role="note" className="max-w-[280px] text-right text-[12px] text-bone-400">
-              {assuntosForaDaJanela} assunto{assuntosForaDaJanela > 1 ? "s" : ""} começa
-              {assuntosForaDaJanela > 1 ? "m" : ""} antes da janela — Mês/Trimestre mostra o
+              {itensForaDaJanela} {itensForaDaJanela > 1 ? "itens começam" : "item começa"} ou
+              termina{itensForaDaJanela > 1 ? "m" : ""} antes da janela — Mês/Trimestre mostra o
               histórico
             </p>
           ) : null}
@@ -698,7 +674,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             className="sticky z-20 flex w-full"
           >
             {/* Célula do cabeçalho da coluna de rótulos — mesma largura da coluna abaixo. */}
-            <div className="w-[108px] shrink-0 border-b border-r border-navy-700 bg-navy-900 sm:w-[240px]" />
+            <div className="w-[140px] shrink-0 border-b border-r border-navy-700 bg-navy-900 sm:w-[240px]" />
             {/* Célula do cabeçalho da escala — clip (nunca scroll próprio) + conteúdo deslocado por `transform` para acompanhar o `scrollLeft` do painel. */}
             <div className="relative min-w-0 flex-1 overflow-hidden border-b border-navy-700 bg-navy-900">
               <div
@@ -731,38 +707,56 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                   className="absolute inset-x-0"
                   style={{ top: mostrarLinhaMeses ? HEADER_MES_H : 0, height: HEADER_H }}
                 >
-                  {ticks.map((t) => (
-                    <div
-                      key={t.x}
-                      className={
-                        t.forte
-                          ? "absolute top-0 flex h-full items-center border-l border-navy-600 pl-1 text-[12px] font-semibold text-bone-200"
-                          : "absolute top-0 flex h-full items-center border-l border-navy-800 pl-1 text-[12px] text-bone-400"
-                      }
-                      style={{ left: t.x }}
-                    >
-                      {t.label}
-                    </div>
-                  ))}
+                  {/*
+                    P5e (achado ALTO, rodada 4 — causa raiz "o eixo tem dono
+                    demais"): UMA lista, já desconflitada por `gerarEscalaEixo`
+                    — inclui os ticks de dia/semana/mês, a borda `x=0` e o
+                    rótulo de "hoje" (chip dourado). A VIEW só decide o
+                    ESTILO por `tipo`/`forte`; nunca mais decide sozinha se
+                    cabe mais um rótulo (isso já veio resolvido).
+                  */}
+                  {rotulos.map((t) =>
+                    t.tipo === "hoje" ? (
+                      <div
+                        key="hoje"
+                        className="absolute top-0 flex h-full items-center pl-1"
+                        style={{ left: t.x }}
+                      >
+                        <span className="lb-tl-hoje-rotulo whitespace-nowrap rounded-sm bg-navy-900/80 px-0.5 text-[12px] font-semibold text-gold-300">
+                          {t.label}
+                        </span>
+                      </div>
+                    ) : (
+                      <div
+                        key={`${t.tipo}-${t.x}`}
+                        className={
+                          t.forte
+                            ? "absolute top-0 flex h-full items-center border-l border-navy-600 pl-1 text-[12px] font-semibold text-bone-200"
+                            : "absolute top-0 flex h-full items-center border-l border-navy-800 pl-1 text-[12px] text-bone-400"
+                        }
+                        style={{ left: t.x }}
+                      >
+                        {t.label}
+                      </div>
+                    ),
+                  )}
                 </div>
+                {/* Linha vertical de "hoje" — sempre em `xHoje`, a mesma posição do
+                    chip acima (`rotulos`, tipo "hoje"); desenhada à parte porque é
+                    uma LINHA (não compete por espaço com texto vizinho). */}
                 <div
                   data-timeline-hoje="true"
                   className="lb-tl-hoje absolute top-0 h-full border-l-2 border-gold-500"
                   style={{ left: xHoje }}
                   title="Hoje"
-                >
-                  {/* Achado MÉDIO #5 (rodada 3): a linha de "hoje" ganha uma data legível, não só a cor. */}
-                  <span className="absolute left-1 top-0 whitespace-nowrap rounded-sm bg-navy-900/80 px-0.5 text-[12px] font-semibold text-gold-300">
-                    {diaMesCurto(props.hoje)}
-                  </span>
-                </div>
+                />
               </div>
             </div>
           </div>
 
           <div className="flex w-full items-stretch">
             {/* Coluna de rótulos — fora do scroll horizontal, encolhe no celular. */}
-            <div className="w-[108px] shrink-0 border-r border-navy-700 sm:w-[240px]">
+            <div className="w-[140px] shrink-0 border-r border-navy-700 sm:w-[240px]">
               {linhas.map((l) =>
                 l.tipo === "cabecalho" ? (
                   <div
@@ -786,12 +780,25 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
               )}
             </div>
 
-            {/* Painel da escala — SÓ ele rola na horizontal (o corpo da página nunca rola de lado); o cabeçalho vive fora e se sincroniza por `onScroll`. */}
-            <div
-              ref={painelRef}
-              className="min-w-0 flex-1 overflow-x-auto"
-              onScroll={(e) => sincronizarHeaderComPainel(e.currentTarget.scrollLeft)}
-            >
+            {/*
+              Achado BAIXO #9 (rodada 4): não havia NENHUMA pista de que a
+              escala continua além da borda — a 390/Semana, 3542px de
+              conteúdo num painel de ~250px, sem afordância nenhuma (nem
+              sombra, nem gradiente). Este wrapper `relative` fica FORA do
+              scroller (não rola com o conteúdo) para hospedar os dois
+              degradês de borda, cada um só quando há de fato mais conteúdo
+              naquela direção.
+            */}
+            <div className="relative min-w-0 flex-1">
+              {/* Painel da escala — SÓ ele rola na horizontal (o corpo da página nunca rola de lado); o cabeçalho vive fora e se sincroniza por `onScroll`. */}
+              <div
+                ref={painelRef}
+                className="w-full overflow-x-auto"
+                onScroll={(e) => {
+                  sincronizarHeaderComPainel(e.currentTarget.scrollLeft);
+                  atualizarAfordanciaScroll(e.currentTarget);
+                }}
+              >
               <div style={{ width: totalWidth }} className="relative">
               <div style={{ height: alturaLinhas }} className="relative bg-navy-950">
                 {guiasSemana.map((x) => (
@@ -856,6 +863,22 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 </svg>
               </div>
             </div>
+            </div>
+            {/* Achado BAIXO #9: degradê de borda SÓ quando há mais conteúdo
+                naquela direção — nunca um enfeite estático que mente sobre
+                painéis que já mostram tudo. */}
+            {afordanciaScroll.esquerda ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-navy-950 to-transparent"
+              />
+            ) : null}
+            {afordanciaScroll.direita ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-navy-950 to-transparent"
+              />
+            ) : null}
           </div>
         </div>
         </div>
@@ -888,7 +911,7 @@ function RotuloLinha({
   onAtivar?: () => void;
 }): JSX.Element {
   const classeBase =
-    "flex h-[34px] items-center gap-1 border-b border-navy-800 bg-navy-850 px-2 text-xs";
+    "flex h-[42px] items-center gap-1 border-b border-navy-800 bg-navy-850 px-2 py-1 text-xs";
   const anelClasse = ativo
     ? "ring-1 ring-inset ring-gold-500"
     : destacadoPredecessora
@@ -904,11 +927,23 @@ function RotuloLinha({
         href={linha.url}
         target="_blank"
         rel="noreferrer"
-        className={`${classeBase} truncate text-bone-200 hover:text-bone-50`}
+        className={`${classeBase} text-bone-200 hover:text-bone-50`}
         title={`${linha.titulo} — ${linha.repo}`}
       >
         <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${cor.barra}`} />
-        <span className={`truncate ${cor.riscado ? "text-bone-500 line-through" : ""}`}>
+        {/*
+          Achado MÉDIO #5 (rodada 4): a 390px, a coluna (108px) truncava 11 de
+          22 nomes em ~10 caracteres. `line-clamp-2` (2 linhas antes de
+          reticências) em vez de `truncate` (1 linha) — universal, não só
+          abaixo de `sm`: combinar `truncate` e `line-clamp-*` por breakpoint
+          arrisca a ordem de especificidade do CSS gerado (as duas mexem em
+          `overflow`/`white-space`); 2 linhas na coluna larga (≥240px,
+          `sm:w-[240px]`) raramente precisa da 2ª — a maioria dos títulos cabe
+          numa só.
+        */}
+        <span
+          className={`line-clamp-2 break-words ${cor.riscado ? "text-bone-500 line-through" : ""}`}
+        >
           {linha.titulo}
         </span>
       </a>
@@ -940,7 +975,7 @@ function RotuloLinha({
       title={`${linha.titulo}${linha.semDuracao ? " — estimativa faltando" : ""}`}
       className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
     >
-      <span className="truncate">{linha.titulo}</span>
+      <span className="line-clamp-2 break-words">{linha.titulo}</span>
       {typeof linha.score === "number" ? (
         <span className="shrink-0 rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1 font-mono text-[12px] text-fonte-notes">
           A {linha.score}
@@ -1236,11 +1271,24 @@ function BarraTarefa({
       {row.critico ? <TracoTriploCritico largura={largura} /> : null}
       {/* Achado ALTO #5 (rodada 2): marcador ADITIVO de atraso — nunca troca
           `classesEstado`, então uma barra crítica E atrasada continua com o
-          preenchimento/traço triplo do crítico, só ganha esta borda extra. */}
+          preenchimento/traço triplo do crítico, só ganha esta borda extra.
+          Achado BAIXO #8 (rodada 4): sobre a barra CRÍTICA (preenchimento
+          vermelho `bg-aresta-critico` + o próprio traço triplo vermelho), o
+          marcador vermelho de 2px ficava invisível — vermelho sobre vermelho.
+          A 1ª tentativa (dourado, `gold-400`) mediu 1,70:1 contra o vermelho
+          crítico — pior que o problema original. `navy-950` (o escuro da
+          casa) mede 7,90:1 — escuro pontilhado sobre o vermelho claro do
+          crítico lê com folga (par em `checar-contraste.mjs`); vermelho de
+          sempre nos outros estados (fundo não-crítico já suficientemente
+          escuro para o `state-error` de sempre contrastar). */}
       {row.atrasada ? (
         <span
           aria-hidden="true"
-          className="lb-tl-atrasada-marcador absolute inset-x-0 -top-1 h-0.5 rounded-full border-t-2 border-state-error"
+          className={
+            row.critico
+              ? "lb-tl-atrasada-marcador absolute inset-x-0 -top-2 h-0.5 rounded-full border-t-2 border-dotted border-navy-950"
+              : "lb-tl-atrasada-marcador absolute inset-x-0 -top-1 h-0.5 rounded-full border-t-2 border-state-error"
+          }
         />
       ) : null}
       {rotuloLateral ? (
@@ -1305,6 +1353,8 @@ interface DadosConector {
   destacado: "predecessor" | "sucessor" | null;
   conflito: boolean;
   indefinido: boolean;
+  /** P5e (achado MÉDIO #2, rodada 4): distingue "não sei" por dado fabricado × por ponta fora da janela vigente. */
+  janelaIncompleta: boolean;
 }
 
 /**
@@ -1392,18 +1442,29 @@ function Conector({
   const origemTitulo = tituloPorTarefaId.get(c.origemId) ?? c.origemId;
   const destinoTitulo = tituloPorTarefaId.get(c.destinoId) ?? c.destinoId;
 
+  // Achado MÉDIO #2 (rodada 4): "não sei" tem DOIS motivos, e o hover/leitor
+  // de tela precisa dizer QUAL — "predecessor fora da janela" (a data é real,
+  // só não cabe na janela vigente) é uma informação acionável (mude de zoom
+  // para ver); "data indefinida" (dado fabricado) não é.
+  const rotuloIndefinido = c.janelaIncompleta
+    ? `predecessor fora da janela: ${origemTitulo} → ${destinoTitulo}`
+    : "data indefinida";
+
   return (
     <g
       className="lb-tl-connector"
       data-critico={c.critico}
       data-conflito={c.conflito}
       data-indefinido={c.indefinido}
+      data-janela-incompleta={c.janelaIncompleta}
       {...(c.conflito
         ? { role: "img", "aria-label": `conflito de datas: ${destinoTitulo} começa antes de ${origemTitulo} terminar` }
         : c.indefinido
-          ? { role: "img", "aria-label": "data indefinida" }
+          ? { role: "img", "aria-label": rotuloIndefinido }
           : { "aria-hidden": true })}
     >
+      {/* `<title>` — só o SVG `<g>` não aceita o atributo `title` nativo do HTML para tooltip no hover. */}
+      {c.indefinido ? <title>{rotuloIndefinido}</title> : null}
       {c.critico ? (
         <>
           <path d={d} stroke={cor} strokeWidth={1.6} fill="none" transform="translate(0,-3)" />
@@ -1510,6 +1571,18 @@ function Legenda(): JSX.Element {
       chave: "indefinido",
       amostra: <span aria-hidden="true" className="h-0.5 w-5 rounded-sm border-t-2 border-dashed border-bone-500" />,
       label: "data indefinida",
+    },
+    {
+      // Achado MÉDIO #4 (rodada 4): o glifo mais repetido na tela ("◀", 6
+      // ocorrências no fixture do crítico) não tinha entrada — a legenda
+      // decodifica "fora da janela", mas nunca o próprio símbolo dela.
+      chave: "fora-da-janela",
+      amostra: (
+        <span aria-hidden="true" className="text-[12px] font-semibold text-bone-300">
+          ◀
+        </span>
+      ),
+      label: "fora da janela",
     },
   ];
   // Achado BAIXO #12 (rodada 2): a legenda inteira era `aria-hidden`, o que

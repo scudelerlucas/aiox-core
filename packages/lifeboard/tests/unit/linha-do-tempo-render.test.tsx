@@ -707,7 +707,18 @@ describe("LinhaDoTempoView — conflito exige datas reais dos dois lados (achado
  * (160px) entre dois rótulos consecutivos (nem da borda esquerda até o 1º).
  */
 describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTICO #1, rodada 2)", () => {
-  /** Extrai `{x, label}` de cada tick do cabeçalho da escala. */
+  /**
+   * Extrai `{x, label}` de cada rótulo do cabeçalho da escala.
+   *
+   * P5e (rodada 4, causa raiz "o eixo tem dono demais"): "hoje" agora nasce
+   * na MESMA passada de posicionamento que os ticks de dia/semana/mês
+   * (`gerarEscalaEixo`) e pode LEGITIMAMENTE evictar um tick vizinho que
+   * ficaria perto demais — ele PASSA A CONTAR como rótulo do eixo para este
+   * invariante (o objetivo do achado sempre foi "o operador nunca fica sem
+   * nenhuma pista de data por > 160px", não "ignorar o chip de hoje"). Duas
+   * classes: o tick comum (`border-l border-navy-…`) e o chip de "hoje"
+   * (`lb-tl-hoje-rotulo`, num `<span>` dentro do `<div style="left:…">`).
+   */
   function extrairTicks(html: string): { x: number; label: string }[] {
     const inicio = html.indexOf("sticky z-20 flex w-full");
     // P5d (rodada 3): a busca não depende mais de um número fixo de `</div>`
@@ -717,9 +728,11 @@ describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTI
     const fim = html.indexOf('class="flex w-full items-stretch"', inicio);
     const trecho = html.slice(inicio, fim < 0 ? undefined : fim);
     const out: { x: number; label: string }[] = [];
-    const re = /border-l border-navy-(?:600|800) pl-1 text-\[12px\][^"]*" style="left:(\d+(?:\.\d+)?)px">([^<]*)</g;
+    const reTick = /border-l border-navy-(?:600|800) pl-1 text-\[12px\][^"]*" style="left:(\d+(?:\.\d+)?)px">([^<]*)</g;
+    const reHoje = /flex h-full items-center pl-1" style="left:(\d+(?:\.\d+)?)px"><span[^>]*lb-tl-hoje-rotulo[^>]*>([^<]*)</g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(trecho))) out.push({ x: Number(m[1]), label: m[2] ?? "" });
+    while ((m = reTick.exec(trecho))) out.push({ x: Number(m[1]), label: m[2] ?? "" });
+    while ((m = reHoje.exec(trecho))) out.push({ x: Number(m[1]), label: m[2] ?? "" });
     return out.sort((a, b) => a.x - b.x);
   }
 
