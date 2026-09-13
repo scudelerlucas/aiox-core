@@ -15,10 +15,51 @@ import { useRef, type KeyboardEvent } from "react";
  * `tabIndex=0` (o resto é `-1`, fora do fluxo de Tab); ArrowLeft/Up move
  * para a opção anterior, ArrowRight/Down para a próxima (com wrap), e o
  * foco segue a seleção — mesmo padrão de um `<input type=radio">` nativo.
+ *
+ * v3 (achado MÉDIO #3, crítico 13/09, rodada 2): as setas moviam o foco E
+ * COMITAVAM (chamavam `aoMudar`) a cada tecla — em `StatusForm`, que dispara
+ * a mutação assim que `aoMudar` roda, isso mandava uma chamada de rede por
+ * tecla ao navegar as 4 opções. Setas (e Home/End) agora só movem o FOCO do
+ * navegador entre os botões — `aoMudar` só roda por clique, ou por Enter/
+ * Espaço no botão focado (comportamento NATIVO do `<button>`, que já
+ * dispara `onClick`; por isso o teclado não precisa de um caso especial
+ * para essas duas teclas).
  */
 export interface OpcaoSegmentada<T extends string | number> {
   valor: T;
   rotulo: string;
+}
+
+/**
+ * PURA — para uma tecla de navegação, devolve o índice que deve RECEBER O
+ * FOCO (nunca o que deve ser comitado): `null` quando a tecla não é de
+ * navegação (inclui Enter/Espaço, que continuam sendo o clique nativo do
+ * `<button>` — não passam por aqui). A assinatura em si é a prova do achado
+ * MÉDIO #3 (rodada 2): esta função não recebe `aoMudar`, então não existe
+ * chamada de commit que ela possa fazer — exportada só para o teste, que
+ * roda sem DOM/jsdom (o repo não tem nenhum dos dois).
+ */
+export function indiceDeFocoParaTecla(
+  key: string,
+  indiceAtual: number,
+  totalOpcoes: number,
+): number | null {
+  if (totalOpcoes === 0) return null;
+  const ultimo = totalOpcoes - 1;
+  switch (key) {
+    case "ArrowRight":
+    case "ArrowDown":
+      return indiceAtual === ultimo ? 0 : indiceAtual + 1;
+    case "ArrowLeft":
+    case "ArrowUp":
+      return indiceAtual === 0 ? ultimo : indiceAtual - 1;
+    case "Home":
+      return 0;
+    case "End":
+      return ultimo;
+    default:
+      return null;
+  }
 }
 
 export interface ControleSegmentadoProps<T extends string | number> {
@@ -41,38 +82,26 @@ export function ControleSegmentado<T extends string | number>({
   const botoesRef = useRef<Map<number, HTMLButtonElement>>(new Map());
   const indiceAtual = opcoes.findIndex((op) => op.valor === valorAtual);
 
-  function moverPara(indiceAlvo: number): void {
-    const opcao = opcoes[indiceAlvo];
-    if (!opcao) return;
-    aoMudar(opcao.valor);
+  /**
+   * Só move o FOCO do navegador para o botão alvo — nunca chama `aoMudar`.
+   * Esta é a correção do achado MÉDIO #3: a versão anterior (`moverPara`)
+   * comitava a cada tecla de seta; esta função, por contrato, não tem como
+   * comitar nada — não recebe nem chama o callback de mudança.
+   */
+  function moverFoco(indiceAlvo: number): void {
     botoesRef.current.get(indiceAlvo)?.focus();
   }
 
   function aoTeclar(e: KeyboardEvent<HTMLButtonElement>, indice: number): void {
-    if (desabilitado || opcoes.length === 0) return;
-    const ultimo = opcoes.length - 1;
-    switch (e.key) {
-      case "ArrowRight":
-      case "ArrowDown":
-        e.preventDefault();
-        moverPara(indice === ultimo ? 0 : indice + 1);
-        return;
-      case "ArrowLeft":
-      case "ArrowUp":
-        e.preventDefault();
-        moverPara(indice === 0 ? ultimo : indice - 1);
-        return;
-      case "Home":
-        e.preventDefault();
-        moverPara(0);
-        return;
-      case "End":
-        e.preventDefault();
-        moverPara(ultimo);
-        return;
-      default:
-        return;
-    }
+    if (desabilitado) return;
+    // Enter/Espaço não passam por `indiceDeFocoParaTecla` (devolve `null`) —
+    // sem `e.preventDefault()`, o comportamento nativo do `<button>` já
+    // dispara `onClick` (que comita via `aoMudar`), então não duplicamos o
+    // commit aqui.
+    const alvo = indiceDeFocoParaTecla(e.key, indice, opcoes.length);
+    if (alvo === null) return;
+    e.preventDefault();
+    moverFoco(alvo);
   }
 
   return (

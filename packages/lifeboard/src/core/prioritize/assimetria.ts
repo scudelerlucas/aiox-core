@@ -36,10 +36,11 @@ import "server-only";
  * um Client Component.
  */
 
-import { filhosPorPai, herancaEfetiva } from "@/core/prioritize/heranca";
+import { filhosPorPai, herancaEfetiva, herancaEmLote } from "@/core/prioritize/heranca";
 import {
   atomosDeclaradosValidos,
   pesoValido,
+  type HerancaResultado,
   type ResultadoCPM,
   type ScoreAssimetria,
 } from "@/core/prioritize/tipos-v3";
@@ -229,8 +230,7 @@ function scoreAssimetriaNucleo(
   cpm: ResultadoCPM,
   byId: Map<string, Task>,
   grafo: Map<string, Set<string>>,
-  tasks: Task[],
-  filhosMapa: Map<string, Task[]>,
+  efetiva: HerancaResultado,
 ): ScoreAssimetria | null {
   const declarado = task.assimetria;
   if (declarado === null || declarado === undefined) return null;
@@ -240,15 +240,16 @@ function scoreAssimetriaNucleo(
   const s2 = declarado.opcionalidade; // opcionalidade NUNCA herda — sempre o átomo próprio.
   const s3 = alcance(task.id, [], [], grafo);
 
-  // Herança (achado CRÍTICO #1): e/c efetivos são a soma recursiva das
-  // filhas ABERTAS quando há alguma; sem filha aberta, caem nos átomos
-  // próprios — o mesmo `declarado.esforco`/`.custo` de antes, então o
-  // comportamento sem subtarefas não muda em nada.
-  const efetiva = herancaEfetiva(task, tasks, filhosMapa);
-  // `e` nunca pode chegar a 0 (denominador do score) — o domínio declarado
-  // não permite 0, e uma soma herdada de filhas sem átomo próprio também não
-  // deveria zerar o score inteiro; mesmo piso que já existia para `c` abaixo.
-  const e = Math.max(1, efetiva.esforco);
+  // [ALTO #1, rodada 2] SEM piso artificial: `herancaEfetiva`/`herancaEmLote`
+  // (heranca.ts) já garantem `efetiva.esforco > 0` sempre que esta tarefa
+  // chegou até aqui — o gate `atomosDeclaradosValidos` acima exige que
+  // `declarado.esforco` esteja em {1,2,3,5} (nunca 0), e a herança só marca
+  // `herdado: true` quando a soma das filhas é > 0; caso contrário ela MESMA
+  // cai nos átomos próprios da tarefa (nunca 0). Antes, `Math.max(1, e)`
+  // escondia um 0/0 herdado atrás de um 1/1 — e inflava o score (A pulava de
+  // 0,36 para 9 ao acrescentar uma subtarefa vazia). Removido; nada mais
+  // pode fazer `e` chegar a 0 aqui.
+  const e = efetiva.esforco;
 
   // Sinergia: cada origem que AINDA vai acontecer (não 'done') barateia o
   // destino — o trabalho dela poupa parte do custo desta tarefa. Origem já
@@ -321,15 +322,21 @@ export function scoreAssimetria(
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const grafo = grafoSucessao(tasks, edges);
   const filhosMapa = filhosPorPai(tasks);
-  return scoreAssimetriaNucleo(task, arestasPorDestino(edges), cpm, byId, grafo, tasks, filhosMapa);
+  const efetiva = herancaEfetiva(task, tasks, filhosMapa);
+  return scoreAssimetriaNucleo(task, arestasPorDestino(edges), cpm, byId, grafo, efetiva);
 }
 
 /**
  * Score de assimetria de TODAS as tarefas em uma só passada — constrói
- * `byId`, o grafo de sucessão e o índice de arestas por destino UMA vez (não
- * por tarefa): cada tarefa só olha as próprias arestas — O(N + E) no lote.
- * Medido antes: 2,5 s em N=3000 (grafo por tarefa) e depois 226 ms (varredura
- * de todas as arestas por tarefa, ainda quadrática); esta é a versão linear.
+ * `byId`, o grafo de sucessão, o índice de arestas por destino E a herança
+ * de TODAS as tarefas (`herancaEmLote`) UMA vez (não por tarefa): cada
+ * tarefa só olha as próprias arestas e sua herança já memoizada — O(N + E)
+ * no lote. Medido antes: 2,5 s em N=3000 (grafo por tarefa), depois 226 ms
+ * (varredura de arestas por tarefa, ainda quadrática); depois disso, 1029 ms
+ * numa cadeia de `parentId` funda de N=3000 (achado MÉDIO #4, rodada 2 — a
+ * herança de cada tarefa refazia a descida da árvore inteira via
+ * `herancaEfetiva` em vez de reusar o que já fora calculado); esta versão
+ * memoiza a herança uma vez e volta a ser linear nesse caso também.
  */
 export function scoreAssimetriaLote(
   tasks: Task[],
@@ -340,12 +347,17 @@ export function scoreAssimetriaLote(
   const grafo = grafoSucessao(tasks, edges);
   const porDestino = arestasPorDestino(edges);
   const filhosMapa = filhosPorPai(tasks);
+  const herancaMapa = herancaEmLote(tasks, filhosMapa);
   const resultado = new Map<string, ScoreAssimetria | null>();
   for (const task of tasks) {
-    resultado.set(
-      task.id,
-      scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo, tasks, filhosMapa),
-    );
+    const efetiva = herancaMapa.get(task.id);
+    if (efetiva === undefined) {
+      // Não deveria acontecer: `herancaEmLote` resolve todo id da MESMA
+      // lista `tasks` que este laço percorre. Defensivo, nunca lança.
+      resultado.set(task.id, null);
+      continue;
+    }
+    resultado.set(task.id, scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo, efetiva));
   }
   return resultado;
 }

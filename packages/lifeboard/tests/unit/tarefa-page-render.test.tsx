@@ -15,10 +15,18 @@ import { resetarFixtureStore } from "@/lib/repositories/tasks.fixture-store";
  * uma `page.tsx` real). Mock local, só neste arquivo: em modo fixture a
  * página nunca chama `getTasksRepository`, então o stub nunca precisa fazer
  * nada — só evita puxar a cadeia de import que quebra fora do Next.
+ *
+ * `getSourcesRepository` PRECISA devolver algo utilizável mesmo em modo
+ * fixture: a página (achado BAIXO #8, rodada 2) sempre chama `.listAll()`
+ * para resolver o rótulo da fonte no cabeçalho — sem isto o teste quebraria
+ * com "Cannot read properties of undefined".
  */
 vi.mock("@/lib/repositories/factory", () => ({
   getTasksRepository: vi.fn(),
-  getSourcesRepository: vi.fn(),
+  getSourcesRepository: vi.fn(() => ({
+    listAll: vi.fn().mockResolvedValue([]),
+    listSyncLogs: vi.fn().mockResolvedValue([]),
+  })),
 }));
 // Mesmo motivo: `src/app/tarefa/actions.ts` importa `mutateLifeboard` deste
 // módulo — em modo fixture ela nunca é chamada, mas o import sozinho já

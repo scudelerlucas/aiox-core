@@ -154,22 +154,28 @@ export const loadLifeboardState = cache(async (): Promise<LifeboardState> => {
 // SEMPRE valida em português, mas nem todo erro Postgres passa por essa
 // validação (uma falha de infra, um bug num CHECK que ninguém previu) — por
 // isso o corpo cru NUNCA vai direto para a tela. `message` só chega ao
-// operador quando o `code` (SQLSTATE que o PostgREST devolve) é um dos que a
-// RPC deste app efetivamente usa para erro de validação: `23514`
-// (check_violation) ou `42501` (insufficient_privilege — segredo errado).
-// `F0000` (config_file_error — segredo não cadastrado em
-// `private.lifeboard_config`) ganha uma frase própria, porque "tente de
-// novo" seria mentira: só reconfigurar resolve. Qualquer outro código vira a
-// frase genérica — e o corpo INTEIRO (não só a frase) vai para
+// operador quando o `code` (SQLSTATE que o PostgREST devolve) é `23514`
+// (check_violation — as PRÓPRIAS mensagens em português da RPC, já
+// traduzidas e sem eco de valor). `42501` (insufficient_privilege — segredo
+// errado) e `F0000` (config_file_error — segredo não cadastrado em
+// `private.lifeboard_config`) ganham cada um uma frase FIXA própria, porque
+// "tente de novo" seria mentira: só reconfigurar resolve, e o texto cru da
+// RPC para 42501 ("lifeboard_mutate: acesso negado", achado BAIXO #7 da
+// rodada 2) não é uma frase pensada para o operador ler. Qualquer outro
+// código vira a frase genérica — e o corpo INTEIRO (não só a frase) vai para
 // `console.error` deste processo (o log do servidor Next/Vercel), nunca para
 // o cliente.
 export type MutateLifeboardResult = { ok: true; id?: string } | { erro: string };
 
 /** Códigos cujo `message` da RPC é seguro mostrar ao operador — validação de
  * forma feita pela própria `lifeboard_mutate`, já traduzida e sem eco de valor. */
-const CODIGOS_MENSAGEM_SEGURA: ReadonlySet<string> = new Set(["23514", "42501"]);
+const CODIGOS_MENSAGEM_SEGURA: ReadonlySet<string> = new Set(["23514"]);
 /** `config_file_error` (segredo ausente em `private.lifeboard_config`) — mensagem fixa e acionável. */
 const CODIGO_PAINEL_NAO_CONFIGURADO = "F0000";
+/** [BAIXO #7, crítico 13/09, rodada 2] `insufficient_privilege` — segredo errado/painel mal
+ * configurado; a frase da RPC ("lifeboard_mutate: acesso negado") não é para o operador ler. */
+const CODIGO_ACESSO_NEGADO = "42501";
+const MENSAGEM_ACESSO_NEGADO = "Acesso negado — avise o Lucas.";
 const MENSAGEM_GENERICA = "Não foi possível salvar. Tente de novo em instantes.";
 
 export async function mutateLifeboard(
@@ -208,6 +214,9 @@ export async function mutateLifeboard(
     console.error(`[lifeboard/live] lifeboard_mutate (${op}) falhou:`, response.status, body);
     if (body?.code === CODIGO_PAINEL_NAO_CONFIGURADO) {
       return { erro: "O painel não está configurado — avise o Lucas." };
+    }
+    if (body?.code === CODIGO_ACESSO_NEGADO) {
+      return { erro: MENSAGEM_ACESSO_NEGADO };
     }
     if (body?.code && CODIGOS_MENSAGEM_SEGURA.has(body.code) && body.message) {
       return { erro: body.message };
@@ -278,6 +287,9 @@ function traduzirErroFila(error: unknown): string {
   if (error instanceof RpcError) {
     if (error.code === CODIGO_PAINEL_NAO_CONFIGURADO) {
       return "O painel não está configurado — avise o Lucas.";
+    }
+    if (error.code === CODIGO_ACESSO_NEGADO) {
+      return MENSAGEM_ACESSO_NEGADO;
     }
     if (error.code && CODIGOS_MENSAGEM_SEGURA.has(error.code)) {
       return error.message;

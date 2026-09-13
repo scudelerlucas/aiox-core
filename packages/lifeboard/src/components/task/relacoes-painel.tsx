@@ -175,22 +175,35 @@ function FormularioNovaAresta({
   return (
     // [ALTO #4, crítico 13/09] mesmo ajuste — o desconto (`peso`) tem
     // min/max/step nativos que disparariam validação em inglês do Chrome.
+    //
+    // [BAIXO #11, crítico 13/09, rodada 2] "Tipo de relação" vinha DEPOIS do
+    // botão "Adicionar relação" no DOM e na tela — quem navega por Tab (ou lê
+    // de cima para baixo) topava com o botão antes de escolher o tipo. Agora
+    // a ordem é a do preenchimento: destino → tipo → (desconto, só sinergia)
+    // → botão.
     <form onSubmit={aoEnviar} noValidate className="space-y-2">
+      <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
+        Destino
+        <select
+          value={destino}
+          onChange={(e: ChangeEvent<HTMLSelectElement>) => setDestino(e.target.value)}
+          className="w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+        >
+          {opcoesDestino.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <ControleSegmentado
+        rotuloGrupo="Tipo de relação"
+        opcoes={OPCOES_TIPO}
+        valorAtual={tipo}
+        aoMudar={setTipo}
+        desabilitado={pendente}
+      />
       <div className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
-          Destino
-          <select
-            value={destino}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => setDestino(e.target.value)}
-            className="w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
-          >
-            {opcoesDestino.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-        </label>
         {tipo === "sinergia" ? (
           <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
             Desconto (0–1)
@@ -213,13 +226,6 @@ function FormularioNovaAresta({
           Adicionar relação
         </button>
       </div>
-      <ControleSegmentado
-        rotuloGrupo="Tipo de relação"
-        opcoes={OPCOES_TIPO}
-        valorAtual={tipo}
-        aoMudar={setTipo}
-        desabilitado={pendente}
-      />
       <CampoErro mensagem={estado.erro} />
     </form>
   );

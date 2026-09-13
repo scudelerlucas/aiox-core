@@ -34,7 +34,13 @@ import {
   statusSetFixture,
   subtarefaAddFixture,
 } from "@/lib/repositories/tasks.fixture-store";
-import { atomosDeclaradosValidos, pesoValido } from "@/core/prioritize/tipos-v3";
+import {
+  atomosDeclaradosValidos,
+  AUTOR_MAXIMO,
+  DURACAO_MINIMA_DIAS,
+  pesoValido,
+  TITULO_MAXIMO,
+} from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada, EdgeTipo, TaskStatus } from "@/types/canonical";
 
 export type EstadoAcaoTarefa = { erro?: string; ok?: true; id?: string };
@@ -59,9 +65,19 @@ const ARESTA_NOTA_MAX = 2_000;
 /** `pg_column_size(assimetria) < 2048` (migration 0008) — teto de bytes, não de chaves; medido em JSON. */
 const ASSIMETRIA_BYTES_MAX = 2_048;
 
+/**
+ * [BAIXO #10, crítico 13/09, rodada 2] ÚNICA régua de duração mínima — antes
+ * `subtarefa_add` só exigia `> 0` (aceitava `0.1`) enquanto `estimativa_set`
+ * exigia `>= 0.25`; as duas portas de entrada para o MESMO campo aplicavam
+ * leis diferentes. As duas chamam esta função agora; `DURACAO_MINIMA_DIAS`
+ * vem de `tipos-v3.ts` — mesmo valor usado pela migration 0010.
+ */
 function estimativaValidaOuErro(n: number): string | null {
-  if (!Number.isFinite(n) || n <= 0) {
-    return "A duração (estimativa em dias) precisa ser um número maior que zero.";
+  if (!Number.isFinite(n) || n < DURACAO_MINIMA_DIAS) {
+    // Vírgula decimal (pt-BR), não o ponto do `toString()` do JS — mesmo
+    // formato que a mensagem já tinha antes desta função existir.
+    const minimoFormatado = String(DURACAO_MINIMA_DIAS).replace(".", ",");
+    return `A duração (estimativa em dias) precisa ser um número de pelo menos ${minimoFormatado} dia.`;
   }
   if (n > ESTIMATIVA_DIAS_MAXIMA) {
     return `A duração não pode passar de ${ESTIMATIVA_DIAS_MAXIMA} dias.`;
@@ -152,6 +168,10 @@ export async function notaAddAction(
   if (texto.length > NOTA_TEXTO_MAX) {
     return { erro: `A nota não pode passar de ${NOTA_TEXTO_MAX} caracteres.` };
   }
+  // [ALTO #2, crítico 13/09, rodada 2] `autor` sem teto aceitava 1 MB.
+  if (autor !== null && autor.length > AUTOR_MAXIMO) {
+    return { erro: `O nome do autor não pode passar de ${AUTOR_MAXIMO} caracteres.` };
+  }
 
   const r = await mutar("nota_add", { task_id: taskId, texto, autor });
   if ("erro" in r) return { erro: r.erro };
@@ -185,6 +205,10 @@ export async function subtarefaAddAction(
 
   if (parentId.length === 0) return { erro: "Tarefa mãe não identificada." };
   if (title.trim().length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
+  // [ALTO #2, crítico 13/09, rodada 2] `title` sem teto aceitava 3 MB.
+  if (title.length > TITULO_MAXIMO) {
+    return { erro: `O título não pode passar de ${TITULO_MAXIMO} caracteres.` };
+  }
 
   let estimativaDias: number | null = null;
   if (estimativaBruta.length > 0) {
@@ -287,12 +311,9 @@ export async function estimativaSetAction(
   let estimativaDias: number | null = null;
   if (bruta.length > 0) {
     const n = Number(bruta);
-    if (!Number.isFinite(n) || n <= 0 || n < 0.25) {
-      return { erro: "A duração precisa ser um número de pelo menos 0,25 dia." };
-    }
-    if (n > ESTIMATIVA_DIAS_MAXIMA) {
-      return { erro: `A duração não pode passar de ${ESTIMATIVA_DIAS_MAXIMA} dias.` };
-    }
+    // [BAIXO #10, rodada 2] mesma função de `subtarefaAddAction` — uma só régua.
+    const erro = estimativaValidaOuErro(n);
+    if (erro) return { erro };
     estimativaDias = n;
   }
 

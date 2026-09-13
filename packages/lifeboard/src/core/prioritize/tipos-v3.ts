@@ -125,16 +125,31 @@ export interface ScoreAssimetria {
  * é `server-only` — um Client Component (`atomos-form.tsx`) importava o TIPO
  * de lá; `import type` é apagado no build, mas o contrato pertence ao mesmo
  * lugar dos outros tipos compartilhados entre camada O e Client Components.
+ *
+ * v2 (achado ALTO #1, rodada 2 do crítico 13/09): existir filha(s) ABERTA(s)
+ * não basta mais para `herdado: true` — só quando a soma delas é > 0. Uma
+ * mãe com filha aberta mas SEM NENHUM átomo declarado em toda a subárvore
+ * (nem nela, nem em netas) volta a usar os átomos DECLARADOS da própria
+ * tarefa (`herdado: false`) em vez de "herdar" um 0/0 que o piso
+ * `Math.max(1, ·)` do chamador inflava para 1/1 (ver `assimetria.ts`).
  */
 export interface HerancaResultado {
-  /** Esforço efetivo: soma RECURSIVA das filhas abertas, ou o próprio quando não há filha aberta. */
+  /** Esforço efetivo: soma RECURSIVA das filhas abertas (quando > 0), ou o átomo próprio. */
   esforco: number;
   /** Custo efetivo: mesma regra do esforço. */
   custo: number;
-  /** `true` quando o valor veio da soma das filhas abertas (não do átomo próprio). */
+  /** `true` só quando a soma das filhas abertas é > 0 (herança de verdade, não 0/0). */
   herdado: boolean;
-  /** Quantas filhas abertas (diretas) entraram na soma (0 quando `herdado` é falso). */
+  /** Quantas filhas abertas (diretas) existem — 0 quando não há nenhuma. */
   filhasAbertas: number;
+  /**
+   * Quantas dessas filhas abertas (diretas) NÃO contribuíram nada (nem elas,
+   * nem a subárvore delas, declararam átomo) — o que a interface mostra como
+   * "N subtarefa(s) sem átomos" quando `herdado` é `false` mas `filhasAbertas
+   * > 0`. Quando `herdado` é `true`, é a contagem informativa de quantas das
+   * filhas somadas vieram vazias (as outras cobriram a soma).
+   */
+  filhasSemAtomos: number;
 }
 
 /**
@@ -143,11 +158,15 @@ export interface HerancaResultado {
  * - Herança (P6, `heranca.ts`): `e` e `c` efetivos de uma tarefa com filha(s) ABERTA(s)
  *   (`status ≠ done`, `parentId === task.id`) são a SOMA RECURSIVA do `e`/`c` EFETIVO de
  *   cada filha aberta (uma filha sem átomos próprios, mas com filhas dela mesma, herda
- *   por sua vez; sem átomos e sem filhas, contribui 0) — com guarda de ciclo. Sem filha
- *   aberta nenhuma, usa os átomos próprios declarados (`declarado.esforco`/`.custo`).
- *   `opcionalidade` (s2) NUNCA herda — vem sempre do átomo próprio da tarefa. O desconto
- *   de sinergia se aplica sobre o `c` EFETIVO (pós-herança), não sobre o declarado.
- *   `porque` ganha o prefixo "herdado das subtarefas: " quando `herdado` é `true`.
+ *   por sua vez; sem átomos e sem filhas, contribui 0) — com guarda de ciclo — **só
+ *   quando essa soma é > 0**. Sem filha aberta nenhuma, OU com filha(s) aberta(s) mas
+ *   soma zero (nenhuma delas, nem a subárvore delas, declarou átomo — achado ALTO #1,
+ *   rodada 2), usa os átomos próprios declarados da tarefa (`declarado.esforco`/`.custo`)
+ *   e marca `herdado: false` com `filhasSemAtomos` contando as filhas vazias — nunca
+ *   herda um 0/0 disfarçado de herança. `opcionalidade` (s2) NUNCA herda — vem sempre do
+ *   átomo próprio da tarefa. O desconto de sinergia se aplica sobre o `c` EFETIVO
+ *   (pós-herança), não sobre o declarado. `porque` ganha o prefixo "herdado das
+ *   subtarefas: " quando `herdado` é `true`.
  * - Sinergia: cada aresta `sinergia` cujo destino é esta tarefa e cuja origem NÃO está
  *   `done` desconta `peso` do custo: `c = max(1, c × Π(1 − peso))`.
  * - Obsolescência: QUALQUER aresta `obsolescencia` cujo destino é esta tarefa e cuja
@@ -160,3 +179,31 @@ export interface HerancaResultado {
  * - Nunca muda a ordem do HIERARQ em produção: é um número a mais no cartão.
  * - Nunca muta `task`, `tasks`, `edges` nem `cpm` recebidos.
  */
+
+/**
+ * Duração mínima aceita para `estimativaDias`, em dias — ÚNICA régua para as
+ * duas portas de entrada (`estimativa_set` E `subtarefa_add`, TS e RPC).
+ *
+ * [BAIXO #10, crítico 13/09, rodada 2] antes disto havia DUAS réguas: `estimativa_set`
+ * exigia `>= 0.25`; `subtarefa_add` só exigia `> 0` (aceitava `0.1`) — o mesmo
+ * campo, duas leis diferentes conforme a porta de entrada. Import único em
+ * `src/app/tarefa/actions.ts` e mesmo valor hardcoded (com referência a este
+ * arquivo em comentário) em `supabase/migrations/0010_lifeboard_v3_escrita_ajustes_2.sql`
+ * (SQL não importa TS — o número é o contrato, não o módulo).
+ */
+export const DURACAO_MINIMA_DIAS = 0.25;
+
+/**
+ * Teto de caracteres de `tasks.title` — mesmo CHECK em
+ * `supabase/migrations/0010_lifeboard_v3_escrita_ajustes_2.sql`
+ * (`check (length(title) <= 500)`). [ALTO #2, crítico 13/09, rodada 2]: sem
+ * teto, um título de 3 MB era aceito ponta a ponta (TS e banco).
+ */
+export const TITULO_MAXIMO = 500;
+
+/**
+ * Teto de caracteres de `task_notes.autor` — mesmo CHECK na migration 0010
+ * (`check (autor is null or length(autor) <= 120)`). [ALTO #2, crítico 13/09,
+ * rodada 2]: sem teto, um `autor` de 1 MB era aceito.
+ */
+export const AUTOR_MAXIMO = 120;

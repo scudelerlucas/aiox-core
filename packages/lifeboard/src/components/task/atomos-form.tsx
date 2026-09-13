@@ -136,6 +136,16 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
             <span className="font-mono text-bone-200">{heranca.esforco}</span>, custo{" "}
             <span className="font-mono text-bone-200">{heranca.custo}</span>.
           </p>
+        ) : heranca.filhasAbertas > 0 ? (
+          // [ALTO #1, crítico 13/09, rodada 2] há filha(s) aberta(s), mas
+          // nenhuma (nem a subárvore delas) declarou átomo — antes disto a
+          // mãe "herdava" 0/0 e o score inflava com o piso de `assimetria.ts`.
+          // Agora usa os átomos da própria tarefa e avisa, em vez de fingir
+          // "esforço 0, custo 0".
+          <p className="mt-2 border-t border-navy-800 pt-2 text-xs text-bone-400">
+            {heranca.filhasSemAtomos} subtarefa(s) sem átomos — usando os átomos da própria
+            tarefa.
+          </p>
         ) : null}
       </div>
     </div>

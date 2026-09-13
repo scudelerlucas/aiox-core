@@ -314,6 +314,90 @@ describe("scoreAssimetria — herança de e/c (achado CRÍTICO #1, 13/09/2026)",
   });
 });
 
+describe("scoreAssimetria — sem `Math.max(1, e)` (achado ALTO #1, rodada 2 do crítico)", () => {
+  it("PRONTO QUANDO: mãe + 1 subtarefa aberta SEM átomos → usa os átomos PRÓPRIOS da mãe, não 1/1", () => {
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 2, esforco: 3, custo: 3 } });
+    const vazia = task({ id: "vazia", parentId: "mae" }); // sem assimetria — 0/0 crua
+
+    const score = scoreAssimetria(mae, [mae, vazia], [], cpm());
+    expect(score).not.toBeNull();
+    // s1=1 s2=2 s3=1 (sem CPM/sucessores) → 2; e=3, c=3 → 2/9 = 0,2222…,
+    // arredondado a 2 casas (regra do contrato) → 0,22 — não 2/1 = 2 (o que
+    // o piso `Math.max(1, e)` removido dava antes).
+    expect(score?.e).toBe(3);
+    expect(score?.c).toBe(3);
+    expect(score?.valor).toBe(0.22);
+    expect(score?.porque).not.toMatch(/^herdado/);
+  });
+
+  it("PRONTO QUANDO: mãe + 1 vazia + 1 com átomos → soma só da que declarou, herdado:true", () => {
+    // esforco/custo declarados só aceitam {1,2,3,5} — 5 aqui (não 9, fora do domínio).
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 2, esforco: 5, custo: 5 } });
+    const vazia = task({ id: "vazia", parentId: "mae" });
+    const comAtomos = task({
+      id: "comAtomos",
+      parentId: "mae",
+      assimetria: { opcionalidade: 1, esforco: 2, custo: 1 },
+    });
+
+    const score = scoreAssimetria(mae, [mae, vazia, comAtomos], [], cpm());
+    expect(score?.e).toBe(2);
+    expect(score?.c).toBe(1);
+    expect(score?.porque).toMatch(/^herdado das subtarefas: /);
+  });
+
+  it("PRONTO QUANDO: acrescentar uma subtarefa VAZIA a uma mãe com átomo próprio NÃO muda o score (achado medido: A pulava 25×)", () => {
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 2, esforco: 3, custo: 3 } });
+    const antes = scoreAssimetria(mae, [mae], [], cpm());
+
+    const vazia = task({ id: "vazia", parentId: "mae" });
+    const depois = scoreAssimetria(mae, [mae, vazia], [], cpm());
+
+    expect(antes).not.toBeNull();
+    expect(depois).toEqual(antes);
+
+    // Mesma prova em lote — `scoreAssimetriaLote` usa o caminho memoizado
+    // (`herancaEmLote`), tem que bater com o avulso.
+    const lote = scoreAssimetriaLote([mae, vazia], [], cpm());
+    expect(lote.get("mae")).toEqual(antes);
+  });
+});
+
+describe("scoreAssimetriaLote — memoização da herança (achado MÉDIO #4, rodada 2)", () => {
+  it("PRONTO QUANDO: cadeia de parentId com 3000 nós não é mais quadrática (medido antes: 1029 ms; agora dezenas de ms)", () => {
+    const n = 3000;
+    const tasks: Task[] = [];
+    for (let i = 0; i < n; i += 1) {
+      // `t0` (a raiz, a que o teste mede) precisa de átomo PRÓPRIO válido
+      // para `scoreAssimetria` não devolver `null` de cara (a regra é: sem
+      // `assimetria` declarada na PRÓPRIA tarefa, nem entra na conta da
+      // herança) — mas o e/c dela vêm da herança mesmo assim, porque tem
+      // filha aberta (a cadeia inteira). Só a folha (última) declara átomo
+      // no MEIO da cadeia — força a herança a atravessar os 2999 nós.
+      let assimetria: Task["assimetria"] = null;
+      if (i === 0) assimetria = { opcionalidade: 2, esforco: 5, custo: 5 };
+      if (i === n - 1) assimetria = { opcionalidade: 1, esforco: 1, custo: 1 };
+      tasks.push(task({ id: `t${i}`, parentId: i === 0 ? null : `t${i - 1}`, assimetria }));
+    }
+
+    // Tempo de parede oscila com a carga da máquina (CI compartilhado, outros
+    // processos): mede o MELHOR de 3 corridas e compara com a régua da
+    // regressão (1029 ms) com folga larga — o que se prova é "não é mais
+    // quadrático", não um número exato.
+    let melhorMs = Number.POSITIVE_INFINITY;
+    let lote = scoreAssimetriaLote(tasks, [], cpm());
+    for (let corrida = 0; corrida < 3; corrida += 1) {
+      const inicio = performance.now();
+      lote = scoreAssimetriaLote(tasks, [], cpm());
+      melhorMs = Math.min(melhorMs, performance.now() - inicio);
+    }
+
+    expect(melhorMs).toBeLessThan(500);
+    expect(lote.get("t0")?.e).toBe(1);
+    expect(lote.get("t0")?.c).toBe(1);
+  });
+});
+
 describe("alavanca — átomo s1", () => {
   it("3 quando o id está em cpm.critico", () => {
     expect(alavanca("x", cpm({ critico: new Set(["x"]) }))).toBe(3);

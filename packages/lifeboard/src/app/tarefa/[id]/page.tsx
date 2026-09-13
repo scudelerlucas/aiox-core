@@ -6,13 +6,14 @@ import { env } from "@/config/env";
 import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import { scoreAssimetria } from "@/core/prioritize/assimetria";
 import { herancaEfetiva } from "@/core/prioritize/heranca";
+import { formatRelativeTime } from "@/lib/format-relative-time";
 import {
   listarEdgesFixture,
   listarNotesFixture,
   listarTasksFixture,
 } from "@/lib/repositories/tasks.fixture-store";
-import { getTasksRepository } from "@/lib/repositories/factory";
-import type { Task, TaskEdge, TaskNote } from "@/types/canonical";
+import { getSourcesRepository, getTasksRepository } from "@/lib/repositories/factory";
+import type { Source, Task, TaskEdge, TaskNote } from "@/types/canonical";
 
 import { AtomosForm } from "@/components/task/atomos-form";
 import { DuracaoForm } from "@/components/task/duracao-form";
@@ -47,20 +48,27 @@ interface PaginaTarefaProps {
   params: Promise<{ id: string }>;
 }
 
-async function carregarEstado(): Promise<{ tasks: Task[]; edges: TaskEdge[]; notes: TaskNote[] }> {
+async function carregarEstado(): Promise<{
+  tasks: Task[];
+  edges: TaskEdge[];
+  notes: TaskNote[];
+  sources: Source[];
+}> {
   if (env.LIFEBOARD_DATA_MODE === "live") {
     const tasksRepo = getTasksRepository();
-    const [tasks, edges, notes] = await Promise.all([
+    const [tasks, edges, notes, sources] = await Promise.all([
       tasksRepo.listAll(),
       tasksRepo.listEdges(),
       tasksRepo.listNotes(),
+      getSourcesRepository().listAll(),
     ]);
-    return { tasks, edges, notes };
+    return { tasks, edges, notes, sources };
   }
   return {
     tasks: listarTasksFixture(),
     edges: listarEdgesFixture(),
     notes: listarNotesFixture(),
+    sources: await getSourcesRepository().listAll(),
   };
 }
 
@@ -70,11 +78,13 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
   let tasks: Task[];
   let edges: TaskEdge[];
   let notes: TaskNote[];
+  let sources: Source[];
   try {
     const estado = await carregarEstado();
     tasks = estado.tasks;
     edges = estado.edges;
     notes = estado.notes;
+    sources = estado.sources;
   } catch (erro) {
     console.error(`[tarefa/${id}] falha ao ler o estado do dia:`, erro);
     return <NaoConsegui id={id} />;
@@ -100,6 +110,11 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
   const entrando = edges.filter((e) => e.destino === task.id);
   const outrasTarefas = tasks.filter((t) => t.id !== task.id);
   const tituloPorId = new Map(tasks.map((t) => [t.id, t.title] as const));
+  // [BAIXO #8, crítico 13/09, rodada 2] o cabeçalho mostrava o uuid cru de
+  // `sourceId` e a data em ISO — nenhum dos dois é o que um humano lê.
+  // Mesmo padrão de `today-list.tsx`/`task-node.tsx`: resolve pelo rótulo da
+  // fonte (`sources`) e formata a data com `formatRelativeTime`.
+  const fonte = sources.find((s) => s.id === task.sourceId)?.label ?? task.sourceId;
 
   return (
     <main className="mx-auto w-full max-w-[880px] px-4 pb-16 pt-10 sm:px-6">
@@ -113,12 +128,21 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
         </Link>
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-bone-50">{task.title}</h1>
         <p className="mt-1 text-xs text-bone-400">
-          fonte {task.sourceId} · atualizada {task.updatedAt}
+          fonte {fonte} · atualizada {formatRelativeTime(task.updatedAt)}
           {task.isGoal ? <span className="ml-2 text-gold-300">· meta do ciclo</span> : null}
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* [MÉDIO #5, crítico 13/09, rodada 2] "Notas" é a AÇÃO PRIMÁRIA da
+          página (`notas-painel.tsx` já documenta isso) mas vinha depois de
+          Status/Meta/Duração/Mãe/Átomos — 15 paradas de Tab até a textarea,
+          acima da régua de ≤ 8. Movida para logo após o cabeçalho: agora são
+          2 paradas (o link "← painel" e a textarea). */}
+      <Secao titulo={`Notas (${notasDaTarefa.length})`}>
+        <NotasPainel taskId={task.id} notas={notasDaTarefa} />
+      </Secao>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <Secao titulo="Status">
           <StatusForm taskId={task.id} statusAtual={task.status} />
         </Secao>
@@ -156,10 +180,6 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
           score={score}
           heranca={herancaResultado}
         />
-      </Secao>
-
-      <Secao titulo={`Notas (${notasDaTarefa.length})`} className="mt-4">
-        <NotasPainel taskId={task.id} notas={notasDaTarefa} />
       </Secao>
 
       <Secao titulo={`Subtarefas (${filhas.length})`} className="mt-4">

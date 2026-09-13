@@ -98,7 +98,38 @@ describe("tarefa/actions — validação", () => {
       {},
       form({ parent_id: "task-build", title: "algo", estimativa_dias: "0" }),
     );
-    expect(r.erro).toMatch(/maior que zero/);
+    expect(r.erro).toMatch(/0,25/);
+    nenhumaChamadaFoiFeita();
+  });
+
+  // [BAIXO #10, crítico 13/09, rodada 2] antes desta correção, `subtarefa_add`
+  // só exigia `> 0` (aceitava 0,1) enquanto `estimativa_set` exigia `>= 0,25`
+  // — o MESMO campo, duas leis diferentes conforme a porta de entrada. Agora
+  // as duas usam `estimativaValidaOuErro` (`DURACAO_MINIMA_DIAS`).
+  it("subtarefaAddAction: estimativa 0,1 — abaixo do mínimo unificado (0,25); antes era aceita (achado BAIXO #10)", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: "0.1" }),
+    );
+    expect(r.erro).toMatch(/0,25/);
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("subtarefaAddAction: título acima do teto (500) é recusado (achado ALTO #2, rodada 2)", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "x".repeat(501) }),
+    );
+    expect(r.erro).toMatch(/500/);
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("notaAddAction: autor acima do teto (120) é recusado (achado ALTO #2, rodada 2)", async () => {
+    const r = await notaAddAction(
+      {},
+      form({ task_id: "task-build", texto: "nota válida", autor: "x".repeat(121) }),
+    );
+    expect(r.erro).toMatch(/120/);
     nenhumaChamadaFoiFeita();
   });
 

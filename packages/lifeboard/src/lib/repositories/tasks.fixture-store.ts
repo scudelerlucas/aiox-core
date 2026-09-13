@@ -28,6 +28,7 @@
  * `src/app/tarefa/actions.ts` trate os dois modos de forma idêntica.
  */
 
+import { AUTOR_MAXIMO, DURACAO_MINIMA_DIAS, TITULO_MAXIMO } from "@/core/prioritize/tipos-v3";
 import {
   FIXTURE_EDGES,
   FIXTURE_NOTES,
@@ -83,6 +84,24 @@ function loja(): EstadoFixture {
   return g.__lifeboardFixtureStore;
 }
 
+/**
+ * Só para teste [achado BAIXO #9, crítico 13/09, rodada 2]: sobrescreve
+ * `predecessorIds` de uma tarefa SEM espelhar `successorIds` do lado oposto.
+ * `tasks.fixture-store.test.ts` tinha um teste que dizia provar a 3ª fonte
+ * de precedência do anti-ciclo (`predecessorIds` lido ao contrário,
+ * `arestaAddFixture`) mas não conseguia — no fixture semeado, toda relação
+ * predecessor↔successor já vem espelhada nos dois lados, então a 1ª fonte
+ * (`successorIds` direto) sempre bastava para achar o ciclo, mascarando se a
+ * 3ª fonte de fato participava sozinha. Este helper isola a 3ª fonte: ajusta
+ * só `predecessorIds`, deixando `successorIds` do outro lado como estava.
+ */
+export function definirPredecessorIdsFixture(taskId: string, predecessorIds: string[]): void {
+  const estado = loja();
+  const tarefa = estado.tasks.get(taskId);
+  if (!tarefa) return;
+  estado.tasks.set(taskId, { ...tarefa, predecessorIds });
+}
+
 /** Só para teste: devolve o store ao estado seed. */
 export function resetarFixtureStore(): void {
   (globalThis as unknown as GlobalComStore).__lifeboardFixtureStore = estadoNovo();
@@ -117,12 +136,19 @@ export function notaAddFixture(
   if (!estado.tasks.has(taskId)) return { erro: "Tarefa não encontrada." };
   const limpo = texto.trim();
   if (limpo.length === 0) return { erro: "O texto da nota não pode ficar vazio." };
+  const autorLimpo = autor && autor.trim().length > 0 ? autor.trim() : null;
+  // [ALTO #2, crítico 13/09, rodada 2] mesmo teto de `task_notes.autor`
+  // (migration 0010) e de `notaAddAction` — o fixture não pode aceitar o que
+  // o banco recusaria.
+  if (autorLimpo !== null && autorLimpo.length > AUTOR_MAXIMO) {
+    return { erro: `O nome do autor não pode passar de ${AUTOR_MAXIMO} caracteres.` };
+  }
   const id = novoId("note");
   estado.notes.set(id, {
     id,
     taskId,
     texto: limpo,
-    autor: autor && autor.trim().length > 0 ? autor.trim() : null,
+    autor: autorLimpo,
     createdAt: new Date().toISOString(),
   });
   return { ok: true, id };
@@ -145,8 +171,17 @@ export function subtarefaAddFixture(
   if (!mae) return { erro: "A tarefa mãe não existe (ou não é sua)." };
   const limpo = title.trim();
   if (limpo.length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
-  if (estimativaDias !== null && !(estimativaDias > 0)) {
-    return { erro: "A duração (estimativa em dias) precisa ser maior que zero." };
+  // [ALTO #2, crítico 13/09, rodada 2] mesmo teto de `tasks.title` (migration 0010).
+  if (limpo.length > TITULO_MAXIMO) {
+    return { erro: `O título não pode passar de ${TITULO_MAXIMO} caracteres.` };
+  }
+  // [BAIXO #10, rodada 2] mesma régua unificada de `estimativaValidaOuErro`
+  // (actions.ts) — antes o fixture só exigia `> 0`, divergindo de `estimativa_set`.
+  if (estimativaDias !== null && !(estimativaDias >= DURACAO_MINIMA_DIAS)) {
+    const minimoFormatado = String(DURACAO_MINIMA_DIAS).replace(".", ",");
+    return {
+      erro: `A duração (estimativa em dias) precisa ser um número de pelo menos ${minimoFormatado} dia.`,
+    };
   }
   const id = novoId("task");
   const agora = new Date().toISOString();
@@ -225,8 +260,12 @@ export function estimativaSetFixture(
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
   if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
-  if (estimativaDias !== null && !(estimativaDias > 0)) {
-    return { erro: "A duração (estimativa em dias) precisa ser maior que zero." };
+  // [BAIXO #10, rodada 2] mesma régua de `subtarefaAddFixture` — uma só lei.
+  if (estimativaDias !== null && !(estimativaDias >= DURACAO_MINIMA_DIAS)) {
+    const minimoFormatado = String(DURACAO_MINIMA_DIAS).replace(".", ",");
+    return {
+      erro: `A duração (estimativa em dias) precisa ser um número de pelo menos ${minimoFormatado} dia.`,
+    };
   }
   estado.tasks.set(taskId, { ...tarefa, estimativaDias });
   return { ok: true };
