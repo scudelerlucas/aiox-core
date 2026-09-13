@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 
 import { parentSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
@@ -21,10 +21,29 @@ export interface MaeFormProps {
 /** Seletor de mãe (`parent_id`) — "nenhuma" limpa a hierarquia. */
 export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.Element {
   const [valor, setValor] = useState(parentIdAtual ?? "");
-  const { estado, pendente, disparar } = useAcaoTarefa(parentSetAction);
+  // [MÉDIO #1, rodada 3] `confirmadoRef` guarda o último valor que o
+  // SERVIDOR aceitou (começa no valor vindo do servidor via prop);
+  // `tentativaRef` guarda o valor que ACABOU de ser submetido — em refs, não
+  // em closure, porque `aoSucesso`/`aoFalha` só rodam depois que o `await`
+  // da action resolve, e por lá `valor` (a variável de `useState`) já
+  // poderia estar presa ao render antigo. Falha → `setValor` otimista é
+  // revertido para o último confirmado; sem isto o `<select>` ficava preso
+  // na mãe recusada até um reload manual.
+  const confirmadoRef = useRef(parentIdAtual ?? "");
+  const tentativaRef = useRef(confirmadoRef.current);
+  const { estado, pendente, disparar } = useAcaoTarefa(
+    parentSetAction,
+    () => {
+      confirmadoRef.current = tentativaRef.current;
+    },
+    () => {
+      setValor(confirmadoRef.current);
+    },
+  );
 
   function aoMudar(e: ChangeEvent<HTMLSelectElement>): void {
     const novo = e.target.value;
+    tentativaRef.current = novo;
     setValor(novo);
     const form = new FormData();
     form.set("task_id", taskId);

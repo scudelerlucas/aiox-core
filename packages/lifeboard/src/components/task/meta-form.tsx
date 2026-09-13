@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { goalSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
@@ -19,10 +19,23 @@ export interface MetaFormProps {
  */
 export function MetaForm({ taskId, isGoal }: MetaFormProps): JSX.Element {
   const [valor, setValor] = useState(isGoal);
-  const { estado, pendente, disparar } = useAcaoTarefa(goalSetAction);
+  // [MÉDIO #1, rodada 3] mesmo padrão de `MaeForm`/`StatusForm`: reverte o
+  // botão para o último valor CONFIRMADO quando a action falha.
+  const confirmadoRef = useRef(isGoal);
+  const tentativaRef = useRef(confirmadoRef.current);
+  const { estado, pendente, disparar } = useAcaoTarefa(
+    goalSetAction,
+    () => {
+      confirmadoRef.current = tentativaRef.current;
+    },
+    () => {
+      setValor(confirmadoRef.current);
+    },
+  );
 
   function alternar(): void {
     const novo = !valor;
+    tentativaRef.current = novo;
     setValor(novo);
     const form = new FormData();
     form.set("task_id", taskId);

@@ -304,13 +304,21 @@ describe("scoreAssimetria — herança de e/c (achado CRÍTICO #1, 13/09/2026)",
   });
 
   it("sinergia desconta sobre o c EFETIVO (pós-herança), não sobre o declarado da mãe", () => {
-    const mae = task({ id: "mae", assimetria: { opcionalidade: 1, esforco: 1, custo: 5 } });
-    const f1 = task({ id: "f1", parentId: "mae", assimetria: { opcionalidade: 1, esforco: 1, custo: 4 } });
+    // [BAIXO #3, rodada 3] `custo: 4` (o valor original deste teste) está
+    // FORA do domínio — só {1,2,3,5} vale (`FAIXAS_ESFORCO_CUSTO`). Antes da
+    // correção de `heranca.ts`, isso passava despercebido (a herança lia o
+    // valor cru); agora um átomo fora do domínio conta como "sem átomos", o
+    // que mudaria o que este teste queria provar. Troca para `custo: 5`
+    // (válido) + `peso: 0.6`, mantendo a mesma prova com números válidos: o
+    // desconto incide sobre o EFETIVO herdado da filha (5), nunca sobre o
+    // declarado da mãe (2, que daria 2×0,4=0,8 → arredondaria diferente).
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 1, esforco: 1, custo: 2 } });
+    const f1 = task({ id: "f1", parentId: "mae", assimetria: { opcionalidade: 1, esforco: 1, custo: 5 } });
     const origem = task({ id: "origem", status: "open" });
-    const edges = [edge({ origem: "origem", destino: "mae", tipo: "sinergia", peso: 0.5 })];
+    const edges = [edge({ origem: "origem", destino: "mae", tipo: "sinergia", peso: 0.6 })];
 
     const score = scoreAssimetria(mae, [mae, f1, origem], edges, cpm());
-    expect(score?.c).toBe(2); // efetivo herdado = 4; ×(1-0.5) = 2
+    expect(score?.c).toBe(2); // efetivo herdado = 5; ×(1-0.6) = 2
   });
 });
 
@@ -360,6 +368,47 @@ describe("scoreAssimetria — sem `Math.max(1, e)` (achado ALTO #1, rodada 2 do 
     // (`herancaEmLote`), tem que bater com o avulso.
     const lote = scoreAssimetriaLote([mae, vazia], [], cpm());
     expect(lote.get("mae")).toEqual(antes);
+  });
+});
+
+describe("scoreAssimetria — herança respeita o domínio dos átomos (achado BAIXO #3, rodada 3)", () => {
+  it("PRONTO QUANDO: filha com esforço FORA do domínio (0) nunca deixa `e` chegar a 0 — score nunca é Infinity", () => {
+    // Antes desta correção, `heranca.ts` lia `task.assimetria?.esforco` cru
+    // — uma filha com `esforco: 0` (fora de {1,2,3,5}) contribuía 0 de
+    // verdade, `e` da mãe virava 0, e `s1*s2*s3/(e*c)` dividia por zero.
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 2, esforco: 3, custo: 3 } });
+    const foraDoDominio = task({
+      id: "f1",
+      parentId: "mae",
+      assimetria: { opcionalidade: 1, esforco: 0, custo: 3 },
+    });
+
+    const score = scoreAssimetria(mae, [mae, foraDoDominio], [], cpm());
+    expect(score).not.toBeNull();
+    expect(score?.e).toBe(3); // fallback nos átomos PRÓPRIOS da mãe — não 0.
+    expect(Number.isFinite(score?.valor)).toBe(true);
+    expect(score?.valor).not.toBe(Infinity);
+    expect(Number.isNaN(score?.valor)).toBe(false);
+  });
+
+  it("PRONTO QUANDO: filha com objeto INTEIRO inválido (opcionalidade 7) não contribui esforço/custo, mesmo o cartão dela mostrando 'sem átomos declarados'", () => {
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 2, esforco: 2, custo: 2 } });
+    const objetoInvalido = task({
+      id: "f1",
+      parentId: "mae",
+      assimetria: { opcionalidade: 7, esforco: 5, custo: 5 },
+    });
+
+    // O cartão da filha mostra "sem átomos declarados" — `scoreAssimetria`
+    // dela devolve `null`.
+    expect(scoreAssimetria(objetoInvalido, [mae, objetoInvalido], [], cpm())).toBeNull();
+
+    // E a mãe NÃO herda o 5/5 individualmente válido dessa filha — cai nos
+    // átomos PRÓPRIOS dela (2/2), porque o objeto inteiro da filha é inválido.
+    const score = scoreAssimetria(mae, [mae, objetoInvalido], [], cpm());
+    expect(score?.e).toBe(2);
+    expect(score?.c).toBe(2);
+    expect(score?.porque).not.toMatch(/^herdado/);
   });
 });
 

@@ -386,3 +386,141 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
 });
+
+/**
+ * [BAIXO #6, rodada 3 do crítico 13/09] os 10 testes de sucesso acima só
+ * cobrem `LIFEBOARD_DATA_MODE=live` — o `switch` do despachante fixture em
+ * `mutar()` (`src/app/tarefa/actions.ts`) nunca rodava em nenhum teste.
+ * Mesmas 10 operações, mesmas entradas VÁLIDAS, mas com o modo default
+ * (qualquer valor ≠ "live" cai em fixture — `src/config/env.ts`): cada teste
+ * afirma qual função do `tasks.fixture-store` foi chamada, com que
+ * argumentos — nunca `mutateLifeboard`.
+ */
+describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args exatos)", () => {
+  const modoOriginal = process.env.LIFEBOARD_DATA_MODE;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.LIFEBOARD_DATA_MODE;
+  });
+
+  afterEach(() => {
+    if (modoOriginal === undefined) delete process.env.LIFEBOARD_DATA_MODE;
+    else process.env.LIFEBOARD_DATA_MODE = modoOriginal;
+  });
+
+  function nenhumaChamadaLiveFoiFeita(): void {
+    expect(mutateLifeboard).not.toHaveBeenCalled();
+  }
+
+  it("notaAddAction", async () => {
+    const r = await notaAddAction(
+      {},
+      form({ task_id: "task-build", texto: "uma nota válida", autor: "Lucas" }),
+    );
+    expect(r).toEqual({ ok: true, id: "note-x" });
+    expect(fixtureStore.notaAddFixture).toHaveBeenCalledWith(
+      "task-build",
+      "uma nota válida",
+      "Lucas",
+    );
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("notaDelAction", async () => {
+    const r = await notaDelAction({}, form({ id: "note-1", task_id: "task-build" }));
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.notaDelFixture).toHaveBeenCalledWith("note-1");
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("subtarefaAddAction", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "nova subtarefa", estimativa_dias: "2" }),
+    );
+    expect(r).toEqual({ ok: true, id: "task-x" });
+    expect(fixtureStore.subtarefaAddFixture).toHaveBeenCalledWith(
+      "task-build",
+      "nova subtarefa",
+      2,
+    );
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("parentSetAction", async () => {
+    const r = await parentSetAction({}, form({ task_id: "task-docs", parent_id: "task-build" }));
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.parentSetFixture).toHaveBeenCalledWith("task-docs", "task-build");
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-docs");
+  });
+
+  it("goalSetAction", async () => {
+    const r = await goalSetAction({}, form({ task_id: "task-deploy", is_goal: "true" }));
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.goalSetFixture).toHaveBeenCalledWith("task-deploy", true);
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-deploy");
+  });
+
+  it("atomosSetAction", async () => {
+    const r = await atomosSetAction(
+      {},
+      form({ task_id: "task-build", opcionalidade: "2", esforco: "3", custo: "1" }),
+    );
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.atomosSetFixture).toHaveBeenCalledWith("task-build", {
+      opcionalidade: 2,
+      esforco: 3,
+      custo: 1,
+    });
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("estimativaSetAction", async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "3.5" }));
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.estimativaSetFixture).toHaveBeenCalledWith("task-build", 3.5);
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("statusSetAction", async () => {
+    const r = await statusSetAction({}, form({ task_id: "task-build", status: "done" }));
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.statusSetFixture).toHaveBeenCalledWith("task-build", "done");
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("arestaAddAction", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-deploy", tipo: "sinergia", peso: "0.5" }),
+    );
+    expect(r).toEqual({ ok: true, id: "edge-x" });
+    expect(fixtureStore.arestaAddFixture).toHaveBeenCalledWith(
+      "task-build",
+      "task-deploy",
+      "sinergia",
+      0.5,
+      null,
+    );
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-deploy");
+  });
+
+  it("arestaDelAction", async () => {
+    const r = await arestaDelAction({}, form({ id: "edge-1", task_id: "task-build" }));
+    expect(r).toEqual({ ok: true });
+    expect(fixtureStore.arestaDelFixture).toHaveBeenCalledWith("edge-1");
+    nenhumaChamadaLiveFoiFeita();
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+});

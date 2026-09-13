@@ -35,6 +35,18 @@ export interface AtomosFormProps {
   heranca: HerancaResultado;
 }
 
+/**
+ * [BAIXO #7, rodada 3] plural de máquina ("filha(s) aberta(s)", "subtarefa(s)
+ * sem átomos") — singular/plural condicional em português, para 1 vs. N.
+ */
+function filhasAbertasTexto(n: number): string {
+  return n === 1 ? "1 filha aberta" : `${n} filhas abertas`;
+}
+
+function filhasSemAtomosTexto(n: number): string {
+  return n === 1 ? "1 subtarefa sem átomos" : `${n} subtarefas sem átomos`;
+}
+
 export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFormProps): JSX.Element {
   const [opcionalidade, setOpcionalidade] = useState(assimetriaAtual?.opcionalidade ?? 2);
   const [esforco, setEsforco] = useState(assimetriaAtual?.esforco ?? 1);
@@ -132,7 +144,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
         )}
         {heranca.herdado ? (
           <p className="mt-2 border-t border-navy-800 pt-2 text-xs text-bone-400">
-            Esforço/custo herdados: soma das {heranca.filhasAbertas} filha(s) aberta(s) — esforço{" "}
+            Esforço/custo herdados: soma das {filhasAbertasTexto(heranca.filhasAbertas)} — esforço{" "}
             <span className="font-mono text-bone-200">{heranca.esforco}</span>, custo{" "}
             <span className="font-mono text-bone-200">{heranca.custo}</span>.
           </p>
@@ -143,7 +155,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
           // Agora usa os átomos da própria tarefa e avisa, em vez de fingir
           // "esforço 0, custo 0".
           <p className="mt-2 border-t border-navy-800 pt-2 text-xs text-bone-400">
-            {heranca.filhasSemAtomos} subtarefa(s) sem átomos — usando os átomos da própria
+            {filhasSemAtomosTexto(heranca.filhasSemAtomos)} — usando os átomos da própria
             tarefa.
           </p>
         ) : null}

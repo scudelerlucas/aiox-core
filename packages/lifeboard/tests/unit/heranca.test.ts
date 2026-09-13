@@ -118,6 +118,40 @@ describe("herancaEfetiva", () => {
     expect(rFilho).toEqual({ esforco: 2, custo: 3, herdado: true, filhasAbertas: 1, filhasSemAtomos: 0 });
   });
 
+  it("PRONTO QUANDO [BAIXO #3, rodada 3]: filha com esforço FORA do domínio (0, só {1,2,3,5} vale) conta como SEM átomos — nunca soma o valor cru", () => {
+    // Antes desta correção, `calcularDoMemo` lia `task.assimetria?.esforco`
+    // sem checar o domínio (`atomosDeclaradosValidos`) — uma filha com
+    // `esforco: 0` (fora do domínio) contribuía `0/3` de verdade; a mãe
+    // acabava com esforço efetivo 0 → `assimetria.ts` dividia por zero
+    // (`score.valor = Infinity`).
+    const mae = tarefa("mae", { assimetria: { opcionalidade: 2, esforco: 3, custo: 3 } });
+    const foraDoDominio = tarefa("f1", {
+      parentId: "mae",
+      assimetria: { opcionalidade: 1, esforco: 0, custo: 3 },
+    });
+    const r = herancaEfetiva(mae, [mae, foraDoDominio]);
+    // A filha inválida conta como SEM átomos — a mãe cai no fallback PRÓPRIO,
+    // nunca herda o `esforco: 0` cru.
+    expect(r).toEqual({ esforco: 3, custo: 3, herdado: false, filhasAbertas: 1, filhasSemAtomos: 1 });
+    expect(Number.isFinite(r.esforco)).toBe(true);
+    expect(Number.isFinite(r.custo)).toBe(true);
+  });
+
+  it("PRONTO QUANDO [BAIXO #3, rodada 3]: filha com OBJETO inteiro inválido (opcionalidade 7) não contribui esforço/custo, mesmo com esforço/custo individualmente válidos", () => {
+    // `atomosDeclaradosValidos` é tudo-ou-nada: `opcionalidade: 7` (fora de
+    // 1..3) invalida o objeto INTEIRO — o cartão da filha mostra "sem átomos
+    // declarados" (`scoreAssimetriaNucleo` devolve `null`). Antes desta
+    // correção, a herança ignorava essa invalidação e ainda somava
+    // `esforco`/`custo` (5/5, individualmente dentro de {1,2,3,5}) da filha.
+    const mae = tarefa("mae", { assimetria: { opcionalidade: 2, esforco: 2, custo: 2 } });
+    const objetoInvalido = tarefa("f1", {
+      parentId: "mae",
+      assimetria: { opcionalidade: 7, esforco: 5, custo: 5 },
+    });
+    const r = herancaEfetiva(mae, [mae, objetoInvalido]);
+    expect(r).toEqual({ esforco: 2, custo: 2, herdado: false, filhasAbertas: 1, filhasSemAtomos: 1 });
+  });
+
   it("3 níveis com 2 ramos: soma recursiva de cada ramo aberto", () => {
     const mae = tarefa("mae");
     const filhoA = tarefa("filhoA", { parentId: "mae" }); // herda do neto
@@ -190,7 +224,64 @@ describe("herancaEmLote (achado MÉDIO #4, rodada 2 — memoização O(N))", () 
     expect(lote.get("A")).toEqual(herancaEfetiva(a, todas));
   });
 
-  it("PRONTO QUANDO: cadeia de parentId com 3000 nós resolve em bem menos de 100 ms (medido antes: 1029 ms)", () => {
+  it("PRONTO QUANDO [BAIXO #2, rodada 3]: ciclo com átomos declarados DIFERENTES em cada nó — TODOS os nós batem entre lote e avulso, em qualquer ordem de `tasks`", () => {
+    // Achado do crítico: sem âncora determinística, o nó B do MESMO ciclo
+    // dava um valor em `herancaEmLote` ({3,3,herdado:false}) e outro em
+    // `herancaEfetiva` ({5,5,herdado:true}) — o "nó que quebra o ciclo"
+    // dependia de quem perguntou (`herancaEfetiva(b, …)` sempre entra por B)
+    // ou da ordem de `tasks` (`herancaEmLote` entra pelo 1º da array que a
+    // descida alcança). Aqui os 3 nós declaram átomos DIFERENTES — se a
+    // âncora variasse, os números variariam junto — e o teste confere os 3,
+    // não só A, em 3 ordens diferentes do mesmo array.
+    const a = tarefa("A", { parentId: "B", assimetria: { opcionalidade: 1, esforco: 1, custo: 1 } });
+    const b = tarefa("B", { parentId: "C", assimetria: { opcionalidade: 1, esforco: 3, custo: 3 } });
+    const c = tarefa("C", { parentId: "A", assimetria: { opcionalidade: 1, esforco: 5, custo: 5 } });
+
+    const ordens: Task[][] = [
+      [a, b, c],
+      [b, a, c],
+      [c, b, a],
+    ];
+
+    let referencia: Map<string, ReturnType<typeof herancaEfetiva>> | null = null;
+    for (const todas of ordens) {
+      const lote = herancaEmLote(todas);
+
+      // 1) dentro da MESMA ordem, lote bate com avulso para os 3 nós — não
+      // só para o que por acaso é o primeiro do array.
+      for (const t of todas) {
+        expect(lote.get(t.id)).toEqual(herancaEfetiva(t, todas));
+      }
+      // 2) e entre ORDENS diferentes do array — a âncora não depende da
+      // posição de ninguém em `tasks`.
+      if (referencia) {
+        for (const id of ["A", "B", "C"]) expect(lote.get(id)).toEqual(referencia.get(id));
+      } else {
+        referencia = lote;
+      }
+    }
+
+    // Prova adicional, sem depender de qual nó "ganhou": nenhum resultado é
+    // NaN/Infinity, e todo mundo com filha aberta é consistente com a soma
+    // do que a herança do filho devolveu (a soma bate, não só a forma).
+    const finalLote = herancaEmLote([a, b, c]);
+    for (const id of ["A", "B", "C"]) {
+      const r = finalLote.get(id);
+      expect(r).toBeDefined();
+      expect(Number.isFinite(r?.esforco)).toBe(true);
+      expect(Number.isFinite(r?.custo)).toBe(true);
+    }
+  });
+
+  it("PRONTO QUANDO [BAIXO #4, rodada 3]: cadeia de parentId com 3000 nós resolve correta e rápido (medido antes: 1029 ms; sem gate de relógio no gate obrigatório)", () => {
+    // [BAIXO #4] a asserção de tempo era um `<100ms` de corrida ÚNICA dentro
+    // do gate obrigatório (`vitest run`) — uma máquina ocupada falha o gate
+    // por lentidão da CI, não por regressão de algoritmo. Agora: a asserção
+    // de CORREÇÃO fica sem relógio nenhum (raiz herda 1/1; sem estouro de
+    // pilha — o próprio teste rodar até o fim já prova isso), e o tempo vira
+    // "melhor de 3 corridas" com folga larga (mesmo padrão de
+    // `assimetria.test.ts`), só para flagrar uma regressão GROSSEIRA de
+    // O(N²), nunca para travar o gate por ruído de máquina.
     const n = 3000;
     const tasks: Task[] = [];
     for (let i = 0; i < n; i += 1) {
@@ -202,14 +293,20 @@ describe("herancaEmLote (achado MÉDIO #4, rodada 2 — memoização O(N))", () 
       tasks.push(tarefa(id, { parentId, assimetria }));
     }
 
-    const inicio = performance.now();
     const mapa = filhosPorPai(tasks);
-    const lote = herancaEmLote(tasks, mapa);
-    const duracaoMs = performance.now() - inicio;
+    let melhorMs = Number.POSITIVE_INFINITY;
+    let lote = herancaEmLote(tasks, mapa);
+    for (let corrida = 0; corrida < 3; corrida += 1) {
+      const inicio = performance.now();
+      lote = herancaEmLote(tasks, mapa);
+      melhorMs = Math.min(melhorMs, performance.now() - inicio);
+    }
 
-    expect(duracaoMs).toBeLessThan(100);
+    expect(melhorMs).toBeLessThan(500);
     // A raiz herda o átomo da folha através de toda a cadeia — prova que o
-    // resultado continua correto, não só rápido.
+    // resultado continua correto, não só rápido; e o teste ter terminado
+    // (sem `RangeError: Maximum call stack size exceeded`) prova que não há
+    // mais estouro de pilha na cadeia funda.
     expect(lote.get("t0")).toEqual({
       esforco: 1,
       custo: 1,
