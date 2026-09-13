@@ -24,6 +24,13 @@ import { useRef, type KeyboardEvent } from "react";
  * Espaço no botão focado (comportamento NATIVO do `<button>`, que já
  * dispara `onClick`; por isso o teclado não precisa de um caso especial
  * para essas duas teclas).
+ *
+ * v4 (achado MÉDIO #2, rodada 4 do crítico): `valorAtual` aceita `null` — o
+ * estado LEGÍTIMO de "nada escolhido ainda" (`AtomosForm` sem átomos
+ * declarados, achado MÉDIO #2), não só um bug defensivo. Com `null`, todo
+ * botão nasce `aria-checked="false"` e o primeiro vira a parada do Tab (o
+ * mesmo fallback que já existia para o caso "não deveria acontecer" — antes
+ * dele virar um caso real, com nome).
  */
 export interface OpcaoSegmentada<T extends string | number> {
   valor: T;
@@ -65,7 +72,8 @@ export function indiceDeFocoParaTecla(
 export interface ControleSegmentadoProps<T extends string | number> {
   rotuloGrupo: string;
   opcoes: readonly OpcaoSegmentada<T>[];
-  valorAtual: T;
+  /** `null` (achado MÉDIO #2, rodada 4): nenhuma opção escolhida ainda. */
+  valorAtual: T | null;
   aoMudar: (valor: T) => void;
   desabilitado?: boolean;
   className?: string;
@@ -80,7 +88,7 @@ export function ControleSegmentado<T extends string | number>({
   className,
 }: ControleSegmentadoProps<T>): JSX.Element {
   const botoesRef = useRef<Map<number, HTMLButtonElement>>(new Map());
-  const indiceAtual = opcoes.findIndex((op) => op.valor === valorAtual);
+  const indiceAtual = valorAtual === null ? -1 : opcoes.findIndex((op) => op.valor === valorAtual);
 
   /**
    * Só move o FOCO do navegador para o botão alvo — nunca chama `aoMudar`.
@@ -111,10 +119,13 @@ export function ControleSegmentado<T extends string | number>({
       className={`inline-flex flex-wrap gap-1.5 ${className ?? ""}`}
     >
       {opcoes.map((op, indice) => {
-        const selecionado = op.valor === valorAtual;
+        const selecionado = valorAtual !== null && op.valor === valorAtual;
         // Roving tabindex: só a opção selecionada entra no fluxo de Tab da
-        // página — nenhuma outra (achado #8). Sem seleção nenhuma (não
-        // deveria acontecer, mas defensivo), o primeiro item vira o parado.
+        // página — nenhuma outra (achado #8). Sem seleção nenhuma — caso
+        // REAL desde o achado MÉDIO #2 (rodada 4): `AtomosForm` sem átomos
+        // declarados nasce com `valorAtual=null` nos 3 grupos — o primeiro
+        // item vira a parada do Tab (mesmo padrão de um radiogroup nativo
+        // sem nenhum rádio marcado).
         const ehParadaDoTab = selecionado || (indiceAtual === -1 && indice === 0);
         return (
           <button

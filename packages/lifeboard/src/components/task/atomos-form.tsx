@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 import type { HerancaResultado, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada } from "@/types/canonical";
@@ -38,9 +39,16 @@ export interface AtomosFormProps {
 /**
  * [BAIXO #7, rodada 3] plural de máquina ("filha(s) aberta(s)", "subtarefa(s)
  * sem átomos") — singular/plural condicional em português, para 1 vs. N.
+ *
+ * [BAIXO #4, rodada 4] a FRASE inteira, não só o substantivo: o chamador
+ * (`AtomosForm`) escrevia `"soma das " + filhasAbertasTexto(n)`, com "das"
+ * FIXO — para `n=1` isso lia "soma das 1 filha aberta" (concordância errada;
+ * seria "soma DA 1 filha aberta"). A função agora devolve a frase JÁ com a
+ * preposição/artigo concordando, para o chamador nunca hardcodar a metade
+ * plural de novo.
  */
-function filhasAbertasTexto(n: number): string {
-  return n === 1 ? "1 filha aberta" : `${n} filhas abertas`;
+function fraseFilhasAbertas(n: number): string {
+  return n === 1 ? "da 1 filha aberta" : `das ${n} filhas abertas`;
 }
 
 function filhasSemAtomosTexto(n: number): string {
@@ -48,12 +56,36 @@ function filhasSemAtomosTexto(n: number): string {
 }
 
 export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFormProps): JSX.Element {
-  const [opcionalidade, setOpcionalidade] = useState(assimetriaAtual?.opcionalidade ?? 2);
-  const [esforco, setEsforco] = useState(assimetriaAtual?.esforco ?? 1);
-  const [custo, setCusto] = useState(assimetriaAtual?.custo ?? 1);
-  const { estado, pendente, disparar } = useAcaoTarefa(atomosSetAction);
+  // [MÉDIO #2, rodada 4] `null` = nada escolhido ainda — antes o `?? 2`/`?? 1`
+  // pré-marcava o denominador MÍNIMO (2/1/1, prioridade quase máxima) para
+  // toda tarefa sem átomos declarados, e "Salvar átomos" gravava isso com um
+  // clique cego. Agora só reflete um valor JÁ salvo no servidor; sem ele, os
+  // 3 grupos nascem sem seleção (`ControleSegmentado` aceita `T | null`).
+  const [opcionalidade, setOpcionalidade] = useState<number | null>(assimetriaAtual?.opcionalidade ?? null);
+  const [esforco, setEsforco] = useState<number | null>(assimetriaAtual?.esforco ?? null);
+  const [custo, setCusto] = useState<number | null>(assimetriaAtual?.custo ?? null);
+  const todosEscolhidos = opcionalidade !== null && esforco !== null && custo !== null;
+  // Distingue, no callback de sucesso ÚNICO do hook, se o disparo em curso
+  // era "salvar" ou "limpar" — os dois usam a mesma `disparar()`.
+  const ultimaAcaoRef = useRef<"salvar" | "limpar" | null>(null);
+  const { mensagem, mostrar } = useMensagemSucesso();
+  const { estado, pendente, disparar } = useAcaoTarefa(atomosSetAction, () => {
+    if (ultimaAcaoRef.current === "limpar") {
+      // [MÉDIO #2] devolve os 3 grupos ao estado SEM seleção — sem isto, o
+      // `useState` local (só lido no mount) continuava mostrando os últimos
+      // valores escolhidos mesmo depois do servidor apagar `assimetria`.
+      setOpcionalidade(null);
+      setEsforco(null);
+      setCusto(null);
+      mostrar("Átomos limpos.");
+    } else {
+      mostrar("Átomos salvos.");
+    }
+  });
 
   function salvar(): void {
+    if (!todosEscolhidos) return; // defensivo — o botão já nasce `disabled` neste caso.
+    ultimaAcaoRef.current = "salvar";
     const form = new FormData();
     form.set("task_id", taskId);
     form.set("opcionalidade", String(opcionalidade));
@@ -63,6 +95,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
   }
 
   function limpar(): void {
+    ultimaAcaoRef.current = "limpar";
     const form = new FormData();
     form.set("task_id", taskId);
     form.set("limpar", "true");
@@ -110,7 +143,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
         <button
           type="button"
           onClick={salvar}
-          disabled={pendente}
+          disabled={pendente || !todosEscolhidos}
           className="inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 disabled:opacity-50"
         >
           Salvar átomos
@@ -126,7 +159,14 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
           </button>
         ) : null}
       </div>
+      {!todosEscolhidos ? (
+        // [MÉDIO #2, rodada 4] o botão nasce `disabled` — este texto diz o
+        // PORQUÊ, em vez de deixar o operador adivinhar por que "Salvar
+        // átomos" não responde ao clique.
+        <p className="text-xs text-bone-400">Escolha os três para calcular o score.</p>
+      ) : null}
       <CampoErro mensagem={estado.erro} />
+      <MensagemSucesso mensagem={mensagem} />
 
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">
         {score ? (
@@ -144,7 +184,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
         )}
         {heranca.herdado ? (
           <p className="mt-2 border-t border-navy-800 pt-2 text-xs text-bone-400">
-            Esforço/custo herdados: soma das {filhasAbertasTexto(heranca.filhasAbertas)} — esforço{" "}
+            Esforço/custo herdados: soma {fraseFilhasAbertas(heranca.filhasAbertas)} — esforço{" "}
             <span className="font-mono text-bone-200">{heranca.esforco}</span>, custo{" "}
             <span className="font-mono text-bone-200">{heranca.custo}</span>.
           </p>

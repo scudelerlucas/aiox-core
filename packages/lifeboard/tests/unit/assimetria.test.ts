@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   alavanca,
   alcance,
@@ -535,5 +535,53 @@ describe("scoreAssimetria — rodada 2 do crítico", () => {
     const r = scoreAssimetria(t, [t, o], [edge({ origem: "o", destino: "t", tipo: "sinergia", peso })], cpm());
     expect(r?.c).toBe(Math.round(custoEfetivo * 100) / 100);
     expect(r?.porque).toContain(frase);
+  });
+});
+
+describe("scoreAssimetria — guarda defensiva contra e/c inválido (achado MÉDIO #1, rodada 4)", () => {
+  /**
+   * A correção de `heranca.ts` (mesmo achado) já garante que `efetiva.esforco`
+   * nunca chega aqui 0/não-finito para uma tarefa com átomos válidos — mas
+   * `assimetria.ts` não pode depender de `heranca.ts` nunca falhar de novo
+   * (o comentário antigo "nada mais pode fazer `e` chegar a 0 aqui" já
+   * tinha essa mesma garantia e ainda assim se provou falso). Este teste
+   * isola a guarda EM SI: mocka `heranca.ts` para devolver um `{esforco:0,
+   * custo:0}` hipotético (simulando um defeito FUTURO ali) e prova que o
+   * score, mesmo assim, nunca vaza `Infinity`/`NaN` — vira `null`.
+   */
+  it("PRONTO QUANDO: `herancaEfetiva`/`herancaEmLote` devolvendo esforço 0 (defeito hipotético) → score `null`, nunca `Infinity`", async () => {
+    vi.resetModules();
+    vi.doMock("@/core/prioritize/heranca", () => ({
+      filhosPorPai: () => new Map(),
+      herancaEfetiva: () => ({
+        esforco: 0,
+        custo: 0,
+        herdado: false,
+        filhasAbertas: 0,
+        filhasSemAtomos: 0,
+      }),
+      herancaEmLote: (tasksDoLote: Task[]) =>
+        new Map(
+          tasksDoLote.map((t) => [
+            t.id,
+            { esforco: 0, custo: 0, herdado: false, filhasAbertas: 0, filhasSemAtomos: 0 },
+          ]),
+        ),
+    }));
+
+    try {
+      const { scoreAssimetria: scoreAssimetriaComHerancaQuebrada, scoreAssimetriaLote: loteComHerancaQuebrada } =
+        await import("@/core/prioritize/assimetria");
+      const t = task({ id: "t", assimetria: { opcionalidade: 2, esforco: 3, custo: 3 } });
+
+      expect(scoreAssimetriaComHerancaQuebrada(t, [t], [], cpm())).toBeNull();
+      expect(loteComHerancaQuebrada([t], [], cpm()).get("t")).toBeNull();
+    } finally {
+      // Nunca deixar o mock vazar para os outros arquivos de teste do mesmo
+      // processo vitest (`vi.doMock` não é hoisted, mas o cache de módulos é
+      // compartilhado no processo).
+      vi.doUnmock("@/core/prioritize/heranca");
+      vi.resetModules();
+    }
   });
 });

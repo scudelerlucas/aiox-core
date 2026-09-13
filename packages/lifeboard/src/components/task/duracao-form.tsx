@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 
 import { estimativaSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 
 export interface DuracaoFormProps {
@@ -14,7 +15,11 @@ export interface DuracaoFormProps {
 /** Duração p80 em dias — sem ela a tarefa fica fora do caminho crítico, com aviso. */
 export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.Element {
   const [valor, setValor] = useState<string>(estimativaDias != null ? String(estimativaDias) : "");
-  const { estado, pendente, disparar } = useAcaoTarefa(estimativaSetAction);
+  // [BAIXO #5, rodada 4] "Salvar duração" não dava nenhum sinal de sucesso —
+  // 0 `role=alert`/`aria-live` fora do caminho de erro. `mostrar` dispara o
+  // texto que `MensagemSucesso` deixa na tela por ~4s (role="status").
+  const { mensagem, mostrar } = useMensagemSucesso();
+  const { estado, pendente, disparar } = useAcaoTarefa(estimativaSetAction, () => mostrar("Duração salva."));
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
@@ -51,6 +56,7 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
         Salvar duração
       </button>
       <CampoErro mensagem={estado.erro} />
+      <MensagemSucesso mensagem={mensagem} />
     </form>
   );
 }

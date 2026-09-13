@@ -141,6 +141,12 @@ const PARES = [
   // problema original. `navy-950` pontilhado quando `row.critico` mede
   // 7,90:1; par decorativo (só borda/marcador, nunca texto corrido) — régua 3:1.
   ["navy-950", "aresta-critico", 3, "marcador pontilhado de atraso sobre a barra crítica do Gantt (P5e #8)"],
+  // ── Página da tarefa, rodada 4 do crítico hostil (13/09/2026) ──
+  // Achado BAIXO #5: mensagem de sucesso ("Duração salva." e o mesmo padrão
+  // em mãe/status/meta/átomos/relação) sobre o `<section class="bg-navy-900">`
+  // que envolve esses formulários — `state-done` já media 4,5:1+ sobre
+  // navy-850 (linha acima); aqui o par que faltava.
+  ["state-done", "navy-900", 4.5, "mensagem de sucesso dos formulários da tarefa (mãe/status/meta/duração/relação, BAIXO #5)"],
 ];
 
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */

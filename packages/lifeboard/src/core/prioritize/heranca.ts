@@ -43,6 +43,29 @@ import "server-only";
  * `HerancaResultado` mudou de casa: agora é o contrato em `tipos-v3.ts`
  * (achado BAIXO #19) — este módulo só re-exporta para quem já importava daqui.
  *
+ * v5 (rodada 4 do crítico, 13/09/2026 — achado MÉDIO #1): `herancaEmLote`
+ * podia deixar de escrever a entrada de `memo` de um nó inteiro — não só
+ * divergir dela (isso já fora corrigido na v4, achado BAIXO #2 abaixo). Caso
+ * mínimo: ciclo de `parentId` `a→b→c→a`, os três com átomos válidos, `b`
+ * "done". `resolverSubarvore` filtrava `abertas` (filhos NÃO `done`) ANTES de
+ * decidir quem sobe na pilha — um filho `done` nunca era empilhado, então
+ * nunca ganhava entrada em `memo`, mesmo sendo ele próprio um nó de ciclo que
+ * `herancaEfetiva(b, …)` (avulso) ou `herancaEmLote` (o `for` externo chega
+ * em `b`, mas o redirecionamento de entrada para a âncora do ciclo — v4 —
+ * devolve na hora porque a âncora já está em `memo`, sem nunca escrever a
+ * entrada do PRÓPRIO `b`) precisavam. Resultado medido: `herancaEmLote(...).
+ * keys()` sem `b`; `herancaEfetiva(b, tasks)` caindo no fallback
+ * `SEM_CONTRIBUICAO` (`{esforco:0,custo:0}`) mesmo `b` tendo átomos próprios
+ * válidos; `assimetria.ts` dividindo por esse 0 → `score.valor = Infinity`.
+ * Corrigido separando as duas perguntas que estavam fundidas num só filtro:
+ * "quem sobe na pilha para GANHAR uma entrada em `memo`" (agora: TODOS os
+ * filhos diretos, abertos e `done` — ver `empilhar`, abaixo) e "quem CONTA
+ * para a soma do pai" (só os não-`done` — filtrado depois, na hora de montar
+ * `abertas` para `calcularDoMemo`, não antes de empilhar). Um filho `done`
+ * passa a ter, sempre, sua própria entrada em `memo` — os próprios átomos
+ * dele (ou a soma de baixo, se ele tiver filhos abertos) — só não soma para
+ * o efetivo do pai, exatamente como antes.
+ *
  * v4 (rodada 3 do crítico, 13/09/2026 — achado BAIXO #2): `herancaEmLote`
  * podia divergir de `herancaEfetiva` sob um ciclo de `parentId` com átomos
  * declarados — A→B→C→A, cada um com átomo próprio diferente, dava um valor
@@ -162,11 +185,14 @@ function identificarCiclos(tasks: readonly Task[], porId: ReadonlyMap<string, Ta
   return cicloDe;
 }
 
-/** Um frame da pilha explícita: a tarefa, suas filhas ABERTAS já filtradas, e
- * até onde a varredura das filhas já chegou. */
+/**
+ * Um frame da pilha explícita: a tarefa, TODOS os filhos diretos dela — abertos
+ * E `done` (achado MÉDIO #1, rodada 4: ver nota grande abaixo de `empilhar`) —
+ * e até onde a varredura já chegou.
+ */
 interface Frame {
   task: Task;
-  abertas: Task[];
+  filhos: Task[];
   indice: number;
 }
 
@@ -176,6 +202,11 @@ interface Frame {
  * na MESMA descida, então nunca vai terminar antes do pai) conta 0, mesma
  * defesa das versões anteriores. Sem filha aberta, OU soma zero mesmo
  * havendo filha aberta, cai nos átomos PRÓPRIOS da tarefa.
+ *
+ * `abertas` (achado MÉDIO #1, rodada 4): já vem filtrada por quem chama
+ * (`resolverSubarvore`) SÓ na hora de calcular — a decisão de EMPILHAR (e
+ * portanto memoizar) um filho não passa mais por este filtro; um filho
+ * `done` ainda ganha entrada própria em `memo`, só não entra nesta lista.
  */
 function calcularDoMemo(task: Task, abertas: Task[], memo: Map<string, HerancaResultado>): HerancaResultado {
   if (abertas.length === 0) {
@@ -247,10 +278,33 @@ function resolverSubarvore(
   const emPilha = new Set<string>();
   const pilha: Frame[] = [];
 
+  /**
+   * [MÉDIO #1, rodada 4] EMPILHA TODOS os filhos diretos — abertos E `done`
+   * — não só os abertos. Antes desta correção, um filho `done` era filtrado
+   * AQUI, antes de subir na pilha: se esse filho `done` fosse, ele mesmo,
+   * um nó de um ciclo de `parentId` que a raiz não alcançava por nenhum
+   * outro caminho, ele NUNCA ganhava entrada em `memo` — nem em
+   * `herancaEfetiva(filhoDone, …)` avulso (a descida inteira parte da
+   * mesma âncora e nunca o visita) nem em `herancaEmLote` (o `for` externo
+   * chega a ele, mas `resolverSubarvore` redireciona para a âncora do
+   * ciclo, que `memo` já tem, e devolve na hora — `memo.has(idDeEntrada)`
+   * — sem nunca escrever a entrada do próprio filho). Reproduzido com o
+   * caso mínimo do crítico: ciclo `a→b→c→a` (via `parentId`), os três com
+   * átomos válidos, `b` "done" — `herancaEmLote(...).keys()` saía só com
+   * `a` (e `c`, alcançado por acaso pela mesma descida), nunca `b`; e
+   * `herancaEfetiva(b, tasks)` caía no fallback `SEM_CONTRIBUICAO` (`memo`
+   * vazio, `b` nunca visitado), que `assimetria.ts` dividia por 0 →
+   * `Infinity`. A régua de negócio (§ achado ALTO #1, rodada 2) — "só conta
+   * para a SOMA do pai a filha que está ABERTA" — não muda: o que muda é
+   * QUANDO ela se aplica. Ela filtra a lista usada no CÁLCULO do pai (ver
+   * abaixo, na hora de montar `abertas` para `calcularDoMemo`), nunca a
+   * lista usada para DECIDIR quem entra na pilha — um filho `done` ainda
+   * PRECISA da própria entrada em `memo` (a dele, com os PRÓPRIOS átomos
+   * ou a soma de baixo dela), só não soma para o efetivo do pai.
+   */
   function empilhar(t: Task): void {
     const filhos = filhosMapa.get(t.id) ?? [];
-    const abertas = filhos.filter((f) => f.status !== "done");
-    pilha.push({ task: t, abertas, indice: 0 });
+    pilha.push({ task: t, filhos, indice: 0 });
     emPilha.add(t.id);
   }
 
@@ -260,8 +314,8 @@ function resolverSubarvore(
     const frame = pilha[pilha.length - 1];
     if (!frame) break; // defensivo — noUncheckedIndexedAccess; nunca deveria faltar aqui.
 
-    if (frame.indice < frame.abertas.length) {
-      const filha = frame.abertas[frame.indice];
+    if (frame.indice < frame.filhos.length) {
+      const filha = frame.filhos[frame.indice];
       frame.indice += 1;
       if (!filha) continue;
       // NUNCA redirecionar aqui: o redirecionamento para a âncora só vale na
@@ -273,14 +327,16 @@ function resolverSubarvore(
       // ciclo (B e C nunca ganhariam entrada em `memo`).
       if (memo.has(filha.id)) continue; // já resolvida (reuso entre ramos/chamadas).
       if (emPilha.has(filha.id)) continue; // ciclo: é ancestral de quem já está na pilha.
-      empilhar(filha);
+      empilhar(filha); // ATÉ done: precisa da própria entrada em `memo` (achado MÉDIO #1, rodada 4).
       continue;
     }
 
-    // Todas as filhas abertas já foram resolvidas (ou são ciclo, e portanto
-    // nunca vão terminar antes — contam 0 via `calcularDoMemo`): calcula
-    // este nó e desempilha.
-    const resultado = calcularDoMemo(frame.task, frame.abertas, memo);
+    // Todos os filhos (abertos e done) já foram resolvidos (ou são ciclo, e
+    // portanto nunca vão terminar antes — contam 0 via `calcularDoMemo`):
+    // SÓ AGORA filtra quem conta para a SOMA deste nó (achado ALTO #1,
+    // rodada 2 — regra de negócio inalterada) e calcula/desempilha.
+    const abertas = frame.filhos.filter((f) => f.status !== "done");
+    const resultado = calcularDoMemo(frame.task, abertas, memo);
     memo.set(frame.task.id, resultado);
     emPilha.delete(frame.task.id);
     pilha.pop();

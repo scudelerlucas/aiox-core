@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 
 import { parentSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 
 export interface OpcaoTarefa {
@@ -31,10 +32,14 @@ export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.El
   // na mãe recusada até um reload manual.
   const confirmadoRef = useRef(parentIdAtual ?? "");
   const tentativaRef = useRef(confirmadoRef.current);
+  // [BAIXO #5, rodada 4] mesmo padrão de `DuracaoForm`: feedback de sucesso
+  // que hoje não existe aqui fora do caminho de erro.
+  const { mensagem, mostrar } = useMensagemSucesso();
   const { estado, pendente, disparar } = useAcaoTarefa(
     parentSetAction,
     () => {
       confirmadoRef.current = tentativaRef.current;
+      mostrar(tentativaRef.current === "" ? "Tarefa mãe removida." : "Tarefa mãe atualizada.");
     },
     () => {
       setValor(confirmadoRef.current);
@@ -68,6 +73,7 @@ export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.El
         ))}
       </select>
       <CampoErro mensagem={estado.erro} />
+      <MensagemSucesso mensagem={mensagem} />
     </div>
   );
 }

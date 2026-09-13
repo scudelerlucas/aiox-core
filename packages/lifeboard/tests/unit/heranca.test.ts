@@ -316,3 +316,176 @@ describe("herancaEmLote (achado MÉDIO #4, rodada 2 — memoização O(N))", () 
     });
   });
 });
+
+describe("herancaEfetiva/herancaEmLote — ciclo com membro `done` (achado MÉDIO #1, rodada 4)", () => {
+  /**
+   * Reprodução MÍNIMA do crítico: ciclo `a→b→c→a` de `parentId`, os três com
+   * `{opcionalidade:3, esforco:5, custo:5}` (válidos), **b `done`**. Antes
+   * desta correção: `herancaEmLote(...).keys()` saía sem `b` (o filtro de
+   * "abertas" tirava `b` da lista de filhos ANTES de decidir quem empilha, e
+   * o redirecionamento para a âncora do ciclo — achado BAIXO #2, rodada 3 —
+   * fazia o `for` externo devolver na hora para `b` sem nunca escrevê-lo);
+   * `herancaEfetiva(b, tasks)` caía no fallback `SEM_CONTRIBUICAO`
+   * (`{esforco:0,custo:0,herdado:false}`) mesmo `b` tendo átomos válidos —
+   * e `assimetria.ts` dividia por esse 0 → `Infinity`.
+   */
+  function grafoCicloComDone(): { a: Task; b: Task; c: Task; todas: Task[] } {
+    const atomos = { opcionalidade: 3 as const, esforco: 5 as const, custo: 5 as const };
+    const a = tarefa("a", { parentId: "b", assimetria: atomos });
+    const b = tarefa("b", { parentId: "c", assimetria: atomos, status: "done" });
+    const c = tarefa("c", { parentId: "a", assimetria: atomos });
+    return { a, b, c, todas: [a, b, c] };
+  }
+
+  it("PRONTO QUANDO: TODOS os 3 nós ganham entrada em `herancaEmLote` — `b` (done) incluso, nunca `Infinity`/`SEM_CONTRIBUICAO`", () => {
+    const { todas } = grafoCicloComDone();
+    const lote = herancaEmLote(todas);
+
+    // O bug era literalmente isto: `lote.size` saía 1 ou 2, nunca 3.
+    expect([...lote.keys()].sort()).toEqual(["a", "b", "c"]);
+
+    // `b`: o único filho aberto dela mesma (`a`, no anel) está em ciclo — não
+    // resolvido a tempo — então `b` cai nos PRÓPRIOS átomos (5/5), não 0/0.
+    expect(lote.get("b")).toEqual({
+      esforco: 5,
+      custo: 5,
+      herdado: false,
+      filhasAbertas: 1,
+      filhasSemAtomos: 1,
+    });
+    // `c`: seu único filho (`b`) está `done` — não conta para a soma — `c`
+    // também cai nos próprios átomos.
+    expect(lote.get("c")).toEqual({
+      esforco: 5,
+      custo: 5,
+      herdado: false,
+      filhasAbertas: 0,
+      filhasSemAtomos: 0,
+    });
+    // `a`: seu único filho (`c`) está ABERTO e já resolvido (5/5) — herda de
+    // verdade.
+    expect(lote.get("a")).toEqual({
+      esforco: 5,
+      custo: 5,
+      herdado: true,
+      filhasAbertas: 1,
+      filhasSemAtomos: 0,
+    });
+
+    for (const t of todas) {
+      expect(Number.isFinite(lote.get(t.id)?.esforco)).toBe(true);
+      expect(Number.isFinite(lote.get(t.id)?.custo)).toBe(true);
+    }
+  });
+
+  it("PRONTO QUANDO: `herancaEfetiva` avulso bate com `herancaEmLote`, para os 3 nós — inclusive consultando `b` (done) diretamente", () => {
+    const { a, b, c, todas } = grafoCicloComDone();
+    const lote = herancaEmLote(todas);
+
+    for (const t of [a, b, c]) {
+      expect(herancaEfetiva(t, todas)).toEqual(lote.get(t.id));
+    }
+    // A checagem específica do achado: consultar `b` avulso NUNCA mais
+    // devolve o fallback `{esforco:0,custo:0,herdado:false}` de um nó
+    // nunca-visitado — `b` tem átomos próprios válidos.
+    expect(herancaEfetiva(b, todas)).not.toEqual({
+      esforco: 0,
+      custo: 0,
+      herdado: false,
+      filhasAbertas: 0,
+      filhasSemAtomos: 0,
+    });
+  });
+
+  it("PRONTO QUANDO: bate em TODAS as 3 permutações de qual membro do ciclo é `done` (a, depois b, depois c)", () => {
+    const atomos = { opcionalidade: 3 as const, esforco: 5 as const, custo: 5 as const };
+    const idsDoAnel = ["a", "b", "c"] as const;
+
+    for (const doneId of idsDoAnel) {
+      const nos = idsDoAnel.map((id) => {
+        const proximo = idsDoAnel[(idsDoAnel.indexOf(id) + 1) % 3];
+        return tarefa(id, {
+          parentId: proximo,
+          assimetria: atomos,
+          status: id === doneId ? "done" : "open",
+        });
+      });
+      const lote = herancaEmLote(nos);
+      expect([...lote.keys()].sort()).toEqual(["a", "b", "c"]);
+      for (const t of nos) {
+        expect(herancaEfetiva(t, nos)).toEqual(lote.get(t.id));
+        expect(Number.isFinite(lote.get(t.id)?.esforco)).toBe(true);
+        expect(Number.isFinite(lote.get(t.id)?.custo)).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * Fuzz determinístico (semente FIXA — o mesmo teste sempre gera os MESMOS
+   * grafos, sem flakiness): ~50 grafos aleatórios de até 14 nós, com
+   * `parentId` aleatório (produz ciclos com frequência — nada impede um
+   * `parentId` de apontar "para frente" e fechar um anel), `status`
+   * aleatório (`done`/`open`), e átomos aleatórios (alguns válidos, alguns
+   * `null`, alguns fora do domínio). PRNG mulberry32 — sem dependência nova,
+   * determinístico por construção (mesma seed → mesma sequência sempre).
+   */
+  function mulberry32(seed: number): () => number {
+    let estado = seed;
+    return function (): number {
+      estado |= 0;
+      estado = (estado + 0x6d2b79f5) | 0;
+      let t = Math.imul(estado ^ (estado >>> 15), 1 | estado);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function grafoAleatorio(rand: () => number, n: number): Task[] {
+    const ids = Array.from({ length: n }, (_, i) => `n${i}`);
+    return ids.map((id) => {
+      // parentId aleatório entre TODOS os ids (inclusive os próprios — mas
+      // nunca a si mesmo) ou `null` — livre para formar ciclos.
+      const candidatos = ids.filter((outroId) => outroId !== id);
+      const temPai = rand() < 0.85 && candidatos.length > 0;
+      const parentId = temPai ? candidatos[Math.floor(rand() * candidatos.length)] ?? null : null;
+      const status = rand() < 0.3 ? "done" : "open";
+      const sorteioAtomo = rand();
+      let assimetria: Task["assimetria"] = null;
+      if (sorteioAtomo < 0.6) {
+        const faixas = [1, 2, 3, 5] as const;
+        assimetria = {
+          opcionalidade: (Math.floor(rand() * 3) + 1) as 1 | 2 | 3,
+          esforco: faixas[Math.floor(rand() * faixas.length)] ?? 1,
+          custo: faixas[Math.floor(rand() * faixas.length)] ?? 1,
+        };
+      } else if (sorteioAtomo < 0.75) {
+        // fora do domínio de propósito — conta como "sem átomos" na herança.
+        assimetria = { opcionalidade: 7, esforco: 0, custo: 0 };
+      }
+      return tarefa(id, { parentId, status, assimetria });
+    });
+  }
+
+  it("PRONTO QUANDO [fuzz, semente fixa]: ~50 grafos aleatórios (até 14 nós, com ciclos e `done`) — lote.keys == todos os ids, lote == avulso nó a nó, sempre finito", () => {
+    const rand = mulberry32(20260913); // semente fixa — data da rodada, só para ser memorável.
+    const RODADAS = 50;
+
+    for (let rodada = 0; rodada < RODADAS; rodada += 1) {
+      const n = 2 + Math.floor(rand() * 13); // 2..14 nós.
+      const tasks = grafoAleatorio(rand, n);
+      const lote = herancaEmLote(tasks);
+
+      expect([...lote.keys()].sort()).toEqual(tasks.map((t) => t.id).sort());
+
+      for (const t of tasks) {
+        const avulso = herancaEfetiva(t, tasks);
+        const doLote = lote.get(t.id);
+        expect(doLote).toEqual(avulso);
+        expect(Number.isFinite(doLote?.esforco)).toBe(true);
+        expect(Number.isFinite(doLote?.custo)).toBe(true);
+        expect(doLote?.esforco).not.toBeNaN();
+        expect(doLote?.custo).not.toBeNaN();
+      }
+    }
+  });
+});

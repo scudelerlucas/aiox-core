@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 
 import { goalSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 
 export interface MetaFormProps {
@@ -23,10 +24,13 @@ export function MetaForm({ taskId, isGoal }: MetaFormProps): JSX.Element {
   // botão para o último valor CONFIRMADO quando a action falha.
   const confirmadoRef = useRef(isGoal);
   const tentativaRef = useRef(confirmadoRef.current);
+  // [BAIXO #5, rodada 4] mesmo padrão de `DuracaoForm`/`MaeForm`/`StatusForm`.
+  const { mensagem, mostrar } = useMensagemSucesso();
   const { estado, pendente, disparar } = useAcaoTarefa(
     goalSetAction,
     () => {
       confirmadoRef.current = tentativaRef.current;
+      mostrar(tentativaRef.current ? "Marcada como meta." : "Meta removida.");
     },
     () => {
       setValor(confirmadoRef.current);
@@ -62,6 +66,7 @@ export function MetaForm({ taskId, isGoal }: MetaFormProps): JSX.Element {
         O painel mostra uma meta por vez — com mais de uma marcada, vale a de menor id.
       </p>
       <CampoErro mensagem={estado.erro} />
+      <MensagemSucesso mensagem={mensagem} />
     </div>
   );
 }

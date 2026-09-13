@@ -31,6 +31,7 @@ import {
   atomosSetAction,
   estimativaSetAction,
   goalSetAction,
+  mutar,
   notaAddAction,
   notaDelAction,
   parentSetAction,
@@ -522,5 +523,44 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
     expect(fixtureStore.arestaDelFixture).toHaveBeenCalledWith("edge-1");
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+});
+
+/**
+ * [BAIXO #6, rodada 4 do crítico 13/09] o ramo `default` do dispatcher
+ * fixture (`mutar()`) nunca tinha teste — nenhuma action pública chama
+ * `mutar` com um `op` fora da lista de `case`s, então o ramo só é alcançável
+ * chamando `mutar` diretamente (por isso o export "só para teste" em
+ * `actions.ts`). `op` já é tipado como `string` puro (não um union), então
+ * nenhum `as`/cast é necessário para "forçar" um valor inválido — passar
+ * qualquer string fora da lista já é válido em TypeScript normal.
+ */
+describe("tarefa/actions — mutar(): operação desconhecida (achado BAIXO #6, rodada 4)", () => {
+  const modoOriginal = process.env.LIFEBOARD_DATA_MODE;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.LIFEBOARD_DATA_MODE; // fixture — é onde o `switch` mora.
+  });
+
+  afterEach(() => {
+    if (modoOriginal === undefined) delete process.env.LIFEBOARD_DATA_MODE;
+    else process.env.LIFEBOARD_DATA_MODE = modoOriginal;
+  });
+
+  it("devolve a mensagem fixa e loga o valor recebido no console — nunca ecoa `op` na tela", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const r = await mutar("operacao-que-nao-existe", { foo: "bar" });
+
+    expect(r).toEqual({ erro: "Operação desconhecida." });
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy.mock.calls[0]?.[0]).toContain("operacao-que-nao-existe");
+    expect(mutateLifeboard).not.toHaveBeenCalled();
+    for (const fn of Object.values(fixtureStore)) {
+      expect(fn as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    }
+
+    consoleErrorSpy.mockRestore();
   });
 });

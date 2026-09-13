@@ -104,7 +104,15 @@ function textoOuNulo(form: FormData, campo: string): string | null {
 /** Dispatcher único: live chama a RPC secret-gated; fixture, o store em memória. */
 type ResultadoMutar = { ok: true; id?: string } | { erro: string };
 
-async function mutar(op: string, payload: Record<string, unknown>): Promise<ResultadoMutar> {
+/**
+ * Exportado só para teste (achado BAIXO #6, rodada 4): nenhuma action pública
+ * chama `mutar` com um `op` fora da lista abaixo — o ramo `default` do
+ * `switch` é morto em produção por construção, e só é alcançável chamando
+ * `mutar` diretamente com um valor inválido. Sem export, esse ramo nunca
+ * ganhava teste (o crítico apontou isso: "Operação desconhecida." sem
+ * cobertura).
+ */
+export async function mutar(op: string, payload: Record<string, unknown>): Promise<ResultadoMutar> {
   if (env.LIFEBOARD_DATA_MODE === "live") {
     return mutateLifeboard(op, payload);
   }

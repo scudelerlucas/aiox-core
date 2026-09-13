@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { statusSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 import type { TaskStatus } from "@/types/canonical";
 
@@ -14,6 +15,13 @@ const OPCOES: readonly OpcaoSegmentada<TaskStatus>[] = [
   { valor: "blocked", rotulo: "bloqueada" },
   { valor: "done", rotulo: "concluída" },
 ];
+
+const ROTULO_STATUS: Record<TaskStatus, string> = {
+  open: "aberta",
+  in_progress: "em progresso",
+  blocked: "bloqueada",
+  done: "concluída",
+};
 
 export interface StatusFormProps {
   taskId: string;
@@ -28,10 +36,13 @@ export function StatusForm({ taskId, statusAtual }: StatusFormProps): JSX.Elemen
   // falha de rede) — em vez de deixar "concluída" na tela sem estar no banco.
   const confirmadoRef = useRef(statusAtual);
   const tentativaRef = useRef(confirmadoRef.current);
+  // [BAIXO #5, rodada 4] mesmo padrão de `DuracaoForm`/`MaeForm`.
+  const { mensagem, mostrar } = useMensagemSucesso();
   const { estado, pendente, disparar } = useAcaoTarefa(
     statusSetAction,
     () => {
       confirmadoRef.current = tentativaRef.current;
+      mostrar(`Status atualizado para ${ROTULO_STATUS[tentativaRef.current]}.`);
     },
     () => {
       setValor(confirmadoRef.current);
@@ -57,6 +68,7 @@ export function StatusForm({ taskId, statusAtual }: StatusFormProps): JSX.Elemen
         desabilitado={pendente}
       />
       <CampoErro mensagem={estado.erro} />
+      <MensagemSucesso mensagem={mensagem} />
     </div>
   );
 }

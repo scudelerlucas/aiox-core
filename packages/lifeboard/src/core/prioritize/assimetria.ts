@@ -247,8 +247,17 @@ function scoreAssimetriaNucleo(
   // `herdado: true` quando a soma das filhas é > 0; caso contrário ela MESMA
   // cai nos átomos próprios da tarefa (nunca 0). Antes, `Math.max(1, e)`
   // escondia um 0/0 herdado atrás de um 1/1 — e inflava o score (A pulava de
-  // 0,36 para 9 ao acrescentar uma subtarefa vazia). Removido; nada mais
-  // pode fazer `e` chegar a 0 aqui.
+  // 0,36 para 9 ao acrescentar uma subtarefa vazia). Removido.
+  //
+  // [MÉDIO #1, rodada 4 — CORREÇÃO do comentário acima] "nada mais pode fazer
+  // `e` chegar a 0 aqui" era FALSO, e o crítico provou com um caso concreto:
+  // um bug em `resolverSubarvore` (`heranca.ts`, achado MÉDIO #1 da mesma
+  // rodada) deixava um nó de ciclo `done` SEM entrada em `memo`, e
+  // `efetiva.esforco` chegava aqui como `0` (fallback `SEM_CONTRIBUICAO`)
+  // mesmo a tarefa tendo átomos válidos — `valor` virava `Infinity`. A causa
+  // raiz foi corrigida lá; a guarda abaixo é a defesa em profundidade que
+  // este módulo tem OBRIGAÇÃO de ter por si só, para não depender de
+  // `heranca.ts` nunca mais falhar dessa forma — ou de qualquer forma nova.
   const e = efetiva.esforco;
 
   // Sinergia: cada origem que AINDA vai acontecer (não 'done') barateia o
@@ -293,6 +302,14 @@ function scoreAssimetriaNucleo(
       };
     }
   }
+
+  // [MÉDIO #1, rodada 4] guarda EXPLÍCITA antes da divisão: `e`/`c` nunca
+  // devem chegar aqui zerados ou não finitos (o piso `Math.max(1, …)` acima
+  // já cobre a parte de `c`), mas o score não pode depender de um módulo
+  // vizinho nunca falhar — se algo fizer `e*c` ser 0 ou não finito, o
+  // veredito é `null` ("sem átomos válidos", o MESMO veredito de átomo fora
+  // do domínio), nunca `Infinity`/`NaN` vazando pro cartão da tarefa.
+  if (!Number.isFinite(e) || !Number.isFinite(c) || e === 0 || c === 0) return null;
 
   const valor = arredonda2((s1 * s2 * s3) / (e * c));
   return {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 
 import { arestaAddAction, arestaDelAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
@@ -153,19 +153,68 @@ function FormularioNovaAresta({
   taskId: string;
   opcoesDestino: readonly OpcaoTarefaRelacao[];
 }): JSX.Element {
-  const [destino, setDestino] = useState(opcoesDestino[0]?.id ?? "");
+  // [MÉDIO #3, rodada 4] começa VAZIO — antes, o `<select>` nascia com a
+  // 1ª opção da lista já selecionada e o botão já `enabled`: um único clique
+  // cego (sem escolher nada) criava uma aresta de verdade contra quem quer
+  // que fosse a 1ª tarefa da lista, sem confirmação nem desfazer. A opção
+  // vazia ("Escolha a tarefa…") abaixo é o que faz isso deixar de ser possível.
+  const [destino, setDestino] = useState("");
   const [tipo, setTipo] = useState<EdgeTipo>("predecessor");
   const [peso, setPeso] = useState("0.5");
-  const { estado, pendente, disparar } = useAcaoTarefa(arestaAddAction);
+  // [MÉDIO #3] a aresta recém-criada — sustenta o "Desfazer" por 10s (ou até
+  // a próxima criação/desfazimento, o que vier primeiro).
+  const [criada, setCriada] = useState<{ id: string } | null>(null);
+  // `number`, não `ReturnType<typeof window.setTimeout>` — mesma nota de
+  // `mensagem-sucesso.tsx` (a CHAMADA resolve por sobrecarga para `number`,
+  // mesmo o TIPO da propriedade discordando neste tsconfig).
+  const desfazerTimeoutRef = useRef<number | null>(null);
+
+  function limparDesfazer(): void {
+    if (desfazerTimeoutRef.current !== null) window.clearTimeout(desfazerTimeoutRef.current);
+    desfazerTimeoutRef.current = null;
+  }
+
+  const { estado, pendente, disparar } = useAcaoTarefa(arestaAddAction, (estadoSucesso) => {
+    setDestino("");
+    limparDesfazer();
+    // `id` só falta se o backend (RPC live) não devolver — degrada de forma
+    // graciosa: a relação foi criada (a lista ao lado já mostra), só sem
+    // "Desfazer" nesta resposta específica.
+    if (estadoSucesso.id) {
+      const idDaNova = estadoSucesso.id;
+      setCriada({ id: idDaNova });
+      desfazerTimeoutRef.current = window.setTimeout(() => setCriada(null), 10_000);
+    }
+  });
+  const { pendente: desfazendo, disparar: dispararDesfazer } = useAcaoTarefa(arestaDelAction, () => {
+    setCriada(null);
+  });
+
+  const podeEnviar = destino !== "";
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
+    // [MÉDIO #3] `noValidate` desliga a validação nativa do navegador — sem
+    // esta guarda, um submit por outro caminho que não o clique no botão
+    // (já `disabled` sem destino) ainda criaria a aresta com destino vazio.
+    if (!podeEnviar) return;
+    limparDesfazer();
+    setCriada(null);
     const form = new FormData();
     form.set("origem", taskId);
     form.set("destino", destino);
     form.set("tipo", tipo);
     if (tipo === "sinergia") form.set("peso", peso);
     disparar(form);
+  }
+
+  function desfazer(): void {
+    if (!criada) return;
+    limparDesfazer();
+    const form = new FormData();
+    form.set("id", criada.id);
+    form.set("task_id", taskId);
+    dispararDesfazer(form);
   }
 
   if (opcoesDestino.length === 0) {
@@ -189,6 +238,7 @@ function FormularioNovaAresta({
           onChange={(e: ChangeEvent<HTMLSelectElement>) => setDestino(e.target.value)}
           className="w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         >
+          <option value="">Escolha a tarefa…</option>
           {opcoesDestino.map((t) => (
             <option key={t.id} value={t.id}>
               {t.title}
@@ -220,13 +270,26 @@ function FormularioNovaAresta({
         ) : null}
         <button
           type="submit"
-          disabled={pendente}
+          disabled={pendente || !podeEnviar}
           className="inline-flex min-h-[40px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 disabled:opacity-50"
         >
           Adicionar relação
         </button>
       </div>
       <CampoErro mensagem={estado.erro} />
+      {criada ? (
+        <p role="status" aria-live="polite" className="text-xs font-medium text-state-done">
+          Relação criada.{" "}
+          <button
+            type="button"
+            onClick={desfazer}
+            disabled={desfazendo}
+            className="underline underline-offset-2 hover:text-gold-300 disabled:opacity-50"
+          >
+            Desfazer
+          </button>
+        </p>
+      ) : null}
     </form>
   );
 }
