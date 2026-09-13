@@ -22,12 +22,8 @@ import "server-only";
 import { cache } from "react";
 
 import { env } from "@/config/env";
-import type {
-  Project,
-  Source,
-  SyncLog,
-  Task,
-} from "@/types/canonical";
+import { normalizeHierarq } from "@/lib/supabase/normalize-task";
+import type { Project, Source, SyncLog, Task } from "@/types/canonical";
 
 /** Forma exata do JSON retornado pela RPC `lifeboard_load` (já camelCase). */
 export interface LifeboardState {
@@ -48,6 +44,7 @@ function normalizeTask(raw: Task): Task {
     ...raw,
     predecessorIds: asArray<string>(raw.predecessorIds),
     successorIds: asArray<string>(raw.successorIds),
+    priorityHierarq: normalizeHierarq(raw.priorityHierarq),
   };
 }
 

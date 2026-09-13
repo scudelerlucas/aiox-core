@@ -9,6 +9,7 @@ import { SourceFilter, type SourceFilterOption } from "@/components/dashboard/so
 import { StaleSourceFlag } from "@/components/dashboard/stale-source-flag";
 import { TodayList, type TodayListItem } from "@/components/dashboard/today-list";
 import { Providers } from "@/components/providers";
+import { passaNoFiltro } from "@/lib/filtro-de-fontes";
 import { useTodayQuery } from "@/hooks/use-today-query";
 import { useSourceFilter } from "@/stores/source-filter";
 import type { Source, SourceKind, Task } from "@/types/canonical";
@@ -24,8 +25,6 @@ export interface DashboardClientProps {
   /** Lista "hoje" pré-computada server-side (SSR → initialData do TanStack Query). */
   initialToday: TodayResponse;
 }
-
-const ALL_KINDS: SourceKind[] = ["calendar", "gmail", "drive", "notes", "claude_chat"];
 
 function DashboardInner({
   tasks,
@@ -58,17 +57,14 @@ function DashboardInner({
     [sourceStatuses],
   );
 
-  const effectiveKinds = selected.length === 0 ? ALL_KINDS : selected;
-
   // Lista "hoje": itens de fonte não-selecionada são OCULTADOS (spec §5),
   // preservando a ordem HIERARQ dos remanescentes.
   const todayItems: TodayListItem[] = useMemo(() => {
     const items = today.data?.items ?? [];
-    return items.filter((it) => {
-      const kind = kindBySourceId.get(it.task.sourceId);
-      return kind ? effectiveKinds.includes(kind) : true;
-    });
-  }, [today.data, kindBySourceId, effectiveKinds]);
+    return items.filter((it) =>
+      passaNoFiltro(kindBySourceId.get(it.task.sourceId), selected),
+    );
+  }, [today.data, kindBySourceId, selected]);
 
   const todayTaskIds = useMemo(
     () => (today.data?.items ?? []).map((it) => it.task.id),

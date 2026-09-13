@@ -244,7 +244,11 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     return m;
   }, [sources]);
 
-  const filterActive = activeSourceKinds.length > 0 && activeSourceKinds.length < 5;
+  // Vazio = sem filtro (o `SourceFilter` já normaliza "todas marcadas" para []).
+  // Havia aqui um `&& activeSourceKinds.length < 5` — o mesmo número mágico de
+  // "kinds que existiam em julho". Com 6 fontes no banco, marcar 5 desligava o
+  // filtro em silêncio; e com 5 marcadas de 6, o grafo mostrava as 6.
+  const filterActive = activeSourceKinds.length > 0;
   const isOut = useCallback(
     (kind: SourceKind): boolean => filterActive && !activeSourceKinds.includes(kind),
     [filterActive, activeSourceKinds],
