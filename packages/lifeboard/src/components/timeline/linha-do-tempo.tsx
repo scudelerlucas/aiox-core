@@ -54,11 +54,26 @@ const PX_POR_DIA_FIXO: Record<Exclude<Zoom, "auto">, number> = {
 };
 /** Usado só antes da 1ª medição real do painel (SSR / primeiro paint sem `ResizeObserver`). */
 const PX_POR_DIA_AUTO_FALLBACK = 16;
-/** Piso do "auto" — nenhuma barra de 1 dia fica abaixo disto (achado CRÍTICO #3). */
-const PX_POR_DIA_AUTO_MINIMO = 24;
+/**
+ * P5c (achado ALTO #4, rodada 2): 24px/dia é o ALVO do "auto" (a densidade
+ * confortável quando a janela cabe), NUNCA o piso — o piso de verdade é
+ * `PX_POR_DIA_AUTO_PISO`. Antes `Math.max(24, largura/dias)` fazia o 24
+ * SEMPRE vencer em janelas largas (>~41 dias a 1280px), forçando overflow
+ * horizontal que "auto" deveria evitar encolhendo a densidade.
+ */
+const PX_POR_DIA_AUTO_ALVO = 24;
+/** Piso de verdade do "auto" — nunca encolhe além disto, mesmo com o horizonte inteiro. */
+const PX_POR_DIA_AUTO_PISO = 6;
 /** Janela mínima do "auto" quando não há tarefa nenhuma: hoje − 7 d → hoje + 14 d. */
 const AUTO_MARGEM_PASSADO_DIAS = 7;
 const AUTO_MARGEM_FUTURO_DIAS = 14;
+/** Mesma margem de respiro que os zooms fixos dão (`minIsoDados`/`maxIsoDados`) — achado MÉDIO #8. */
+const AUTO_MARGEM_RESPIRO_PASSADO_DIAS = 2;
+const AUTO_MARGEM_RESPIRO_FUTURO_DIAS = 3;
+/** Piso visual de uma barra de tarefa — achado BAIXO #11 (sub-dia vira barra curta, nunca diamante nem 4px cru). */
+const LARGURA_MINIMA_BARRA = 12;
+/** Nenhum tick de data pode ficar mais longe que isto do vizinho — achado CRÍTICO #1, rodada 2. */
+const LIMIAR_TICK_PX = 160;
 /** Namespaced — mesma disciplina de qualquer outra chave de `localStorage` da casa. */
 const CHAVE_ZOOM = "lifeboard:linha-do-tempo:zoom";
 
@@ -130,16 +145,30 @@ interface Tick {
   forte: boolean;
 }
 
-/** Escala de dias → posições de tick, sempre com guias de SEMANA (segunda-feira). */
+/**
+ * P5c (achado CRÍTICO #1 do crítico hostil, rodada 2): a escala de ticks era
+ * escolhida pelo NOME do zoom (`zoom === "semana" | "mes"`) — "auto" não batia
+ * em nenhum dos dois nomes e caía no `else` (só início de mês), e num
+ * horizonte de poucas semanas isso é ZERO ticks. A régua agora é a DENSIDADE
+ * real (`pxPorDia`), não o nome: ≥24px/dia → rótulo por DIA; 8–24 → um rótulo
+ * por SEMANA (dd/MM); <8 → rótulo por MÊS. Os 3 zooms fixos continuam caindo
+ * nas mesmas faixas de antes (semana=46→dia, mes=16→semana, trimestre=6→mês) —
+ * "auto" ganha a MESMA régua, nunca uma quarta regra à parte.
+ *
+ * Rede de segurança (mesmo achado): nenhum vão entre ticks pode passar de
+ * `LIMIAR_TICK_PX` — sem isso, um horizonte que não cruza nenhum início de
+ * mês (ex.: "auto" de 21 dias todo dentro do mesmo mês, na faixa <8px/dia)
+ * ficaria com ZERO rótulos. Preenche o vão com ticks extras no mesmo formato.
+ */
 function gerarEscala(
   minIso: string,
   maxIso: string,
-  zoom: Zoom,
   pxPorDia: number,
 ): { guiasSemana: number[]; ticks: Tick[] } {
   const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
+  const faixa: "dia" | "semana" | "mes" = pxPorDia >= 24 ? "dia" : pxPorDia >= 8 ? "semana" : "mes";
   const guiasSemana: number[] = [];
-  const ticks: Tick[] = [];
+  const porX = new Map<number, Tick>();
   for (let d = 0; d <= totalDias; d += 1) {
     const iso = somaDiasIso(minIso, d);
     const data = new Date(paraEpoch(iso));
@@ -147,14 +176,34 @@ function gerarEscala(
     const ehInicioMes = data.getUTCDate() === 1;
     const x = d * pxPorDia;
     if (ehSegunda) guiasSemana.push(x);
-    if (zoom === "semana") {
-      ticks.push({ x, label: String(data.getUTCDate()), forte: ehSegunda });
-    } else if (zoom === "mes") {
-      if (ehSegunda) ticks.push({ x, label: diaMesCurto(iso), forte: ehInicioMes });
+    if (faixa === "dia") {
+      porX.set(x, { x, label: String(data.getUTCDate()), forte: ehSegunda });
+    } else if (faixa === "semana") {
+      if (ehSegunda) porX.set(x, { x, label: diaMesCurto(iso), forte: ehInicioMes });
     } else if (ehInicioMes) {
-      ticks.push({ x, label: mesCurto(iso), forte: true });
+      porX.set(x, { x, label: mesCurto(iso), forte: true });
     }
   }
+
+  // Rede de segurança: pelo menos 1 rótulo por ~160px, mesmo quando a faixa
+  // natural (semana/mês) não cruza nenhum marco dentro da janela visível.
+  const largoDemais = pxPorDia * 1 <= 0 ? 1 : Math.max(1, Math.floor(LIMIAR_TICK_PX / pxPorDia));
+  const xsOrdenados = [...porX.keys()].sort((a, b) => a - b);
+  const fronteiras = [0, ...xsOrdenados, totalDias * pxPorDia];
+  for (let i = 0; i < fronteiras.length - 1; i += 1) {
+    const inicio = fronteiras[i]!;
+    const fim = fronteiras[i + 1]!;
+    if (fim - inicio <= LIMIAR_TICK_PX) continue;
+    for (let x = inicio + largoDemais * pxPorDia; x < fim; x += largoDemais * pxPorDia) {
+      if (porX.has(x)) continue;
+      const d = Math.round(x / pxPorDia);
+      const iso = somaDiasIso(minIso, d);
+      const label = faixa === "mes" ? mesCurto(iso) : diaMesCurto(iso);
+      porX.set(x, { x, label, forte: false });
+    }
+  }
+
+  const ticks = [...porX.values()].sort((a, b) => a.x - b.x);
   return { guiasSemana, ticks };
 }
 
@@ -196,6 +245,24 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   const [ativoId, setAtivoId] = useState<string | null>(null);
   const painelRef = useRef<HTMLDivElement | null>(null);
   const [larguraPainel, setLarguraPainel] = useState(0);
+  /**
+   * P5c (achado ALTO #2 do crítico hostil, rodada 2): o cabeçalho de datas
+   * vivia DENTRO do painel `overflow-x-auto` — `overflow-x` diferente de
+   * `visible` força o `overflow-y` computado a `auto` também (regra do CSS
+   * Overflow), então o painel vira um "scroll container" e o `position:
+   * sticky` do cabeçalho passa a stickar relativo A ELE, não à página. Como
+   * quem rola de verdade é a PÁGINA (o painel não tem altura própria), o
+   * cabeçalho ia para `top: −134` ao rolar e, em repouso, ficava 44px
+   * deslocado (cobrindo a linha "ASSUNTOS"). Fix: o cabeçalho agora é um
+   * elemento PRÓPRIO, fora do scroller horizontal — sticky de verdade contra
+   * a página — sincronizado por `transform` a partir do `scrollLeft` do
+   * painel (sem re-render por pixel: manipulação direta do DOM via ref).
+   */
+  const headerTicksRef = useRef<HTMLDivElement | null>(null);
+  const sincronizarHeaderComPainel = (scrollLeft: number): void => {
+    const el = headerTicksRef.current;
+    if (el) el.style.transform = `translateX(${-scrollLeft}px)`;
+  };
 
   const mudarZoom = (z: Zoom): void => {
     setZoom(z);
@@ -231,44 +298,68 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     return { minIso: somaDiasIso(min, -2), maxIso: somaDiasIso(max, 3) };
   }, [linhas, props.hoje]);
 
-  // Janela do zoom "AUTO" (achado CRÍTICO #3) — só o horizonte das TAREFAS
-  // (nunca o histórico de assuntos, que é o que esmagava a escala antes):
-  // min(hoje − 7d, início mais cedo de tarefa) → max(LF de tarefas, hoje + 14d).
+  // Janela do zoom "AUTO" (achado CRÍTICO #3) — só o horizonte das TAREFAS QUE
+  // DESENHAM BARRA (nunca o histórico de assuntos, que é o que esmagava a
+  // escala antes): min(hoje − 7d, início mais cedo de tarefa) → max(LF de
+  // tarefas, hoje + 14d). Achado ALTO #4 (rodada 2): linhas `semBarra` (um
+  // `done` fora do CPM que só desenha um PONTO, às vezes muito no passado —
+  // o "ponto 07/07" do crítico) NUNCA entram nesta conta — elas não desenham
+  // barra nenhuma, e deixá-las inflar a janela é o que esmagava `pxPorDia`
+  // exatamente do jeito que "auto" existe para evitar. A mesma margem de
+  // respiro dos zooms fixos (`minIsoDados`/`maxIsoDados`, −2/+3 dias) fecha o
+  // achado MÉDIO #8 (ponto de conclusão colado no `left:-4` da borda).
   const { minIso: minIsoAuto, maxIso: maxIsoAuto } = useMemo(() => {
     let minInicio = props.hoje;
     let maxLf = props.hoje;
     for (const l of linhas) {
-      if (l.tipo !== "linha" || l.linha.kind !== "tarefa") continue;
+      if (l.tipo !== "linha" || l.linha.kind !== "tarefa" || l.linha.semBarra) continue;
       if (paraEpoch(l.linha.inicio) < paraEpoch(minInicio)) minInicio = l.linha.inicio;
       if (paraEpoch(l.linha.fimComFolga) > paraEpoch(maxLf)) maxLf = l.linha.fimComFolga;
     }
     const pisoPassado = somaDiasIso(props.hoje, -AUTO_MARGEM_PASSADO_DIAS);
     const pisoFuturo = somaDiasIso(props.hoje, AUTO_MARGEM_FUTURO_DIAS);
-    const min = paraEpoch(minInicio) < paraEpoch(pisoPassado) ? minInicio : pisoPassado;
-    const max = paraEpoch(maxLf) > paraEpoch(pisoFuturo) ? maxLf : pisoFuturo;
-    return { minIso: min, maxIso: max };
+    const minBruto = paraEpoch(minInicio) < paraEpoch(pisoPassado) ? minInicio : pisoPassado;
+    const maxBruto = paraEpoch(maxLf) > paraEpoch(pisoFuturo) ? maxLf : pisoFuturo;
+    return {
+      minIso: somaDiasIso(minBruto, -AUTO_MARGEM_RESPIRO_PASSADO_DIAS),
+      maxIso: somaDiasIso(maxBruto, AUTO_MARGEM_RESPIRO_FUTURO_DIAS),
+    };
   }, [linhas, props.hoje]);
 
   const minIso = zoom === "auto" ? minIsoAuto : minIsoDados;
   const maxIso = zoom === "auto" ? maxIsoAuto : maxIsoDados;
 
+  // P5c (achado ALTO #4, rodada 2): 24px/dia é o ALVO, não o piso — quando o
+  // horizonte não cabe no painel a essa densidade, "auto" agora ENCOLHE
+  // (nunca abaixo de `PX_POR_DIA_AUTO_PISO`) em vez de forçar overflow
+  // horizontal fingindo que ainda é "auto".
   const pxPorDiaAuto = useMemo(() => {
     const totalDiasAuto = Math.max(1, diffDias(minIsoAuto, maxIsoAuto));
     if (larguraPainel <= 0) return PX_POR_DIA_AUTO_FALLBACK;
-    return Math.max(PX_POR_DIA_AUTO_MINIMO, larguraPainel / totalDiasAuto);
+    const ideal = larguraPainel / totalDiasAuto;
+    return Math.min(PX_POR_DIA_AUTO_ALVO, Math.max(PX_POR_DIA_AUTO_PISO, ideal));
   }, [minIsoAuto, maxIsoAuto, larguraPainel]);
 
   const pxPorDia = zoom === "auto" ? pxPorDiaAuto : PX_POR_DIA_FIXO[zoom];
   const { guiasSemana, ticks } = useMemo(
-    () => gerarEscala(minIso, maxIso, zoom, pxPorDia),
-    [minIso, maxIso, zoom, pxPorDia],
+    () => gerarEscala(minIso, maxIso, pxPorDia),
+    [minIso, maxIso, pxPorDia],
   );
   const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
   const totalWidth = totalDias * pxPorDia;
   const alturaLinhas = linhas.length * ROW_H;
   const xHoje = diffDias(minIso, props.hoje) * pxPorDia;
 
-  const xFor = (iso: string): number => diffDias(minIso, iso) * pxPorDia;
+  // Achado BAIXO #14 (rodada 2): `TETO_DIAS_ESCALA` capa os TICKS mas antes
+  // não capava as BARRAS — uma data real além do teto (raríssima, mas
+  // possível com dado podre/distante) calculava um `x` além de `totalWidth`,
+  // desenhando fora do SVG/contêiner enquanto a régua de ticks parava antes.
+  // Clampar aqui cobre TODOS os consumidores (barras, conectores, marcador de
+  // hoje, marcador de prazo) num único ponto.
+  const xFor = (iso: string): number => {
+    const bruto = diffDias(minIso, iso) * pxPorDia;
+    return Math.min(Math.max(bruto, 0), totalWidth);
+  };
 
   // Mede a largura real do painel (para o "auto") e mantém a linha de "hoje"
   // ancorada a ~40% da largura visível — no mount, a cada mudança de escala
@@ -290,7 +381,9 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     const el = painelRef.current;
     if (!el) return;
     const largura = el.clientWidth || larguraPainel;
-    el.scrollLeft = Math.max(0, xHoje - largura * ANCORA_HOJE_FRACAO);
+    const novoScrollLeft = Math.max(0, xHoje - largura * ANCORA_HOJE_FRACAO);
+    el.scrollLeft = novoScrollLeft;
+    sincronizarHeaderComPainel(novoScrollLeft);
     // `pxPorDia` muda em toda troca de zoom (inclusive "auto" recalculando)
     // — reancorar em "hoje" sempre que a escala muda é o que resolve o
     // "Semana" esvaziando a tela (achado CRÍTICO #2: a âncora era perdida).
@@ -336,7 +429,17 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     destacado: "predecessor" | "sucessor" | null;
     /** P5b (achado ALTO #5): sucessora começa ANTES da predecessora terminar — erro de datas, não sucessão saudável. */
     conflito: boolean;
+    /**
+     * P5c (achado ALTO #3, rodada 2): `x2 < x1` também acontece quando uma
+     * das duas pontas tem data FABRICADA (`foraDoCpm` inventa `inicio = hoje`,
+     * `semDuracao` usa o placeholder, `semBarra` não tem geometria real) — aí
+     * não é um "conflito" (erro de dado), é "não dá para saber" (dado que falta).
+     */
+    indefinido: boolean;
   }
+  /** Só conflito/indefinido quando as DUAS pontas têm data real (achado ALTO #3). */
+  const temDataReal = (r: LinhaDoTempoTarefaRow): boolean =>
+    !r.foraDoCpm && !r.semDuracao && !r.semBarra;
   const conectores: Conector[] = [];
   linhas.forEach((l, i) => {
     if (l.tipo !== "linha" || l.linha.kind !== "tarefa") return;
@@ -351,6 +454,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
         ativoId === destino.id ? "predecessor" : ativoId === origem.id ? "sucessor" : null;
       const x1 = xFor(origem.fim);
       const x2 = xFor(destino.inicio);
+      const forasDeOrdem = x2 < x1;
+      const datasConfiaveis = temDataReal(origem) && temDataReal(destino);
       conectores.push({
         chave: `${origem.id}->${destino.id}`,
         origemId: origem.id,
@@ -361,7 +466,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
         y2: i * ROW_H + ROW_H / 2,
         critico: origem.critico && destino.critico,
         destacado,
-        conflito: x2 < x1,
+        conflito: forasDeOrdem && datasConfiaveis,
+        indefinido: forasDeOrdem && !datasConfiaveis,
       });
     }
   });
@@ -413,43 +519,23 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
           Nada para mostrar na linha do tempo ainda.
         </div>
       ) : (
-        <div className="mt-6 flex w-full items-stretch">
-          {/* Coluna de rótulos — fora do scroll horizontal, encolhe no celular. */}
-          <div className="w-[108px] shrink-0 border-r border-navy-700 sm:w-[240px]">
-            <div
-              style={{ height: HEADER_H, top: HEADER_TOP_STICKY }}
-              className="sticky z-20 border-b border-navy-700 bg-navy-900"
-            />
-            {linhas.map((l) =>
-              l.tipo === "cabecalho" ? (
-                <div
-                  key={l.chave}
-                  style={{ height: ROW_H }}
-                  className="flex items-center bg-navy-900 px-2 text-[12px] font-semibold uppercase tracking-wide text-bone-300"
-                >
-                  {l.titulo}
-                </div>
-              ) : (
-                <RotuloLinha
-                  key={l.chave}
-                  linha={l.linha}
-                  ativo={ativoId === l.linha.id}
-                  destacadoPredecessora={l.linha.kind === "tarefa" && predecessorasAtivas.has(l.linha.id)}
-                  destacadoSucessora={l.linha.kind === "tarefa" && sucessorasAtivas.has(l.linha.id)}
-                  tituloPorTarefaId={tituloPorTarefaId}
-                  onAtivar={l.linha.kind === "tarefa" ? () => setAtivoId((a) => (a === l.linha.id ? null : l.linha.id)) : undefined}
-                />
-              ),
-            )}
-          </div>
-
-          {/* Painel da escala — SÓ ele rola na horizontal (o corpo da página nunca rola de lado). */}
-          <div ref={painelRef} className="min-w-0 flex-1 overflow-x-auto">
-            <div style={{ width: totalWidth }} className="relative">
-              <div
-                style={{ height: HEADER_H, top: HEADER_TOP_STICKY }}
-                className="sticky z-20 border-b border-navy-700 bg-navy-900"
-              >
+        <div className="mt-6 flex w-full flex-col">
+          {/*
+            Achado ALTO #2 (rodada 2): cabeçalho de datas como linha PRÓPRIA,
+            fora do scroller horizontal — `sticky` aqui stacka contra a
+            PÁGINA (nenhum ancestral com overflow != visible), nunca contra o
+            painel. `z-20` fica acima das linhas quando a página rola por
+            baixo dele.
+          */}
+          <div
+            style={{ top: HEADER_TOP_STICKY, height: HEADER_H }}
+            className="sticky z-20 flex w-full"
+          >
+            {/* Célula do cabeçalho da coluna de rótulos — mesma largura da coluna abaixo. */}
+            <div className="w-[108px] shrink-0 border-b border-r border-navy-700 bg-navy-900 sm:w-[240px]" />
+            {/* Célula do cabeçalho da escala — clip (nunca scroll próprio) + conteúdo deslocado por `transform` para acompanhar o `scrollLeft` do painel. */}
+            <div className="relative min-w-0 flex-1 overflow-hidden border-b border-navy-700 bg-navy-900">
+              <div ref={headerTicksRef} style={{ width: totalWidth, height: HEADER_H }} className="relative">
                 {ticks.map((t) => (
                   <div
                     key={t.x}
@@ -470,7 +556,42 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                   title="Hoje"
                 />
               </div>
+            </div>
+          </div>
 
+          <div className="flex w-full items-stretch">
+            {/* Coluna de rótulos — fora do scroll horizontal, encolhe no celular. */}
+            <div className="w-[108px] shrink-0 border-r border-navy-700 sm:w-[240px]">
+              {linhas.map((l) =>
+                l.tipo === "cabecalho" ? (
+                  <div
+                    key={l.chave}
+                    style={{ height: ROW_H }}
+                    className="flex items-center bg-navy-900 px-2 text-[12px] font-semibold uppercase tracking-wide text-bone-300"
+                  >
+                    {l.titulo}
+                  </div>
+                ) : (
+                  <RotuloLinha
+                    key={l.chave}
+                    linha={l.linha}
+                    ativo={ativoId === l.linha.id}
+                    destacadoPredecessora={l.linha.kind === "tarefa" && predecessorasAtivas.has(l.linha.id)}
+                    destacadoSucessora={l.linha.kind === "tarefa" && sucessorasAtivas.has(l.linha.id)}
+                    tituloPorTarefaId={tituloPorTarefaId}
+                    onAtivar={l.linha.kind === "tarefa" ? () => setAtivoId((a) => (a === l.linha.id ? null : l.linha.id)) : undefined}
+                  />
+                ),
+              )}
+            </div>
+
+            {/* Painel da escala — SÓ ele rola na horizontal (o corpo da página nunca rola de lado); o cabeçalho vive fora e se sincroniza por `onScroll`. */}
+            <div
+              ref={painelRef}
+              className="min-w-0 flex-1 overflow-x-auto"
+              onScroll={(e) => sincronizarHeaderComPainel(e.currentTarget.scrollLeft)}
+            >
+              <div style={{ width: totalWidth }} className="relative">
               <div style={{ height: alturaLinhas }} className="relative bg-navy-950">
                 {guiasSemana.map((x) => (
                   <div
@@ -531,6 +652,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
               </div>
             </div>
           </div>
+        </div>
         </div>
       )}
     </main>
@@ -778,13 +900,20 @@ function BarraTarefa({
     );
   }
 
-  const largura = Math.max(4, xFor(row.fim) - x);
+  // Achado BAIXO #11 (rodada 2): piso de 12px, nunca os 4px antigos — uma
+  // duração sub-dia (0,5 dia) tem largura de data ~0, mas ISTO NÃO é um marco
+  // (marco é só duração zero de verdade, `core/timeline` já garante isso).
+  const largura = Math.max(LARGURA_MINIMA_BARRA, xFor(row.fim) - x);
   const xFolga = xFor(row.fimComFolga);
   const larguraFolga = Math.max(0, xFolga - xFor(row.fim));
 
   // Achado ALTO #4: aberta sem estimativa → contorno tracejado + "sem data"
-  // (nunca a barra sólida fabricada); atrasada → contorno vermelho + "atrasada"
-  // + marcador em `dueDate`. As duas flags AFETAM O DESENHO, não só o `title`.
+  // (nunca a barra sólida fabricada). Achado ALTO #5 (rodada 2): atrasada NÃO
+  // troca o preenchimento — sobre CRÍTICO isso apagava o traço triplo/cor de
+  // risco de prazo por um contorno tracejado igual ao de "sem data", como se
+  // deixasse de ser crítica. Preenchimento é SEMPRE `preenchimento`
+  // (crítico/status), exceto o caso "sem duração" (que já não tem uma cor de
+  // status real para mostrar); atraso vira um MARCADOR aditivo, nunca troca.
   const preenchimento = row.critico
     ? "bg-aresta-critico"
     : row.status === "done"
@@ -794,12 +923,13 @@ function BarraTarefa({
         : row.status === "in_progress"
           ? "bg-state-progress"
           : "bg-state-open";
-  const classesEstado = row.atrasada
-    ? "border-2 border-dashed border-state-error bg-state-error/20"
-    : row.semDuracao
-      ? "border-2 border-dashed border-bone-400 bg-transparent"
-      : preenchimento;
+  const classesEstado =
+    row.semDuracao && !row.critico ? "border-2 border-dashed border-bone-400 bg-transparent" : preenchimento;
   const rotuloLateral = row.atrasada ? "atrasada" : row.semDuracao ? "sem data" : null;
+  // Achado MÉDIO #7 (rodada 2): o rótulo lateral ficava em `left-full` (== o
+  // início da hachura de folga) e a hachura o cobria. Quando há folga
+  // desenhada, o rótulo vai depois DELA; senão, logo após a barra (como antes).
+  const offsetRotulo = larguraFolga > 0 ? largura + larguraFolga : largura;
 
   const anel = ativo
     ? "ring-2 ring-gold-500"
@@ -808,6 +938,14 @@ function BarraTarefa({
       : sucessora
         ? "ring-2 ring-aresta-sucessao"
         : "";
+
+  // Achado MÉDIO #6 (rodada 2): o marcador de `dueDate` só faz sentido DENTRO
+  // da barra — fora dela (prazo muito antes do início ou muito depois do fim)
+  // o traço antigo aparecia centenas de px longe, sem nenhuma barra por perto
+  // para "ancorar" visualmente. Dentro: o traço vertical de sempre. Fora: uma
+  // seta pequena na borda mais próxima, com o prazo no `title`.
+  const dueXRelativo = row.dueDate ? xFor(row.dueDate) - x : null;
+  const dueDentroDaBarra = dueXRelativo !== null && dueXRelativo >= 0 && dueXRelativo <= largura;
 
   return (
     <div
@@ -819,17 +957,40 @@ function BarraTarefa({
       title={`${row.titulo} — folga: ${row.folga} d${rotuloLateral ? ` — ${rotuloLateral}` : ""}`}
     >
       {row.critico ? <TracoTriploCritico largura={largura} /> : null}
+      {/* Achado ALTO #5 (rodada 2): marcador ADITIVO de atraso — nunca troca
+          `classesEstado`, então uma barra crítica E atrasada continua com o
+          preenchimento/traço triplo do crítico, só ganha esta borda extra. */}
+      {row.atrasada ? (
+        <span
+          aria-hidden="true"
+          className="lb-tl-atrasada-marcador absolute inset-x-0 -top-1 h-0.5 rounded-full border-t-2 border-state-error"
+        />
+      ) : null}
       {rotuloLateral ? (
-        <span className="absolute left-full top-0 ml-1 whitespace-nowrap text-[12px] leading-4 text-bone-300">
+        <span
+          className="absolute top-0 ml-1 whitespace-nowrap text-[12px] leading-4 text-bone-300"
+          style={{ left: offsetRotulo }}
+        >
           {rotuloLateral}
         </span>
       ) : null}
-      {row.atrasada && row.dueDate ? (
+      {row.atrasada && row.dueDate && dueDentroDaBarra ? (
         <div
           aria-hidden="true"
           className="lb-tl-atraso absolute -top-1 w-0.5 bg-state-error"
-          style={{ left: xFor(row.dueDate) - x, height: BAR_H + 2 }}
+          style={{ left: dueXRelativo!, height: BAR_H + 2 }}
+          title={`prazo ${diaMesCurto(row.dueDate)}`}
         />
+      ) : null}
+      {row.atrasada && row.dueDate && !dueDentroDaBarra ? (
+        <div
+          aria-hidden="true"
+          className="lb-tl-atraso-seta absolute top-0 text-[12px] leading-4 text-state-error"
+          style={{ left: dueXRelativo! < 0 ? -8 : largura }}
+          title={`prazo ${diaMesCurto(row.dueDate)}`}
+        >
+          {dueXRelativo! < 0 ? "◀" : "▶"}
+        </div>
       ) : null}
       {larguraFolga > 0 ? (
         <div
@@ -866,7 +1027,24 @@ interface DadosConector {
   critico: boolean;
   destacado: "predecessor" | "sucessor" | null;
   conflito: boolean;
+  indefinido: boolean;
 }
+
+/**
+ * P5c (achado ALTO #3, rodada 2): traço neutro para "não dá para saber" —
+ * nunca o vermelho de conflito (isso afirmaria um erro que não foi provado).
+ * Hex literal pela MESMA exceção documentada no topo do arquivo (stroke de
+ * SVG não aceita classe Tailwind) — `bone-500` de `tailwind.config.ts`.
+ */
+const ARESTA_STROKE_INDEFINIDA = "#6C7A99";
+/**
+ * P5c (achado MÉDIO #9, rodada 2): antes, selecionar uma tarefa deixava seus
+ * SUCESSORES na MESMA cor verde do default (`aresta.sucessao`) — só a
+ * espessura mudava (1.4→2.25px), pouco perceptível num screenshot. Verde mais
+ * claro/saturado, distinto a olho nu do verde-padrão, e reservado só para o
+ * destaque de seleção (nunca usado fora daqui).
+ */
+const ARESTA_STROKE_SUCESSOR_ATIVO = "#8CFFC0";
 
 type DirecaoSeta = "direita" | "baixo" | "cima";
 
@@ -918,17 +1096,20 @@ function Conector({
   // ganhava, e selecionar um nó nunca deixava seus predecessores críticos
   // amarelos. O traço TRIPLO continua condicionado só a `critico`,
   // independente da cor (uma aresta pode ficar "amarela E tripla"). Achado
-  // ALTO #5: CONFLITO de datas vence tudo — é um erro, não uma preferência
-  // visual de seleção.
+  // ALTO #5/#3 (rodada 2): CONFLITO real vence tudo (é um erro provado);
+  // INDEFINIDO (data fabricada de um dos lados) é neutro — nunca a mesma cor
+  // do erro provado, nunca a mesma cor de uma preferência de seleção.
   const cor = c.conflito
     ? ARESTA_STROKE_CRITICO
-    : c.destacado === "predecessor"
-      ? ARESTA_STROKE_DESTACADA
-      : c.destacado === "sucessor"
-        ? ARESTA_STROKE.sucessao
-        : c.critico
-          ? ARESTA_STROKE_CRITICO
-          : ARESTA_STROKE.sucessao;
+    : c.indefinido
+      ? ARESTA_STROKE_INDEFINIDA
+      : c.destacado === "predecessor"
+        ? ARESTA_STROKE_DESTACADA
+        : c.destacado === "sucessor"
+          ? ARESTA_STROKE_SUCESSOR_ATIVO
+          : c.critico
+            ? ARESTA_STROKE_CRITICO
+            : ARESTA_STROKE.sucessao;
   const largura = c.destacado || c.critico || c.conflito ? 2.25 : 1.4;
 
   const origemTitulo = tituloPorTarefaId.get(c.origemId) ?? c.origemId;
@@ -939,9 +1120,12 @@ function Conector({
       className="lb-tl-connector"
       data-critico={c.critico}
       data-conflito={c.conflito}
+      data-indefinido={c.indefinido}
       {...(c.conflito
         ? { role: "img", "aria-label": `conflito de datas: ${destinoTitulo} começa antes de ${origemTitulo} terminar` }
-        : { "aria-hidden": true })}
+        : c.indefinido
+          ? { role: "img", "aria-label": "data indefinida" }
+          : { "aria-hidden": true })}
     >
       {c.critico ? (
         <>
@@ -950,7 +1134,13 @@ function Conector({
           <path d={d} stroke={cor} strokeWidth={1.6} fill="none" transform="translate(0,3)" />
         </>
       ) : (
-        <path d={d} stroke={cor} strokeWidth={largura} fill="none" />
+        <path
+          d={d}
+          stroke={cor}
+          strokeWidth={largura}
+          fill="none"
+          strokeDasharray={c.indefinido ? "3 3" : undefined}
+        />
       )}
       <polygon points={pontosDaSeta(arrowX, arrowY, direcao)} fill={cor} />
       {c.conflito ? (
@@ -1012,13 +1202,18 @@ function Legenda(): JSX.Element {
       label: "marco",
     },
   ];
+  // Achado BAIXO #12 (rodada 2): a legenda inteira era `aria-hidden`, o que
+  // apagava os RÓTULOS de texto para leitor de tela (não só as amostras
+  // decorativas, que já levavam seu próprio `aria-hidden` individual — esse
+  // continua). Removido do contêiner; `role="list"` deixa a estrutura clara.
   return (
     <div
-      aria-hidden="true"
+      role="list"
+      aria-label="Legenda de símbolos da linha do tempo"
       className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-bone-400"
     >
       {ITENS.map((item) => (
-        <span key={item.chave} className="inline-flex items-center gap-1.5">
+        <span key={item.chave} role="listitem" className="inline-flex items-center gap-1.5">
           {item.amostra}
           {item.label}
         </span>

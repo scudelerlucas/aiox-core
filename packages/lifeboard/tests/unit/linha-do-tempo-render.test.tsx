@@ -536,6 +536,217 @@ describe("LinhaDoTempoView — cabeçalho sticky e tamanho de fonte (achado MÉD
   });
 });
 
+/** Achado ALTO #5 (rodada 2): atraso é ADITIVO — nunca troca o preenchimento/traço triplo do crítico. */
+describe("LinhaDoTempoView — atrasada é aditiva sobre crítico (achado ALTO #5, rodada 2)", () => {
+  it("crítica E atrasada: mantém bg-aresta-critico e o traço triplo, ganha só o marcador extra", () => {
+    const p: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: "G",
+      duracaoTotal: 5,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({
+              id: "CRITICA-ATRASADA",
+              titulo: "Crítica e atrasada",
+              critico: true,
+              atrasada: true,
+              dueDate: "2026-09-10",
+              inicio: "2026-09-13",
+              fim: "2026-09-16",
+              fimComFolga: "2026-09-16",
+            }),
+          ],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+    expect(html).toContain("bg-aresta-critico");
+    expect(html).toContain("lb-tl-bar-critico");
+    expect(html).not.toContain("bg-state-error/20"); // o preenchimento antigo de "atrasada" nunca mais aparece
+    expect(html).toContain("lb-tl-atrasada-marcador");
+  });
+});
+
+/** Achado MÉDIO #6 (rodada 2): dueDate longe da barra vira seta na borda, nunca um traço a centenas de px. */
+describe("LinhaDoTempoView — marcador de prazo fora da barra vira seta (achado MÉDIO #6)", () => {
+  it("dueDate muito depois do fim: seta na borda direita, com o prazo no title — nunca o traço solto", () => {
+    const p: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({
+              id: "PRAZO-LONGE",
+              titulo: "Prazo bem depois",
+              foraDoCpm: true,
+              atrasada: true,
+              dueDate: "2026-12-25",
+              inicio: "2026-09-13",
+              fim: "2026-09-14",
+              fimComFolga: "2026-09-14",
+            }),
+          ],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+    expect(html).toContain("lb-tl-atraso-seta");
+    expect(html).toContain('title="prazo 25/12"');
+  });
+});
+
+/** Achado BAIXO #11 (rodada 2): sub-dia vira barra curta (mínimo 12px), nunca diamante. */
+describe("LinhaDoTempoView — sub-dia vira barra curta, não diamante (achado BAIXO #11)", () => {
+  it("marco=false com inicio===fim (sub-dia): nenhum lb-tl-marco, largura mínima 12px", () => {
+    const p: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({
+              id: "MEIO-DIA",
+              titulo: "Meio período",
+              foraDoCpm: true,
+              marco: false,
+              inicio: "2026-09-13",
+              fim: "2026-09-13",
+              fimComFolga: "2026-09-13",
+            }),
+          ],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+    expect(html).not.toContain("lb-tl-marco");
+    const idx = html.indexOf("Meio período — folga:");
+    const antes = html.lastIndexOf("style=", idx);
+    const style = html.slice(antes, idx);
+    const m = style.match(/width:\s*([\d.]+)px/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThanOrEqual(12);
+  });
+});
+
+/** Achado ALTO #3 (rodada 2): conflito só com as DUAS pontas com data real; senão, neutro/indefinido. */
+describe("LinhaDoTempoView — conflito exige datas reais dos dois lados (achado ALTO #3, rodada 2)", () => {
+  it("sucessora foraDoCpm 'antes' da predecessora: NUNCA conflito — vira indefinido (neutro)", () => {
+    const p: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({
+              id: "PRED",
+              titulo: "Predecessora real",
+              inicio: "2026-09-01",
+              fim: "2026-09-14",
+              fimComFolga: "2026-09-14",
+              sucessores: ["SUC"],
+            }),
+            tarefa({
+              id: "SUC",
+              titulo: "Sucessora fabricada",
+              foraDoCpm: true,
+              inicio: HOJE, // inventado — "hoje", antes do fim real da predecessora
+              fim: "2026-09-14",
+              fimComFolga: "2026-09-14",
+              predecessores: ["PRED"],
+            }),
+          ],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+    expect(html).toContain('data-conflito="false"');
+    expect(html).toContain('data-indefinido="true"');
+    expect(html).toContain("data indefinida");
+    expect(html).not.toContain("conflito de datas");
+  });
+});
+
+/**
+ * Achado CRÍTICO #1 (rodada 2): "auto" sempre gera rótulos de data — nunca 1
+ * (o bug: `gerarEscala` escolhia a régua pelo NOME do zoom, "auto" não batia
+ * em nenhum, caía no ramo "só início de mês" e virava 1 rótulo solto num
+ * horizonte de poucas semanas). Este teste roda em SSR (`renderToStaticMarkup`,
+ * sem `ResizeObserver`) — o fallback é `pxPorDia=16` fixo, então o NÚMERO
+ * absoluto de rótulos aqui é menor que numa tela real medida (confirmado por
+ * screenshot real a 1280px: 27 rótulos no fixture, contagem no relatório da
+ * sessão) — o invariante que ESTE teste prova, independente de largura de
+ * painel, é o que a régua promete: nunca zero, e nenhum vão > `LIMIAR_TICK_PX`
+ * (160px) entre dois rótulos consecutivos (nem da borda esquerda até o 1º).
+ */
+describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTICO #1, rodada 2)", () => {
+  /** Extrai `{x, label}` de cada tick do cabeçalho da escala. */
+  function extrairTicks(html: string): { x: number; label: string }[] {
+    const inicio = html.indexOf("sticky z-20 flex w-full");
+    const fim = html.indexOf("</div></div></div><div class=\"flex w-full items-stretch\"", inicio);
+    const trecho = html.slice(inicio, fim < 0 ? undefined : fim);
+    const out: { x: number; label: string }[] = [];
+    const re = /border-l border-navy-(?:600|800) pl-1 text-\[12px\][^"]*" style="left:(\d+(?:\.\d+)?)px">([^<]*)</g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(trecho))) out.push({ x: Number(m[1]), label: m[2] ?? "" });
+    return out.sort((a, b) => a.x - b.x);
+  }
+
+  it("janela do fixture canônico: pelo menos 1 rótulo, nunca o '1 rótulo perdido no meio' do bug original", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    const ticks = extrairTicks(html);
+    expect(ticks.length).toBeGreaterThan(1); // o bug original era exatamente 1
+  });
+
+  /** O caso real do crítico: goal ausente (`goalId: null`), tarefas SEM data alcançável (`semDuracao`, sem barra) — igual ao fixture `/crit-semgoal` da rodada 2. */
+  function propsSemGoal(): LinhaDoTempoProps {
+    return {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({ id: "SEM-CPM-1", titulo: "Sem CPM 1", foraDoCpm: true, semDuracao: true }),
+            tarefa({ id: "SEM-CPM-2", titulo: "Sem CPM 2", foraDoCpm: true, semDuracao: true }),
+          ],
+        },
+      ],
+    };
+  }
+
+  it("sem goal, tarefas sem data alcançável (fixture /crit-semgoal): nunca zero rótulos", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...propsSemGoal()} />);
+    const ticks = extrairTicks(html);
+    expect(ticks.length).toBeGreaterThan(0);
+  });
+
+  it("nenhum vão entre rótulos (nem da borda esquerda ao 1º) passa de ~160px, em qualquer janela", () => {
+    for (const p of [props(), propsSemGoal()]) {
+      const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+      const ticks = extrairTicks(html);
+      const xs = [0, ...ticks.map((t) => t.x)];
+      for (let i = 1; i < xs.length; i += 1) {
+        expect(xs[i]! - xs[i - 1]!).toBeLessThanOrEqual(160 + 1); // +1 de folga por arredondamento de dia
+      }
+    }
+  });
+});
+
 /** Achado BAIXO #18: pelo menos um fato GEOMÉTRICO (px), não só presença de classe. */
 describe("LinhaDoTempoView — geometria real, não só classe (achado BAIXO #18)", () => {
   it("a barra crítica de A nasce em left:0 (xFor(hoje) com hoje=início de A) com a largura certa", () => {

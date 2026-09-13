@@ -242,7 +242,11 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
     expect(linha.fim).toBe("2026-07-09");
   });
 
-  it("aberta fora do CPM com estimativa < 1 dia (0,5): vira marco, nunca a barra de 4px (regressão real do fixture)", () => {
+  it("aberta fora do CPM com estimativa < 1 dia (0,5): NUNCA marco (achado BAIXO #11, rodada 2) — a VIEW desenha barra curta, não diamante", () => {
+    // P5c: `marco` antes comparava DATAS truncadas (`inicio === fim` como
+    // string) — 0,5 dia soma menos de 24h e trunca pro MESMO dia, então virava
+    // diamante como se a duração fosse zero. A duração aqui É POSITIVA (0,5,
+    // não zero) — diamante é só para zero de verdade (`done`, ramo `semBarra`).
     const tasks = [
       task({ id: "MEIO-DIA", estimativaDias: 0.5 }),
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
@@ -251,8 +255,8 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
     const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
     const linha = tarefaPorId(props, "MEIO-DIA");
     expect(linha.foraDoCpm).toBe(true);
-    expect(linha.inicio).toBe(linha.fim);
-    expect(linha.marco).toBe(true);
+    expect(linha.inicio).toBe(linha.fim); // datas de calendário iguais (sub-dia) — mas...
+    expect(linha.marco).toBe(false); // ...NUNCA diamante: a duração é positiva.
     expect(linha.semDuracao).toBe(false); // tem estimativa VÁLIDA — só é curta demais para virar um dia inteiro
   });
 
@@ -387,6 +391,24 @@ describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes 
       expect(linha.datasInconsistentes).toBe(false);
       expect(linha.dataInvalida).toBe(false);
     }
+  });
+});
+
+describe("montarLinhaDoTempo — ordenação por rank em empate de ES (achado ALTO #10, rodada 2)", () => {
+  it("setup → build → deploy, todas fora do CPM (mesmo ES=+Infinity): a ordem respeita a precedência, não só o id", () => {
+    const tasks = [
+      task({ id: "deploy", predecessorIds: ["build"] }),
+      task({ id: "build", predecessorIds: ["setup"] }),
+      task({ id: "setup" }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const grupo = props.grupos.find((g) => g.titulo === "Tarefas");
+    const ordem = (grupo?.linhas ?? [])
+      .map((l) => l.id)
+      .filter((id) => id !== "GOAL");
+    expect(ordem).toEqual(["setup", "build", "deploy"]);
   });
 });
 

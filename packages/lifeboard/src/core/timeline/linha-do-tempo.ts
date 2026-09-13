@@ -161,6 +161,38 @@ interface TarefaOrdenavel {
   es: number;
 }
 
+/**
+ * P5c (achado ALTO #10 do crítico hostil, rodada 2): "rank" topológico —
+ * distância (em arestas) até a raiz mais funda de predecessores — usado como
+ * DESEMPATE entre `es` e `critico` na ordenação. Sem isto, duas tarefas com o
+ * MESMO `es` (o caso comum de tudo `foraDoCpm`, onde `es = +Infinity` para
+ * todo mundo) caem só no desempate `critico`/id, e uma predecessora podia
+ * desenhar ABAIXO da sua sucessora na tela (setup → build → deploy fora de
+ * ordem). `rank(t) = 0` sem predecessor; senão `1 + max(rank(pred))`. Ciclo
+ * (predecessor que está no próprio caminho de cálculo) trata como "resolvido"
+ * — mesma convenção de `dag.ts`/`caminho-critico.ts` para não travar nem lançar.
+ */
+function calcularRanks(predecessores: ReadonlyMap<string, Set<string>>): Map<string, number> {
+  const memo = new Map<string, number>();
+  const emProgresso = new Set<string>();
+  function rankDe(id: string): number {
+    const guardado = memo.get(id);
+    if (guardado !== undefined) return guardado;
+    if (emProgresso.has(id)) return 0; // ciclo — nunca lança, nunca trava
+    emProgresso.add(id);
+    const preds = predecessores.get(id);
+    let rank = 0;
+    if (preds) {
+      for (const p of preds) rank = Math.max(rank, rankDe(p) + 1);
+    }
+    emProgresso.delete(id);
+    memo.set(id, rank);
+    return rank;
+  }
+  for (const id of predecessores.keys()) rankDe(id);
+  return memo;
+}
+
 /** ISO curto de `t.dueDate`, só quando parseia; `null` senão (nunca lança). */
 function dueDateValida(t: Task): string | null {
   return t.dueDate && paraEpoch(t.dueDate) !== null ? paraDataCurta(t.dueDate) : null;
@@ -224,9 +256,13 @@ function montaTarefa(
       folga: janela.folga,
       semDuracao: cpm.semDuracao.includes(t.id),
       foraDoCpm: false,
-      // Duração zero (`done` no CPM tem duração 0 por construção — regra do
-      // CPM em tipos-v3.ts): losango, nunca a barra de 4px (achado ALTO #8).
-      marco: inicio === fim,
+      // P5c (achado BAIXO #11 do crítico hostil, rodada 2): duração zero de
+      // VERDADE (`es === ef`, `done` no CPM tem duração 0 por construção) →
+      // losango. Comparar as datas TRUNCADAS (`inicio === fim`) confundia isto
+      // com qualquer duração sub-diária (0,5 dia também trunca pro mesmo dia de
+      // calendário) — essa comparação foi para `es`/`ef` NUMÉRICOS, antes do
+      // truncamento, que é o único jeito de distinguir "zero" de "menos de 1 dia".
+      marco: janela.es === janela.ef,
       datasInconsistentes: false,
       semBarra: false,
       pontoConcluidoEm: null,
@@ -273,11 +309,16 @@ function montaTarefa(
     folga: 0,
     semDuracao: estimativa === null,
     foraDoCpm: true,
-    // Achado ALTO #8, reencontrado no fixture real: `estimativaDias` < 1 dia
-    // (ex.: 0,5) soma menos de 24h — `somaDias` trunca pro MESMO dia de
-    // calendário, e a barra ficava de 4px sem nunca virar marco. Mesma
-    // comparação por dia-de-calendário do ramo do CPM: nunca hardcoded false.
-    marco: inicio === fim,
+    // P5c (achado BAIXO #11, rodada 2): FORA do CPM a duração nunca é zero de
+    // verdade (`estimativaValida` exige > 0; zero de verdade é `done`, que sai
+    // pelo ramo `semBarra` acima, antes de chegar aqui) — então isto NUNCA é
+    // um marco. `estimativaDias` < 1 dia (ex.: 0,5) soma menos de 24h e
+    // `somaDias` trunca pro MESMO dia de calendário (`inicio === fim` como
+    // STRING), mas a duração real é positiva: antes isso virava diamante
+    // (escondendo que a tarefa TEM duração); agora a VIEW desenha uma barra
+    // curta com piso de 12px (`LARGURA_MINIMA_BARRA`) — nunca diamante, nunca
+    // os 4px ilegíveis de antes.
+    marco: false,
     datasInconsistentes: false,
     semBarra: false,
     pontoConcluidoEm: null,
@@ -300,12 +341,16 @@ export function montarLinhaDoTempo(
 
   const { predecessores, sucessores } = precedenciaDeclarada(tasks, edges);
   const fontePorTask = mapaFontePorTask(tasks, sources);
+  const ranks = calcularRanks(predecessores);
 
   const tarefasOrdenaveis = tasks.map((t) =>
     montaTarefa(t, cpm, fontePorTask, predecessores, sucessores, scores, hoje),
   );
   tarefasOrdenaveis.sort((a, b) => {
     if (a.es !== b.es) return a.es - b.es;
+    const rankA = ranks.get(a.row.id) ?? 0;
+    const rankB = ranks.get(b.row.id) ?? 0;
+    if (rankA !== rankB) return rankA - rankB;
     if (a.row.critico !== b.row.critico) return a.row.critico ? -1 : 1;
     return a.row.id.localeCompare(b.row.id);
   });
