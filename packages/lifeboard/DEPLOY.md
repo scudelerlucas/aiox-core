@@ -127,7 +127,7 @@ os passos abaixo.
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
 
-## Fila de prompts entre as 3 contas (P7 · rodada 3, 13/09/2026)
+## Fila de prompts entre as 3 contas (P7 · rodada 4, 13/09/2026)
 
 Pedido do operador: "poder promptar soluções pelo painel na conta que tem mais tokens
 disponíveis para a complexidade da tarefa". Arquitetura decidida pelo mapa `!4z` do hub
@@ -139,10 +139,34 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 - **Migrations:** `0007_lifeboard_v3_fila_prompts.sql` (tabelas
   `painel_fila_prompts`/`painel_teto_diario`, seed US$150/dia — régua da casa
   `teto-de-gasto-diario`) → `0009_lifeboard_v3_fila_ajustes.sql` → `0011_lifeboard_v3_fila_ajustes_2.sql`
-  → **`0012_lifeboard_v3_fila_posse_e_tentativas.sql`** (a rodada 3, aditiva e re-aplicável;
-  o cabeçalho do arquivo traz as 9 decisões por extenso).
+  → `0012_lifeboard_v3_fila_posse_e_tentativas.sql` (rodada 3: posse, tentativa com fim,
+  elegibilidade por item) → **`0013_lifeboard_v3_fila_contabilidade.sql`** (a rodada 4, aditiva e
+  re-aplicável; o cabeçalho do arquivo traz D10–D20 por extenso).
 
-### O que a rodada 3 mudou
+### O que a rodada 4 mudou — a contabilidade do gasto
+
+> **O princípio:** o gasto do dia **nunca diminui por dado externo não validado**; toda
+> ambiguidade conta **para cima** e **aparece na tela**. As 14 reprovações da rodada anterior
+> eram a mesma frase — "a contabilidade erra para baixo e cala".
+
+| | Decisão | Efeito |
+|---|---|---|
+| **D10** | **subtração, não exclusão** | D6 tirava o item do consumo pela MERA EXISTÊNCIA de uma linha em `painel_frentes_sessoes` com o mesmo `session_id` — e **21 das 215 sessões reais têm `custo_usd` nulo**: publicar a sessão filha sem custo APAGAVA o custo medido pelo worker. Agora cada item contribui `greatest(custo_usd − coalesce(custo da sessão, 0), 0)` (`painel_fila_itens_do_dia`). Provado ao vivo: medido 118,40 → publicar **sem** custo = 118,40 → publicar com 100 = 118,40 (100 da sessão + 18,40 do item) → publicar com 130 = 130,00. |
+| **D11** | **`session_id` é chave** | índice único parcial `painel_fila_prompts_session_unico`; `heartbeat_interno`/`fechar_interno` recusam `p_session_id = p_worker_id` ("session_id é o id da sessão FILHA, não o da Routine" — o doc do worker entregava os dois ids no mesmo bloco) e `session_id` já vinculado a outro item ("sessão já vinculada ao item X"). |
+| **D12** | **cancelar não perdoa** | `fila_prompts_cancelar` sobre `pega` grava `custo_usd` = o ESTIMADO quando ainda não há custo; `painel_fila_consumo_hoje` passa a somar `cancelada` que já teve dono; e `fechar_interno` sobre `cancelada` **do próprio dono** é aceito e troca só `custo_usd`/`session_id` (estado continua `cancelada`, retorno `{ok:true, estado:'cancelada'}`) — é assim que a medição real substitui a estimativa. Provado: cancelar `pega` (estimado 50) → consumo 50; fechar depois com 33 → consumo 33. |
+| **D13** | **uma régua só** | `headroom = teto − medido − em_execucao` decide admissão, pull e tela; "espaço livre com fila" (`headroom − na_fila`) só ESCOLHE a conta e alimenta a previsão. `cabe_hoje = estimado <= headroom`. **A tela nunca mostra número negativo** (clamp em 0 + "sem espaço livre agora" — o crítico mediu *"US$ -20,00 livres"*). Provado: headroom 30 + estimado 20 → `cabe_hoje:true`, inclusive com `espaco_livre_usd = -10,00`. |
+| **D14** | **o SQL não escreve frase** | `fila_prompts_enfileirar` devolve `motivo_codigo` (`auto_maior_espaco` \| `auto_nao_cabe_hoje` \| `manual_cabe` \| `manual_nao_cabe_hoje`) + números; quem monta a frase é `src/app/prompts/actions.ts`, num **formatador único** para erro e sucesso (`fraseDoEnfileiramento`/`fraseDoCancelamento` em `core/prompts/tipos.ts`). Antes, em live, ia cru: *"roteamento automatico: maior espaco livre hoje (US$ 150.00)"*. Teste: `tests/unit/prompts-mensagem-live.test.tsx` (fetch mockado → ação → componente renderizado). |
+| **D15** | **paginação keyset** | `fila_prompts_listar(p_secret, p_limite, p_antes_de, p_antes_id)` ordena por `(criado_em desc, id desc)` e corta por `(criado_em, id) < (p_antes_de, p_antes_id)`; devolve `proximoAntesDe`/`proximoAntesId`. A tela guarda o cursor em `?antes=<iso>&antesId=<uuid>` — antes, "mostrar mais" só engordava `?limite=`, que morre em 200 (numa fila de 205, 5 itens eram inalcançáveis). Provado: 205 itens → 5 páginas de 50 chegando ao 205º. |
+| **D16** | **o fixture calcula de verdade** | `prompts-fila.fixture-store.ts` soma `concluida`/`falhou`/`cancelada com dono` do dia pela mesma regra (D10/D12) — o `medido` deixou de ser constante, e os testes de "o teto barra o pull" passaram a mexer no consumo de verdade. |
+| **D17** | **o espelho olha o SQL** | `tests/unit/prompts-espelho-sql.test.ts` LÊ `0012`/`0013` do disco e compara: ordem das contas no `case` × `CONTAS`, janela de expiração × `JANELA_HEARTBEAT_MIN`, default de tentativas × `MAX_TENTATIVAS`. O espelho anterior era TS comparado com TS. |
+| **D18** | **cadência do heartbeat** | `fila_prompts_heartbeat_interno` devolve `expira_em` (heartbeat + 45 min) para a Routine ver o relógio; o doc do worker passa a exigir renovação **a cada 10 min no máximo**, com a espera pela filha em laço de `list_events` + pausa de 5 min. |
+| **D19** | **backoff** | coluna `disponivel_em`: item devolvido por expiração só volta a ser elegível depois de `15 min × tentativas`; o pull ignora quem está de castigo e nomeia "N itens em espera de nova tentativa". |
+| **D20** | **estimativa marcada e ajustável** | item morto continua contando o estimado (nunca perdoar), mas a parcela é rastreada (`custo_e_estimativa`) e dita em voz alta no pull e no cartão: *"US$ X do consumo são estimativa de N itens que morreram sem fechar"*. Porta de saída: `fila_prompts_ajustar_custo(p_secret, p_id, p_custo_usd)` (só `falhou`/`cancelada` fechados HOJE) grava `custo_ajustado_em` e apaga a marca — botão "ajustar custo" na linha. |
+| **#11** | **mensagens que não mentem** | `cancelar` devolve `motivo_codigo` distinguindo `cancelado_nunca_pego` (de graça) × `cancelado_apos_devolucao` × `cancelado_em_execucao`; pull que devolveu item e não pegou nada diz "1 item(ns) devolvido(s) para a fila, aguardando nova tentativa" em vez de "fila vazia". |
+| **#12** | **desempate na ordem** | `order by criado_em, id` no pull e `(criado_em desc, id desc)` na listagem — dois itens do mesmo microssegundo tinham ordem indefinida entre chamadas. |
+| **#14** | **`pega` sem `pego_em`** | `check (estado <> 'pega' or pego_em is not null)` (`not valid` + `validate`): sem `pego_em` **nem** `heartbeat_em`, nenhuma expiração alcançava o item — ele era imortal e reservava orçamento para sempre. |
+
+### O que a rodada 3 tinha mudado (continua valendo)
 
 | | Decisão | Efeito |
 |---|---|---|
@@ -160,11 +184,12 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 
 | RPC | Quem chama | Assinatura |
 |---|---|---|
-| `fila_prompts_enfileirar` | painel (segredo) | `(p_secret text, p_payload jsonb)` → `{ok, id, conta, modelo_sugerido, motivo, cabe_hoje, espaco_livre_usd}` |
-| `fila_prompts_cancelar` | painel (segredo) | `(p_secret text, p_id uuid)` — aceita `na_fila` e `pega` |
-| `fila_prompts_listar` | painel (segredo) | `(p_secret text, p_limite integer default 50, p_antes_de timestamptz default null)` — **a versão de 1 argumento foi removida** (duas assinaturas com default dariam "function is not unique") |
+| `fila_prompts_enfileirar` | painel (segredo) | `(p_secret text, p_payload jsonb)` → `{ok, id, conta, complexidade, modelo_sugerido, motivo_codigo, cabe_hoje, headroom_usd, espaco_livre_usd, custo_estimado_usd, na_fila_usd, itens_na_frente}` — **sem `motivo`**: nenhuma frase atravessa o banco (D14) |
+| `fila_prompts_cancelar` | painel (segredo) | `(p_secret text, p_id uuid)` → `{ok, motivo_codigo, tentativas, custo_lancado_usd}` — aceita `na_fila` e `pega` |
+| `fila_prompts_ajustar_custo` | painel (segredo) | `(p_secret text, p_id uuid, p_custo_usd numeric)` — só `falhou`/`cancelada` fechados hoje (D20) |
+| `fila_prompts_listar` | painel (segredo) | `(p_secret text, p_limite integer default 50, p_antes_de timestamptz default null, p_antes_id uuid default null)` — **as versões de 1 e de 3 argumentos foram removidas** (duas assinaturas com default dariam "function is not unique") |
 | `fila_prompts_pegar_interno` | worker (sem segredo) | `(p_conta text, p_worker_id text)` — **a de 1 argumento foi removida**: sem ela, um worker pegaria item sem gravar posse nem tentativa |
-| `fila_prompts_heartbeat_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_session_id text default null)` — nunca levanta exceção por estado; devolve `{ok:false, motivo}` |
+| `fila_prompts_heartbeat_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_session_id text default null)` — nunca levanta exceção por ESTADO (devolve `{ok:false, motivo}`); levanta, sim, quando o `session_id` é o do worker ou já é de outro item (D11). Devolve `expira_em` (D18) |
 | `fila_prompts_fechar_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_estado text, p_custo_usd numeric, p_session_id text default null, p_sessao_url text default null, p_resultado text default null)` — **a de 6 argumentos foi removida** |
 
 As três `_interno` são `SECURITY DEFINER` com `revoke all from public, anon, authenticated` — só
@@ -172,7 +197,10 @@ dono/`postgres` executa, que é o papel do MCP Supabase da PRÓPRIA conta
 (`mcp__Supabase__execute_sql`), sem nenhum segredo de aplicação em trânsito. Provado ao vivo:
 `has_function_privilege('anon'|'authenticated', …)` = `false` nas 3, e nas 4 funções auxiliares
 (`painel_fila_consumo_hoje`, `painel_fila_reservado`, `painel_fila_na_fila`,
-`painel_fila_medido_ate`).
+`painel_fila_medido_ate`) — e, desde a rodada 4, também em `painel_fila_itens_do_dia`,
+`painel_fila_estimativa_usd`, `painel_fila_estimativa_itens` e `painel_fila_em_espera`.
+`fila_prompts_ajustar_custo` é secret-gated como as demais RPCs do painel: chamada sem o segredo
+(ou com o errado) devolve `fila_prompts_ajustar_custo: acesso negado`.
 
 ### O que continua valendo das rodadas anteriores
 
@@ -198,9 +226,13 @@ livre em US$, o que espera na fila, cor ok/warn/crit, e no teto "próximo espaç
 sugerir modelo) + formulário "Novo prompt" (complexidade → modelo ao vivo; "não cabe hoje" é
 AVISO, não bloqueio — só o impossível desabilita o envio) + tabela da fila com estado ("sem
 sinal" quando o worker emudeceu), idade da execução, último sinal, tentativa N de M, prompt
-truncado/expansível, cancelar em `na_fila` e `pega`, e "mostrar mais 50". Modo fixture: store em
-memória (`src/lib/repositories/prompts-fila.fixture-store.ts`) que espelha D1–D3/D7/D8, coberto
-por `tests/unit/prompts-fila-fixture-store.test.ts`.
+truncado/expansível, cancelar em `na_fila` e `pega`, e "mostrar mais" por CURSOR (D15). Rodada 4
+na tela: nenhum número negativo (D13 — "sem espaço livre agora"), a parcela de estimativa dita no
+cartão e marcada na célula de custo ("estimativa da casa"), botão **ajustar custo** na linha de
+item `falhou`/`cancelada` cujo número a casa estimou (D20), e a frase de resposta montada em TS
+(D14). Modo fixture: store em memória (`src/lib/repositories/prompts-fila.fixture-store.ts`) que
+espelha D1–D3/D7/D8 e, agora, D10/D12/D15/D16/D19/D20 — coberto por
+`tests/unit/prompts-fila-fixture-store.test.ts` (30 casos).
 
 ## Rollback
 

@@ -7,7 +7,8 @@ import {
   CUSTO_ESTIMADO_POR_COMPLEXIDADE,
   MODELO_POR_COMPLEXIDADE,
   custoEstimadoParaComplexidade,
-  espacoLivreUsd,
+  headroomUsd,
+  textoEspacoLivre,
 } from "@/core/prompts/tipos";
 
 /**
@@ -38,6 +39,9 @@ function consumo(
     consumoHojeUsd: medido,
     reservadoUsd: emExecucao,
     naFilaUsd: naFila,
+    estimativaUsd: 0,
+    estimativaItens: 0,
+    emEspera: 0,
     medidoAteEm: null,
   };
 }
@@ -92,8 +96,35 @@ describe("escolherConta", () => {
     // D9: frase gramatical, rótulo da conta, complexidade por extenso, vírgula decimal.
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 120,00 livres hoje para uma tarefa máxima. " +
-        "A mais próxima (Pandora) tem US$ 102,90.",
+        "A mais folgada (Pandora) tem US$ 102,90.",
     );
+  });
+
+  // ── D13 (rodada 4): UMA RÉGUA — quem decide `cabeHoje` é o HEADROOM ───────
+  it("D13 — a fila parada escolhe a conta, mas NÃO decide se cabe hoje", () => {
+    // Pandora: headroom 150 (nada medido, nada em execução) e 149 esperando na
+    // fila. Antes, `cabeHoje` olhava o espaço COM a fila (1) e dizia "não cabe"
+    // sobre uma conta que não gastou um centavo. Agora o veredito é o headroom.
+    const r = escolherConta([consumo(LUCAS, 150), consumo(PANDORA, 0, 0, 149)], "alta");
+    expect(r.conta).toBe(PANDORA);
+    expect(r.headroomUsd).toBe(150);
+    expect(r.espacoLivreUsd).toBe(1);
+    expect(r.cabeHoje).toBe(true);
+    // e a previsão aparece na frase, sem virar veredito:
+    expect(r.motivo).toContain("US$ 149,00 já esperando na fila");
+  });
+
+  it("D13 — headroom 30 e uma tarefa de 5: cabe_hoje true (o caso do banco)", () => {
+    const r = escolherConta([consumo(LUCAS, 0, 120)], "baixa"); // 150 − 120 = 30
+    expect(r.headroomUsd).toBe(30);
+    expect(r.cabeHoje).toBe(true);
+  });
+
+  it("D13 — conta acima do teto: headroom negativo, e a TELA nunca mostra isso", () => {
+    const estourada = consumo(LUCAS, 170);
+    expect(escolherConta([estourada], "baixa").headroomUsd).toBe(-20);
+    // O crítico mediu "US$ -20,00 livres" na tela — agora é impossível:
+    expect(textoEspacoLivre(estourada)).toBe("sem espaço livre agora");
   });
 
   it("D3 — o ÚNICO `null`: a tarefa custa mais que o teto de qualquer conta", () => {
@@ -182,6 +213,16 @@ interface Cenario {
  *  · "elegibilidade": fila [maxima 120, baixa 5] com medido 40 →
  *    `pegar_interno` trouxe a `baixa` com `pulados=1`; com medido 148 →
  *    `item:null` e motivo citando "o mais barato da fila custa US$ 5.00".
+ *
+ * RODADA 4, rodados ao vivo em 13/09/2026 (mesma disciplina, com rollback):
+ *  · D13 "uma régua só": teto ajustado para `medido + em_execucao + 30` e
+ *    `painel_custo_estimado.media` em 20 → 1º item `cabe_hoje=true
+ *    headroom=30.00 espaco_livre=30.00`; 3º item (fila já maior que o
+ *    headroom) `cabe_hoje=true headroom=30.00 espaco_livre=-10.00` — o
+ *    espaço negativo existe no SQL e a TELA o clampa (`textoEspacoLivre`).
+ *  · D14 "código, não frase": auto/baixa → `motivo_codigo=auto_maior_espaco`;
+ *    auto/alta com headroom 30 → `auto_nao_cabe_hoje`; manual/alta →
+ *    `manual_nao_cabe_hoje`. As chaves devolvidas NÃO incluem `motivo`.
  */
 const CENARIOS: readonly Cenario[] = [
   {
@@ -219,6 +260,17 @@ const CENARIOS: readonly Cenario[] = [
     contaNoBanco: PANDORA,
     cabeHojeNoBanco: true,
   },
+  {
+    // Rodada 4 (D13): a fila parada continua ESCOLHENDO a conta, mas o veredito
+    // "cabe hoje" é do headroom. Provado ao vivo no mesmo dia: com headroom 30
+    // e estimado 20, `fila_prompts_enfileirar` devolveu `cabe_hoje=true` mesmo
+    // com `espaco_livre_usd=-10,00` (fila maior que o headroom).
+    rotulo: "D13 — fila de 149 na Pandora não impede uma tarefa alta de entrar hoje",
+    consumos: [consumo(LUCAS, 150), consumo(PANDORA, 0, 0, 149), consumo(ALMA, 150)],
+    complexidade: "alta",
+    contaNoBanco: PANDORA,
+    cabeHojeNoBanco: true,
+  },
 ];
 
 describe("paridade com o roteamento SQL (fila_prompts_enfileirar, migration 0012)", () => {
@@ -251,8 +303,10 @@ describe("paridade com o roteamento SQL (fila_prompts_enfileirar, migration 0012
       const noTs = escolherConta(consumos, complexidade);
       expect(noTs.conta).toBe(espelhoDoSql(consumos));
       const escolhida = consumos.find((c) => c.conta === noTs.conta) as ConsumoConta;
+      // D13: a régua é o headroom da conta ESCOLHIDA (a mesma comparação que
+      // `fila_prompts_enfileirar` faz depois de escolher).
       expect(noTs.cabeHoje).toBe(
-        espacoLivreUsd(escolhida) >= custoEstimadoParaComplexidade(complexidade),
+        custoEstimadoParaComplexidade(complexidade) <= headroomUsd(escolhida),
       );
     }
   });

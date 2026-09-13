@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { novoPromptAction } from "@/app/prompts/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
+import { MensagemDaFila } from "@/components/prompts/mensagem-da-fila";
 import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
 import type { Complexidade } from "@/core/prompts/tipos";
 import { CONTAS, ROTULO_CONTA, ROTULO_COMPLEXIDADE } from "@/core/prompts/tipos";
@@ -165,12 +166,11 @@ export function NovoPromptForm({
       </div>
 
       <CampoErro mensagem={estado.erro} />
-      {estado.ok && estado.conta ? (
-        <p role="status" className="mt-2 text-xs font-medium text-state-done">
-          Enfileirado para {ROTULO_CONTA[estado.conta as keyof typeof ROTULO_CONTA] ?? estado.conta}
-          {estado.motivo ? ` — ${estado.motivo}` : ""}.
-        </p>
-      ) : null}
+      {/* D14 (rodada 4): a frase INTEIRA vem pronta da server action — nada de
+          costurar aqui o texto que o banco devolveu (era assim que, em modo
+          live, "roteamento automatico: maior espaco livre hoje (US$ 150.00)"
+          chegava cru na tela, sem acento e com ponto decimal). */}
+      {estado.ok ? <MensagemDaFila mensagem={estado.mensagem} cabeHoje={estado.cabeHoje} /> : null}
       {/* D3: dois avisos diferentes, porque são duas coisas diferentes — um é
           "espera até amanhã" (o item entra), o outro é "nunca" (o banco recusa). */}
       {impossivel ? (

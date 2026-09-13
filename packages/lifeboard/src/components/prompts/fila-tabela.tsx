@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { AjustarCustoBotao } from "@/components/prompts/ajustar-custo-botao";
 import { CancelarBotao } from "@/components/prompts/cancelar-botao";
 import { EstadoFilaChip } from "@/components/prompts/estado-fila-chip";
 import { formatRelativeTime } from "@/lib/format-relative-time";
@@ -74,6 +75,30 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
 }
 
 /**
+ * D20: só item cujo custo é ESTIMATIVA DA CASA ganha o botão de ajuste —
+ * `falhou` por expiração ou `cancelada` em execução. Item fechado por worker
+ * já tem número medido; oferecer "ajustar" ali seria convidar a inventar.
+ */
+function podeAjustarCusto(item: ItemFilaPrompt): boolean {
+  return item.custoEEstimativa && (item.estado === "falhou" || item.estado === "cancelada");
+}
+
+/** D20: a célula de custo diz de onde o número veio. */
+function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
+  if (item.custoUsd === null) return <span className="text-bone-500">—</span>;
+  return (
+    <span className={item.custoEEstimativa ? "text-state-progress" : undefined}>
+      {formatarUsd(item.custoUsd)}
+      {item.custoEEstimativa ? (
+        <span className="block text-[11px] text-state-progress">estimativa da casa</span>
+      ) : item.custoAjustadoEm !== null ? (
+        <span className="block text-[11px] text-bone-400">ajustado por você</span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * OS-LIFEBOARD · P7 — a tabela da fila: estado (com "sem sinal"), conta,
  * complexidade/modelo, prompt (prévia + "ver tudo"), idades, custo, link da
  * sessão e cancelar. Mobile: vira lista de cartões (tabela larga rolando de
@@ -84,17 +109,49 @@ export function FilaTabela({
   agora,
   temMais,
   limiteAtual,
+  proximoAntesDe,
+  proximoAntesId,
+  emPaginaSeguinte,
 }: {
   itens: readonly ItemFilaPrompt[];
   agora: number;
   temMais?: boolean;
   limiteAtual?: number;
+  /** D15: cursor `(criadoEm, id)` do último item desta página. */
+  proximoAntesDe?: string | null;
+  proximoAntesId?: string | null;
+  /** D15: já estamos numa página seguinte (há um "voltar ao começo" a oferecer). */
+  emPaginaSeguinte?: boolean;
 }): JSX.Element {
+  const limite = limiteAtual ?? 50;
+  // D15: o link do "mostrar mais" carrega o CURSOR, não um limite maior. Com
+  // `?limite=` crescendo, uma fila de 205 itens tinha 5 inalcançáveis (a RPC
+  // trava em 200); com cursor, cada clique abre os 50 seguintes, sem teto.
+  const proxima =
+    temMais === true && proximoAntesDe && proximoAntesId
+      ? `/prompts?limite=${limite}&antes=${encodeURIComponent(proximoAntesDe)}&antesId=${encodeURIComponent(proximoAntesId)}`
+      : null;
+
   if (itens.length === 0) {
     return (
-      <p className="mt-4 rounded-lg border border-navy-700 bg-navy-850 px-4 py-6 text-center text-sm text-bone-400">
-        Nenhum prompt na fila ainda.
-      </p>
+      <div className="mt-4">
+        <p className="rounded-lg border border-navy-700 bg-navy-850 px-4 py-6 text-center text-sm text-bone-400">
+          {emPaginaSeguinte === true
+            ? "Acabou a fila — não há itens mais antigos que este ponto."
+            : "Nenhum prompt na fila ainda."}
+        </p>
+        {emPaginaSeguinte === true ? (
+          <div className="mt-3 text-center">
+            <Link
+              href="/prompts"
+              prefetch={false}
+              className="inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-850 px-4 text-sm text-bone-100 hover:border-gold-600"
+            >
+              voltar ao começo da fila
+            </Link>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -136,7 +193,7 @@ export function FilaTabela({
                   {formatRelativeTime(item.criadoEm, agora)}
                 </td>
                 <td className="px-3 py-2.5 align-top text-bone-300">
-                  {item.custoUsd !== null ? formatarUsd(item.custoUsd) : "—"}
+                  <CelulaCusto item={item} />
                 </td>
                 <td className="px-3 py-2.5 align-top">
                   {item.sessaoUrl ? (
@@ -155,6 +212,8 @@ export function FilaTabela({
                 <td className="px-3 py-2.5 align-top text-right">
                   {podeCancelar(item) ? (
                     <CancelarBotao id={item.id} emExecucao={item.estado === "pega"} />
+                  ) : podeAjustarCusto(item) ? (
+                    <AjustarCustoBotao id={item.id} custoAtualUsd={item.custoUsd} />
                   ) : null}
                 </td>
               </tr>
@@ -184,7 +243,9 @@ export function FilaTabela({
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
               <p className="text-xs text-bone-400">
-                {item.custoUsd !== null ? formatarUsd(item.custoUsd) : "sem custo ainda"}
+                {item.custoUsd !== null
+                  ? `${formatarUsd(item.custoUsd)}${item.custoEEstimativa ? " (estimativa da casa)" : ""}`
+                  : "sem custo ainda"}
                 {item.sessaoUrl ? (
                   <>
                     {" · "}
@@ -196,24 +257,36 @@ export function FilaTabela({
               </p>
               {podeCancelar(item) ? (
                 <CancelarBotao id={item.id} emExecucao={item.estado === "pega"} />
+              ) : podeAjustarCusto(item) ? (
+                <AjustarCustoBotao id={item.id} custoAtualUsd={item.custoUsd} />
               ) : null}
             </div>
           </div>
         ))}
       </div>
 
-      {/* D8: a tela mostra 50 e um "mostrar mais" — o próximo passo pede mais 50
-          à RPC (link real, sem estado de cliente: a página é Server Component). */}
-      {temMais ? (
-        <div className="mt-3 text-center">
-          <Link
-            href={`/prompts?limite=${(limiteAtual ?? 50) + 50}`}
-            prefetch={false}
-            scroll={false}
-            className="inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-850 px-4 text-sm text-bone-100 hover:border-gold-600"
-          >
-            mostrar mais 50
-          </Link>
+      {/* D15: "mostrar mais" anda com o CURSOR do último item desta página
+          (link real, sem estado de cliente: a página é Server Component). */}
+      {proxima !== null || emPaginaSeguinte === true ? (
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          {emPaginaSeguinte === true ? (
+            <Link
+              href="/prompts"
+              prefetch={false}
+              className="inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-850 px-4 text-sm text-bone-100 hover:border-gold-600"
+            >
+              voltar ao começo da fila
+            </Link>
+          ) : null}
+          {proxima !== null ? (
+            <Link
+              href={proxima}
+              prefetch={false}
+              className="inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-850 px-4 text-sm text-bone-100 hover:border-gold-600"
+            >
+              mostrar mais {limite}
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>

@@ -96,10 +96,22 @@ export function formatarUsd(valor: number): string {
 
 // ── D1/D2 · posse e sinal de vida ────────────────────────────────────────────
 
-/** 45 min sem sinal = o worker morreu (mesma constante do SQL, 0012). */
-export const HEARTBEAT_LIMITE_MIN = 45;
+/**
+ * 45 min sem sinal = o worker morreu. D17 (rodada 4): esta constante e a
+ * próxima NÃO são "a mesma coisa do SQL" por promessa — `tests/unit/
+ * prompts-espelho-sql.test.ts` LÊ as migrations do disco e compara. Renomeadas
+ * nesta rodada (`HEARTBEAT_LIMITE_MIN` → `JANELA_HEARTBEAT_MIN`) para o teste
+ * apontar para um nome só.
+ */
+export const JANELA_HEARTBEAT_MIN = 45;
 const MINUTO_MS = 60_000;
-export const HEARTBEAT_LIMITE_MS = HEARTBEAT_LIMITE_MIN * MINUTO_MS;
+export const JANELA_HEARTBEAT_MS = JANELA_HEARTBEAT_MIN * MINUTO_MS;
+
+/** Quantas vezes um item pode ser pego antes de virar `falhou` (default do SQL). */
+export const MAX_TENTATIVAS = 3;
+
+/** D19 (rodada 4): castigo de um item devolvido — 15 min × tentativas. */
+export const BACKOFF_POR_TENTATIVA_MIN = 15;
 
 export const ESTADOS_FILA = ["na_fila", "pega", "concluida", "falhou", "cancelada"] as const;
 export type EstadoFila = (typeof ESTADOS_FILA)[number];
@@ -129,6 +141,12 @@ export interface ItemFilaPrompt {
   sessionId: string | null;
   /** D2: por que virou `falhou` sem o worker dizer nada. */
   motivoFalha: string | null;
+  /** D20: o `custoUsd` foi lançado pela casa (ninguém mediu) — a tela marca. */
+  custoEEstimativa: boolean;
+  /** D20: quando o operador corrigiu o custo pela tela (ISO) — null se nunca. */
+  custoAjustadoEm: string | null;
+  /** D19: item devolvido só volta a ser elegível a partir deste instante (ISO). */
+  disponivelEm: string | null;
   sessaoUrl: string | null;
   resultado: string | null;
   criadoPor: string | null;
@@ -144,6 +162,12 @@ export interface ConsumoConta {
   reservadoUsd: number;
   /** D3: soma do estimado do que ESPERA (`na_fila`) — só pesa na ESCOLHA da conta, nunca na recusa. */
   naFilaUsd: number;
+  /** D20: quanto do `consumoHojeUsd` é ESTIMATIVA da casa (ninguém mediu). */
+  estimativaUsd: number;
+  /** D20: quantos itens formam essa parcela. */
+  estimativaItens: number;
+  /** D19: quantos itens estão de castigo (backoff) esperando nova tentativa. */
+  emEspera: number;
   /** Instante da última sincronização medida (ISO) — null se nenhuma sessão foi publicada hoje. */
   medidoAteEm: string | null;
 }
@@ -154,6 +178,10 @@ export interface FilaPromptsState {
   /** D8: existe página anterior a esta (itens mais antigos) além do limite pedido. */
   temMais: boolean;
   limite: number;
+  /** D15: cursor do ÚLTIMO item desta página — vira `?antes=` na URL. */
+  proximoAntesDe: string | null;
+  /** D15: o `id` do mesmo item — o desempate do cursor (`?antesId=`). */
+  proximoAntesId: string | null;
 }
 
 /** Faixa de cor da barra de consumo. */
@@ -205,7 +233,7 @@ export function semSinal(item: ItemFilaPrompt, agora: number): boolean {
   if (!ultimo) return true;
   const t = Date.parse(ultimo);
   if (Number.isNaN(t)) return true;
-  return agora - t > HEARTBEAT_LIMITE_MS;
+  return agora - t > JANELA_HEARTBEAT_MS;
 }
 
 /** "2 h 10 min", "37 min", "3 d 4 h" — duração sóbria, sem "há". */
@@ -241,4 +269,158 @@ export function descricaoExecucao(item: ItemFilaPrompt, agora: number): string |
     return `sem sinal há ${desdeSinal ?? "muito tempo"} — ${fim}`;
   }
   return `em execução há ${idade ?? "pouco"} · último sinal há ${desdeSinal ?? "pouco"}`;
+}
+
+// ── D13 · uma régua só, e nunca um número negativo na tela ───────────────────
+
+/**
+ * O que a TELA mostra de espaço livre. A régua é o headroom (`teto − medido −
+ * em_execucao`) — o mesmo número que o pull compara. Negativo não vira
+ * "US$ -20,00 livres": vira "sem espaço livre agora", porque dívida de teto
+ * não é espaço.
+ */
+export function textoEspacoLivre(consumo: ConsumoConta): string {
+  const headroom = headroomUsd(consumo);
+  if (headroom <= 0) return "sem espaço livre agora";
+  return `${formatarUsd(headroom)} livres`;
+}
+
+/**
+ * D13: a previsão — quanto sobra DEPOIS do que já está na fila daquela conta.
+ * Serve para escolher a conta e para avisar; nunca para recusar. Clampada em 0
+ * pelo mesmo motivo acima.
+ */
+export function textoPrevisaoComFila(consumo: ConsumoConta, itensNaFrente?: number): string | null {
+  if (consumo.naFilaUsd <= 0) return null;
+  const sobra = Math.max(0, espacoLivreUsd(consumo));
+  // A contagem só entra quando alguém a MEDIU (a RPC de enfileirar devolve
+  // `itens_na_frente`). Sem ela, a frase fala de dinheiro, que é o que se sabe
+  // — inventar um número de itens a partir do valor seria chute com cara de dado.
+  const sujeito =
+    itensNaFrente === undefined
+      ? `${formatarUsd(consumo.naFilaUsd)} já esperando na fila`
+      : `${itensNaFrente === 1 ? "1 item na frente soma" : `${itensNaFrente} itens na frente somam`} ${formatarUsd(consumo.naFilaUsd)}`;
+  return `${sujeito} — sobrariam ${formatarUsd(sobra)}`;
+}
+
+/**
+ * D20: a parcela do consumo que ninguém mediu. A tela precisa dizer isto em
+ * voz alta: um número inflado por estimativa pode congelar a conta o dia
+ * inteiro, e o operador tem que saber que pode corrigi-lo.
+ */
+export function textoEstimativa(consumo: ConsumoConta): string | null {
+  if (consumo.estimativaUsd <= 0 || consumo.estimativaItens <= 0) return null;
+  const itens =
+    consumo.estimativaItens === 1
+      ? "1 item que morreu sem fechar"
+      : `${consumo.estimativaItens} itens que morreram sem fechar`;
+  return `${formatarUsd(consumo.estimativaUsd)} do consumo são estimativa de ${itens}`;
+}
+
+// ── D14 · o SQL manda código + números; a frase nasce aqui ───────────────────
+
+/** Códigos devolvidos por `fila_prompts_enfileirar` (migration 0013). */
+export const MOTIVOS_ENFILEIRAR = [
+  "auto_maior_espaco",
+  "auto_nao_cabe_hoje",
+  "manual_cabe",
+  "manual_nao_cabe_hoje",
+] as const;
+export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
+
+export function motivoEnfileirarValido(v: string): v is MotivoEnfileirar {
+  return (MOTIVOS_ENFILEIRAR as readonly string[]).includes(v);
+}
+
+export interface NumerosDoEnfileiramento {
+  conta: Conta;
+  complexidade: Complexidade;
+  headroomUsd: number;
+  espacoLivreUsd: number;
+  custoEstimadoUsd: number;
+  naFilaUsd: number;
+  itensNaFrente: number;
+}
+
+/**
+ * A frase de sucesso que o operador lê — montada AQUI, com rótulo de conta,
+ * complexidade por extenso e vírgula decimal. Antes, em modo live, o texto vinha
+ * cru do Postgres ("roteamento automatico: maior espaco livre hoje (US$ 150.00)"):
+ * sem acento, com ponto decimal e com o vocabulário do banco.
+ */
+export function fraseDoEnfileiramento(
+  codigo: MotivoEnfileirar,
+  n: NumerosDoEnfileiramento,
+): string {
+  const conta = ROTULO_CONTA[n.conta];
+  const complexidade = ROTULO_COMPLEXIDADE[n.complexidade];
+  const espacoDepois =
+    n.naFilaUsd > 0
+      ? ` ${n.itensNaFrente === 1 ? "1 item na frente soma" : `${n.itensNaFrente} itens na frente somam`}` +
+        ` ${formatarUsd(n.naFilaUsd)}.`
+      : "";
+
+  switch (codigo) {
+    case "auto_maior_espaco":
+      return (
+        `Enfileirado para ${conta}: é a conta com maior espaço livre hoje ` +
+        `(${formatarUsd(Math.max(0, n.headroomUsd))} para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)}).${espacoDepois}`
+      );
+    case "manual_cabe":
+      return (
+        `Enfileirado para ${conta} (escolha manual): cabe hoje — ` +
+        `${formatarUsd(Math.max(0, n.headroomUsd))} livres para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)}.${espacoDepois}`
+      );
+    case "auto_nao_cabe_hoje":
+      return (
+        `Enfileirado para ${conta}: nenhuma conta tem ${formatarUsd(n.custoEstimadoUsd)} livres hoje ` +
+        `para uma tarefa ${complexidade} — a mais folgada tem ` +
+        `${n.headroomUsd > 0 ? formatarUsd(n.headroomUsd) : "nenhum espaço livre"}. ` +
+        `Entra na fila e roda quando houver espaço.`
+      );
+    case "manual_nao_cabe_hoje":
+      return (
+        `Enfileirado para ${conta} (escolha manual): não cabe hoje — ` +
+        `${n.headroomUsd > 0 ? `só ${formatarUsd(n.headroomUsd)} livres` : "sem espaço livre agora"} ` +
+        `para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)}. ` +
+        `Entra na fila e roda quando houver espaço.`
+      );
+  }
+}
+
+// ── #11 · cancelar: três histórias diferentes, três frases diferentes ────────
+
+export const MOTIVOS_CANCELAMENTO = [
+  "cancelado_nunca_pego",
+  "cancelado_apos_devolucao",
+  "cancelado_em_execucao",
+] as const;
+export type MotivoCancelamento = (typeof MOTIVOS_CANCELAMENTO)[number];
+
+export function motivoCancelamentoValido(v: string): v is MotivoCancelamento {
+  return (MOTIVOS_CANCELAMENTO as readonly string[]).includes(v);
+}
+
+export function fraseDoCancelamento(
+  codigo: MotivoCancelamento,
+  custoLancadoUsd: number,
+  tentativas: number,
+): string {
+  switch (codigo) {
+    case "cancelado_nunca_pego":
+      return "Cancelado. Este prompt nunca chegou a rodar, então não entrou no gasto de hoje.";
+    case "cancelado_apos_devolucao":
+      return (
+        `Cancelado. Ele já tinha sido pego ${tentativas === 1 ? "1 vez" : `${tentativas} vezes`} e voltado ` +
+        `para a fila, então ${formatarUsd(custoLancadoUsd)} entram no gasto de hoje como estimativa — ` +
+        `ajuste na linha se souber o valor real.`
+      );
+    case "cancelado_em_execucao":
+      return (
+        `Cancelado durante a execução. ${formatarUsd(custoLancadoUsd)} entram no gasto de hoje como ` +
+        `estimativa (a sessão estava rodando) — ajuste na linha se souber o valor real.`
+      );
+  }
 }

@@ -29,7 +29,12 @@ vi.mock("react", async (importOriginal) => {
   return { ...actual, cache: <T>(fn: T): T => fn };
 });
 
-import { cancelarPromptFila, enfileirarPrompt, loadFilaPromptsState } from "@/lib/supabase/live-client";
+import {
+  ajustarCustoPrompt,
+  cancelarPromptFila,
+  enfileirarPrompt,
+  loadFilaPromptsState,
+} from "@/lib/supabase/live-client";
 
 function respostaOk(corpo: unknown): Response {
   return new Response(JSON.stringify(corpo), {
@@ -51,8 +56,22 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
   });
 
   it("enfileirarPrompt POSTa em .../rpc/fila_prompts_enfileirar com p_secret e p_payload", async () => {
+    // D14 (rodada 4): a RPC devolve CÓDIGO + NÚMEROS, nunca uma frase.
     fetchMock.mockResolvedValueOnce(
-      respostaOk({ ok: true, id: "abc", conta: "lucasscudeler@gmail.com", modelo_sugerido: "Haiku", motivo: "x" }),
+      respostaOk({
+        ok: true,
+        id: "abc",
+        conta: "lucasscudeler@gmail.com",
+        complexidade: "baixa",
+        modelo_sugerido: "Haiku",
+        motivo_codigo: "auto_maior_espaco",
+        cabe_hoje: true,
+        headroom_usd: 30,
+        espaco_livre_usd: 25,
+        custo_estimado_usd: 5,
+        na_fila_usd: 5,
+        itens_na_frente: 1,
+      }),
     );
 
     const r = await enfileirarPrompt({ prompt: "oi", complexidade: "baixa" });
@@ -61,8 +80,14 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
       ok: true,
       id: "abc",
       conta: "lucasscudeler@gmail.com",
-      motivo: "x",
+      complexidade: "baixa",
+      motivoCodigo: "auto_maior_espaco",
       cabeHoje: true,
+      headroomUsd: 30,
+      espacoLivreUsd: 25,
+      custoEstimadoUsd: 5,
+      naFilaUsd: 5,
+      itensNaFrente: 1,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -100,7 +125,7 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
 
     const r = await cancelarPromptFila("fila-123");
 
-    expect(r).toEqual({ ok: true });
+    expect(r).toEqual({ ok: true, motivoCancelamento: undefined, custoLancadoUsd: 0, tentativas: 0 });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/rest\/v1\/rpc\/fila_prompts_cancelar$/);
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
@@ -113,43 +138,85 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
 
     const r = await loadFilaPromptsState();
 
-    expect(r).toEqual({ fila: [], consumo: [], temMais: false, limite: 50 });
+    expect(r).toEqual({
+      fila: [],
+      consumo: [],
+      temMais: false,
+      limite: 50,
+      proximoAntesDe: null,
+      proximoAntesId: null,
+    });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/rest\/v1\/rpc\/fila_prompts_listar$/);
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    // D8 (rodada 3): a RPC pagina — o corpo leva p_limite e p_antes_de junto.
-    expect(Object.keys(body).sort()).toEqual(["p_antes_de", "p_limite", "p_secret"]);
+    // D15 (rodada 4): o cursor é `(criado_em, id)` — os dois vão no corpo.
+    expect(Object.keys(body).sort()).toEqual([
+      "p_antes_de",
+      "p_antes_id",
+      "p_limite",
+      "p_secret",
+    ]);
     expect(body.p_limite).toBe(50);
     expect(body.p_antes_de).toBeNull();
+    expect(body.p_antes_id).toBeNull();
   });
 
   // ── D8 (rodada 3): paginação ────────────────────────────────────────────
-  it("loadFilaPromptsState(limite, antesDe) manda os dois na chamada e devolve temMais", async () => {
+  it("loadFilaPromptsState(limite, antesDe, antesId) manda o cursor inteiro e devolve o próximo", async () => {
     fetchMock.mockResolvedValueOnce(
-      respostaOk({ fila: [], consumo: [], temMais: true, limite: 100 }),
+      respostaOk({
+        fila: [],
+        consumo: [],
+        temMais: true,
+        limite: 100,
+        proximoAntesDe: "2026-09-13T09:00:00.000Z",
+        proximoAntesId: "11111111-2222-3333-4444-555555555555",
+      }),
     );
 
-    const r = await loadFilaPromptsState(100, "2026-09-13T10:00:00.000Z");
+    const r = await loadFilaPromptsState(
+      100,
+      "2026-09-13T10:00:00.000Z",
+      "99999999-8888-7777-6666-555555555555",
+    );
 
     expect(r.temMais).toBe(true);
     expect(r.limite).toBe(100);
+    expect(r.proximoAntesDe).toBe("2026-09-13T09:00:00.000Z");
+    expect(r.proximoAntesId).toBe("11111111-2222-3333-4444-555555555555");
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body.p_limite).toBe(100);
     expect(body.p_antes_de).toBe("2026-09-13T10:00:00.000Z");
+    expect(body.p_antes_id).toBe("99999999-8888-7777-6666-555555555555");
   });
 
   it("loadFilaPromptsState: resposta sem temMais/limite (banco velho) não quebra a página", async () => {
     fetchMock.mockResolvedValueOnce(respostaOk({ fila: [], consumo: [] }));
     const r = await loadFilaPromptsState(25);
-    expect(r).toEqual({ fila: [], consumo: [], temMais: false, limite: 25 });
+    expect(r).toEqual({
+      fila: [],
+      consumo: [],
+      temMais: false,
+      limite: 25,
+      proximoAntesDe: null,
+      proximoAntesId: null,
+    });
   });
 
   // ── D7 (rodada 3): cancelar aceita item `pega` ──────────────────────────
   it("cancelarPromptFila é a MESMA RPC para na_fila e pega — quem decide é o banco", async () => {
-    fetchMock.mockResolvedValueOnce(respostaOk({ ok: true }));
+    fetchMock.mockResolvedValueOnce(
+      respostaOk({ ok: true, motivo_codigo: "cancelado_em_execucao", custo_lancado_usd: 50, tentativas: 1 }),
+    );
     const r = await cancelarPromptFila("item-em-execucao");
-    expect(r).toEqual({ ok: true });
+    // #11/D12 (rodada 4): a RPC diz QUAL cancelamento foi e quanto entrou no dia.
+    expect(r).toEqual({
+      ok: true,
+      motivoCancelamento: "cancelado_em_execucao",
+      custoLancadoUsd: 50,
+      tentativas: 1,
+    });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/rest\/v1\/rpc\/fila_prompts_cancelar$/);
     expect((JSON.parse(init.body as string) as { p_id: string }).p_id).toBe("item-em-execucao");
@@ -185,6 +252,32 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
     const r = await enfileirarPrompt({ prompt: "oi", complexidade: "maxima" });
 
     expect(r).toEqual({ erro: mensagem });
+  });
+
+  // ── D20 (rodada 4): a porta de saída do operador ─────────────────────────
+  it("ajustarCustoPrompt POSTa em .../rpc/fila_prompts_ajustar_custo com p_secret, p_id e p_custo_usd", async () => {
+    fetchMock.mockResolvedValueOnce(respostaOk({ ok: true, custo_usd: 12.34 }));
+
+    const r = await ajustarCustoPrompt("fila-9", 12.34);
+
+    expect(r).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/rest\/v1\/rpc\/fila_prompts_ajustar_custo$/);
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["p_custo_usd", "p_id", "p_secret"]);
+    expect(body.p_id).toBe("fila-9");
+    expect(body.p_custo_usd).toBe(12.34);
+  });
+
+  it("ajustarCustoPrompt: item de outro dia -> a mensagem em português da RPC atravessa", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ code: "23514", message: "Só dá para ajustar o custo de item fechado hoje." }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const r = await ajustarCustoPrompt("fila-9", 1);
+    expect(r).toEqual({ erro: "Só dá para ajustar o custo de item fechado hoje." });
   });
 
   it("cancelarPromptFila: RPC devolve insufficient_privilege (42501) -> mensagem fixa, sem eco do texto cru", async () => {

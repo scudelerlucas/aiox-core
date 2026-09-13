@@ -13,12 +13,23 @@
 import { revalidatePath } from "next/cache";
 
 import { env } from "@/config/env";
-import { CONTAS, ROTULO_CONTA, complexidadeValida, type Complexidade } from "@/core/prompts/tipos";
 import {
+  CONTAS,
+  ROTULO_CONTA,
+  complexidadeValida,
+  contaValida,
+  fraseDoCancelamento,
+  fraseDoEnfileiramento,
+  motivoCancelamentoValido,
+  motivoEnfileirarValido,
+  type Complexidade,
+} from "@/core/prompts/tipos";
+import {
+  ajustarCustoFixture,
   cancelarFixture,
   enfileirarFixture,
 } from "@/lib/repositories/prompts-fila.fixture-store";
-import { cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
+import { ajustarCustoPrompt, cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
 import { createSupabaseUserClient } from "@/lib/supabase/user-server";
 
 export type EstadoAcaoPrompt = {
@@ -26,7 +37,12 @@ export type EstadoAcaoPrompt = {
   ok?: true;
   id?: string;
   conta?: string;
-  motivo?: string;
+  /**
+   * D14 (rodada 4): a frase INTEIRA que a tela mostra, montada aqui — em modo
+   * live ela vinha crua do Postgres ("roteamento automatico: maior espaco livre
+   * hoje (US$ 150.00)"), sem acento e com ponto decimal.
+   */
+  mensagem?: string;
   /** D3: entrou na fila mas não cabe no teto de hoje — roda quando houver espaço. */
   cabeHoje?: boolean;
 };
@@ -89,7 +105,22 @@ async function emailDaSessao(): Promise<string | null> {
 }
 
 type ResultadoMutar =
-  | { ok: true; id?: string; conta?: string; motivo?: string; cabeHoje?: boolean }
+  | {
+      ok: true;
+      id?: string;
+      conta?: string;
+      complexidade?: string;
+      motivoCodigo?: string;
+      cabeHoje?: boolean;
+      headroomUsd?: number;
+      espacoLivreUsd?: number;
+      custoEstimadoUsd?: number;
+      naFilaUsd?: number;
+      itensNaFrente?: number;
+      motivoCancelamento?: string;
+      custoLancadoUsd?: number;
+      tentativas?: number;
+    }
   | { erro: string };
 
 async function mutarEnfileirar(input: {
@@ -122,6 +153,49 @@ async function mutarCancelar(id: string): Promise<ResultadoMutar> {
     return cancelarPromptFila(id);
   }
   return cancelarFixture(id);
+}
+
+async function mutarAjustarCusto(id: string, custoUsd: number): Promise<ResultadoMutar> {
+  if (env.LIFEBOARD_DATA_MODE === "live") {
+    return ajustarCustoPrompt(id, custoUsd);
+  }
+  return ajustarCustoFixture(id, custoUsd);
+}
+
+/**
+ * D14 (rodada 4) — O FORMATADOR ÚNICO. Erro e sucesso saem daqui, e só daqui:
+ * o banco devolve código + números (sucesso) ou a própria mensagem em
+ * português do `check_violation` (recusa), e esta função é o lugar onde
+ * qualquer um dos dois vira a frase que o operador lê. Antes eram dois
+ * caminhos: a recusa passava por `formatarRecusaFila` e o sucesso ia CRU.
+ */
+function frasePraTela(r: Extract<ResultadoMutar, { ok: true }>): string | undefined {
+  const codigo = r.motivoCodigo;
+  const conta = r.conta;
+  const complexidade = r.complexidade;
+  if (
+    codigo !== undefined &&
+    motivoEnfileirarValido(codigo) &&
+    conta !== undefined &&
+    contaValida(conta) &&
+    complexidade !== undefined &&
+    complexidadeValida(complexidade)
+  ) {
+    return fraseDoEnfileiramento(codigo, {
+      conta,
+      complexidade,
+      headroomUsd: r.headroomUsd ?? 0,
+      espacoLivreUsd: r.espacoLivreUsd ?? 0,
+      custoEstimadoUsd: r.custoEstimadoUsd ?? 0,
+      naFilaUsd: r.naFilaUsd ?? 0,
+      itensNaFrente: r.itensNaFrente ?? 0,
+    });
+  }
+  const cancelamento = r.motivoCancelamento;
+  if (cancelamento !== undefined && motivoCancelamentoValido(cancelamento)) {
+    return fraseDoCancelamento(cancelamento, r.custoLancadoUsd ?? 0, r.tentativas ?? 0);
+  }
+  return undefined;
 }
 
 // ═══════════════════════════════════════════════════════════ novo_prompt ═
@@ -160,7 +234,13 @@ export async function novoPromptAction(
   // simples e nunca citam uma conta.
   if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };
   revalidar();
-  return { ok: true, id: r.id, conta: r.conta, motivo: r.motivo, cabeHoje: r.cabeHoje !== false };
+  return {
+    ok: true,
+    id: r.id,
+    conta: r.conta,
+    mensagem: frasePraTela(r),
+    cabeHoje: r.cabeHoje !== false,
+  };
 }
 
 // ══════════════════════════════════════════════════════════ cancelar ═════
@@ -172,7 +252,35 @@ export async function cancelarPromptAction(
   if (id.length === 0) return { erro: "Item não identificado." };
 
   const r = await mutarCancelar(id);
-  if ("erro" in r) return { erro: r.erro };
+  if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };
   revalidar();
-  return { ok: true };
+  // #11: cancelar não é sempre a mesma coisa — "nunca foi pego" é de graça,
+  // "já rodou e voltou" custa o estimado. A frase diz qual dos dois foi.
+  return { ok: true, mensagem: frasePraTela(r) };
+}
+
+// ═════════════════════════════════════════════════════ ajustar custo ═════
+/**
+ * D20 (rodada 4): o operador corrige o custo de um item que morreu sem fechar
+ * (ou foi cancelado em execução) e ficou contando pela ESTIMATIVA da casa.
+ * Sem esta ação, uma estimativa de US$ 120 congelava a conta até a virada do
+ * dia — e o painel não tinha como saber que ela estava errada.
+ */
+export async function ajustarCustoPromptAction(
+  _estado: EstadoAcaoPrompt,
+  form: FormData,
+): Promise<EstadoAcaoPrompt> {
+  const id = textoOu(form, "id");
+  if (id.length === 0) return { erro: "Item não identificado." };
+
+  const bruto = textoOu(form, "custo_usd").trim().replace(",", ".");
+  const custo = Number.parseFloat(bruto);
+  if (bruto.length === 0) return { erro: "Escreva o custo real antes de salvar." };
+  if (!Number.isFinite(custo)) return { erro: "O custo precisa ser um número (ex.: 12,30)." };
+  if (custo < 0 || custo > 500) return { erro: "O custo precisa ficar entre 0 e 500." };
+
+  const r = await mutarAjustarCusto(id, custo);
+  if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };
+  revalidar();
+  return { ok: true, mensagem: "Custo ajustado — o gasto de hoje já considera o número real." };
 }

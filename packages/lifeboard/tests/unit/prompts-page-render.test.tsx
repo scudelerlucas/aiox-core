@@ -16,6 +16,7 @@ vi.mock("@/lib/supabase/live-client", () => ({
   loadFilaPromptsState: vi.fn(),
   enfileirarPrompt: vi.fn(),
   cancelarPromptFila: vi.fn(),
+  ajustarCustoPrompt: vi.fn(),
 }));
 // PromptsClient/NovoPromptForm/CancelarBotao chamam `useRouter()` (via
 // `usar-acao-prompt.ts`, para `router.refresh()` pós-sucesso) — fora de um
@@ -64,5 +65,52 @@ describe("PaginaPrompts (fixture)", () => {
     expect(html).toMatch(/Sonnet/);
     expect(html).toMatch(/Opus/);
     expect(html).toMatch(/Fable/);
+  });
+
+  // ── RODADA 4 ────────────────────────────────────────────────────────────
+  it("D13 — nenhum número negativo na tela, em conta nenhuma", async () => {
+    const html = renderToStaticMarkup(await PaginaPrompts({}));
+    expect(html).not.toContain("US$ -");
+    // A Alma Petra está exatamente no teto: a frase é de ausência, não de dívida.
+    expect(html).toContain("sem espaço livre agora");
+  });
+
+  it("D16 — o cartão do Lucas mostra 42,10: base publicada + o item concluído hoje", async () => {
+    const html = renderToStaticMarkup(await PaginaPrompts({}));
+    expect(html).toContain("US$ 42,10");
+  });
+
+  it("D15 — o 'mostrar mais' leva o CURSOR na URL (antes + antesId), nunca só o limite", async () => {
+    const html = renderToStaticMarkup(
+      await PaginaPrompts({ searchParams: Promise.resolve({ limite: "3" }) }),
+    );
+    expect(html).toContain("mostrar mais 3");
+    expect(html).toMatch(/href="\/prompts\?limite=3&amp;antes=[^"]+&amp;antesId=[^"]+"/);
+  });
+});
+
+/**
+ * D20 (rodada 4): a semente ganhou o retrato do item que morreu sem fechar —
+ * o único caso em que o custo do dia é ESTIMATIVA da casa. Sem este bloco, a
+ * tela podia voltar a calar sobre a parcela estimada sem nenhum teste reclamar.
+ */
+describe("PaginaPrompts — a parcela de estimativa (D20)", () => {
+  it("o cartão diz quanto é estimativa e a linha marca a célula de custo", async () => {
+    const html = renderToStaticMarkup(await PaginaPrompts({}));
+    expect(html).toContain("US$ 50,00 do consumo são estimativa de 1 item que morreu sem fechar");
+    expect(html).toContain("dá para ajustar na linha da fila.");
+    expect(html).toContain("estimativa da casa");
+    expect(html).toContain("ajustar custo");
+    expect(html).toContain("expirou 3 vezes sem fechamento");
+  });
+
+  it("o botão de ajuste NÃO aparece em item cujo custo foi medido por gente", async () => {
+    const html = renderToStaticMarkup(await PaginaPrompts({}));
+    // A semente tem uma `concluida` de US$ 3,42 medida pelo worker.
+    expect(html).toContain("US$ 3,42");
+    // 2 ocorrências = 1 item estimado × as duas árvores da tabela (a de
+    // desktop e a de cartões do mobile). Se um item MEDIDO ganhasse o botão,
+    // este número saltaria para 4.
+    expect((html.match(/ajustar custo/g) ?? []).length).toBe(2);
   });
 });

@@ -306,23 +306,33 @@ function asFilaPromptsState(raw: unknown, limitePedido: number): FilaPromptsStat
     consumo: asArray(payload.consumo),
     temMais: payload.temMais === true,
     limite: typeof payload.limite === "number" ? payload.limite : limitePedido,
+    // D15: o cursor da página. Banco antigo (sem 0013) devolve `undefined` —
+    // vira `null` e a tela simplesmente não oferece "mostrar mais".
+    proximoAntesDe: typeof payload.proximoAntesDe === "string" ? payload.proximoAntesDe : null,
+    proximoAntesId: typeof payload.proximoAntesId === "string" ? payload.proximoAntesId : null,
   };
 }
 
 /**
  * Lê uma PÁGINA da fila + consumo/teto das 3 contas. Memoizado por request.
  *
- * D8 (rodada 3): a RPC pagina (`p_limite` 1..200, default 50; `p_antes_de`
- * opcional) e devolve o prompt truncado em 300 caracteres — antes, 200 itens
- * de até 20.000 caracteres vinham inteiros a cada render da página.
+ * D15 (rodada 4): paginação KEYSET — `p_antes_de` + `p_antes_id` são o cursor
+ * `(criado_em, id)` do último item da página anterior. Antes, `p_antes_de`
+ * existia na RPC e a tela NUNCA o usava: ela só aumentava `p_limite`, que morre
+ * no teto de 200 (a fila de 205 itens tinha 5 itens inalcançáveis).
  */
 export const loadFilaPromptsState = cache(
-  async (limite = 50, antesDe: string | null = null): Promise<FilaPromptsState> => {
+  async (
+    limite = 50,
+    antesDe: string | null = null,
+    antesId: string | null = null,
+  ): Promise<FilaPromptsState> => {
     try {
       const body = await chamarRpc("fila_prompts_listar", {
         p_secret: env.LIFEBOARD_LOAD_SECRET,
         p_limite: limite,
         p_antes_de: antesDe,
+        p_antes_id: antesId,
       });
       return asFilaPromptsState(body, limite);
     } catch (error) {
@@ -335,11 +345,36 @@ export const loadFilaPromptsState = cache(
   },
 );
 
+/**
+ * D14 (rodada 4): o resultado do enfileiramento é ESTRUTURADO — código de
+ * motivo + números. Nenhuma frase atravessa o banco: quem escreve português é
+ * `src/app/prompts/actions.ts`.
+ */
 export type MutateFilaResult =
-  | { ok: true; id?: string; conta?: string; motivo?: string; cabeHoje?: boolean }
+  | {
+      ok: true;
+      id?: string;
+      conta?: string;
+      complexidade?: string;
+      motivoCodigo?: string;
+      cabeHoje?: boolean;
+      headroomUsd?: number;
+      espacoLivreUsd?: number;
+      custoEstimadoUsd?: number;
+      naFilaUsd?: number;
+      itensNaFrente?: number;
+      /** #11: código do cancelamento (nunca pego × devolvido × em execução). */
+      motivoCancelamento?: string;
+      custoLancadoUsd?: number;
+      tentativas?: number;
+    }
   | { erro: string };
 
-/** `p_payload.conta` ausente = roteamento automático (menor consumo hoje). */
+function numeroOu(valor: unknown, padrao: number): number {
+  return typeof valor === "number" && Number.isFinite(valor) ? valor : padrao;
+}
+
+/** `p_payload.conta` ausente = roteamento automático (maior espaço livre hoje). */
 export async function enfileirarPrompt(payload: {
   prompt: string;
   complexidade: string;
@@ -355,9 +390,15 @@ export async function enfileirarPrompt(payload: {
       ok?: boolean;
       id?: string;
       conta?: string;
+      complexidade?: string;
       modelo_sugerido?: string;
-      motivo?: string;
+      motivo_codigo?: string;
       cabe_hoje?: boolean;
+      headroom_usd?: number;
+      espaco_livre_usd?: number;
+      custo_estimado_usd?: number;
+      na_fila_usd?: number;
+      itens_na_frente?: number;
     };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
@@ -366,8 +407,14 @@ export async function enfileirarPrompt(payload: {
       ok: true,
       id: body.id,
       conta: body.conta,
-      motivo: body.motivo,
+      complexidade: body.complexidade,
+      motivoCodigo: body.motivo_codigo,
       cabeHoje: body.cabe_hoje !== false,
+      headroomUsd: numeroOu(body.headroom_usd, 0),
+      espacoLivreUsd: numeroOu(body.espaco_livre_usd, 0),
+      custoEstimadoUsd: numeroOu(body.custo_estimado_usd, 0),
+      naFilaUsd: numeroOu(body.na_fila_usd, 0),
+      itensNaFrente: numeroOu(body.itens_na_frente, 0),
     };
   } catch (error) {
     return { erro: traduzirErroFila(error) };
@@ -375,15 +422,41 @@ export async function enfileirarPrompt(payload: {
 }
 
 /**
- * D7 (rodada 3): cancela item `na_fila` E `pega` — a RPC recusa só o que já
- * fechou. Um item `pega` cancelado para de reservar orçamento na hora e o
- * worker descobre pelo heartbeat que deve interromper a sessão filha.
+ * D7 (rodada 3): cancela item `na_fila` E `pega`. #11/D12 (rodada 4): a RPC
+ * devolve o CÓDIGO do caso e quanto foi lançado no gasto do dia — cancelar um
+ * item que já rodou não é de graça, e a tela precisa dizer isso.
  */
 export async function cancelarPromptFila(id: string): Promise<MutateFilaResult> {
   try {
     const body = (await chamarRpc("fila_prompts_cancelar", {
       p_secret: env.LIFEBOARD_LOAD_SECRET,
       p_id: id,
+    })) as { ok?: boolean; motivo_codigo?: string; custo_lancado_usd?: number; tentativas?: number };
+    if (!body || body.ok !== true) {
+      return { erro: "A operação não confirmou sucesso — tente de novo." };
+    }
+    return {
+      ok: true,
+      motivoCancelamento: body.motivo_codigo,
+      custoLancadoUsd: numeroOu(body.custo_lancado_usd, 0),
+      tentativas: numeroOu(body.tentativas, 0),
+    };
+  } catch (error) {
+    return { erro: traduzirErroFila(error) };
+  }
+}
+
+/**
+ * D20 (rodada 4): o operador corrige o custo de um item `falhou`/`cancelada`
+ * fechado hoje cujo número era estimativa da casa. Sem esta porta, uma
+ * estimativa inflada congelava a conta até a virada do dia.
+ */
+export async function ajustarCustoPrompt(id: string, custoUsd: number): Promise<MutateFilaResult> {
+  try {
+    const body = (await chamarRpc("fila_prompts_ajustar_custo", {
+      p_secret: env.LIFEBOARD_LOAD_SECRET,
+      p_id: id,
+      p_custo_usd: custoUsd,
     })) as { ok?: boolean };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };

@@ -36,6 +36,7 @@ import {
   espacoLivreUsd,
   formatarUsd,
   headroomUsd,
+  textoPrevisaoComFila,
 } from "@/core/prompts/tipos";
 
 export interface EscolhaDeConta {
@@ -46,9 +47,12 @@ export interface EscolhaDeConta {
   modeloSugerido: ModeloSugerido;
   /** D3: há espaço HOJE nesta conta para esta complexidade? (false ≠ recusa.) */
   cabeHoje: boolean;
-  /** Espaço livre (US$) da conta escolhida, pela conta do item 1 acima. */
+  /** Espaço livre (US$) da conta escolhida, pela conta do item 1 acima — previsão. */
   espacoLivreUsd: number;
+  /** D13: a RÉGUA — teto − medido − em_execucao da conta escolhida. Pode ser negativo; a tela clampa. */
+  headroomUsd: number;
 }
+
 
 /**
  * @param consumos  uma linha por conta (`fila_prompts_listar` → `consumo`).
@@ -74,6 +78,7 @@ export function escolherConta(
       modeloSugerido,
       cabeHoje: false,
       espacoLivreUsd: 0,
+      headroomUsd: 0,
     };
   }
 
@@ -88,6 +93,7 @@ export function escolherConta(
       modeloSugerido,
       cabeHoje: false,
       espacoLivreUsd: 0,
+      headroomUsd: 0,
     };
   }
 
@@ -101,17 +107,33 @@ export function escolherConta(
     }
   }
 
-  const cabeHoje = melhorEspaco >= custoEstimado;
+  // D13 (rodada 4) · UMA RÉGUA: quem decide `cabeHoje` é o HEADROOM da conta
+  // escolhida (teto − medido − em_execucao) — o MESMO número que o pull compara
+  // e que o SQL devolve. `melhorEspaco` (que desconta a fila parada) continua
+  // decidindo QUAL conta, e vira previsão — nunca veredito. Antes as duas
+  // réguas se misturavam: a tela dizia "não cabe" por causa de uma fila que
+  // ainda não tinha gastado nada, e chegou a escrever "US$ -20,00 livres".
+  const headroom = headroomUsd(melhor);
+  const cabeHoje = custoEstimado <= headroom;
 
   // D9: frase gramatical, rótulo da conta (nunca o e-mail cru), complexidade
-  // por extenso e dinheiro com vírgula.
+  // por extenso e dinheiro com vírgula. D13: nada de número negativo.
+  const previsao = textoPrevisaoComFila(melhor);
   const motivo = cabeHoje
-    ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje: ${formatarUsd(melhorEspaco)}.`
+    ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje: ${formatarUsd(headroom)}.` +
+      (previsao ? ` ${previsao}.` : "")
     : `Nenhuma conta tem ${formatarUsd(custoEstimado)} livres hoje para uma tarefa ` +
-      `${ROTULO_COMPLEXIDADE[complexidade]}. A mais próxima (${ROTULO_CONTA[melhor.conta]}) tem ` +
-      `${formatarUsd(melhorEspaco)}.`;
+      `${ROTULO_COMPLEXIDADE[complexidade]}. A mais folgada (${ROTULO_CONTA[melhor.conta]}) tem ` +
+      `${headroom > 0 ? formatarUsd(headroom) : "0 livres"}.`;
 
-  return { conta: melhor.conta, motivo, modeloSugerido, cabeHoje, espacoLivreUsd: melhorEspaco };
+  return {
+    conta: melhor.conta,
+    motivo,
+    modeloSugerido,
+    cabeHoje,
+    espacoLivreUsd: melhorEspaco,
+    headroomUsd: headroom,
+  };
 }
 
 /**

@@ -7,8 +7,7 @@
  * um `let` de módulo) porque o bundler do Next pode inlinar o módulo em chunks
  * diferentes para a Server Action e para a árvore de Server Components.
  *
- * O que o fixture ESPELHA do banco (rodada 3, para o teste provar a mesma
- * regra que o SQL aplica):
+ * O que o fixture ESPELHA do banco:
  *  · D1 posse — `pegarFixture(conta, workerId)` grava worker/heartbeat/tentativa;
  *    `fecharFixture` só aceita de quem pegou.
  *  · D2 expiração com fim — 45 min sem sinal: volta enquanto `tentativas <
@@ -17,6 +16,23 @@
  *    admissão só recusa o que nunca caberia.
  *  · D7 cancelar — aceita `na_fila` E `pega`.
  *  · D8 paginação e idempotência do fechamento.
+ *
+ * RODADA 4 — o que mudou aqui (D16 é a decisão que manda neste arquivo):
+ *  · D16 · O CONSUMO DEIXOU DE SER CONSTANTE. Antes, `consumoHojeUsd` vinha
+ *    fixo da semente e NADA que a fila fizesse o alterava — os testes de "o
+ *    teto barra o pull" mexiam num número que ninguém lia. Agora o medido é
+ *    `sessões publicadas + a contribuição de cada item fechado hoje`, pela
+ *    MESMA regra do banco (D10/D12): `greatest(custo − custo da sessão
+ *    publicada, 0)`, incluindo `cancelada` que já teve dono.
+ *  · D10 · `publicarSessaoFixture` existe para o teste poder provar, em TS, a
+ *    subtração que o SQL faz — publicar sem custo não abaixa nada.
+ *  · D12 · cancelar item que já rodou lança o estimado; `fecharFixture` aceita
+ *    item `cancelada` do próprio dono e troca só o custo.
+ *  · D19 · backoff (`disponivelEm`) e a contagem de quem está de castigo.
+ *  · D20 · marca de estimativa e `ajustarCustoFixture`.
+ *  · D11 · `sessionId` é chave: recusa `sessionId === workerId` e sessão já
+ *    usada por outro item.
+ *  · D15 · paginação keyset com `(criadoEm, id)`.
  *
  * O roteamento automático chama a MESMA função pura de produção
  * (`escolherConta`) — o fixture não reimplementa a regra, só o estado.
@@ -29,30 +45,62 @@ import type {
   ConsumoConta,
   EstadoFila,
   ItemFilaPrompt,
+  MotivoCancelamento,
+  MotivoEnfileirar,
 } from "@/core/prompts/tipos";
 import {
+  BACKOFF_POR_TENTATIVA_MIN,
   CONTAS,
-  HEARTBEAT_LIMITE_MS,
+  JANELA_HEARTBEAT_MS,
+  MAX_TENTATIVAS,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
   contaValida,
   custoEstimadoParaComplexidade,
   formatarUsd,
+  headroomUsd,
   modeloParaComplexidade,
   semSinal,
 } from "@/core/prompts/tipos";
 import { FIXTURE_CONSUMO, FIXTURE_FILA } from "@/lib/repositories/prompts-fila.fixture";
 
 const LIMITE_PROMPT_RPC = 300;
+const MINUTO_MS = 60_000;
+const TETO_CUSTO_USD = 500;
+
+export interface ResultadoEnfileirarFixture {
+  ok: true;
+  id: string;
+  conta: Conta;
+  complexidade: Complexidade;
+  motivoCodigo: MotivoEnfileirar;
+  cabeHoje: boolean;
+  headroomUsd: number;
+  espacoLivreUsd: number;
+  custoEstimadoUsd: number;
+  naFilaUsd: number;
+  itensNaFrente: number;
+}
+
+export interface ResultadoCancelarFixture {
+  ok: true;
+  motivoCancelamento: MotivoCancelamento;
+  custoLancadoUsd: number;
+  tentativas: number;
+}
 
 export type ResultadoFilaFixture =
-  | { ok: true; id?: string; conta?: Conta; motivo?: string; cabeHoje?: boolean }
+  | ResultadoEnfileirarFixture
+  | ResultadoCancelarFixture
+  | { ok: true }
   | { erro: string };
 
 interface EstadoFilaFixture {
   fila: Map<string, ItemFilaPrompt>;
-  /** Só o gasto MEDIDO e o teto vivem aqui; reservado/naFila são DERIVADOS da fila. */
-  base: Map<Conta, { tetoUsd: number; consumoHojeUsd: number; medidoAteEm: string | null }>;
+  /** Só o teto e o gasto das SESSÕES PUBLICADAS vivem aqui — o resto é derivado. */
+  base: Map<Conta, { tetoUsd: number; publicadasUsd: number; medidoAteEm: string | null }>;
+  /** D10: sessão publicada (`sessionId` → custo, `null` = publicada sem custo). */
+  sessoesPublicadas: Map<string, number | null>;
   contador: number;
 }
 
@@ -64,10 +112,11 @@ function estadoNovo(): EstadoFilaFixture {
         (c) =>
           [
             c.conta,
-            { tetoUsd: c.tetoUsd, consumoHojeUsd: c.consumoHojeUsd, medidoAteEm: c.medidoAteEm },
+            { tetoUsd: c.tetoUsd, publicadasUsd: c.consumoHojeUsd, medidoAteEm: c.medidoAteEm },
           ] as const,
       ),
     ),
+    sessoesPublicadas: new Map<string, number | null>(),
     contador: 0,
   };
 }
@@ -93,6 +142,66 @@ function itens(): ItemFilaPrompt[] {
   return [...loja().fila.values()];
 }
 
+/**
+ * O "dia do operador" (America/São_Paulo, UTC−3 o ano inteiro desde 2019) —
+ * o espelho de `painel_dia_operador()`. Sem isto, um item fechado ontem à
+ * noite contaria no teto de hoje.
+ */
+function diaOperador(instante: number | string): string {
+  const t = typeof instante === "number" ? instante : Date.parse(instante);
+  const TRES_HORAS_MS = 3 * 60 * MINUTO_MS;
+  return new Date(t - TRES_HORAS_MS).toISOString().slice(0, 10);
+}
+
+/** D10/D12: quanto ESTE item ainda pesa no dia (a subtração, não a exclusão). */
+function contribuicaoDe(item: ItemFilaPrompt, agora: number): number {
+  if (item.custoUsd === null || item.concluidoEm === null) return 0;
+  if (diaOperador(item.concluidoEm) !== diaOperador(agora)) return 0;
+  const contaNoDia =
+    item.estado === "concluida" ||
+    item.estado === "falhou" ||
+    (item.estado === "cancelada" && (item.workerId !== null || item.tentativas > 0));
+  if (!contaNoDia) return 0;
+  if (item.sessionId === null) return item.custoUsd;
+  const publicada = loja().sessoesPublicadas.get(item.sessionId);
+  if (publicada === undefined) return item.custoUsd; // sessão ainda não publicada
+  return Math.max(item.custoUsd - (publicada ?? 0), 0);
+}
+
+/** D16: o medido do dia MEXE — sessões publicadas + contribuição dos itens. */
+function medidoDe(conta: Conta, agora: number): number {
+  const base = loja().base.get(conta);
+  const publicadas = base?.publicadasUsd ?? 0;
+  return (
+    publicadas +
+    itens()
+      .filter((i) => i.conta === conta)
+      .reduce((soma, i) => soma + contribuicaoDe(i, agora), 0)
+  );
+}
+
+/** D20: a parcela que ninguém mediu (e quantos itens a formam). */
+function estimativaDe(conta: Conta, agora: number): { usd: number; itens: number } {
+  const lista = itens().filter(
+    (i) => i.conta === conta && i.custoEEstimativa && contribuicaoDe(i, agora) > 0,
+  );
+  return {
+    usd: lista.reduce((soma, i) => soma + contribuicaoDe(i, agora), 0),
+    itens: lista.length,
+  };
+}
+
+/** D19: quantos itens estão de castigo esperando nova tentativa. */
+function emEsperaDe(conta: Conta, agora: number): number {
+  return itens().filter(
+    (i) =>
+      i.conta === conta &&
+      i.estado === "na_fila" &&
+      i.disponivelEm !== null &&
+      Date.parse(i.disponivelEm) > agora,
+  ).length;
+}
+
 /** D3: reservado = SÓ o que está em execução com sinal vivo. */
 function reservadoDe(conta: Conta, agora: number): number {
   return itens()
@@ -111,31 +220,65 @@ export function listarConsumoFixture(agora: number = Date.now()): ConsumoConta[]
   const estado = loja();
   return CONTAS.map((conta) => {
     const base = estado.base.get(conta);
+    const estimativa = estimativaDe(conta, agora);
     return {
       conta,
       tetoUsd: base?.tetoUsd ?? 150,
-      consumoHojeUsd: base?.consumoHojeUsd ?? 0,
+      consumoHojeUsd: medidoDe(conta, agora),
       reservadoUsd: reservadoDe(conta, agora),
       naFilaUsd: naFilaDe(conta),
+      estimativaUsd: estimativa.usd,
+      estimativaItens: estimativa.itens,
+      emEspera: emEsperaDe(conta, agora),
       medidoAteEm: base?.medidoAteEm ?? null,
     };
   });
 }
 
-/** D8: mesma paginação e o MESMO truncamento em 300 caracteres da RPC. */
-export function listarFilaFixture(limite = 50, antesDe: string | null = null): ItemFilaPrompt[] {
-  const ordenada = itens()
-    .filter((i) => (antesDe === null ? true : i.criadoEm < antesDe))
-    .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm));
-  return ordenada.slice(0, Math.min(Math.max(limite, 1), 200)).map((i) => ({
-    ...i,
-    prompt: i.prompt.slice(0, LIMITE_PROMPT_RPC),
-  }));
+/** Ordem canônica da listagem: `(criadoEm desc, id desc)` — #12/D15. */
+function ordenadaDesc(lista: ItemFilaPrompt[]): ItemFilaPrompt[] {
+  return [...lista].sort((a, b) =>
+    a.criadoEm === b.criadoEm ? b.id.localeCompare(a.id) : b.criadoEm.localeCompare(a.criadoEm),
+  );
 }
 
-export function filaTemMaisFixture(limite = 50, antesDe: string | null = null): boolean {
-  const total = itens().filter((i) => (antesDe === null ? true : i.criadoEm < antesDe)).length;
+function antesDoCursor(item: ItemFilaPrompt, antesDe: string, antesId: string | null): boolean {
+  if (item.criadoEm < antesDe) return true;
+  if (item.criadoEm > antesDe) return false;
+  return antesId !== null && item.id < antesId;
+}
+
+/** D15: mesma paginação KEYSET e o MESMO truncamento em 300 caracteres da RPC. */
+export function listarFilaFixture(
+  limite = 50,
+  antesDe: string | null = null,
+  antesId: string | null = null,
+): ItemFilaPrompt[] {
+  const elegiveis = itens().filter((i) => (antesDe === null ? true : antesDoCursor(i, antesDe, antesId)));
+  return ordenadaDesc(elegiveis)
+    .slice(0, Math.min(Math.max(limite, 1), 200))
+    .map((i) => ({ ...i, prompt: i.prompt.slice(0, LIMITE_PROMPT_RPC) }));
+}
+
+export function filaTemMaisFixture(
+  limite = 50,
+  antesDe: string | null = null,
+  antesId: string | null = null,
+): boolean {
+  const total = itens().filter((i) => (antesDe === null ? true : antesDoCursor(i, antesDe, antesId))).length;
   return total > Math.min(Math.max(limite, 1), 200);
+}
+
+/** D15: o cursor do último item da página (o que a tela põe na URL). */
+export function cursorDaPaginaFixture(
+  limite = 50,
+  antesDe: string | null = null,
+  antesId: string | null = null,
+): { antesDe: string; antesId: string } | null {
+  const pagina = listarFilaFixture(limite, antesDe, antesId);
+  const ultimo = pagina[pagina.length - 1];
+  if (!ultimo) return null;
+  return { antesDe: ultimo.criadoEm, antesId: ultimo.id };
 }
 
 function novoId(): string {
@@ -165,14 +308,14 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
   const consumos = listarConsumoFixture(agora);
 
   let conta: Conta;
-  let motivo: string;
-  let cabeHoje: boolean;
+  let manual: boolean;
 
   if (input.conta) {
     if (!contaValida(input.conta)) {
       return { erro: "conta precisa ser uma das 3 contas da casa." };
     }
     conta = input.conta;
+    manual = true;
     const c = consumos.find((x) => x.conta === conta) as ConsumoConta;
     // D3: a ÚNICA recusa de admissão — o item nunca caberia nesta conta.
     if (custoEstimado > c.tetoUsd) {
@@ -182,19 +325,25 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
           `e o teto diário da conta ${ROTULO_CONTA[conta]} é ${formatarUsd(c.tetoUsd)} — nunca vai caber.`,
       };
     }
-    const espaco = c.tetoUsd - c.consumoHojeUsd - c.reservadoUsd - c.naFilaUsd;
-    cabeHoje = espaco >= custoEstimado;
-    motivo = cabeHoje
-      ? `conta escolhida à mão (${ROTULO_CONTA[conta]}), com ${formatarUsd(espaco)} livres.`
-      : `conta escolhida à mão (${ROTULO_CONTA[conta]}): não cabe hoje (${formatarUsd(espaco)} livres) — ` +
-        `roda quando houver espaço.`;
   } else {
     const escolha = escolherConta(consumos, input.complexidade);
     if (escolha.conta === null) return { erro: escolha.motivo };
     conta = escolha.conta;
-    motivo = escolha.motivo;
-    cabeHoje = escolha.cabeHoje;
+    manual = false;
   }
+
+  const c = consumos.find((x) => x.conta === conta) as ConsumoConta;
+  // D13: uma régua só — `headroom` decide `cabeHoje`; `espacoLivre` é previsão.
+  const headroom = headroomUsd(c);
+  const cabeHoje = custoEstimado <= headroom;
+  const itensNaFrente = itens().filter((i) => i.conta === conta && i.estado === "na_fila").length;
+  const motivoCodigo: MotivoEnfileirar = manual
+    ? cabeHoje
+      ? "manual_cabe"
+      : "manual_nao_cabe_hoje"
+    : cabeHoje
+      ? "auto_maior_espaco"
+      : "auto_nao_cabe_hoje";
 
   const id = novoId();
   estado.fila.set(id, {
@@ -207,13 +356,16 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     modeloSugerido: modeloParaComplexidade(input.complexidade),
     estado: "na_fila",
     custoUsd: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
     criadoEm: new Date(agora).toISOString(),
     pegoEm: null,
     concluidoEm: null,
+    disponivelEm: null,
     heartbeatEm: null,
     workerId: null,
     tentativas: 0,
-    maxTentativas: 3,
+    maxTentativas: MAX_TENTATIVAS,
     sessionId: null,
     motivoFalha: null,
     sessaoUrl: null,
@@ -222,10 +374,26 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     taskId: input.taskId ?? null,
   });
 
-  return { ok: true, id, conta, motivo, cabeHoje };
+  return {
+    ok: true,
+    id,
+    conta,
+    complexidade: input.complexidade,
+    motivoCodigo,
+    cabeHoje,
+    headroomUsd: headroom,
+    espacoLivreUsd: headroom - c.naFilaUsd,
+    custoEstimadoUsd: custoEstimado,
+    naFilaUsd: c.naFilaUsd,
+    itensNaFrente,
+  };
 }
 
-/** D7: cancela `na_fila` E `pega`. */
+/**
+ * D7: cancela `na_fila` E `pega`. D12/#11 (rodada 4): quem já rodou não sai de
+ * graça — o ESTIMADO entra no gasto do dia, marcado como estimativa, e o
+ * código de motivo diz qual das três histórias aconteceu.
+ */
 export function cancelarFixture(id: string, agora: number = Date.now()): ResultadoFilaFixture {
   const estado = loja();
   const item = estado.fila.get(id);
@@ -233,24 +401,99 @@ export function cancelarFixture(id: string, agora: number = Date.now()): Resulta
   if (item.estado !== "na_fila" && item.estado !== "pega") {
     return { erro: "Item já fechado (concluída, falhou ou cancelada) — não dá para cancelar." };
   }
+
+  const motivoCancelamento: MotivoCancelamento =
+    item.estado === "pega"
+      ? "cancelado_em_execucao"
+      : item.tentativas > 0
+        ? "cancelado_apos_devolucao"
+        : "cancelado_nunca_pego";
+  const lanca = motivoCancelamento !== "cancelado_nunca_pego" && item.custoUsd === null;
+  const custoLancadoUsd = lanca ? Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD) : 0;
+
   estado.fila.set(id, {
     ...item,
     estado: "cancelada",
     heartbeatEm: null,
+    disponivelEm: null,
     concluidoEm: new Date(agora).toISOString(),
+    custoUsd: lanca ? custoLancadoUsd : item.custoUsd,
+    custoEEstimativa: lanca ? true : item.custoEEstimativa,
     motivoFalha:
-      item.estado === "pega" ? "cancelado pelo operador durante a execução" : item.motivoFalha,
+      motivoCancelamento === "cancelado_em_execucao"
+        ? "cancelado pelo operador durante a execução"
+        : motivoCancelamento === "cancelado_apos_devolucao"
+          ? `cancelado pelo operador depois de ${item.tentativas} tentativa(s)`
+          : item.motivoFalha,
+  });
+  return { ok: true, motivoCancelamento, custoLancadoUsd, tentativas: item.tentativas };
+}
+
+/**
+ * D20: o operador corrige o custo de um item `falhou`/`cancelada` fechado HOJE
+ * cujo número era estimativa da casa.
+ */
+export function ajustarCustoFixture(
+  id: string,
+  custoUsd: number,
+  agora: number = Date.now(),
+): ResultadoFilaFixture {
+  const estado = loja();
+  const item = estado.fila.get(id);
+  if (!item) return { erro: "Item não encontrado." };
+  if (custoUsd < 0 || custoUsd > TETO_CUSTO_USD) {
+    return { erro: "O custo precisa ser um número entre 0 e 500." };
+  }
+  if (item.estado !== "falhou" && item.estado !== "cancelada") {
+    return { erro: "Só dá para ajustar o custo de item que falhou ou foi cancelado." };
+  }
+  if (item.concluidoEm === null || diaOperador(item.concluidoEm) !== diaOperador(agora)) {
+    return { erro: "Só dá para ajustar o custo de item fechado hoje." };
+  }
+  estado.fila.set(id, {
+    ...item,
+    custoUsd,
+    custoEEstimativa: false,
+    custoAjustadoEm: new Date(agora).toISOString(),
   });
   return { ok: true };
 }
 
-// ── O worker, espelhado (D1/D2/D3) — usado pelos testes, nunca pela tela ─────
+/**
+ * D10: registra uma sessão publicada em `painel_frentes_sessoes` (o fixture não
+ * tem aquela tabela; tem este mapa). `custoUsd: null` é o caso real que o
+ * crítico achou — 21 das 215 sessões publicadas não têm custo — e é justamente
+ * o que NÃO pode abaixar o consumo.
+ */
+export function publicarSessaoFixture(
+  conta: Conta,
+  sessionId: string,
+  custoUsd: number | null,
+): void {
+  const estado = loja();
+  const jaPublicada = estado.sessoesPublicadas.get(sessionId);
+  estado.sessoesPublicadas.set(sessionId, custoUsd);
+  const base = estado.base.get(conta);
+  if (!base) return;
+  // A sessão publicada entra no "medido" das sessões, como a view do SQL.
+  // Republicar com outro custo troca o valor, não soma duas vezes.
+  const antes = jaPublicada ?? 0;
+  estado.base.set(conta, {
+    ...base,
+    publicadasUsd: base.publicadasUsd - antes + (custoUsd ?? 0),
+  });
+}
+
+// ── O worker, espelhado (D1/D2/D3/D19) — usado pelos testes, nunca pela tela ─
 
 export interface ResultadoPegarFixture {
   item: ItemFilaPrompt | null;
   devolvidos: number;
   mortos: number;
   pulados: number;
+  emEspera: number;
+  estimativaUsd: number;
+  estimativaItens: number;
   motivo: string | null;
 }
 
@@ -268,6 +511,10 @@ function expirar(conta: Conta, agora: number): { devolvidos: string[]; mortos: s
         workerId: null,
         pegoEm: null,
         heartbeatEm: null,
+        // D19: castigo de 15 min × tentativas antes de voltar a ser elegível.
+        disponivelEm: new Date(
+          agora + BACKOFF_POR_TENTATIVA_MIN * Math.max(item.tentativas, 1) * MINUTO_MS,
+        ).toISOString(),
       });
       devolvidos.push(item.id);
     } else {
@@ -277,8 +524,9 @@ function expirar(conta: Conta, agora: number): { devolvidos: string[]; mortos: s
         workerId: null,
         heartbeatEm: null,
         motivoFalha: `expirou ${item.tentativas} vezes sem fechamento`,
-        // Conservador: quem sumiu provavelmente gastou.
-        custoUsd: item.custoEstimadoUsd,
+        // Conservador: quem sumiu provavelmente gastou. D20: marcado como estimativa.
+        custoUsd: Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD),
+        custoEEstimativa: true,
         concluidoEm: new Date(agora).toISOString(),
       });
       mortos.push(item.id);
@@ -297,12 +545,21 @@ export function pegarFixture(
 
   const base = estado.base.get(conta);
   const teto = base?.tetoUsd ?? 150;
-  const medido = base?.consumoHojeUsd ?? 0;
+  const medido = medidoDe(conta, agora);
   const emExecucao = reservadoDe(conta, agora);
+  const emEspera = emEsperaDe(conta, agora);
+  const estimativa = estimativaDe(conta, agora);
 
   const candidatos = itens()
-    .filter((i) => i.conta === conta && i.estado === "na_fila" && !devolvidos.includes(i.id))
-    .sort((a, b) => a.criadoEm.localeCompare(b.criadoEm));
+    .filter(
+      (i) =>
+        i.conta === conta &&
+        i.estado === "na_fila" &&
+        !devolvidos.includes(i.id) &&
+        (i.disponivelEm === null || Date.parse(i.disponivelEm) <= agora),
+    )
+    // #12: desempate explícito por id, como no `order by criado_em, id` do SQL.
+    .sort((a, b) => (a.criadoEm === b.criadoEm ? a.id.localeCompare(b.id) : a.criadoEm.localeCompare(b.criadoEm)));
 
   let pulados = 0;
   let menorNaoCoube: number | null = null;
@@ -314,10 +571,20 @@ export function pegarFixture(
         workerId,
         pegoEm: new Date(agora).toISOString(),
         heartbeatEm: new Date(agora).toISOString(),
+        disponivelEm: null,
         tentativas: candidato.tentativas + 1,
       };
       estado.fila.set(pego.id, pego);
-      return { item: pego, devolvidos: devolvidos.length, mortos: mortos.length, pulados, motivo: null };
+      return {
+        item: pego,
+        devolvidos: devolvidos.length,
+        mortos: mortos.length,
+        pulados,
+        emEspera,
+        estimativaUsd: estimativa.usd,
+        estimativaItens: estimativa.itens,
+        motivo: null,
+      };
     }
     pulados += 1;
     if (menorNaoCoube === null || candidato.custoEstimadoUsd < menorNaoCoube) {
@@ -325,20 +592,39 @@ export function pegarFixture(
     }
   }
 
+  // #11: cada caso tem o seu nome — "fila vazia" só quando ela está vazia.
+  let motivo: string;
+  if (menorNaoCoube !== null) {
+    motivo =
+      `nada cabe agora: o mais barato da fila custa ${formatarUsd(menorNaoCoube)} e só há ` +
+      `${formatarUsd(teto - medido - emExecucao)} livres`;
+  } else if (devolvidos.length > 0) {
+    motivo = `${devolvidos.length} item(ns) devolvido(s) para a fila, aguardando nova tentativa`;
+  } else if (emEspera > 0) {
+    motivo = `${emEspera} item(ns) em espera de nova tentativa`;
+  } else {
+    motivo = "fila vazia para esta conta";
+  }
+  if (estimativa.usd > 0) {
+    motivo += ` · ${formatarUsd(estimativa.usd)} do consumo são estimativa de ${estimativa.itens} item(ns) que morreram sem fechar`;
+  }
+
   return {
     item: null,
     devolvidos: devolvidos.length,
     mortos: mortos.length,
     pulados,
-    motivo:
-      menorNaoCoube === null
-        ? "fila vazia para esta conta"
-        : `nada cabe agora: o mais barato da fila custa ${formatarUsd(menorNaoCoube)} e só há ` +
-          `${formatarUsd(teto - medido - emExecucao)} livres`,
+    emEspera,
+    estimativaUsd: estimativa.usd,
+    estimativaItens: estimativa.itens,
+    motivo,
   };
 }
 
-export type ResultadoHeartbeatFixture = { ok: true } | { ok: false; motivo: string };
+export type ResultadoHeartbeatFixture =
+  | { ok: true; expiraEm: string }
+  | { ok: false; motivo: string }
+  | { erro: string };
 
 export function heartbeatFixture(
   id: string,
@@ -348,20 +634,31 @@ export function heartbeatFixture(
   agora: number = Date.now(),
 ): ResultadoHeartbeatFixture {
   const estado = loja();
+  // D11: os dois ids vêm do mesmo bloco do doc do worker — confundi-los fazia
+  // o abatimento de D10 procurar uma sessão que nunca seria publicada.
+  if (sessionId !== null && sessionId === workerId) {
+    return { erro: "session_id é o id da sessão FILHA, não o da Routine" };
+  }
   const item = estado.fila.get(id);
   if (!item || item.conta !== conta) return { ok: false, motivo: "inexistente" };
   if (item.estado === "cancelada") return { ok: false, motivo: "cancelado" };
   if (item.workerId !== workerId) return { ok: false, motivo: "outro worker" };
   if (item.estado !== "pega") return { ok: false, motivo: `item esta ${item.estado}` };
+  if (sessionId !== null) {
+    const outro = itens().find((i) => i.sessionId === sessionId && i.id !== id);
+    if (outro) return { erro: `sessão já vinculada ao item ${outro.id}` };
+  }
   estado.fila.set(id, {
     ...item,
     heartbeatEm: new Date(agora).toISOString(),
     sessionId: sessionId ?? item.sessionId,
   });
-  return { ok: true };
+  return { ok: true, expiraEm: new Date(agora + JANELA_HEARTBEAT_MS).toISOString() };
 }
 
-export type ResultadoFecharFixture = { ok: true; jaFechado: boolean } | { erro: string };
+export type ResultadoFecharFixture =
+  | { ok: true; jaFechado: boolean; estado: EstadoFila }
+  | { erro: string };
 
 export function fecharFixture(input: {
   id: string;
@@ -377,8 +674,12 @@ export function fecharFixture(input: {
   if (!item || item.conta !== input.conta) {
     return { erro: "Item não encontrado ou não pertence à conta informada." };
   }
-  if (input.custoUsd < 0 || input.custoUsd > 500) {
+  if (input.custoUsd < 0 || input.custoUsd > TETO_CUSTO_USD) {
     return { erro: "custo_usd fora da faixa aceita (0 a 500)." };
+  }
+  const sessionId = input.sessionId ?? null;
+  if (sessionId !== null && sessionId === input.workerId) {
+    return { erro: "session_id é o id da sessão FILHA, não o da Routine" };
   }
   if (item.estado === "na_fila" && item.workerId === null) {
     return { erro: "Item voltou para a fila (45 min sem sinal) — não pode ser fechado." };
@@ -386,22 +687,38 @@ export function fecharFixture(input: {
   if (item.workerId !== input.workerId) {
     return { erro: `Item pertence a outro worker (${item.workerId ?? "nenhum"}).` };
   }
+  if (sessionId !== null) {
+    const outro = itens().find((i) => i.sessionId === sessionId && i.id !== item.id);
+    if (outro) return { erro: `sessão já vinculada ao item ${outro.id}` };
+  }
   // D8: refechar o que este mesmo worker já fechou não é erro.
   if (item.estado === "concluida" || item.estado === "falhou") {
-    return { ok: true, jaFechado: true };
+    return { ok: true, jaFechado: true, estado: item.estado };
   }
+  const agora = input.agora ?? Date.now();
+  // D12: item cancelado pelo operador — a medição real SUBSTITUI a estimativa,
+  // mas a decisão do operador não é revogada (o estado continua `cancelada`).
   if (item.estado === "cancelada") {
-    return { erro: "Item foi cancelado pelo operador — não pode ser fechado." };
+    loja_.fila.set(item.id, {
+      ...item,
+      custoUsd: input.custoUsd,
+      custoEEstimativa: false,
+      sessionId: sessionId ?? item.sessionId,
+      concluidoEm: item.concluidoEm ?? new Date(agora).toISOString(),
+    });
+    return { ok: true, jaFechado: false, estado: "cancelada" };
   }
   loja_.fila.set(item.id, {
     ...item,
     estado: input.estado,
     custoUsd: input.custoUsd,
-    sessionId: input.sessionId ?? item.sessionId,
+    custoEEstimativa: false,
+    sessionId: sessionId ?? item.sessionId,
     heartbeatEm: null,
-    concluidoEm: new Date(input.agora ?? Date.now()).toISOString(),
+    disponivelEm: null,
+    concluidoEm: new Date(agora).toISOString(),
   });
-  return { ok: true, jaFechado: false };
+  return { ok: true, jaFechado: false, estado: input.estado };
 }
 
 /** Só para teste: muda o teto diário de uma conta (o de produção é 150 nas 3). */
@@ -417,7 +734,15 @@ export function envelhecerSinalFixture(id: string, minutos: number, agora = Date
   const estado = loja();
   const item = estado.fila.get(id);
   if (!item) return;
-  estado.fila.set(id, { ...item, heartbeatEm: new Date(agora - minutos * 60_000).toISOString() });
+  estado.fila.set(id, { ...item, heartbeatEm: new Date(agora - minutos * MINUTO_MS).toISOString() });
 }
 
-export { HEARTBEAT_LIMITE_MS };
+/** Só para teste: encerra o castigo de um item devolvido (D19). */
+export function vencerBackoffFixture(id: string, agora = Date.now()): void {
+  const estado = loja();
+  const item = estado.fila.get(id);
+  if (!item) return;
+  estado.fila.set(id, { ...item, disponivelEm: new Date(agora - 1000).toISOString() });
+}
+
+export { JANELA_HEARTBEAT_MS };

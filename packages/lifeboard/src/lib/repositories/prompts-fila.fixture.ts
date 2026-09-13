@@ -30,26 +30,44 @@ function menosMin(minutos: number): string {
 export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
   {
     conta: "lucasscudeler@gmail.com",
+    // D16 (rodada 4): este número é SÓ o das sessões publicadas. O item-1
+    // (concluída hoje, US$ 3,42) entra por cima, calculado pela mesma regra do
+    // banco — 38,68 + 3,42 = 42,10, o total que a tela mostrava antes como
+    // constante. Agora ele MEXE quando a fila mexe, que era o defeito medido.
     tetoUsd: 150,
-    consumoHojeUsd: 42.1,
+    consumoHojeUsd: 38.68,
     reservadoUsd: 0,
     naFilaUsd: 5,
+    estimativaUsd: 0,
+    estimativaItens: 0,
+    emEspera: 0,
     medidoAteEm: menosMin(30),
-  }, // ok (28,1%)
+  }, // ok (28,1% com o item da fila somado)
   {
     conta: "lsgpandora@gmail.com",
+    // 48,50 publicadas + 50,00 do item-8 (morto sem fechar, D20) = 98,50 — o
+    // mesmo total de antes, agora com uma parcela que a tela precisa marcar
+    // como ESTIMATIVA da casa.
     tetoUsd: 150,
-    consumoHojeUsd: 98.5,
+    consumoHojeUsd: 48.5,
     reservadoUsd: 15,
     naFilaUsd: 0,
+    estimativaUsd: 0,
+    estimativaItens: 0,
+    emEspera: 0,
     medidoAteEm: menosMin(80),
   }, // warn (75,7%)
   {
     conta: "almapetra.ltda@gmail.com",
+    // O item-4 desta conta falhou ONTEM (13 h atrás, já em outro dia do
+    // operador) — não conta hoje, como no SQL.
     tetoUsd: 150,
     consumoHojeUsd: 150,
     reservadoUsd: 0,
     naFilaUsd: 120,
+    estimativaUsd: 0,
+    estimativaItens: 0,
+    emEspera: 0,
     medidoAteEm: menosMin(13 * 60),
   }, // crit — teto atingido
 ];
@@ -74,6 +92,9 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: "session_01FILHA000000000000000001",
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: "https://claude.ai/code/session_01FILHA000000000000000001",
     resultado: "3 riscos apontados, PR comentado.",
     criadoPor: "lucasscudeler@gmail.com",
@@ -98,6 +119,9 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: "session_01FILHA000000000000000002",
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: null,
     resultado: null,
     criadoPor: "lucasscudeler@gmail.com",
@@ -122,6 +146,9 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: null,
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: null,
     resultado: null,
     criadoPor: "lucasscudeler@gmail.com",
@@ -146,6 +173,9 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: "session_01FILHA000000000000000004",
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: "https://claude.ai/code/session_01FILHA000000000000000004",
     resultado: "Teto de gasto do dia bateu no meio da sessão — retomar amanhã.",
     criadoPor: "lucasscudeler@gmail.com",
@@ -170,6 +200,9 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: null,
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: null,
     resultado: null,
     criadoPor: "lucasscudeler@gmail.com",
@@ -198,6 +231,39 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: "session_01FILHA000000000000000006",
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
+    sessaoUrl: null,
+    resultado: null,
+    criadoPor: "lucasscudeler@gmail.com",
+    taskId: null,
+  },
+  {
+    // D20 (rodada 4): o retrato que faltava — item que morreu sem ninguém
+    // fechar. O custo dele é ESTIMATIVA da casa (conservador), a tela marca
+    // isso em voz alta e oferece "ajustar custo" na linha.
+    id: "fila-fixture-8",
+    conta: "lsgpandora@gmail.com",
+    prompt: "Fechar o relatório de cobertura do quiz e comentar no PR.",
+    promptTamanho: 56,
+    complexidade: "alta",
+    custoEstimadoUsd: 50,
+    modeloSugerido: "Opus",
+    estado: "falhou",
+    custoUsd: 50,
+    criadoEm: menosMin(300),
+    pegoEm: menosMin(240),
+    concluidoEm: menosMin(45),
+    heartbeatEm: null,
+    workerId: null,
+    tentativas: 3,
+    maxTentativas: 3,
+    sessionId: null,
+    motivoFalha: "expirou 3 vezes sem fechamento",
+    custoEEstimativa: true,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: null,
     resultado: null,
     criadoPor: "lucasscudeler@gmail.com",
@@ -222,6 +288,9 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     maxTentativas: 3,
     sessionId: null,
     motivoFalha: null,
+    custoEEstimativa: false,
+    custoAjustadoEm: null,
+    disponivelEm: null,
     sessaoUrl: null,
     resultado: null,
     criadoPor: "lucasscudeler@gmail.com",

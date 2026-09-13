@@ -8,6 +8,7 @@ import type { ConsumoConta, ItemFilaPrompt } from "@/core/prompts/tipos";
 import { getTasksRepository } from "@/lib/repositories/factory";
 import { AGORA_FIXTURE } from "@/lib/repositories/prompts-fila.fixture";
 import {
+  cursorDaPaginaFixture,
   filaTemMaisFixture,
   listarConsumoFixture,
   listarFilaFixture,
@@ -27,9 +28,11 @@ import { loadFilaPromptsState } from "@/lib/supabase/live-client";
  * falha de rede vira frase em português, nunca HTTP 500 — B11 da régua de
  * UI/UX). O acesso à rota já é protegido pelo middleware global.
  *
- * D8 (rodada 3): a fila vem paginada. `?limite=` cresce de 50 em 50 pelo link
- * "mostrar mais" — pagina sem estado de cliente e sem perder o que já está na
- * tela (o contrário de trocar de página, que esconderia os itens novos).
+ * D15 (rodada 4): a fila vem paginada por CURSOR. `?antes=<iso>&antesId=<uuid>`
+ * carrega a página seguinte a partir do último item da atual — o "mostrar mais"
+ * antigo só engordava `?limite=`, que morre no teto de 200 da RPC (numa fila de
+ * 205 itens, 5 eram inalcançáveis). Sem estado de cliente: a página continua
+ * Server Component e o cursor mora na URL, que se compartilha e se recarrega.
  */
 export const metadata: Metadata = {
   title: "Prompts · ALMA PETRA",
@@ -41,9 +44,13 @@ export const dynamic = "force-dynamic";
 const LIMITE_PADRAO = 50;
 const LIMITE_MAXIMO = 200;
 
-function limiteDe(valor: string | string[] | undefined): number {
+function primeiro(valor: string | string[] | undefined): string | null {
   const bruto = Array.isArray(valor) ? valor[0] : valor;
-  const n = Number.parseInt(bruto ?? "", 10);
+  return bruto === undefined || bruto.trim().length === 0 ? null : bruto;
+}
+
+function limiteDe(valor: string | string[] | undefined): number {
+  const n = Number.parseInt(primeiro(valor) ?? "", 10);
   if (!Number.isFinite(n)) return LIMITE_PADRAO;
   return Math.min(Math.max(n, 1), LIMITE_MAXIMO);
 }
@@ -53,14 +60,21 @@ interface EstadoDaPagina {
   consumo: ConsumoConta[];
   tarefas: { id: string; title: string }[];
   temMais: boolean;
+  /** D15: cursor do último item desta página — vira `?antes=&antesId=`. */
+  proximoAntesDe: string | null;
+  proximoAntesId: string | null;
   /** Em modo fixture é a âncora da semente — screenshot igual em qualquer dia. */
   agora: number;
 }
 
-async function carregarEstado(limite: number): Promise<EstadoDaPagina> {
+async function carregarEstado(
+  limite: number,
+  antesDe: string | null,
+  antesId: string | null,
+): Promise<EstadoDaPagina> {
   if (env.LIFEBOARD_DATA_MODE === "live") {
     const [filaState, tasks] = await Promise.all([
-      loadFilaPromptsState(limite),
+      loadFilaPromptsState(limite, antesDe, antesId),
       getTasksRepository().listAll(),
     ]);
     return {
@@ -68,14 +82,19 @@ async function carregarEstado(limite: number): Promise<EstadoDaPagina> {
       consumo: filaState.consumo,
       tarefas: tasks.map((t) => ({ id: t.id, title: t.title })),
       temMais: filaState.temMais,
+      proximoAntesDe: filaState.proximoAntesDe,
+      proximoAntesId: filaState.proximoAntesId,
       agora: Date.now(),
     };
   }
+  const cursor = cursorDaPaginaFixture(limite, antesDe, antesId);
   return {
-    fila: listarFilaFixture(limite),
+    fila: listarFilaFixture(limite, antesDe, antesId),
     consumo: listarConsumoFixture(AGORA_FIXTURE),
     tarefas: listarTasksFixture().map((t) => ({ id: t.id, title: t.title })),
-    temMais: filaTemMaisFixture(limite),
+    temMais: filaTemMaisFixture(limite, antesDe, antesId),
+    proximoAntesDe: cursor?.antesDe ?? null,
+    proximoAntesId: cursor?.antesId ?? null,
     agora: AGORA_FIXTURE,
   };
 }
@@ -87,10 +106,12 @@ export default async function PaginaPrompts({
 }): Promise<JSX.Element> {
   const params = (await searchParams) ?? {};
   const limite = limiteDe(params.limite);
+  const antesDe = primeiro(params.antes);
+  const antesId = primeiro(params.antesId);
 
   let estado: EstadoDaPagina;
   try {
-    estado = await carregarEstado(limite);
+    estado = await carregarEstado(limite, antesDe, antesId);
   } catch (erro) {
     console.error("[prompts] falha ao ler a fila:", erro);
     return <NaoConsegui />;
@@ -115,6 +136,9 @@ export default async function PaginaPrompts({
         agora={estado.agora}
         temMais={estado.temMais}
         limiteAtual={limite}
+        proximoAntesDe={estado.proximoAntesDe}
+        proximoAntesId={estado.proximoAntesId}
+        emPaginaSeguinte={antesDe !== null}
       />
     </main>
   );

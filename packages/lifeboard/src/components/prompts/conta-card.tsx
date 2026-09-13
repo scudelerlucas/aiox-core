@@ -1,11 +1,13 @@
 import type { ConsumoConta } from "@/core/prompts/tipos";
 import {
   ROTULO_CONTA,
-  espacoLivreUsd,
   faixaConsumo,
   formatarUsd,
   headroomUsd,
   tetoAtingido,
+  textoEspacoLivre,
+  textoEstimativa,
+  textoPrevisaoComFila,
 } from "@/core/prompts/tipos";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 
@@ -22,6 +24,12 @@ import { formatRelativeTime } from "@/lib/format-relative-time";
  * Fable" numa conta que não vai rodar nada hoje é convidar o operador a uma
  * ação que o banco recusa — o cartão diz o que é verdade: "teto atingido —
  * próximo espaço amanhã".
+ *
+ * D13/D20 (rodada 4): o cartão NUNCA mostra número negativo (o crítico mediu
+ * "US$ -20,00 livres" nesta linha) — passou do teto vira "sem espaço livre
+ * agora". E quando parte do consumo é ESTIMATIVA da casa (item que morreu sem
+ * fechar), o cartão diz isso: um número inflado pode congelar a conta o dia
+ * inteiro, e o operador precisa saber que dá para corrigir na linha da fila.
  */
 const FAIXA_CLASSES: Record<"ok" | "warn" | "crit", { barra: string; texto: string }> = {
   ok: { barra: "bg-state-done", texto: "text-state-done" },
@@ -55,8 +63,9 @@ export function ContaCard({
   const faixa = faixaConsumo(consumo.consumoHojeUsd, consumo.reservadoUsd, consumo.tetoUsd);
   const atingiu = tetoAtingido(consumo.consumoHojeUsd, consumo.reservadoUsd, consumo.tetoUsd);
   const headroom = headroomUsd(consumo);
-  const livre = espacoLivreUsd(consumo);
   const cores = FAIXA_CLASSES[faixa];
+  const previsao = textoPrevisaoComFila(consumo);
+  const estimativa = textoEstimativa(consumo);
   const esperaHoje = semEspacoHoje === true && !atingiu;
 
   return (
@@ -113,11 +122,17 @@ export function ContaCard({
             ? `medido até ${formatRelativeTime(consumo.medidoAteEm, agora)}`
             : "sem sessão medida hoje ainda"}
           {" · "}
-          {headroom >= 0 ? `${formatarUsd(headroom)} livres` : `${formatarUsd(Math.abs(headroom))} acima do teto`}
-          {consumo.naFilaUsd > 0
-            ? ` · ${formatarUsd(consumo.naFilaUsd)} esperando na fila (sobram ${formatarUsd(Math.max(0, livre))})`
+          {/* D13: clamp em 0 — "US$ -20,00 livres" não é informação, é erro. */}
+          {textoEspacoLivre(consumo)}
+          {headroom < 0 ? ` (${formatarUsd(Math.abs(headroom))} acima do teto)` : ""}
+          {previsao ? ` · ${previsao}` : ""}
+          {consumo.emEspera > 0
+            ? ` · ${consumo.emEspera === 1 ? "1 item espera" : `${consumo.emEspera} itens esperam`} nova tentativa`
             : ""}
         </p>
+        {estimativa ? (
+          <p className="mt-0.5 text-[11px] text-state-progress">{estimativa} — dá para ajustar na linha da fila.</p>
+        ) : null}
       </div>
 
       {atingiu ? (
