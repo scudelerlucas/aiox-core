@@ -55,6 +55,7 @@ import "server-only";
 import { detectCycleIds } from "@/core/prioritize/dag";
 import {
   DURACAO_PLACEHOLDER,
+  EPSILON_FOLGA,
   type JanelaCPM,
   type ResultadoCPM,
 } from "@/core/prioritize/tipos-v3";
@@ -230,16 +231,20 @@ export function caminhoCritico(
   const critico = new Set<string>();
   for (const id of nodeIds) {
     if (!ancestrais.has(id)) continue;
+    // Folga em ponto flutuante: 0.1 + 0.2 − 0.3 dá 5e-17, não 0 — sem o epsilon
+    // um nó verdadeiramente crítico some da linha vermelha (rodada 2 do crítico).
+    const folgaBruta = (lf.get(id) ?? 0) - (ef.get(id) ?? 0);
+    const folga = Math.abs(folgaBruta) < EPSILON_FOLGA ? 0 : folgaBruta;
     const janela: JanelaCPM = {
       es: es.get(id) ?? 0,
       ef: ef.get(id) ?? 0,
       ls: ls.get(id) ?? 0,
       lf: lf.get(id) ?? 0,
-      folga: (lf.get(id) ?? 0) - (ef.get(id) ?? 0),
+      folga,
       duracao: duracao.get(id) ?? DURACAO_PLACEHOLDER,
     };
     janelas.set(id, janela);
-    if (janela.folga === 0) critico.add(id);
+    if (folga === 0) critico.add(id);
   }
 
   return {

@@ -287,3 +287,56 @@ describe("caminhoCritico — duas fontes de precedência, mesma aresta", () => {
     expect([...resultado.critico].sort()).toEqual(["A", "B"]);
   });
 });
+
+describe("caminhoCritico — rodada 2 do crítico", () => {
+  it("durações decimais (0.1 → 0.2 → 0.3): cadeia única é toda crítica, folga lê 0", () => {
+    const r = caminhoCritico(
+      [
+        task({ id: "A", estimativaDias: 0.1, successorIds: ["B"] }),
+        task({ id: "B", estimativaDias: 0.2, successorIds: ["G"] }),
+        task({ id: "G", estimativaDias: 0.3, isGoal: true }),
+      ],
+      [],
+    );
+    expect([...r.critico].sort()).toEqual(["A", "B", "G"]);
+    expect(r.janelas.get("A")?.folga).toBe(0);
+    expect(r.janelas.get("B")?.folga).toBe(0);
+  });
+
+  it("dois ramos empatados por soma de decimais (0.1+0.2 vs 0.3) são ambos críticos", () => {
+    const r = caminhoCritico(
+      [
+        task({ id: "A", estimativaDias: 1, successorIds: ["M", "N"] }),
+        task({ id: "M", estimativaDias: 0.1, successorIds: ["M2"] }),
+        task({ id: "M2", estimativaDias: 0.2, successorIds: ["G"] }),
+        task({ id: "N", estimativaDias: 0.3, successorIds: ["G"] }),
+        task({ id: "G", estimativaDias: 1, isGoal: true }),
+      ],
+      [],
+    );
+    expect([...r.critico].sort()).toEqual(["A", "G", "M", "M2", "N"]);
+  });
+
+  it("dependente cujo único predecessor está em ciclo é tratado como livre (ES 0)", () => {
+    const r = caminhoCritico(
+      [
+        task({ id: "A", estimativaDias: 1, successorIds: ["B"] }),
+        task({ id: "B", estimativaDias: 1, successorIds: ["A"] }),
+        task({ id: "D", estimativaDias: 5, predecessorIds: ["A"], successorIds: ["G"] }),
+        task({ id: "G", estimativaDias: 1, isGoal: true }),
+      ],
+      [],
+    );
+    expect([...r.emCiclo].sort()).toEqual(["A", "B"]);
+    expect(r.janelas.get("D")?.es).toBe(0);
+    expect(r.duracaoTotal).toBe(6);
+  });
+
+  it("iniciadoEm não muda o cálculo (fora do escopo do CPM, dia 0 = agora)", () => {
+    const base = task({ id: "A", estimativaDias: 3, successorIds: ["G"], status: "in_progress" });
+    const g = task({ id: "G", estimativaDias: 1, isGoal: true });
+    const semInicio = caminhoCritico([base, g], []);
+    const comInicio = caminhoCritico([{ ...base, iniciadoEm: "2020-01-01T00:00:00.000Z" }, g], []);
+    expect(comInicio.janelas.get("A")).toEqual(semInicio.janelas.get("A"));
+  });
+});

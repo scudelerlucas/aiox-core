@@ -53,8 +53,17 @@ export interface ResultadoCPM {
  *   A RPC pode entregar ponta solta quando os filtros por dono divergem.
  * - Tarefa `done` continua no grafo (duração 0) e CONTA como sucessor transitivo
  *   no alcance (s3) — espelha o CPM, que também a mantém.
+ * - Nó removido (ciclo ou obsolescência) deixa de ser predecessor de quem
+ *   dependia dele: o dependente é tratado como livre (ES 0), a mesma convenção
+ *   "órfão = resolvido" de `dag.ts`. É aviso na interface, nunca erro.
+ * - Folga é comparada com `EPSILON_FOLGA`: |folga| abaixo dele vira 0 (crítico).
+ *   Sem isso, 0.1 + 0.2 − 0.3 ≠ 0 e o nó some da linha vermelha.
+ * - `iniciadoEm` está FORA do escopo do CPM: dia 0 é "agora", e uma tarefa já em
+ *   andamento não recebe crédito pelo tempo decorrido. Calendário real é P5.
  */
 export const DURACAO_PLACEHOLDER = 1;
+/** Tolerância para "folga zero" em dias — bem abaixo de qualquer estimativa real. */
+export const EPSILON_FOLGA = 1e-9;
 
 /** Faixas p80 aceitas para esforço e custo declarados. */
 export const FAIXAS_ESFORCO_CUSTO: ReadonlySet<number> = new Set([1, 2, 3, 5]);
