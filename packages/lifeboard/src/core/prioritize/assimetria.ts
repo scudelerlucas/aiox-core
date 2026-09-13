@@ -20,6 +20,12 @@ import "server-only";
  * um grafo pré-construído (`grafoSucessao`, agora exportada) para uso em
  * lote via `scoreAssimetriaLote`, que soma tempo O(N) em vez de O(N²).
  *
+ * v3 (achado CRÍTICO #1, mesma rodada): `e`/`c` deixam de ser sempre o átomo
+ * cru declarado — `herancaEfetiva` (`heranca.ts`) entra na conta: uma tarefa
+ * com filha(s) ABERTA(s) usa a soma recursiva do efetivo delas; sem filha
+ * aberta, o átomo próprio vale (mesmo número de antes). `opcionalidade` (s2)
+ * NUNCA herda. O desconto de sinergia passa a incidir sobre o `c` EFETIVO.
+ *
  * P2 (`caminho-critico.ts`) é construída em paralelo e pode não existir ainda
  * nesta árvore — por isso esta peça NUNCA importa dela. Recebe o
  * `ResultadoCPM` já pronto como parâmetro (tipo vem só de `tipos-v3.ts`, que é
@@ -30,6 +36,7 @@ import "server-only";
  * um Client Component.
  */
 
+import { filhosPorPai, herancaEfetiva } from "@/core/prioritize/heranca";
 import {
   atomosDeclaradosValidos,
   pesoValido,
@@ -164,10 +171,24 @@ function faixaMaisProxima(valor: number): 1 | 2 | 3 | 5 {
   return 5;
 }
 
-function montaPorque(s1: 1 | 2 | 3, s3: 1 | 2 | 3, esforco: number, custo: number): string {
+/**
+ * `herdado`: quando `true`, o "porquê" ganha o prefixo que avisa que e/c não
+ * são os átomos que a PRÓPRIA tarefa declarou — vieram da soma das
+ * subtarefas abertas (`herancaEfetiva`, achado CRÍTICO #1). Sem isto o
+ * cartão mostra um número correto mas conta uma história errada (os átomos
+ * que a interface exibe ao lado continuam sendo os DECLARADOS da tarefa).
+ */
+function montaPorque(
+  s1: 1 | 2 | 3,
+  s3: 1 | 2 | 3,
+  esforco: number,
+  custo: number,
+  herdado: boolean,
+): string {
   const faixaEsforco = faixaMaisProxima(esforco);
   const faixaCusto = faixaMaisProxima(custo);
-  return `${VOCAB_ALAVANCA[s1]}, ${VOCAB_ALCANCE[s3]}; ${VOCAB_ESFORCO[faixaEsforco]} e ${VOCAB_CUSTO[faixaCusto]}.`;
+  const frase = `${VOCAB_ALAVANCA[s1]}, ${VOCAB_ALCANCE[s3]}; ${VOCAB_ESFORCO[faixaEsforco]} e ${VOCAB_CUSTO[faixaCusto]}.`;
+  return herdado ? `herdado das subtarefas: ${frase}` : frase;
 }
 
 function arredonda2(valor: number): number {
@@ -208,15 +229,26 @@ function scoreAssimetriaNucleo(
   cpm: ResultadoCPM,
   byId: Map<string, Task>,
   grafo: Map<string, Set<string>>,
+  tasks: Task[],
+  filhosMapa: Map<string, Task[]>,
 ): ScoreAssimetria | null {
   const declarado = task.assimetria;
   if (declarado === null || declarado === undefined) return null;
   if (!atomosDeclaradosValidos(declarado)) return null;
 
   const s1 = alavanca(task.id, cpm);
-  const s2 = declarado.opcionalidade;
+  const s2 = declarado.opcionalidade; // opcionalidade NUNCA herda — sempre o átomo próprio.
   const s3 = alcance(task.id, [], [], grafo);
-  const e = declarado.esforco;
+
+  // Herança (achado CRÍTICO #1): e/c efetivos são a soma recursiva das
+  // filhas ABERTAS quando há alguma; sem filha aberta, caem nos átomos
+  // próprios — o mesmo `declarado.esforco`/`.custo` de antes, então o
+  // comportamento sem subtarefas não muda em nada.
+  const efetiva = herancaEfetiva(task, tasks, filhosMapa);
+  // `e` nunca pode chegar a 0 (denominador do score) — o domínio declarado
+  // não permite 0, e uma soma herdada de filhas sem átomo próprio também não
+  // deveria zerar o score inteiro; mesmo piso que já existia para `c` abaixo.
+  const e = Math.max(1, efetiva.esforco);
 
   // Sinergia: cada origem que AINDA vai acontecer (não 'done') barateia o
   // destino — o trabalho dela poupa parte do custo desta tarefa. Origem já
@@ -243,7 +275,7 @@ function scoreAssimetriaNucleo(
       origensObsoletas.push(origem);
     }
   }
-  const c = arredonda2(Math.max(1, declarado.custo * produtoDescontos));
+  const c = arredonda2(Math.max(1, efetiva.custo * produtoDescontos));
 
   if (origensObsoletas.length > 0) {
     const primeira = origensObsoletas[0];
@@ -262,7 +294,16 @@ function scoreAssimetriaNucleo(
   }
 
   const valor = arredonda2((s1 * s2 * s3) / (e * c));
-  return { valor, s1, s2, s3, e, c, porque: montaPorque(s1, s3, e, c), obsoleta: false };
+  return {
+    valor,
+    s1,
+    s2,
+    s3,
+    e,
+    c,
+    porque: montaPorque(s1, s3, e, c, efetiva.herdado),
+    obsoleta: false,
+  };
 }
 
 /**
@@ -279,7 +320,8 @@ export function scoreAssimetria(
 ): ScoreAssimetria | null {
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const grafo = grafoSucessao(tasks, edges);
-  return scoreAssimetriaNucleo(task, arestasPorDestino(edges), cpm, byId, grafo);
+  const filhosMapa = filhosPorPai(tasks);
+  return scoreAssimetriaNucleo(task, arestasPorDestino(edges), cpm, byId, grafo, tasks, filhosMapa);
 }
 
 /**
@@ -297,9 +339,13 @@ export function scoreAssimetriaLote(
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const grafo = grafoSucessao(tasks, edges);
   const porDestino = arestasPorDestino(edges);
+  const filhosMapa = filhosPorPai(tasks);
   const resultado = new Map<string, ScoreAssimetria | null>();
   for (const task of tasks) {
-    resultado.set(task.id, scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo));
+    resultado.set(
+      task.id,
+      scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo, tasks, filhosMapa),
+    );
   }
   return resultado;
 }

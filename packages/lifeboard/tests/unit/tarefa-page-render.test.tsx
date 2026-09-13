@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { resetarFixtureStore } from "@/lib/repositories/tasks.fixture-store";
 
 /**
  * `factory.ts` importa (no topo do módulo, incondicional) os repositórios
@@ -48,6 +50,12 @@ const { default: PaginaTarefa } = await import("@/app/tarefa/[id]/page");
  * nova.
  */
 describe("PaginaTarefa (fixture)", () => {
+  // [MÉDIO #12, crítico 13/09] o store fica em `globalThis` (persiste entre
+  // testes do mesmo processo) — sem resetar, um teste anterior que gravasse
+  // no store vazaria estado para este. `resetarFixtureStore` existia mas
+  // nunca era chamado por nenhum teste.
+  beforeEach(resetarFixtureStore);
+
   it("PRONTO QUANDO: renderiza título, notas, filha, aresta e score de task-build", async () => {
     const elemento = await PaginaTarefa({ params: Promise.resolve({ id: "task-build" }) });
     const html = renderToStaticMarkup(elemento);

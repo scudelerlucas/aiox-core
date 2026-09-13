@@ -24,6 +24,8 @@ interface TaskInput {
   successorIds?: string[];
   assimetria?: AssimetriaDeclarada | null;
   title?: string;
+  /** P6 (achado CRÍTICO #1) — para os testes de herança dentro do score. */
+  parentId?: string | null;
 }
 
 /** Task mínima do modelo canônico — mesmo helper de hierarq.test.ts/dag.test.ts. */
@@ -42,6 +44,7 @@ function task(input: TaskInput): Task {
     externalRef: input.id,
     updatedAt: "2026-07-09T00:00:00.000Z",
     assimetria: input.assimetria ?? null,
+    parentId: input.parentId ?? null,
   };
 }
 
@@ -271,6 +274,43 @@ describe("scoreAssimetria — contrato P3 (tipos-v3.ts)", () => {
       const avulso = scoreAssimetria(t, tasks, edges, resultado);
       expect(lote.get(t.id)).toEqual(avulso);
     }
+  });
+});
+
+describe("scoreAssimetria — herança de e/c (achado CRÍTICO #1, 13/09/2026)", () => {
+  it("mãe com 2 filhas ABERTAS (e 2+3, c 1+2) → e=5, c=3 no score, não o átomo próprio da mãe", () => {
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 2, esforco: 5, custo: 5 } });
+    const f1 = task({ id: "f1", parentId: "mae", assimetria: { opcionalidade: 1, esforco: 2, custo: 1 } });
+    const f2 = task({ id: "f2", parentId: "mae", assimetria: { opcionalidade: 1, esforco: 3, custo: 2 } });
+    const tasks = [mae, f1, f2];
+
+    const score = scoreAssimetria(mae, tasks, [], cpm());
+    expect(score).not.toBeNull();
+    expect(score?.e).toBe(5);
+    expect(score?.c).toBe(3);
+    expect(score?.s2).toBe(2); // opcionalidade nunca herda — é sempre o átomo próprio
+    expect(score?.porque).toMatch(/^herdado das subtarefas: /);
+
+    const lote = scoreAssimetriaLote(tasks, [], cpm());
+    expect(lote.get("mae")).toEqual(score);
+  });
+
+  it("sem filha aberta, e/c do score continuam os átomos próprios (nada muda sem subtarefas)", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 2, esforco: 3, custo: 2 } });
+    const score = scoreAssimetria(t, [t], [], cpm());
+    expect(score?.e).toBe(3);
+    expect(score?.c).toBe(2);
+    expect(score?.porque).not.toMatch(/^herdado/);
+  });
+
+  it("sinergia desconta sobre o c EFETIVO (pós-herança), não sobre o declarado da mãe", () => {
+    const mae = task({ id: "mae", assimetria: { opcionalidade: 1, esforco: 1, custo: 5 } });
+    const f1 = task({ id: "f1", parentId: "mae", assimetria: { opcionalidade: 1, esforco: 1, custo: 4 } });
+    const origem = task({ id: "origem", status: "open" });
+    const edges = [edge({ origem: "origem", destino: "mae", tipo: "sinergia", peso: 0.5 })];
+
+    const score = scoreAssimetria(mae, [mae, f1, origem], edges, cpm());
+    expect(score?.c).toBe(2); // efetivo herdado = 4; ×(1-0.5) = 2
   });
 });
 

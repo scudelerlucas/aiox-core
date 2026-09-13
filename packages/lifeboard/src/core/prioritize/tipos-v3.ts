@@ -70,9 +70,15 @@ export const FAIXAS_ESFORCO_CUSTO: ReadonlySet<number> = new Set([1, 2, 3, 5]);
 
 /**
  * Domínio dos átomos declarados — a MESMA régua do CHECK `tasks_assimetria_dominio`
- * (migration 0005): opcionalidade 1..3; esforço e custo em {1, 2, 3, 5}. Fora
+ * (migration 0008: `opcionalidade in (1,2,3)`, esforço e custo em {1, 2, 3, 5}). Fora
  * disso o objeto inteiro é inválido (o cartão mostra "sem átomos declarados").
  * Usada pelo normalizador da RPC e pelo score — nunca duplicar a régua.
+ *
+ * [ALTO/BAIXO #17, crítico 13/09] `opcionalidade` só aceita INTEIRO 1|2|3 —
+ * `1.5` passava antes (`>= 1 && <= 3` aceita fração) e não corresponde a nada
+ * no vocabulário do "porquê" nem no CHECK do banco (que agora usa `in (1,2,3)`,
+ * não `between`). Esforço/custo já eram inteiros de fato porque `Set.has`
+ * nunca bate com fração.
  */
 export function atomosDeclaradosValidos(
   raw: unknown,
@@ -81,7 +87,8 @@ export function atomosDeclaradosValidos(
   const { opcionalidade, esforco, custo } = raw as Record<string, unknown>;
   const numero = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
   return (
-    numero(opcionalidade) && opcionalidade >= 1 && opcionalidade <= 3 &&
+    numero(opcionalidade) && Number.isInteger(opcionalidade) &&
+    opcionalidade >= 1 && opcionalidade <= 3 &&
     numero(esforco) && FAIXAS_ESFORCO_CUSTO.has(esforco) &&
     numero(custo) && FAIXAS_ESFORCO_CUSTO.has(custo)
   );
@@ -113,8 +120,34 @@ export interface ScoreAssimetria {
 }
 
 /**
+ * Herança de esforço/custo — resultado de `herancaEfetiva` (`heranca.ts`, P6).
+ * Movida para cá (achado BAIXO #19, crítico 13/09): vivia em `heranca.ts`, que
+ * é `server-only` — um Client Component (`atomos-form.tsx`) importava o TIPO
+ * de lá; `import type` é apagado no build, mas o contrato pertence ao mesmo
+ * lugar dos outros tipos compartilhados entre camada O e Client Components.
+ */
+export interface HerancaResultado {
+  /** Esforço efetivo: soma RECURSIVA das filhas abertas, ou o próprio quando não há filha aberta. */
+  esforco: number;
+  /** Custo efetivo: mesma regra do esforço. */
+  custo: number;
+  /** `true` quando o valor veio da soma das filhas abertas (não do átomo próprio). */
+  herdado: boolean;
+  /** Quantas filhas abertas (diretas) entraram na soma (0 quando `herdado` é falso). */
+  filhasAbertas: number;
+}
+
+/**
  * Regras do score (P3):
  * - Sem `task.assimetria` declarado → devolve `null` (o cartão mostra "sem átomos declarados").
+ * - Herança (P6, `heranca.ts`): `e` e `c` efetivos de uma tarefa com filha(s) ABERTA(s)
+ *   (`status ≠ done`, `parentId === task.id`) são a SOMA RECURSIVA do `e`/`c` EFETIVO de
+ *   cada filha aberta (uma filha sem átomos próprios, mas com filhas dela mesma, herda
+ *   por sua vez; sem átomos e sem filhas, contribui 0) — com guarda de ciclo. Sem filha
+ *   aberta nenhuma, usa os átomos próprios declarados (`declarado.esforco`/`.custo`).
+ *   `opcionalidade` (s2) NUNCA herda — vem sempre do átomo próprio da tarefa. O desconto
+ *   de sinergia se aplica sobre o `c` EFETIVO (pós-herança), não sobre o declarado.
+ *   `porque` ganha o prefixo "herdado das subtarefas: " quando `herdado` é `true`.
  * - Sinergia: cada aresta `sinergia` cujo destino é esta tarefa e cuja origem NÃO está
  *   `done` desconta `peso` do custo: `c = max(1, c × Π(1 − peso))`.
  * - Obsolescência: QUALQUER aresta `obsolescencia` cujo destino é esta tarefa e cuja

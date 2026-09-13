@@ -26,6 +26,7 @@ const NAV_LINKS = [
   { href: "/", label: "Painel" },
   { href: "/frentes", label: "Assuntos" },
   { href: "/linha-do-tempo", label: "Linha do tempo" },
+  { href: "/prompts", label: "Prompts" },
 ] as const;
 
 export default function RootLayout({

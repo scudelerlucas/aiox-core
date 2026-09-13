@@ -104,6 +104,14 @@ const config: Config = {
            * (P4, dono do arquivo) passou a consumir esta chave nova.
            */
           obsolescenciaHue: "#FF6EC7",
+          /**
+           * P5c (13/09/2026, achado MÉDIO #9 do crítico hostil, rodada 2 —
+           * Gantt): antes, selecionar uma tarefa deixava seus SUCESSORES na
+           * MESMA cor verde do default (`aresta.sucessao`) — só a espessura
+           * do traço mudava, pouco perceptível. Verde mais claro/saturado,
+           * reservado ao destaque de seleção. ADITIVO — nenhum token acima mudou.
+           */
+          sucessaoAtiva: "#8CFFC0",
         },
         /**
          * P5b (13/09/2026, achado ALTO #7 do crítico hostil contra Asana

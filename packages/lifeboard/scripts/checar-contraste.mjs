@@ -26,6 +26,28 @@ function tokens() {
 
 const T = tokens();
 
+/**
+ * P5c (13/09/2026, achado BAIXO #13 do crítico hostil, rodada 2): duas cores
+ * na tela NÃO são um token puro — são o PIXEL JÁ COMPOSTO que o navegador
+ * pinta depois de somar opacidade + `background-image` sobre o canvas
+ * (`navy-950`): a hachura de folga (listra opaca do `repeating-linear-
+ * gradient` × a `opacity-70` do elemento) e a barra cinza de "fechado sem
+ * merge" (`bone-500` a 90% de opacidade, achado ALTO #9 da rodada 1). Nenhum
+ * dos dois é achável lendo só `tailwind.config.ts` — o crítico mediu o PIXEL
+ * de um screenshot real. `RESOLVIDAS` guarda esse resultado já composto (hex
+ * literal, não nome de token) para as duas entradas correspondentes em
+ * `PARES` — a mesma disciplina de "nenhum hex fora de um arquivo
+ * documentado", só que aqui o arquivo é ESTE comentário, não o tema.
+ */
+const RESOLVIDAS = {
+  // 0,7×folga.tracado(#57C9C0) + 0,3×navy-950(#05070F) — a listra OPACA do
+  // gradiente por cima do fundo a 30%+70% de opacidade. Medido pelo crítico: 5,28:1.
+  "hatch-folga-composta": "#3E8F8B",
+  // 0,9×bone-500(#6C7A99) + 0,1×navy-950(#05070F) — a barra "fechado sem
+  // merge" (cinza, `opacity-90`) sobre o canvas. Medido pelo crítico: 3,94:1.
+  "barra-fechada-composta": "#626E8B",
+};
+
 const canal = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 function luminancia(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -45,6 +67,13 @@ const PARES = [
   ["bone-300", "navy-850", 4.5, "texto secundário do cartão"],
   ["bone-300", "navy-900", 4.5, "texto secundário do painel"],
   ["bone-400", "navy-950", 4.5, "texto terciário / ajuda"],
+  // P6b (achado MÉDIO #15, crítico 13/09): o botão primário único da tela da
+  // tarefa ("Salvar nota") é texto navy-950 sobre um degradê gold-400→gold-600
+  // — as duas pontas do degradê contra o fundo/painel escuro, mais o texto
+  // dourado do radio SELECIONADO do controle segmentado (navy-800).
+  ["gold-400", "navy-950", 4.5, "topo do degradê do botão primário (Salvar nota)"],
+  ["gold-600", "navy-950", 4.5, "base do degradê do botão primário (Salvar nota)"],
+  ["gold-300", "navy-800", 4.5, "opção selecionada do controle segmentado (radio ativo)"],
   ["bone-400", "navy-850", 4.5, "motivo da ordem no cartão"],
   ["gold-300", "navy-850", 4.5, "rótulo da ação"],
   ["gold-400", "navy-900", 4.5, "marca e destaque do 1º lugar"],
@@ -77,26 +106,42 @@ const PARES = [
   // ── Linha do tempo / Gantt (P5, 13/09/2026) — barras sólidas sobre o canvas (navy-950) ──
   ["state-open", "navy-950", 3, "barra de assunto/tarefa 'aberta' no Gantt (P5)"],
   ["state-done", "navy-950", 3, "barra de assunto/tarefa 'concluída' no Gantt (P5)"],
-  ["state-error", "navy-950", 3, "barra de assunto 'fechado sem merge' no Gantt (P5)"],
+  // SUBSTITUÍDO (P5c, rodada 2, achado BAIXO #13): "fechado sem merge" não usa
+  // mais `state-error` desde o achado ALTO #9 da rodada 1 (cinza + traço,
+  // nunca o vermelho — ver `corDoAssunto` em `linha-do-tempo.tsx`). O par
+  // "aresta-sucessaoAtiva" abaixo é quem cobre o Gantt daqui em diante; esta
+  // linha fica só como registro de por que o par sumiu, não reentra na régua.
+  // ["state-error", "navy-950", 3, "barra de assunto 'fechado sem merge' no Gantt (P5) — SUBSTITUÍDO"],
   ["state-progress", "navy-950", 3, "barra de tarefa 'em progresso' no Gantt (P5)"],
   ["state-blocked", "navy-950", 3, "barra de tarefa 'bloqueada' no Gantt (P5)"],
+  ["aresta-sucessaoAtiva", "navy-950", 3, "conector de sucessora destacada na seleção do Gantt (P5c #9)"],
   // P5b (13/09/2026, achado ALTO #7): token dedicado da FOLGA — antes reusava
   // `aresta-critico` a 25% (2,71:1, abaixo da régua) e o mesmo matiz do crítico
   // para o conceito oposto. Checado contra o canvas (navy-950) E a base da
   // barra (navy-850) — a hachura aparece sobre os dois.
   ["folga-tracado", "navy-950", 3, "hachura de folga do Gantt sobre o canvas (P5b #7)"],
   ["folga-tracado", "navy-850", 3, "hachura de folga do Gantt sobre a base da barra (P5b #7)"],
+  // ── Pares de PIXEL JÁ COMPOSTO (P5c, rodada 2, achado BAIXO #13) ──
+  ["hatch-folga-composta", "navy-950", 3, "listra opaca da hachura de folga, já composta com a opacidade — pixel real medido pelo crítico"],
+  ["barra-fechada-composta", "navy-950", 3, "barra cinza 'fechado sem merge' a 90% de opacidade, já composta — pixel real medido pelo crítico"],
 ];
+
+/** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */
+function resolveCor(nome) {
+  return T[nome] ?? RESOLVIDAS[nome];
+}
 
 let falhou = 0;
 const linhas = [];
 for (const [t, f, min, onde] of PARES) {
-  if (!T[t] || !T[f]) {
+  const corT = resolveCor(t);
+  const corF = resolveCor(f);
+  if (!corT || !corF) {
     console.error(`token ausente: ${t} ou ${f}`);
     falhou++;
     continue;
   }
-  const r = razao(T[t], T[f]);
+  const r = razao(corT, corF);
   const ok = r >= min;
   if (!ok) falhou++;
   linhas.push(

@@ -18,6 +18,11 @@ export interface NotasPainelProps {
  * o formulário "nova nota", que é a AÇÃO PRIMÁRIA desta página (régua de
  * UI/UX: uma ação primária por tela) — é por isso que o botão usa o
  * destaque dourado que o resto da página não usa.
+ *
+ * [MÉDIO #9, crítico 13/09] este comentário era FALSO: "Salvar átomos"
+ * (atomos-form.tsx) usava o mesmo destaque dourado — 2 botões primários na
+ * mesma tela. Corrigido rebaixando aquele para outline; a frase acima só
+ * voltou a ser verdade depois desse ajuste.
  */
 export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
   return (

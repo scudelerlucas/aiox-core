@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -20,6 +20,8 @@ vi.mock("@/lib/repositories/tasks.fixture-store", () => ({
   arestaAddFixture: vi.fn(() => ({ ok: true, id: "edge-x" }) as const),
   arestaDelFixture: vi.fn(() => ({ ok: true }) as const),
 }));
+
+import { revalidatePath } from "next/cache";
 
 import { mutateLifeboard } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/tasks.fixture-store";
@@ -136,6 +138,50 @@ describe("tarefa/actions — validação", () => {
     nenhumaChamadaFoiFeita();
   });
 
+  // ALTO #3 (crítico 13/09) — sem teto superior, isto virava "numeric field
+  // overflow" cru vindo do banco (numeric(6,2)). Pego aqui, antes da rede.
+  it("estimativaSetAction: acima do teto (9999.99)", async () => {
+    const r = await estimativaSetAction(
+      {},
+      form({ task_id: "task-build", estimativa_dias: "99999999" }),
+    );
+    expect(r.erro).toMatch(/9999.99 dias/);
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("subtarefaAddAction: estimativa acima do teto (9999.99)", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: "99999999" }),
+    );
+    expect(r.erro).toMatch(/9999.99 dias/);
+    nenhumaChamadaFoiFeita();
+  });
+
+  // ALTO #5 (crítico 13/09) — teto de tamanho do lado do cliente também.
+  it("notaAddAction: texto acima de 10000 caracteres", async () => {
+    const r = await notaAddAction(
+      {},
+      form({ task_id: "task-build", texto: "a".repeat(10001) }),
+    );
+    expect(r.erro).toMatch(/10000 caracteres/);
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("arestaAddAction: nota acima de 2000 caracteres", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({
+        origem: "task-build",
+        destino: "task-deploy",
+        tipo: "correlacao",
+        nota: "a".repeat(2001),
+      }),
+    );
+    expect(r.erro).toMatch(/2000 caracteres/);
+    nenhumaChamadaFoiFeita();
+  });
+
   it("statusSetAction: status fora do enum", async () => {
     const r = await statusSetAction({}, form({ task_id: "task-build", status: "cancelado" }));
     expect(r.erro).toMatch(/^status precisa ser/);
@@ -147,7 +193,7 @@ describe("tarefa/actions — validação", () => {
       {},
       form({ origem: "task-build", destino: "task-build", tipo: "predecessor" }),
     );
-    expect(r).toEqual({ erro: "origem e destino não podem ser a mesma tarefa." });
+    expect(r).toEqual({ erro: "A tarefa de origem e a tarefa de destino não podem ser a mesma." });
     nenhumaChamadaFoiFeita();
   });
 
@@ -156,7 +202,7 @@ describe("tarefa/actions — validação", () => {
       {},
       form({ origem: "task-build", destino: "task-deploy", tipo: "bloqueia" }),
     );
-    expect(r.erro).toMatch(/^tipo precisa ser/);
+    expect(r.erro).toMatch(/^O tipo de relação precisa ser/);
     nenhumaChamadaFoiFeita();
   });
 
@@ -165,7 +211,7 @@ describe("tarefa/actions — validação", () => {
       {},
       form({ origem: "task-build", destino: "task-deploy", tipo: "sinergia", peso: "1.5" }),
     );
-    expect(r).toEqual({ erro: "peso precisa ser um número entre 0 e 1." });
+    expect(r).toEqual({ erro: "O desconto precisa ser um número entre 0 e 1." });
     nenhumaChamadaFoiFeita();
   });
 
@@ -173,5 +219,139 @@ describe("tarefa/actions — validação", () => {
     const r = await arestaDelAction({}, form({ task_id: "task-build" }));
     expect(r).toEqual({ erro: "Aresta não identificada." });
     nenhumaChamadaFoiFeita();
+  });
+});
+
+/**
+ * OS-LIFEBOARD · P6 — achado MÉDIO #7 (crítico 13/09): o arquivo só tinha os
+ * ramos de rejeição. Aqui, cada ação com entrada VÁLIDA em modo `live`:
+ * chama `mutateLifeboard` com o `(op, payload)` exato do contrato
+ * (`0008_lifeboard_v3_escrita_ajustes.sql`) e revalida as rotas certas.
+ */
+describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload exatos)", () => {
+  const modoOriginal = process.env.LIFEBOARD_DATA_MODE;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.LIFEBOARD_DATA_MODE = "live";
+  });
+
+  afterEach(() => {
+    if (modoOriginal === undefined) delete process.env.LIFEBOARD_DATA_MODE;
+    else process.env.LIFEBOARD_DATA_MODE = modoOriginal;
+  });
+
+  it("notaAddAction", async () => {
+    const r = await notaAddAction(
+      {},
+      form({ task_id: "task-build", texto: "uma nota válida", autor: "Lucas" }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith("nota_add", {
+      task_id: "task-build",
+      texto: "uma nota válida",
+      autor: "Lucas",
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+    expect(revalidatePath).toHaveBeenCalledWith("/linha-do-tempo");
+  });
+
+  it("notaDelAction", async () => {
+    const r = await notaDelAction({}, form({ id: "note-1", task_id: "task-build" }));
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("nota_del", { id: "note-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("subtarefaAddAction", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "nova subtarefa", estimativa_dias: "2" }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith("subtarefa_add", {
+      parent_id: "task-build",
+      title: "nova subtarefa",
+      estimativa_dias: 2,
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("parentSetAction", async () => {
+    const r = await parentSetAction({}, form({ task_id: "task-docs", parent_id: "task-build" }));
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("parent_set", {
+      task_id: "task-docs",
+      parent_id: "task-build",
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-docs");
+  });
+
+  it("goalSetAction", async () => {
+    const r = await goalSetAction({}, form({ task_id: "task-deploy", is_goal: "true" }));
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("goal_set", {
+      task_id: "task-deploy",
+      is_goal: true,
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-deploy");
+  });
+
+  it("atomosSetAction", async () => {
+    const r = await atomosSetAction(
+      {},
+      form({ task_id: "task-build", opcionalidade: "2", esforco: "3", custo: "1" }),
+    );
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("atomos_set", {
+      task_id: "task-build",
+      assimetria: { opcionalidade: 2, esforco: 3, custo: 1 },
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("estimativaSetAction", async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "3.5" }));
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("estimativa_set", {
+      task_id: "task-build",
+      estimativa_dias: 3.5,
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("statusSetAction", async () => {
+    const r = await statusSetAction({}, form({ task_id: "task-build", status: "done" }));
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("status_set", {
+      task_id: "task-build",
+      status: "done",
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+  });
+
+  it("arestaAddAction", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-deploy", tipo: "sinergia", peso: "0.5" }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith("aresta_add", {
+      origem: "task-build",
+      destino: "task-deploy",
+      tipo: "sinergia",
+      peso: 0.5,
+      nota: null,
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-deploy");
+  });
+
+  it("arestaDelAction", async () => {
+    const r = await arestaDelAction({}, form({ id: "edge-1", task_id: "task-build" }));
+    expect(r).toEqual({ ok: true });
+    expect(mutateLifeboard).toHaveBeenCalledWith("aresta_del", { id: "edge-1" });
+    expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
 });

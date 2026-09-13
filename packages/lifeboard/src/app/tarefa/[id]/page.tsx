@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { env } from "@/config/env";
 import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import { scoreAssimetria } from "@/core/prioritize/assimetria";
-import { heranca } from "@/core/prioritize/heranca";
+import { herancaEfetiva } from "@/core/prioritize/heranca";
 import {
   listarEdgesFixture,
   listarNotesFixture,
@@ -92,7 +92,9 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
   const janela = cpm.janelas.get(task.id) ?? null;
 
   const filhas = tasks.filter((t) => t.parentId === task.id);
-  const herancaResultado = heranca(task, filhas);
+  // v2 (achado CRÍTICO #1): recursivo — passa a lista INTEIRA de tarefas
+  // (não só as filhas diretas) para que netas/bisnetas participem da soma.
+  const herancaResultado = herancaEfetiva(task, tasks);
   const notasDaTarefa = notes.filter((n) => n.taskId === task.id);
   const saindo = edges.filter((e) => e.origem === task.id);
   const entrando = edges.filter((e) => e.destino === task.id);

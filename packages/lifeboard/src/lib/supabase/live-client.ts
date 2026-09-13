@@ -22,6 +22,7 @@ import "server-only";
 import { cache } from "react";
 
 import { env } from "@/config/env";
+import type { FilaPromptsState } from "@/core/prompts/tipos";
 import {
   normalizeAssimetria,
   normalizeEdge,
@@ -144,11 +145,32 @@ export const loadLifeboardState = cache(async (): Promise<LifeboardState> => {
 //
 // Mesmo segredo, mesmo padrão de chamada da leitura — a diferença é que aqui
 // `p_op` escolhe a operação e `p_payload` carrega os campos dela (contrato
-// exato em `supabase/migrations/0006_lifeboard_v3_escrita.sql`). Nunca lança:
-// falha de rede, HTTP não-2xx (o corpo do erro do Postgres/PostgREST já vem
-// em português — a RPC valida e traduz) ou corpo sem `ok: true` viram
-// `{ erro }`; quem chama (`src/app/tarefa/actions.ts`) decide o que mostrar.
+// exato em `supabase/migrations/0008_lifeboard_v3_escrita_ajustes.sql`, que
+// substitui a RPC de `0006`). Nunca lança: falha de rede, HTTP não-2xx ou
+// corpo sem `ok: true` viram `{ erro }`; quem chama
+// (`src/app/tarefa/actions.ts`) decide o que mostrar.
+//
+// v2 (achado ALTO #2, pós-reprovação do crítico 13/09/2026): a RPC agora
+// SEMPRE valida em português, mas nem todo erro Postgres passa por essa
+// validação (uma falha de infra, um bug num CHECK que ninguém previu) — por
+// isso o corpo cru NUNCA vai direto para a tela. `message` só chega ao
+// operador quando o `code` (SQLSTATE que o PostgREST devolve) é um dos que a
+// RPC deste app efetivamente usa para erro de validação: `23514`
+// (check_violation) ou `42501` (insufficient_privilege — segredo errado).
+// `F0000` (config_file_error — segredo não cadastrado em
+// `private.lifeboard_config`) ganha uma frase própria, porque "tente de
+// novo" seria mentira: só reconfigurar resolve. Qualquer outro código vira a
+// frase genérica — e o corpo INTEIRO (não só a frase) vai para
+// `console.error` deste processo (o log do servidor Next/Vercel), nunca para
+// o cliente.
 export type MutateLifeboardResult = { ok: true; id?: string } | { erro: string };
+
+/** Códigos cujo `message` da RPC é seguro mostrar ao operador — validação de
+ * forma feita pela própria `lifeboard_mutate`, já traduzida e sem eco de valor. */
+const CODIGOS_MENSAGEM_SEGURA: ReadonlySet<string> = new Set(["23514", "42501"]);
+/** `config_file_error` (segredo ausente em `private.lifeboard_config`) — mensagem fixa e acionável. */
+const CODIGO_PAINEL_NAO_CONFIGURADO = "F0000";
+const MENSAGEM_GENERICA = "Não foi possível salvar. Tente de novo em instantes.";
 
 export async function mutateLifeboard(
   op: string,
@@ -177,14 +199,117 @@ export async function mutateLifeboard(
   }
 
   const body = (await response.json().catch(() => null)) as
-    | { ok?: boolean; id?: string; message?: string }
+    | { ok?: boolean; id?: string; message?: string; code?: string }
     | null;
 
   if (!response.ok) {
-    return { erro: body?.message ?? `lifeboard_mutate respondeu ${response.status}.` };
+    // Sempre logado por inteiro server-side — é o único lugar em que o
+    // detalhe cru (inclusive de um código que a UI nunca traduz) sobrevive.
+    console.error(`[lifeboard/live] lifeboard_mutate (${op}) falhou:`, response.status, body);
+    if (body?.code === CODIGO_PAINEL_NAO_CONFIGURADO) {
+      return { erro: "O painel não está configurado — avise o Lucas." };
+    }
+    if (body?.code && CODIGOS_MENSAGEM_SEGURA.has(body.code) && body.message) {
+      return { erro: body.message };
+    }
+    return { erro: MENSAGEM_GENERICA };
   }
   if (!body || body.ok !== true) {
     return { erro: "A operação não confirmou sucesso — tente de novo." };
   }
   return { ok: true, id: body.id };
+}
+
+// ── P7 (13/09/2026) — fila de prompts entre as 3 contas (mapa !4z R1/R2/R6) ──
+//
+// Mesmo padrão secret-gated de `loadLifeboardState`/`mutateLifeboard`, contra
+// as RPCs de `supabase/migrations/0007_lifeboard_v3_fila_prompts.sql`. A
+// leitura é `cache()`-memoizada por request (mesma razão de `loadLifeboardState`:
+// a página e qualquer revalidação dentro do mesmo render batem 1 vez só).
+
+async function chamarRpc(nome: string, corpo: Record<string, unknown>): Promise<unknown> {
+  const url = `${env.SUPABASE_URL}/rest/v1/rpc/${nome}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(corpo),
+    cache: "no-store",
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      body && typeof body === "object" && "message" in body
+        ? String((body as { message?: unknown }).message)
+        : `${nome} respondeu ${response.status}.`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+function asFilaPromptsState(raw: unknown): FilaPromptsState {
+  const payload = (raw ?? {}) as Partial<FilaPromptsState>;
+  return {
+    fila: asArray(payload.fila),
+    consumo: asArray(payload.consumo),
+  };
+}
+
+/** Lê a fila inteira + consumo/teto das 3 contas. Memoizado por request. */
+export const loadFilaPromptsState = cache(async (): Promise<FilaPromptsState> => {
+  try {
+    const body = await chamarRpc("fila_prompts_listar", { p_secret: env.LIFEBOARD_LOAD_SECRET });
+    return asFilaPromptsState(body);
+  } catch (error) {
+    throw new Error(
+      `[lifeboard/live] Falha ao chamar fila_prompts_listar: ${
+        error instanceof Error ? error.message : "desconhecido"
+      }`,
+    );
+  }
+});
+
+export type MutateFilaResult =
+  | { ok: true; id?: string; conta?: string; motivo?: string }
+  | { erro: string };
+
+/** `p_payload.conta` ausente = roteamento automático (menor consumo hoje). */
+export async function enfileirarPrompt(payload: {
+  prompt: string;
+  complexidade: string;
+  conta?: string | null;
+  criado_por?: string | null;
+  task_id?: string | null;
+}): Promise<MutateFilaResult> {
+  try {
+    const body = (await chamarRpc("fila_prompts_enfileirar", {
+      p_secret: env.LIFEBOARD_LOAD_SECRET,
+      p_payload: payload,
+    })) as { ok?: boolean; id?: string; conta?: string; modelo_sugerido?: string; motivo?: string };
+    if (!body || body.ok !== true) {
+      return { erro: "A operação não confirmou sucesso — tente de novo." };
+    }
+    return { ok: true, id: body.id, conta: body.conta, motivo: body.motivo };
+  } catch (error) {
+    return { erro: error instanceof Error ? error.message : "Não consegui falar com o banco agora." };
+  }
+}
+
+/** Só cancela item ainda `na_fila` — a RPC recusa qualquer outro estado. */
+export async function cancelarPromptFila(id: string): Promise<MutateFilaResult> {
+  try {
+    const body = (await chamarRpc("fila_prompts_cancelar", {
+      p_secret: env.LIFEBOARD_LOAD_SECRET,
+      p_id: id,
+    })) as { ok?: boolean };
+    if (!body || body.ok !== true) {
+      return { erro: "A operação não confirmou sucesso — tente de novo." };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { erro: error instanceof Error ? error.message : "Não consegui falar com o banco agora." };
+  }
 }

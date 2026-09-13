@@ -64,7 +64,9 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
   }
 
   return (
-    <form onSubmit={aoEnviar} className="flex flex-wrap items-end gap-2">
+    // [ALTO #4, crítico 13/09] mesmo ajuste de duracao-form.tsx — o campo de
+    // duração aqui tem o mesmo `min={0.25}` que disparava validação nativa.
+    <form onSubmit={aoEnviar} noValidate className="flex flex-wrap items-end gap-2">
       <label className="flex flex-1 min-w-[180px] flex-col gap-1 text-xs font-semibold text-bone-300">
         Título da subtarefa
         <input

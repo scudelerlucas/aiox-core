@@ -6,8 +6,7 @@ import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
-import type { HerancaResultado } from "@/core/prioritize/heranca";
-import type { ScoreAssimetria } from "@/core/prioritize/tipos-v3";
+import type { HerancaResultado, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada } from "@/types/canonical";
 
 const OPCOES_OPCIONALIDADE: readonly OpcaoSegmentada<number>[] = [
@@ -92,11 +91,15 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
       </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
+        {/* [MÉDIO #9, crítico 13/09] era o 2º botão dourado da página — a
+            régua de UI/UX pede UMA ação primária por tela, e "Salvar nota"
+            (notas-painel.tsx) já é essa. Rebaixado ao estilo outline, igual
+            aos demais botões secundários da tela (duração, subtarefa…). */}
         <button
           type="button"
           onClick={salvar}
           disabled={pendente}
-          className="inline-flex min-h-[36px] items-center rounded-lg bg-gradient-to-b from-gold-400 to-gold-600 px-3 text-sm font-semibold text-navy-950 disabled:opacity-50"
+          className="inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 disabled:opacity-50"
         >
           Salvar átomos
         </button>

@@ -93,8 +93,18 @@ function LinhaAresta({
   outraPontaId: string;
 }): JSX.Element {
   const { estado, pendente, disparar } = useAcaoTarefa(arestaDelAction);
+  // [MÉDIO #20, crítico 13/09] excluir nota já pedia confirmação em 2 passos
+  // (clique → "confirmar exclusão?" → clique de novo); excluir relação
+  // apagava direto no 1º clique. Mesma disciplina agora nos dois.
+  const [confirmando, setConfirmando] = useState(false);
 
   function excluir(): void {
+    if (!confirmando) {
+      setConfirmando(true);
+      window.setTimeout(() => setConfirmando(false), 3000);
+      return;
+    }
+    setConfirmando(false);
     const form = new FormData();
     form.set("id", aresta.id);
     form.set("task_id", taskId);
@@ -104,7 +114,7 @@ function LinhaAresta({
   return (
     <li className="flex items-center justify-between gap-2 rounded-lg border border-navy-700 bg-navy-850 p-3">
       <div className="min-w-0 flex-1">
-        <span className="mr-2 rounded-full bg-navy-800 px-2 py-0.5 font-mono text-[11px] font-semibold text-gold-300">
+        <span className="mr-2 rounded-full bg-navy-800 px-2 py-0.5 font-mono text-xs font-semibold text-gold-300">
           {ROTULO_TIPO[aresta.tipo]}
         </span>
         <span className="text-xs text-bone-400">{direcao === "saindo" ? "→" : "←"}</span>{" "}
@@ -123,9 +133,13 @@ function LinhaAresta({
         type="button"
         onClick={excluir}
         disabled={pendente}
-        className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-bone-400 hover:bg-state-blocked/10 hover:text-state-blocked disabled:opacity-50"
+        className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold disabled:opacity-50 ${
+          confirmando
+            ? "bg-state-blocked/12 text-state-blocked"
+            : "text-bone-400 hover:bg-state-blocked/10 hover:text-state-blocked"
+        }`}
       >
-        excluir
+        {confirmando ? "confirmar exclusão?" : "excluir"}
       </button>
       <CampoErro mensagem={estado.erro} />
     </li>
@@ -159,7 +173,9 @@ function FormularioNovaAresta({
   }
 
   return (
-    <form onSubmit={aoEnviar} className="space-y-2">
+    // [ALTO #4, crítico 13/09] mesmo ajuste — o desconto (`peso`) tem
+    // min/max/step nativos que disparariam validação em inglês do Chrome.
+    <form onSubmit={aoEnviar} noValidate className="space-y-2">
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
           Destino

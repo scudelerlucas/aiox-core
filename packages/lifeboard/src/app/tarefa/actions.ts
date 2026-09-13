@@ -47,6 +47,28 @@ const TIPOS_DE_ARESTA: readonly EdgeTipo[] = [
 ];
 const STATUS_VALIDOS: readonly TaskStatus[] = ["open", "in_progress", "blocked", "done"];
 
+// ── ALTO #3/#5 (crítico 13/09) — limites que a coluna/JSON do banco impõem,
+// checados aqui em português ANTES da chamada de rede (mesma disciplina do
+// resto deste arquivo: nunca reimplementar o CHECK, só adiantar o erro).
+/** `tasks.estimativa_dias` é `numeric(6,2)` — acima disso o Postgres rejeita com "numeric field overflow". */
+const ESTIMATIVA_DIAS_MAXIMA = 9999.99;
+/** `task_notes.texto` (migration 0008): teto de tamanho para não caber payload de 2 MB numa nota. */
+const NOTA_TEXTO_MAX = 10_000;
+/** `task_edges.nota` (migration 0008). */
+const ARESTA_NOTA_MAX = 2_000;
+/** `pg_column_size(assimetria) < 2048` (migration 0008) — teto de bytes, não de chaves; medido em JSON. */
+const ASSIMETRIA_BYTES_MAX = 2_048;
+
+function estimativaValidaOuErro(n: number): string | null {
+  if (!Number.isFinite(n) || n <= 0) {
+    return "A duração (estimativa em dias) precisa ser um número maior que zero.";
+  }
+  if (n > ESTIMATIVA_DIAS_MAXIMA) {
+    return `A duração não pode passar de ${ESTIMATIVA_DIAS_MAXIMA} dias.`;
+  }
+  return null;
+}
+
 function revalidar(taskId: string): void {
   revalidatePath("/");
   revalidatePath(`/tarefa/${taskId}`);
@@ -127,6 +149,9 @@ export async function notaAddAction(
 
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (texto.trim().length === 0) return { erro: "Escreva algo antes de salvar a nota." };
+  if (texto.length > NOTA_TEXTO_MAX) {
+    return { erro: `A nota não pode passar de ${NOTA_TEXTO_MAX} caracteres.` };
+  }
 
   const r = await mutar("nota_add", { task_id: taskId, texto, autor });
   if ("erro" in r) return { erro: r.erro };
@@ -164,9 +189,8 @@ export async function subtarefaAddAction(
   let estimativaDias: number | null = null;
   if (estimativaBruta.length > 0) {
     const n = Number(estimativaBruta);
-    if (!Number.isFinite(n) || n <= 0) {
-      return { erro: "A duração (estimativa em dias) precisa ser um número maior que zero." };
-    }
+    const erro = estimativaValidaOuErro(n);
+    if (erro) return { erro };
     estimativaDias = n;
   }
 
@@ -234,8 +258,15 @@ export async function atomosSetAction(
   if (!atomosDeclaradosValidos(candidato)) {
     return {
       erro:
-        "Átomos inválidos: opcionalidade precisa estar entre 1 e 3; esforço e custo precisam ser 1, 2, 3 ou 5.",
+        "Átomos inválidos: opcionalidade precisa ser 1, 2 ou 3; esforço e custo precisam ser 1, 2, 3 ou 5.",
     };
+  }
+  // ALTO #5 (crítico 13/09) — defesa em profundidade: esta ação só monta 3
+  // chaves numéricas, então nunca produz os 2 MB do achado sozinha, mas o
+  // teto do banco (`pg_column_size(assimetria) < 2048`) é checado aqui
+  // também para nunca gastar a chamada de rede à toa.
+  if (new TextEncoder().encode(JSON.stringify(candidato)).length >= ASSIMETRIA_BYTES_MAX) {
+    return { erro: "Os átomos declarados ficaram grandes demais para salvar." };
   }
 
   const r = await mutar("atomos_set", { task_id: taskId, assimetria: candidato });
@@ -258,6 +289,9 @@ export async function estimativaSetAction(
     const n = Number(bruta);
     if (!Number.isFinite(n) || n <= 0 || n < 0.25) {
       return { erro: "A duração precisa ser um número de pelo menos 0,25 dia." };
+    }
+    if (n > ESTIMATIVA_DIAS_MAXIMA) {
+      return { erro: `A duração não pode passar de ${ESTIMATIVA_DIAS_MAXIMA} dias.` };
     }
     estimativaDias = n;
   }
@@ -300,14 +334,19 @@ export async function arestaAddAction(
   if (origem.length === 0 || destino.length === 0) {
     return { erro: "Escolha a tarefa de destino da relação." };
   }
-  if (origem === destino) return { erro: "origem e destino não podem ser a mesma tarefa." };
+  if (origem === destino) {
+    return { erro: "A tarefa de origem e a tarefa de destino não podem ser a mesma." };
+  }
   if (!TIPOS_DE_ARESTA.includes(tipo)) {
-    return { erro: "tipo precisa ser um de: predecessor, correlação, sinergia, obsolescência." };
+    return { erro: "O tipo de relação precisa ser um de: predecessor, correlação, sinergia, obsolescência." };
   }
   let peso = 1;
   if (pesoBruto.length > 0) {
     peso = Number(pesoBruto);
-    if (!pesoValido(peso)) return { erro: "peso precisa ser um número entre 0 e 1." };
+    if (!pesoValido(peso)) return { erro: "O desconto precisa ser um número entre 0 e 1." };
+  }
+  if (nota !== null && nota.length > ARESTA_NOTA_MAX) {
+    return { erro: `A nota da relação não pode passar de ${ARESTA_NOTA_MAX} caracteres.` };
   }
 
   const r = await mutar("aresta_add", { origem, destino, tipo, peso, nota });

@@ -14,8 +14,8 @@ describe("normalizeAssimetria — mesma régua do CHECK tasks_assimetria_dominio
       esforco: 5,
       custo: 1,
     });
-    expect(normalizeAssimetria({ opcionalidade: 1.5, esforco: 2, custo: 3, extra: "x" })).toEqual(
-      { opcionalidade: 1.5, esforco: 2, custo: 3 },
+    expect(normalizeAssimetria({ opcionalidade: 2, esforco: 2, custo: 3, extra: "x" })).toEqual(
+      { opcionalidade: 2, esforco: 2, custo: 3 },
     );
   });
 
@@ -31,6 +31,10 @@ describe("normalizeAssimetria — mesma régua do CHECK tasks_assimetria_dominio
     ["esforco fora das faixas (4)", { opcionalidade: 2, esforco: 4, custo: 1 }],
     ["esforco 0.001 (score 10⁴)", { opcionalidade: 2, esforco: 0.001, custo: 1 }],
     ["opcionalidade 99", { opcionalidade: 99, esforco: 1, custo: 1 }],
+    // [ALTO/BAIXO #17, crítico 13/09] opcionalidade fracionária: aceita antes
+    // (`>= 1 && <= 3`), sem correspondência no vocabulário do "porquê" nem no
+    // CHECK do banco (migration 0008 usa `in (1,2,3)`, não `between`).
+    ["opcionalidade fracionária (1.5)", { opcionalidade: 1.5, esforco: 2, custo: 3 }],
     ["custo Infinity", { opcionalidade: 2, esforco: 1, custo: Infinity }],
     ["custo NaN", { opcionalidade: 2, esforco: 1, custo: NaN }],
   ])("devolve null para %s", (_nome, raw) => {

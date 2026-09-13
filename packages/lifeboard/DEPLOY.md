@@ -61,11 +61,24 @@ os passos abaixo.
    Rotação: rodar o mesmo comando com o valor novo e trocar a env var na Vercel no
    mesmo ato (redeploy). O valor nunca passa por chat, commit ou log.
 
-   Risco aceito por escrito: a RPC é pública (`anon` executa) e **não tem rate limit
-   nem lockout** — força bruta lenta contra um segredo de 24 caracteres é viável em
-   teoria e invisível na prática (tentativa errada não deixa rastro). Mitigação hoje
-   é a entropia do segredo e a rotação; quando o painel ganhar leitores fora da casa,
-   colocar a chamada atrás de uma Edge Function com contador por IP.
+   Risco aceito por escrito — **atualizado em 13/09/2026, P6:** o mesmo segredo que
+   antes só liberava LEITURA (`lifeboard_load`) agora também libera ESCRITA
+   (`lifeboard_mutate`), incluindo duas operações **destrutivas**: `nota_del`
+   (apaga uma nota) e `aresta_del` (apaga uma relação). **Nota apagada não volta**
+   — `task_notes` é a única tabela deste app sem nenhuma fonte de re-sincronização
+   (é texto que só existe porque alguém escreveu ali; `ON DELETE RESTRICT` protege
+   a tarefa-mãe de sumir com a nota junto, mas não protege a nota de um `nota_del`
+   deliberado). A RPC é pública (`anon` executa) e **não tem rate limit nem
+   lockout** — força bruta lenta contra um segredo de 24 caracteres é viável em
+   teoria e invisível na prática (tentativa errada não deixa rastro); com escrita
+   destrutiva no mesmo segredo, o custo de um vazamento subiu de "alguém lê o board"
+   para "alguém apaga notas e relações sem deixar rastro". Mitigação hoje: a
+   entropia do segredo + a rotação (item 5 acima) + os CHECKs de tamanho/domínio da
+   migration `0008` (acham entrada abusiva antes dela virar linha). **Plano, antes
+   de abrir o painel a mais leitores:** (1) colocar `lifeboard_mutate` atrás de uma
+   Edge Function com contador por IP (mesmo desenho já cogitado para a leitura);
+   (2) rotacionar o segredo no mesmo ato de trocar de fase (nunca reusar o valor
+   que rodou em modo "só eu confio nele").
 
    Quem chama: o servidor da Vercel chama com a chave anon + segredo → `auth.uid()`
    é nulo → board do operador (é assim que a leitora sem login vê o painel). Um
@@ -113,6 +126,54 @@ os passos abaixo.
   actions.ts` chama essa RPC em modo live; em modo fixture (sem banco), as
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
+
+## Fila de prompts entre as 3 contas (P7, 13/09/2026)
+
+Pedido do operador: "poder promptar soluções pelo painel na conta que tem mais tokens
+disponíveis para a complexidade da tarefa". Arquitetura decidida pelo mapa `!4z` do hub
+(`docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`, linhas R1/R2/R6): a cota real
+de uma conta Max não é mensurável por nenhuma API (R1) — o roteador usa o INVERSO medido
+(consumo do dia por conta) — e um painel numa conta não abre sessão em outra (R2) — por
+isso o modelo é **PULL**: o painel só escreve na fila; a Routine diária de cada conta é
+quem pega o que é dela.
+
+- **Migration:** `supabase/migrations/0007_lifeboard_v3_fila_prompts.sql` — tabelas
+  `painel_fila_prompts` e `painel_teto_diario` (seed: as 3 contas a US$150/dia, a régua
+  da casa `teto-de-gasto-diario`), view `painel_consumo_por_conta_dia` (proxy medido a
+  partir de `painel_frentes_sessoes`), e 5 RPCs `SECURITY DEFINER` guardadas pelo MESMO
+  segredo de `lifeboard_load`/`lifeboard_mutate` (`private.lifeboard_config.load_secret`
+  — nada de segredo novo):
+  - `fila_prompts_enfileirar(p_secret, p_payload)` — cria o item; sem `conta` no payload,
+    escolhe automaticamente a de menor consumo hoje entre as que não bateram o teto
+    (empate → `lucasscudeler@gmail.com`).
+  - `fila_prompts_pegar(p_secret, p_conta)` — a Routine da conta chama isto; pega o item
+    `na_fila` mais antigo DAQUELA conta, atomicamente (`FOR UPDATE SKIP LOCKED`).
+  - `fila_prompts_fechar(p_secret, p_id, p_estado, p_custo_usd, p_sessao_url, p_resultado)`
+    — a Routine chama ao terminar, com o custo real (do Stop hook) e a URL da sessão.
+  - `fila_prompts_cancelar(p_secret, p_id)` — só cancela item ainda `na_fila`.
+  - `fila_prompts_listar(p_secret)` — o painel lê a fila inteira + consumo/teto das 3
+    contas numa chamada só.
+- **O teto vive no banco, não em hook:** `painel_teto_diario.teto_usd` (default US$150,
+  editável por conta com um `UPDATE`). Um trigger `BEFORE INSERT` em `painel_fila_prompts`
+  recusa o item com a mensagem `fila: conta <e-mail> ja gastou US$ <x> hoje (teto US$ <y>)`
+  quando o consumo do dia da conta já bateu o teto — enforcement no Postgres porque hooks
+  de repositório não disparam em sessão remota (achado 11/09,
+  `Lucas-Contexto-Geral/docs/audit/ACHADO-hooks-nao-disparam-em-sessao-remota-2026-09-11.md`).
+- **RLS de leitura:** reusa a MESMA allowlist de `painel_frentes_*` — tabela
+  `painel_frentes_leitores` + função `painel_frentes_leitor_autorizado()` (migration do
+  hub, `20260912a_painel_frentes_tres_contas.sql`, já aplicada no mesmo projeto Supabase).
+  Este arquivo/migration NÃO redefine essa função, só a consome.
+- **O lado da Routine (worker):** cada conta chama `fila_prompts_pegar`/`fila_prompts_
+  fechar` a partir do PRÓPRIO prompt de Routine — as 5 linhas a acrescentar estão em
+  `Lucas-Contexto-Geral/docs/ops/PROMPT-ROUTINE-publicar-sessoes-outras-contas-2026-09-12.md`
+  §"Fila de prompts (P7, 13/09/2026)". Isto exige edição manual do operador nas 3 contas
+  (a API de Routines não deixa uma sessão editar a Routine de outra conta).
+- **Página:** `/prompts` — 3 cartões de conta (consumo hoje vs teto, cor ok/warn/crit
+  reusando os tokens de estado já existentes — nenhum par novo de contraste) + formulário
+  "Novo prompt" (complexidade → modelo sugerido ao vivo, conta opcional, tarefa opcional
+  para linkar) + tabela da fila com cancelar. Modo fixture: store em memória
+  (`src/lib/repositories/prompts-fila.fixture-store.ts`), mesmo padrão de
+  `tasks.fixture-store.ts` (P6).
 
 ## Rollback
 

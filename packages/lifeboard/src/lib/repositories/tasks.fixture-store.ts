@@ -142,7 +142,7 @@ export function subtarefaAddFixture(
 ): ResultadoMutacaoFixture {
   const estado = loja();
   const mae = estado.tasks.get(parentId);
-  if (!mae) return { erro: "parent_id não existe (ou não é sua)." };
+  if (!mae) return { erro: "A tarefa mãe não existe (ou não é sua)." };
   const limpo = title.trim();
   if (limpo.length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
   if (estimativaDias !== null && !(estimativaDias > 0)) {
@@ -175,9 +175,9 @@ export function subtarefaAddFixture(
 export function parentSetFixture(taskId: string, parentId: string | null): ResultadoMutacaoFixture {
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
-  if (!tarefa) return { erro: "task_id não existe (ou não é sua)." };
+  if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
   if (parentId !== null) {
-    if (!estado.tasks.has(parentId)) return { erro: "parent_id não existe (ou não é sua)." };
+    if (!estado.tasks.has(parentId)) return { erro: "A tarefa mãe não existe (ou não é sua)." };
     if (parentId === taskId) {
       return { erro: "Uma tarefa não pode ser mãe de si mesma." };
     }
@@ -186,7 +186,9 @@ export function parentSetFixture(taskId: string, parentId: string | null): Resul
     const vistos = new Set<string>();
     while (atual !== null) {
       if (atual === taskId) {
-        return { erro: "Isso criaria um ciclo de hierarquia: a tarefa viraria mãe de si mesma." };
+        // [BAIXO #18, crítico 13/09] "mãe de si mesma" só cobre 1 nível — a
+        // mesma frase da RPC (0008), que cobre A→B→A e cadeias mais longas.
+        return { erro: "Isso criaria um ciclo de hierarquia: a tarefa viraria ancestral de si mesma." };
       }
       if (vistos.has(atual)) break;
       vistos.add(atual);
@@ -200,7 +202,7 @@ export function parentSetFixture(taskId: string, parentId: string | null): Resul
 export function goalSetFixture(taskId: string, isGoal: boolean): ResultadoMutacaoFixture {
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
-  if (!tarefa) return { erro: "task_id não existe (ou não é sua)." };
+  if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
   estado.tasks.set(taskId, { ...tarefa, isGoal });
   return { ok: true };
 }
@@ -211,7 +213,7 @@ export function atomosSetFixture(
 ): ResultadoMutacaoFixture {
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
-  if (!tarefa) return { erro: "task_id não existe (ou não é sua)." };
+  if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
   estado.tasks.set(taskId, { ...tarefa, assimetria });
   return { ok: true };
 }
@@ -222,7 +224,7 @@ export function estimativaSetFixture(
 ): ResultadoMutacaoFixture {
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
-  if (!tarefa) return { erro: "task_id não existe (ou não é sua)." };
+  if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
   if (estimativaDias !== null && !(estimativaDias > 0)) {
     return { erro: "A duração (estimativa em dias) precisa ser maior que zero." };
   }
@@ -233,7 +235,7 @@ export function estimativaSetFixture(
 export function statusSetFixture(taskId: string, status: TaskStatus): ResultadoMutacaoFixture {
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
-  if (!tarefa) return { erro: "task_id não existe (ou não é sua)." };
+  if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
   estado.tasks.set(taskId, { ...tarefa, status });
   return { ok: true };
 }
@@ -246,8 +248,8 @@ export function arestaAddFixture(
   nota: string | null,
 ): ResultadoMutacaoFixture {
   const estado = loja();
-  if (!estado.tasks.has(origem)) return { erro: "origem não existe (ou não é sua)." };
-  if (!estado.tasks.has(destino)) return { erro: "destino não existe (ou não é sua)." };
+  if (!estado.tasks.has(origem)) return { erro: "A tarefa de origem não existe (ou não é sua)." };
+  if (!estado.tasks.has(destino)) return { erro: "A tarefa de destino não existe (ou não é sua)." };
   if (origem === destino) return { erro: "origem e destino não podem ser a mesma tarefa." };
   const jaExiste = [...estado.edges.values()].some(
     (e) => e.origem === origem && e.destino === destino && e.tipo === tipo,
@@ -255,8 +257,16 @@ export function arestaAddFixture(
   if (jaExiste) return { erro: "Já existe uma aresta desse tipo entre essas duas tarefas." };
 
   if (tipo === "predecessor") {
-    // Alcançável a partir de `destino` andando por predecessor+arrays; achar
-    // `origem` significa que a nova aresta origem→destino fecharia um ciclo.
+    // Alcançável a partir de `destino` andando pelas MESMAS 3 fontes de
+    // precedência que o gatilho do banco lê (`lifeboard_check_edge_dag`,
+    // migration 0004): task_edges tipo predecessor, `successorIds` direto e
+    // `predecessorIds` LIDO AO CONTRÁRIO — achar `origem` significa que a
+    // nova aresta origem→destino fecharia um ciclo.
+    //
+    // [ALTO/MÉDIO #13, crítico 13/09] a v1 só lia as duas primeiras fontes:
+    // uma tarefa cujo predecessorIds já apontava de volta para o destino
+    // fechava um ciclo que o banco recusa, mas o fixture aceitava — os dois
+    // modos divergiam sobre o MESMO dado.
     const alcancaveis = new Set<string>();
     const fila: string[] = [destino];
     while (fila.length > 0) {
@@ -267,6 +277,11 @@ export function arestaAddFixture(
         if (e.tipo === "predecessor" && e.origem === atual) fila.push(e.destino);
       }
       for (const sucessor of estado.tasks.get(atual)?.successorIds ?? []) fila.push(sucessor);
+      // predecessorIds lido ao contrário: se ALGUMA tarefa lista `atual` como
+      // predecessor dela, `atual` precede essa tarefa (atual → essa tarefa).
+      for (const t of estado.tasks.values()) {
+        if (t.predecessorIds.includes(atual)) fila.push(t.id);
+      }
     }
     if (alcancaveis.has(origem)) {
       return { erro: "Essa aresta criaria um ciclo de dependências (predecessor circular)." };
