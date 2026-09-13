@@ -127,7 +127,7 @@ os passos abaixo.
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
 
-## Fila de prompts entre as 3 contas (P7 · rodada 4, 13/09/2026)
+## Fila de prompts entre as 3 contas (P7 · rodada 5, 13/09/2026)
 
 Pedido do operador: "poder promptar soluções pelo painel na conta que tem mais tokens
 disponíveis para a complexidade da tarefa". Arquitetura decidida pelo mapa `!4z` do hub
@@ -140,8 +140,27 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
   `painel_fila_prompts`/`painel_teto_diario`, seed US$150/dia — régua da casa
   `teto-de-gasto-diario`) → `0009_lifeboard_v3_fila_ajustes.sql` → `0011_lifeboard_v3_fila_ajustes_2.sql`
   → `0012_lifeboard_v3_fila_posse_e_tentativas.sql` (rodada 3: posse, tentativa com fim,
-  elegibilidade por item) → **`0013_lifeboard_v3_fila_contabilidade.sql`** (a rodada 4, aditiva e
-  re-aplicável; o cabeçalho do arquivo traz D10–D20 por extenso).
+  elegibilidade por item) → `0013_lifeboard_v3_fila_contabilidade.sql` (rodada 4, D10–D20) →
+  **`0014_lifeboard_v3_fila_pull_e_mensagens.sql`** (a rodada 5, aditiva e re-aplicável — nem
+  `drop`, nem assinatura nova; o cabeçalho do arquivo traz D21–D24 por extenso).
+
+### O que a rodada 5 mudou — o pull decide no `where`, e a frase chega à tela
+
+> **O princípio:** **a decisão mora no `where`, não no laço; e toda frase que a casa calcula
+> chega à tela.** Os dois ALTO do crítico eram a mesma doença — um número certo calculado e
+> jogado fora (o item elegível da posição 51) e uma frase certa calculada e nunca renderizada
+> (o cancelamento que lançou dinheiro no dia).
+
+| | Decisão | Efeito |
+|---|---|---|
+| **D21** | **elegibilidade no `where`** | `fila_prompts_pegar_interno` iterava `limit 50 for update skip locked` e testava o teto DENTRO do laço: com 50 `maxima` (US$ 120) na frente, um `baixa` (US$ 5) na posição 51 era **invisível**, e o motivo mentia ("o mais barato da fila custa US$ 120,00"). Agora o item sai de `where … custo_estimado_usd <= headroom order by criado_em, id limit 1 for update skip locked`; `pulados` = `count(*)` dos disponíveis que não cabem e "o mais barato" = `min(custo_estimado_usd)` — os dois **sem limite**, sobre a fila inteira. Índice parcial novo: `painel_fila_prompts_na_fila_ordem_idx (conta, criado_em, id) where estado = 'na_fila'`. Provado ao vivo: 51 itens, headroom 110 → item = o `baixa`, `pulados: 50`, motivo `null`; e o inverso (50 `maxima` + 1 `alta`, headroom 40) → "o mais barato da fila custa US$ 50.00", nunca 120. |
+| **D22** | **a frase calculada chega à tela** | `CancelarBotao` e `AjustarCustoBotao` (os componentes que a tabela monta) renderizam a MESMA `MensagemDaFila` do formulário, com `role="status"` que existe **antes** do texto (vazio = `sr-only`) e `erro` na mesma região. A frase de #11/D12 ("US$ 50,00 entram no gasto de hoje como estimativa") nunca era mostrada por ninguém e o sucesso do ajuste era mudo. As duas ações da linha ficam **sempre montadas** (`podeCancelar`/`podeAjustar` só escondem o gatilho): o `router.refresh()` do sucesso desmontava o componente e levava a frase junto. |
+| **D23** | **pull que mata não diz "fila vazia"** | o `case` do motivo ganhou o ramo `mortos > 0` antes de "fila vazia": "1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia" (+ o sufixo de estimativa do dia). Provado: item na 3ª expiração → motivo começa por "1 item morreu", `mortos_usd: 50.00`. |
+| **D24** | **o dia que reservou paga** | `painel_fila_itens_do_dia` atribuía o item ao dia de `concluido_em`: um item pego 23h50 e fechado 00h10 gastava o headroom do dia 13 e era cobrado do dia 14 — o dia 13 fechava com buraco e o dia 14 nascia devendo. A atribuição passa a ser `painel_dia_operador(coalesce(pego_em, criado_em))` (`coalesce` porque a expiração zera `pego_em`). Provado: item pego 23h50 do dia 13 e fechado 00h10 do dia 14 → **+US$ 120 no dia 13**; o mesmo desenho um dia antes → **+US$ 0 no dia 13** (pela regra velha era exatamente o contrário). |
+| **#3** | **`raise` usa `%`, não `%s`** | "(este está concluidas)" / "(este está na_filas)" — o `%s` consumia o `%` e deixava o `s` colado no valor. Corrigido em 0014 (e o mesmo caractere em 0013, para a varredura fechar em zero). Prova: `(este está concluida)` e `(este está na_fila)`; teste `prompts-espelho-sql` varre as 6 migrations por `raise … %s` e exige lista vazia. |
+| **#6** | **o backoff entrou no espelho** | `prompts-espelho-sql.test.ts` extrai `disponivel_em = now() + (interval '15 minutes' * …)` de 0013/0014 e compara com `BACKOFF_POR_TENTATIVA_MIN`. Mutação 15→99 no arquivo **falha** o teste (medido). |
+| **#7** | **`ajustar_custo` checa a estimativa** | o comentário dizia "só o que a casa estimou" e o código nunca checava — um custo MEDIDO pelo worker podia ser reescrito pela tela. Agora: "Só custo estimado pela casa pode ser ajustado; este foi medido." |
+| **#8** | **Enter salva o ajuste** | o painel virou `<form onSubmit>`; antes eram dois `<button type="button">` e um `<input>` sem formulário — quem digitava e apertava Enter não salvava nada e não recebia aviso. Provado no navegador (390 e 1280): Enter → "Custo ajustado — o gasto de hoje já considera o número real." e a célula passa a "US$ 12,30 · ajustado por você". |
 
 ### O que a rodada 4 mudou — a contabilidade do gasto
 
@@ -188,7 +207,7 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 | `fila_prompts_cancelar` | painel (segredo) | `(p_secret text, p_id uuid)` → `{ok, motivo_codigo, tentativas, custo_lancado_usd}` — aceita `na_fila` e `pega` |
 | `fila_prompts_ajustar_custo` | painel (segredo) | `(p_secret text, p_id uuid, p_custo_usd numeric)` — só `falhou`/`cancelada` fechados hoje (D20) |
 | `fila_prompts_listar` | painel (segredo) | `(p_secret text, p_limite integer default 50, p_antes_de timestamptz default null, p_antes_id uuid default null)` — **as versões de 1 e de 3 argumentos foram removidas** (duas assinaturas com default dariam "function is not unique") |
-| `fila_prompts_pegar_interno` | worker (sem segredo) | `(p_conta text, p_worker_id text)` — **a de 1 argumento foi removida**: sem ela, um worker pegaria item sem gravar posse nem tentativa |
+| `fila_prompts_pegar_interno` | worker (sem segredo) | `(p_conta text, p_worker_id text)` — **a de 1 argumento foi removida**: sem ela, um worker pegaria item sem gravar posse nem tentativa. Devolve, desde a rodada 5, `mortos_usd` (quanto os mortos deste disparo lançaram) e `headroom_usd` (a régua que decidiu quem cabia), além de `devolvidos`/`mortos`/`pulados`/`em_espera`/`estimativa_*` |
 | `fila_prompts_heartbeat_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_session_id text default null)` — nunca levanta exceção por ESTADO (devolve `{ok:false, motivo}`); levanta, sim, quando o `session_id` é o do worker ou já é de outro item (D11). Devolve `expira_em` (D18) |
 | `fila_prompts_fechar_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_estado text, p_custo_usd numeric, p_session_id text default null, p_sessao_url text default null, p_resultado text default null)` — **a de 6 argumentos foi removida** |
 
@@ -232,7 +251,10 @@ cartão e marcada na célula de custo ("estimativa da casa"), botão **ajustar c
 item `falhou`/`cancelada` cujo número a casa estimou (D20), e a frase de resposta montada em TS
 (D14). Modo fixture: store em memória (`src/lib/repositories/prompts-fila.fixture-store.ts`) que
 espelha D1–D3/D7/D8 e, agora, D10/D12/D15/D16/D19/D20 — coberto por
-`tests/unit/prompts-fila-fixture-store.test.ts` (30 casos).
+`tests/unit/prompts-fila-fixture-store.test.ts`. Rodada 5 na tela: a frase de cancelamento e a
+de ajuste de custo são renderizadas pelos PRÓPRIOS botões (D22), o painel de ajuste é um `<form>`
+(Enter salva, #8) e as duas ações da linha ficam sempre montadas para o `router.refresh()` não
+levar a frase embora.
 
 ## Rollback
 

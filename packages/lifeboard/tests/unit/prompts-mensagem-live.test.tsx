@@ -186,7 +186,70 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
     expect(html).toContain("1 item na frente soma US$ 20,00.");
   });
 
-  it("#11 — cancelar em execução não diz que foi de graça", async () => {
+  it("D22 — `NovoPromptForm` (produção) mostra a frase do enfileiramento", async () => {
+    fetchMock.mockResolvedValueOnce(
+      respostaDaRpc({
+        ok: true,
+        id: "jkl",
+        conta: "lucasscudeler@gmail.com",
+        complexidade: "baixa",
+        modelo_sugerido: "Haiku",
+        motivo_codigo: "auto_maior_espaco",
+        cabe_hoje: true,
+        headroom_usd: 30,
+        espaco_livre_usd: 30,
+        custo_estimado_usd: 5,
+        na_fila_usd: 0,
+        itens_na_frente: 0,
+      }),
+    );
+    const estado = await novoPromptAction({}, form({ prompt: "listar PRs", complexidade: "baixa" }));
+
+    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
+      useAcaoPrompt: () => ({ estado, pendente: false, disparar: () => {} }),
+    }));
+    vi.resetModules();
+    const { NovoPromptForm } = await import("@/components/prompts/novo-prompt-form");
+    const html = renderToStaticMarkup(
+      <NovoPromptForm
+        complexidade="baixa"
+        aoMudarComplexidade={() => {}}
+        contaOverride=""
+        aoMudarContaOverride={() => {}}
+        modeloImplicado="Haiku"
+        motivoAuto="agora iria para Lucas"
+        contaAuto="lucasscudeler@gmail.com"
+        tarefas={[]}
+      />,
+    );
+    vi.doUnmock("@/components/prompts/usar-acao-prompt");
+    vi.resetModules();
+
+    expect(html).toContain('role="status"');
+    expect(html).toContain(
+      "Enfileirado para Lucas: é a conta com maior espaço livre hoje (US$ 30,00 para uma tarefa baixa de US$ 5,00).",
+    );
+  });
+
+  /**
+   * D22 (rodada 5) — O PAR QUE A PRODUÇÃO REALMENTE FORMA.
+   *
+   * Aqui morava o teste que "provava" #11 montando `<MensagemDaFila>` À MÃO com
+   * a frase do cancelamento. Ele passava — e a tela continuava muda: quem
+   * renderiza o cancelamento em produção é `CancelarBotao`, e ele só mostrava
+   * `estado.erro`. O par testado (ação → componente escolhido pelo teste) não
+   * era o par da produção (ação → componente que a tabela monta).
+   *
+   * Os dois testes abaixo montam os COMPONENTES DE PRODUÇÃO. O único ponto
+   * substituído é o encanamento do hook (`useState`/`useTransition`/
+   * `useRouter` não rodam sem DOM — este pacote não tem jsdom nem
+   * testing-library, e instalar dependência não é uma opção aqui): o stub
+   * devolve exatamente o que `useAcaoPrompt` guarda depois do `setEstado`, e o
+   * estado vem da AÇÃO DE VERDADE, chamada com `fetch` mockado. A prova de
+   * interação real (clicar, digitar, Enter) é a de navegador, no relatório da
+   * rodada.
+   */
+  it("#11/D22 — `CancelarBotao` (produção) mostra a frase do cancelamento no [role=status]", async () => {
     const { cancelarPromptAction } = await import("@/app/prompts/actions");
     fetchMock.mockResolvedValueOnce(
       respostaDaRpc({
@@ -198,8 +261,59 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
     );
 
     const estado = await cancelarPromptAction({}, form({ id: "fila-1" }));
-    const html = renderToStaticMarkup(<MensagemDaFila mensagem={estado.mensagem} />);
+    expect(estado.mensagem).toContain("Cancelado durante a execução.");
+
+    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
+      useAcaoPrompt: () => ({ estado, pendente: false, disparar: () => {} }),
+    }));
+    vi.resetModules();
+    const { CancelarBotao } = await import("@/components/prompts/cancelar-botao");
+    const html = renderToStaticMarkup(<CancelarBotao id="fila-1" emExecucao />);
+    vi.doUnmock("@/components/prompts/usar-acao-prompt");
+    vi.resetModules();
+
+    expect(html).toContain('role="status"');
     expect(html).toContain("Cancelado durante a execução.");
     expect(html).toContain("US$ 50,00 entram no gasto de hoje como estimativa");
+    // O botão continua lá — a frase não substituiu a ação.
+    expect(html).toContain("cancelar");
+  });
+
+  it("D22 — `AjustarCustoBotao` (produção) deixa de ser mudo no sucesso", async () => {
+    const { ajustarCustoPromptAction } = await import("@/app/prompts/actions");
+    fetchMock.mockResolvedValueOnce(respostaDaRpc({ ok: true, custo_usd: 12.3 }));
+
+    const estado = await ajustarCustoPromptAction({}, form({ id: "fila-8", custo_usd: "12,30" }));
+    expect(estado.mensagem).toBe("Custo ajustado — o gasto de hoje já considera o número real.");
+
+    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
+      useAcaoPrompt: () => ({ estado, pendente: false, disparar: () => {} }),
+    }));
+    vi.resetModules();
+    const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
+    const html = renderToStaticMarkup(<AjustarCustoBotao id="fila-8" custoAtualUsd={50} />);
+    vi.doUnmock("@/components/prompts/usar-acao-prompt");
+    vi.resetModules();
+
+    expect(html).toContain('role="status"');
+    expect(html).toContain("Custo ajustado — o gasto de hoje já considera o número real.");
+  });
+
+  it("a região viva existe ANTES da frase (vazia e sr-only), nos dois botões", async () => {
+    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
+      useAcaoPrompt: () => ({ estado: {}, pendente: false, disparar: () => {} }),
+    }));
+    vi.resetModules();
+    const { CancelarBotao } = await import("@/components/prompts/cancelar-botao");
+    const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
+    const htmlCancelar = renderToStaticMarkup(<CancelarBotao id="fila-1" />);
+    const htmlAjustar = renderToStaticMarkup(<AjustarCustoBotao id="fila-8" custoAtualUsd={50} />);
+    vi.doUnmock("@/components/prompts/usar-acao-prompt");
+    vi.resetModules();
+
+    for (const html of [htmlCancelar, htmlAjustar]) {
+      expect(html).toContain('role="status"');
+      expect(html).toContain("sr-only");
+    }
   });
 });

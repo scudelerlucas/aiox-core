@@ -170,7 +170,12 @@ export function NovoPromptForm({
           costurar aqui o texto que o banco devolveu (era assim que, em modo
           live, "roteamento automatico: maior espaco livre hoje (US$ 150.00)"
           chegava cru na tela, sem acento e com ponto decimal). */}
-      {estado.ok ? <MensagemDaFila mensagem={estado.mensagem} cabeHoje={estado.cabeHoje} /> : null}
+      {/* D22 (rodada 5): a região viva existe ANTES do texto (vazia, é `sr-only`)
+          — um `role="status"` que nasce junto com a frase não é anunciado. */}
+      <MensagemDaFila
+        mensagem={estado.ok === true ? estado.mensagem : undefined}
+        cabeHoje={estado.cabeHoje}
+      />
       {/* D3: dois avisos diferentes, porque são duas coisas diferentes — um é
           "espera até amanhã" (o item entra), o outro é "nunca" (o banco recusa). */}
       {impossivel ? (

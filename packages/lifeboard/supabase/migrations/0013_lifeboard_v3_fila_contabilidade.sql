@@ -866,7 +866,7 @@ begin
   -- Só o que a casa estimou pode ser corrigido, e só no dia — corrigir o
   -- passado reescreveria um teto que já foi respeitado (ou estourado).
   if v_row.estado not in ('falhou','cancelada') then
-    raise exception 'Só dá para ajustar o custo de item que falhou ou foi cancelado (este está %s).', v_row.estado
+    raise exception 'Só dá para ajustar o custo de item que falhou ou foi cancelado (este está %).', v_row.estado
       using errcode = 'check_violation';
   end if;
   if v_row.concluido_em is null

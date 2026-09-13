@@ -5,6 +5,7 @@ import {
   ajustarTetoFixture,
   cancelarFixture,
   cursorDaPaginaFixture,
+  definirTemposFixture,
   enfileirarFixture,
   envelhecerSinalFixture,
   fecharFixture,
@@ -177,9 +178,12 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 
     // medido 42,10 + 0 em execução: maxima (120) estoura 150; baixa (5) cabe.
     // A semente já tem um `baixa` na_fila mais antigo — ele sai primeiro.
+    // D21 (rodada 5): `pulados` conta TODOS os que não cabem (aqui, o `maxima`),
+    // não só os que um laço veria antes do escolhido — era essa contagem por
+    // janela que fazia a Routine relatar número errado ao operador.
     const primeiro = pegarFixture(LUCAS, "W1", AGORA);
     expect(primeiro.item?.complexidade).toBe("baixa");
-    expect(primeiro.pulados).toBe(0);
+    expect(primeiro.pulados).toBe(1);
 
     // Com o `baixa` da semente em execução (5) e o `maxima` na frente: pula 1.
     const segundo = pegarFixture(LUCAS, "W2", AGORA);
@@ -614,5 +618,173 @@ describe("D15 — paginação keyset chega ao fim da fila", () => {
     expect(total).toBe(205);
     expect(vistos.size).toBe(205);
     expect(filaTemMaisFixture(50, antesDe, antesId)).toBe(false);
+  });
+});
+
+describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50", () => {
+  /**
+   * O bloco SQL desta rodada, espelhado em TS (13/09/2026, com rollback):
+   * 50 `maxima` (US$ 120) mais antigos + 1 `baixa` (US$ 5) na posição 51,
+   * headroom 110 → o pull devolve O BAIXA, `pulados = 50` e o motivo NÃO fala
+   * em "mais barato". Antes, o item da posição 51 era invisível (a janela era
+   * `limit 50`) e o pull dizia "nada cabe agora: o mais barato da fila custa
+   * US$ 120,00" com um de US$ 5,00 esperando.
+   */
+  function encherFila(conta: Conta, quantos: number, complexidade: "maxima" | "alta"): void {
+    for (let i = 1; i <= quantos; i += 1) {
+      enfileirarFixture({
+        prompt: `caro ${i}`,
+        complexidade,
+        conta,
+        // mais antigos que tudo o que vier depois (e ordem estável entre eles)
+        agora: AGORA - (10_000 - i) * 1000,
+      });
+    }
+  }
+
+  it("60 itens: o elegível da posição 51 é pego, e `pulados` conta os 50 que não cabem", () => {
+    resetarFilaFixtureStore();
+    // Teto alto na ADMISSÃO (senão o `maxima` seria recusado como impossível) e
+    // headroom de 110 na HORA DO PULL — as duas coisas que o bloco SQL fez.
+    ajustarTetoFixture(ALMA, 500);
+    encherFila(ALMA, 50, "maxima");
+    // 10 `baixa` depois deles: a fila tem 60 itens novos, e o 51º é o alvo.
+    const baratos: string[] = [];
+    for (let i = 1; i <= 10; i += 1) {
+      const r = enfileirarFixture({
+        prompt: `barato ${i}`,
+        complexidade: "baixa",
+        conta: ALMA,
+        agora: AGORA - (100 - i) * 1000,
+      });
+      baratos.push((r as { id: string }).id);
+    }
+    const medido = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd ?? 0;
+    ajustarTetoFixture(ALMA, medido + 110); // headroom = 110
+
+    const r = pegarFixture(ALMA, "W-r5", AGORA);
+    expect(r.headroomUsd).toBe(110);
+    expect(r.item?.id).toBe(baratos[0]); // o mais antigo dos que CABEM
+    expect(r.item?.complexidade).toBe("baixa");
+    // 50 inseridos aqui + 1 `maxima` que a semente já tinha na_fila nesta conta
+    // (o bloco SQL, com a fila vazia, deu exatamente 50).
+    expect(r.pulados).toBe(51);
+    expect(r.motivo).toBeNull();
+  });
+
+  it("quando nada cabe, o menor custo vem da fila INTEIRA (não dos 50 primeiros)", () => {
+    resetarFilaFixtureStore();
+    ajustarTetoFixture(PANDORA, 500);
+    encherFila(PANDORA, 50, "maxima");
+    enfileirarFixture({
+      prompt: "alta na posicao 51",
+      complexidade: "alta", // US$ 50 — o mais barato da fila, fora da janela
+      conta: PANDORA,
+      agora: AGORA - 50 * 1000,
+    });
+    const medido =
+      listarConsumoFixture(AGORA).find((c) => c.conta === PANDORA)?.consumoHojeUsd ?? 0;
+    ajustarTetoFixture(PANDORA, medido + 40); // headroom = 40: nada cabe
+
+    const r = pegarFixture(PANDORA, "W-r5b", AGORA);
+    expect(r.item).toBeNull();
+    expect(r.pulados).toBe(51);
+    expect(r.motivo).toContain("o mais barato da fila custa US$ 50,00");
+    expect(r.motivo).not.toContain("US$ 120,00");
+  });
+});
+
+describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
+  it("item na 3ª expiração: o motivo começa por '1 item morreu' e traz o valor lançado", () => {
+    resetarFilaFixtureStore();
+    ajustarTetoFixture(ALMA, 400);
+    const novo = enfileirarFixture({
+      prompt: "vai morrer na 3a",
+      complexidade: "alta",
+      conta: ALMA,
+      agora: AGORA,
+    });
+    const id = (novo as { id: string }).id;
+    for (let tentativa = 1; tentativa <= 3; tentativa += 1) {
+      pegarAte(ALMA, id, AGORA);
+      envelhecerSinalFixture(id, 46, AGORA);
+      if (tentativa < 3) {
+        pegarFixture(ALMA, "W-expira", AGORA);
+        vencerBackoffFixture(id, AGORA);
+      }
+    }
+    const morte = pegarFixture(ALMA, "W-morte", AGORA);
+    expect(morte.mortos).toBe(1);
+    expect(morte.mortosUsd).toBe(50);
+    expect(morte.item).toBeNull();
+    expect(morte.motivo?.startsWith("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia")).toBe(true);
+    expect(morte.motivo).not.toContain("fila vazia");
+  });
+});
+
+describe("D24 — o dia que RESERVOU paga (pego 23h50, fechado 00h10)", () => {
+  it("o item conta no dia em que foi pego, nunca no dia em que fechou", () => {
+    resetarFilaFixtureStore();
+    const dia13 = Date.parse("2026-09-13T15:00:00.000Z"); // 12h BRT do dia 13
+    const antes = listarConsumoFixture(dia13).find((c) => c.conta === LUCAS)
+      ?.consumoHojeUsd as number;
+    const a = enfileirarFixture({
+      prompt: "A: pego 23h50 do dia 13, fechado 00h10 do dia 14",
+      complexidade: "maxima",
+      conta: LUCAS,
+      agora: dia13,
+    }) as { id: string };
+    const b = enfileirarFixture({
+      prompt: "B: pego 23h50 do dia 12, fechado 00h10 do dia 13",
+      complexidade: "maxima",
+      conta: LUCAS,
+      agora: dia13,
+    }) as { id: string };
+    // 23h50 BRT = 02h50 UTC do dia seguinte; 00h10 BRT = 03h10 UTC.
+    definirTemposFixture(a.id, {
+      estado: "concluida",
+      custoUsd: 120,
+      pegoEm: "2026-09-14T02:50:00.000Z",
+      concluidoEm: "2026-09-14T03:10:00.000Z",
+      workerId: "wA",
+      tentativas: 1,
+    });
+    definirTemposFixture(b.id, {
+      estado: "concluida",
+      custoUsd: 120,
+      pegoEm: "2026-09-13T02:50:00.000Z",
+      concluidoEm: "2026-09-13T03:10:00.000Z",
+      workerId: "wB",
+      tentativas: 1,
+    });
+
+    const depois = listarConsumoFixture(dia13).find((c) => c.conta === LUCAS)
+      ?.consumoHojeUsd as number;
+    // O dia 13 paga o item que ELE reservou (A), e não paga o do dia 12 (B).
+    expect(depois - antes).toBeCloseTo(120, 5);
+  });
+});
+
+describe("#7 — só custo ESTIMADO pela casa pode ser ajustado", () => {
+  it("item falhou hoje com número MEDIDO recusa o ajuste", () => {
+    resetarFilaFixtureStore();
+    const novo = enfileirarFixture({
+      prompt: "medido de verdade",
+      complexidade: "alta",
+      conta: LUCAS,
+      agora: AGORA,
+    }) as { id: string };
+    definirTemposFixture(novo.id, {
+      estado: "falhou",
+      custoUsd: 12.5,
+      custoEEstimativa: false,
+      pegoEm: new Date(AGORA - 60_000).toISOString(),
+      concluidoEm: new Date(AGORA).toISOString(),
+      workerId: "w-medido",
+      tentativas: 1,
+    });
+    expect(ajustarCustoFixture(novo.id, 1, AGORA)).toEqual({
+      erro: "Só custo estimado pela casa pode ser ajustado; este foi medido.",
+    });
   });
 });

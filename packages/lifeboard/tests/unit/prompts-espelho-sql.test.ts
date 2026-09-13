@@ -3,7 +3,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { CONTAS, JANELA_HEARTBEAT_MIN, MAX_TENTATIVAS } from "@/core/prompts/tipos";
+import {
+  BACKOFF_POR_TENTATIVA_MIN,
+  CONTAS,
+  JANELA_HEARTBEAT_MIN,
+  MAX_TENTATIVAS,
+} from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — D17 (rodada 4): o "teste espelho" que OLHA O SQL.
@@ -30,6 +35,17 @@ const DIR_MIGRATIONS = join(__dirname, "..", "..", "supabase", "migrations");
 const ARQUIVOS = [
   "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
   "0013_lifeboard_v3_fila_contabilidade.sql",
+  "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
+] as const;
+
+/** As 6 migrations da fila — a varredura do `raise` (#3) vale para todas. */
+const MIGRATIONS_DA_FILA = [
+  "0007_lifeboard_v3_fila_prompts.sql",
+  "0009_lifeboard_v3_fila_ajustes.sql",
+  "0011_lifeboard_v3_fila_ajustes_2.sql",
+  "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
+  "0013_lifeboard_v3_fila_contabilidade.sql",
+  "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
 ] as const;
 
 function ler(arquivo: string): string {
@@ -68,6 +84,31 @@ function janelasEmMinutos(sql: string): number[] {
     achado = regex.exec(sql);
   }
   return achados;
+}
+
+/**
+ * #6 (rodada 5): o backoff. `disponivel_em = now() + (interval 'N minutes' *
+ * greatest(tentativas, 1))` — o único lugar do SQL onde a constante de D19
+ * aparece, e que o extrator de janelas acima NÃO vê (ele só olha `now() -
+ * interval`). Ficava fora do espelho: mudar 15 para 99 no SQL não quebrava
+ * nada em TS.
+ */
+function backoffEmMinutos(sql: string): number[] {
+  const regex = /disponivel_em\s*=\s*now\(\)\s*\+\s*\(\s*interval\s*'(\d+)\s*minutes'/g;
+  const achados: number[] = [];
+  let achado: RegExpExecArray | null = regex.exec(sql);
+  while (achado !== null) {
+    achados.push(Number.parseInt(achado[1] as string, 10));
+    achado = regex.exec(sql);
+  }
+  return achados;
+}
+
+/** `raise … '%s'` — o erro de #3: `raise` interpola com `%`; `%s` é do `format`. */
+function raisesComPorcentoS(sql: string): string[] {
+  return sql
+    .split("\n")
+    .filter((linha) => /raise\s+(exception|notice|warning)[^;]*%s/i.test(linha));
 }
 
 describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
@@ -112,5 +153,41 @@ describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
     // As únicas remoções permitidas são assinaturas de função substituídas e um
     // índice não-único trocado por um único.
     expect(sql).toContain("drop function if exists");
+  });
+
+  it("#6 — o backoff do SQL (disponivel_em) é BACKOFF_POR_TENTATIVA_MIN", () => {
+    const backoffs = ARQUIVOS.flatMap((a) => backoffEmMinutos(semComentarios(ler(a))));
+    expect(backoffs.length, "0013/0014 precisam declarar o backoff").toBeGreaterThan(0);
+    for (const minutos of backoffs) {
+      expect(minutos).toBe(BACKOFF_POR_TENTATIVA_MIN);
+    }
+  });
+
+  it("#3 — nenhuma migration da fila usa %s num `raise` (isso é `format`)", () => {
+    for (const arquivo of MIGRATIONS_DA_FILA) {
+      const linhas = raisesComPorcentoS(semComentarios(ler(arquivo)));
+      expect(linhas, `${arquivo}: raise com %s`).toEqual([]);
+    }
+  });
+
+  it("0014 é aditiva: não dropa tabela, coluna, função nem índice", () => {
+    const sql = semComentarios(ler("0014_lifeboard_v3_fila_pull_e_mensagens.sql")).toLowerCase();
+    expect(sql).not.toContain("drop table");
+    expect(sql).not.toContain("drop column");
+    expect(sql).not.toContain("drop function");
+    expect(sql).not.toContain("drop index");
+    // E re-aplicável: índice com `if not exists`, funções com `create or replace`.
+    expect(sql).toContain("create index if not exists");
+    expect(sql).toContain("create or replace function");
+  });
+
+  it("D21 — a elegibilidade do pull está no `where`, não num laço com janela", () => {
+    const sql = semComentarios(ler("0014_lifeboard_v3_fila_pull_e_mensagens.sql"));
+    // O filtro que decide: custo estimado <= headroom, um item só.
+    expect(sql).toMatch(/custo_estimado_usd\s*<=\s*v_headroom/);
+    expect(sql).toMatch(/order by f\.criado_em, f\.id\s*\n\s*limit 1/);
+    // E nenhuma janela de 50 sobrou no caminho do pull.
+    expect(sql).not.toContain("limit 50");
+    expect(sql).not.toContain("for rec in");
   });
 });

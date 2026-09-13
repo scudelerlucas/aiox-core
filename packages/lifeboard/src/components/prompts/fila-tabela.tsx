@@ -99,6 +99,33 @@ function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
 }
 
 /**
+ * D22 (rodada 5): as duas ações da linha ficam SEMPRE montadas — o que muda é
+ * o gatilho de cada uma. Motivo medido: toda ação chama `router.refresh()` no
+ * sucesso, o item muda de estado e uma renderização condicional
+ * (`podeCancelar ? <Cancelar/> : podeAjustar ? <Ajustar/> : null`) DESMONTAVA o
+ * componente que acabara de responder — levando junto a frase que a action
+ * tinha calculado ("US$ 50,00 entram no gasto de hoje como estimativa"). Com
+ * as duas montadas, a região viva de cada uma sobrevive ao refresh e o
+ * operador lê o que aconteceu.
+ */
+function AcoesDaLinha({ item }: { item: ItemFilaPrompt }): JSX.Element {
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <CancelarBotao
+        id={item.id}
+        emExecucao={item.estado === "pega"}
+        podeCancelar={podeCancelar(item)}
+      />
+      <AjustarCustoBotao
+        id={item.id}
+        custoAtualUsd={item.custoUsd}
+        podeAjustar={podeAjustarCusto(item)}
+      />
+    </div>
+  );
+}
+
+/**
  * OS-LIFEBOARD · P7 — a tabela da fila: estado (com "sem sinal"), conta,
  * complexidade/modelo, prompt (prévia + "ver tudo"), idades, custo, link da
  * sessão e cancelar. Mobile: vira lista de cartões (tabela larga rolando de
@@ -210,11 +237,7 @@ export function FilaTabela({
                   )}
                 </td>
                 <td className="px-3 py-2.5 align-top text-right">
-                  {podeCancelar(item) ? (
-                    <CancelarBotao id={item.id} emExecucao={item.estado === "pega"} />
-                  ) : podeAjustarCusto(item) ? (
-                    <AjustarCustoBotao id={item.id} custoAtualUsd={item.custoUsd} />
-                  ) : null}
+                  <AcoesDaLinha item={item} />
                 </td>
               </tr>
             ))}
@@ -255,11 +278,7 @@ export function FilaTabela({
                   </>
                 ) : null}
               </p>
-              {podeCancelar(item) ? (
-                <CancelarBotao id={item.id} emExecucao={item.estado === "pega"} />
-              ) : podeAjustarCusto(item) ? (
-                <AjustarCustoBotao id={item.id} custoAtualUsd={item.custoUsd} />
-              ) : null}
+              <AcoesDaLinha item={item} />
             </div>
           </div>
         ))}

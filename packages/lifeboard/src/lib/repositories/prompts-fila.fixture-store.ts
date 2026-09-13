@@ -34,6 +34,17 @@
  *    usada por outro item.
  *  · D15 · paginação keyset com `(criadoEm, id)`.
  *
+ * RODADA 5 — o que mudou aqui:
+ *  · D21 · o pull escolhe pelo FILTRO (`custoEstimadoUsd <= headroom`, ordem
+ *    `criadoEm, id`, o primeiro que sobrar), e `pulados`/`menorNaoCoube` saem
+ *    de uma varredura de TODOS os que não cabem — espelho exato do `where` da
+ *    RPC depois que ela deixou de iterar uma janela de 50 linhas.
+ *  · D23 · o pull que MATOU um item diz isso, com o valor lançado, em vez de
+ *    anunciar "fila vazia".
+ *  · D24 · o dia de um item é o da RESERVA (`pegoEm`, com `criadoEm` de
+ *    fallback), não o do fechamento.
+ *  · #7 · `ajustarCustoFixture` recusa item cujo custo foi MEDIDO.
+ *
  * O roteamento automático chama a MESMA função pura de produção
  * (`escolherConta`) — o fixture não reimplementa a regra, só o estado.
  */
@@ -156,7 +167,10 @@ function diaOperador(instante: number | string): string {
 /** D10/D12: quanto ESTE item ainda pesa no dia (a subtração, não a exclusão). */
 function contribuicaoDe(item: ItemFilaPrompt, agora: number): number {
   if (item.custoUsd === null || item.concluidoEm === null) return 0;
-  if (diaOperador(item.concluidoEm) !== diaOperador(agora)) return 0;
+  // D24 (rodada 5): o dia do item é o da RESERVA (`pegoEm`), não o do
+  // fechamento — um item pego 23h50 e fechado 00h10 gastou o headroom do dia
+  // que o reservou. `criadoEm` é o fallback porque a expiração zera `pegoEm`.
+  if (diaOperador(item.pegoEm ?? item.criadoEm) !== diaOperador(agora)) return 0;
   const contaNoDia =
     item.estado === "concluida" ||
     item.estado === "falhou" ||
@@ -450,6 +464,11 @@ export function ajustarCustoFixture(
   if (item.concluidoEm === null || diaOperador(item.concluidoEm) !== diaOperador(agora)) {
     return { erro: "Só dá para ajustar o custo de item fechado hoje." };
   }
+  // #7 (rodada 5): a guarda que o comentário do SQL prometia e o código não
+  // fazia — número MEDIDO por gente não se reescreve pela tela.
+  if (!item.custoEEstimativa) {
+    return { erro: "Só custo estimado pela casa pode ser ajustado; este foi medido." };
+  }
   estado.fila.set(id, {
     ...item,
     custoUsd,
@@ -490,18 +509,31 @@ export interface ResultadoPegarFixture {
   item: ItemFilaPrompt | null;
   devolvidos: number;
   mortos: number;
+  /** D23 (rodada 5): quanto os itens mortos NESTE pull lançaram no dia. */
+  mortosUsd: number;
+  /** D21 (rodada 5): quantos `na_fila` disponíveis NÃO cabem no headroom — a fila inteira, sem janela. */
   pulados: number;
   emEspera: number;
+  /** D21: `teto − medido − em execução`, o número que decide a elegibilidade. */
+  headroomUsd: number;
   estimativaUsd: number;
   estimativaItens: number;
   motivo: string | null;
 }
 
-/** Expira o que está mudo há mais de 45 min. Devolve os ids que voltaram. */
-function expirar(conta: Conta, agora: number): { devolvidos: string[]; mortos: string[] } {
+/**
+ * Expira o que está mudo há mais de 45 min. Devolve os ids que voltaram, os que
+ * morreram e — D23 (rodada 5) — quanto os mortos lançaram no gasto do dia: o
+ * pull diz esse número em voz alta, em vez de anunciar "fila vazia".
+ */
+function expirar(
+  conta: Conta,
+  agora: number,
+): { devolvidos: string[]; mortos: string[]; mortosUsd: number } {
   const estado = loja();
   const devolvidos: string[] = [];
   const mortos: string[] = [];
+  let mortosUsd = 0;
   for (const item of itens()) {
     if (item.conta !== conta || item.estado !== "pega" || !semSinal(item, agora)) continue;
     if (item.tentativas < item.maxTentativas) {
@@ -530,9 +562,10 @@ function expirar(conta: Conta, agora: number): { devolvidos: string[]; mortos: s
         concluidoEm: new Date(agora).toISOString(),
       });
       mortos.push(item.id);
+      mortosUsd += Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD);
     }
   }
-  return { devolvidos, mortos };
+  return { devolvidos, mortos, mortosUsd };
 }
 
 export function pegarFixture(
@@ -541,7 +574,7 @@ export function pegarFixture(
   agora: number = Date.now(),
 ): ResultadoPegarFixture {
   const estado = loja();
-  const { devolvidos, mortos } = expirar(conta, agora);
+  const { devolvidos, mortos, mortosUsd } = expirar(conta, agora);
 
   const base = estado.base.get(conta);
   const teto = base?.tetoUsd ?? 150;
@@ -549,55 +582,72 @@ export function pegarFixture(
   const emExecucao = reservadoDe(conta, agora);
   const emEspera = emEsperaDe(conta, agora);
   const estimativa = estimativaDe(conta, agora);
+  // D13/D21: uma régua só, e é ela que entra no filtro — nunca um teste dentro
+  // de um laço sobre uma janela.
+  const headroom = teto - medido - emExecucao;
 
-  const candidatos = itens()
-    .filter(
-      (i) =>
-        i.conta === conta &&
-        i.estado === "na_fila" &&
-        !devolvidos.includes(i.id) &&
-        (i.disponivelEm === null || Date.parse(i.disponivelEm) <= agora),
-    )
+  const disponiveis = itens().filter(
+    (i) =>
+      i.conta === conta &&
+      i.estado === "na_fila" &&
+      !devolvidos.includes(i.id) &&
+      (i.disponivelEm === null || Date.parse(i.disponivelEm) <= agora),
+  );
+
+  /**
+   * D21 (rodada 5) — o espelho exato do `where` da RPC:
+   *   `… and custo_estimado_usd <= headroom order by criado_em, id limit 1`.
+   * O laço com janela de 50 do SQL escondia o item elegível da posição 51 e
+   * ainda mentia sobre ele ("o mais barato custa US$ 120" com um de US$ 5 na
+   * fila). Aqui a escolha é sobre a lista INTEIRA, e `pulados`/`menorNaoCoube`
+   * saem de uma varredura separada de TODOS os que não cabem.
+   */
+  const ordenados = [...disponiveis].sort((a, b) =>
     // #12: desempate explícito por id, como no `order by criado_em, id` do SQL.
-    .sort((a, b) => (a.criadoEm === b.criadoEm ? a.id.localeCompare(b.id) : a.criadoEm.localeCompare(b.criadoEm)));
+    a.criadoEm === b.criadoEm ? a.id.localeCompare(b.id) : a.criadoEm.localeCompare(b.criadoEm),
+  );
+  const escolhido = ordenados.find((i) => i.custoEstimadoUsd <= headroom) ?? null;
+  const naoCabem = disponiveis.filter((i) => i.custoEstimadoUsd > headroom);
+  const pulados = naoCabem.length;
+  const menorNaoCoube =
+    naoCabem.length === 0 ? null : Math.min(...naoCabem.map((i) => i.custoEstimadoUsd));
 
-  let pulados = 0;
-  let menorNaoCoube: number | null = null;
-  for (const candidato of candidatos) {
-    if (medido + emExecucao + candidato.custoEstimadoUsd <= teto) {
-      const pego: ItemFilaPrompt = {
-        ...candidato,
-        estado: "pega",
-        workerId,
-        pegoEm: new Date(agora).toISOString(),
-        heartbeatEm: new Date(agora).toISOString(),
-        disponivelEm: null,
-        tentativas: candidato.tentativas + 1,
-      };
-      estado.fila.set(pego.id, pego);
-      return {
-        item: pego,
-        devolvidos: devolvidos.length,
-        mortos: mortos.length,
-        pulados,
-        emEspera,
-        estimativaUsd: estimativa.usd,
-        estimativaItens: estimativa.itens,
-        motivo: null,
-      };
-    }
-    pulados += 1;
-    if (menorNaoCoube === null || candidato.custoEstimadoUsd < menorNaoCoube) {
-      menorNaoCoube = candidato.custoEstimadoUsd;
-    }
+  if (escolhido !== null) {
+    const pego: ItemFilaPrompt = {
+      ...escolhido,
+      estado: "pega",
+      workerId,
+      pegoEm: new Date(agora).toISOString(),
+      heartbeatEm: new Date(agora).toISOString(),
+      disponivelEm: null,
+      tentativas: escolhido.tentativas + 1,
+    };
+    estado.fila.set(pego.id, pego);
+    return {
+      item: pego,
+      devolvidos: devolvidos.length,
+      mortos: mortos.length,
+      mortosUsd,
+      pulados,
+      emEspera,
+      headroomUsd: headroom,
+      estimativaUsd: estimativa.usd,
+      estimativaItens: estimativa.itens,
+      motivo: null,
+    };
   }
 
-  // #11: cada caso tem o seu nome — "fila vazia" só quando ela está vazia.
+  // #11 (rodada 4) + D23 (rodada 5): cada caso tem o seu nome — "fila vazia" só
+  // quando ela está vazia, e o disparo que MATOU um item diz o que ele lançou.
   let motivo: string;
   if (menorNaoCoube !== null) {
     motivo =
       `nada cabe agora: o mais barato da fila custa ${formatarUsd(menorNaoCoube)} e só há ` +
-      `${formatarUsd(teto - medido - emExecucao)} livres`;
+      `${formatarUsd(headroom)} livres`;
+  } else if (mortos.length === 1) {
+    motivo = `1 item morreu sem fechar neste disparo e lançou ${formatarUsd(mortosUsd)} no dia`;
+  } else if (mortos.length > 1) {
+    motivo = `${mortos.length} itens morreram sem fechar neste disparo e lançaram ${formatarUsd(mortosUsd)} no dia`;
   } else if (devolvidos.length > 0) {
     motivo = `${devolvidos.length} item(ns) devolvido(s) para a fila, aguardando nova tentativa`;
   } else if (emEspera > 0) {
@@ -613,8 +663,10 @@ export function pegarFixture(
     item: null,
     devolvidos: devolvidos.length,
     mortos: mortos.length,
+    mortosUsd,
     pulados,
     emEspera,
+    headroomUsd: headroom,
     estimativaUsd: estimativa.usd,
     estimativaItens: estimativa.itens,
     motivo,
@@ -735,6 +787,35 @@ export function envelhecerSinalFixture(id: string, minutos: number, agora = Date
   const item = estado.fila.get(id);
   if (!item) return;
   estado.fila.set(id, { ...item, heartbeatEm: new Date(agora - minutos * MINUTO_MS).toISOString() });
+}
+
+/**
+ * Só para teste: reescreve os campos de tempo/estado de um item — o equivalente
+ * ao `insert` direto que os blocos SQL de prova usam para montar um retrato
+ * (item pego 23h50 e fechado 00h10, item `falhou` com custo MEDIDO). Nenhum
+ * caminho de produção chama isto.
+ */
+export function definirTemposFixture(
+  id: string,
+  patch: Partial<
+    Pick<
+      ItemFilaPrompt,
+      | "estado"
+      | "custoUsd"
+      | "custoEEstimativa"
+      | "pegoEm"
+      | "concluidoEm"
+      | "heartbeatEm"
+      | "workerId"
+      | "sessionId"
+      | "tentativas"
+    >
+  >,
+): void {
+  const estado = loja();
+  const item = estado.fila.get(id);
+  if (!item) return;
+  estado.fila.set(id, { ...item, ...patch });
 }
 
 /** Só para teste: encerra o castigo de um item devolvido (D19). */
