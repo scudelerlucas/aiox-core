@@ -25,6 +25,14 @@ import { useRef, type KeyboardEvent } from "react";
  * dispara `onClick`; por isso o teclado não precisa de um caso especial
  * para essas duas teclas).
  *
+ * v5 (achado MÉDIO #2, rodada 5 do crítico): NENHUM botão do grupo usa mais
+ * o atributo `disabled` durante a gravação. Medido: apertar Enter no
+ * segmentado de status mandava o foco para o `<body>` — o navegador desfoca
+ * qualquer elemento que vire `disabled`, e `desabilitado={pendente}` fazia
+ * exatamente isso com o botão recém-apertado. Agora o estado "gravando" é
+ * dito por `aria-busy`/`aria-disabled` (o leitor de tela sabe; o gerenciador
+ * de foco não se mete) e o duplo envio é recusado no handler.
+ *
  * v4 (achado MÉDIO #2, rodada 4 do crítico): `valorAtual` aceita `null` — o
  * estado LEGÍTIMO de "nada escolhido ainda" (`AtomosForm` sem átomos
  * declarados, achado MÉDIO #2), não só um bug defensivo. Com `null`, todo
@@ -100,8 +108,20 @@ export function ControleSegmentado<T extends string | number>({
     botoesRef.current.get(indiceAlvo)?.focus();
   }
 
-  function aoTeclar(e: KeyboardEvent<HTMLButtonElement>, indice: number): void {
+  /**
+   * [MÉDIO #2, rodada 5] O commit é recusado enquanto a gravação anterior não
+   * volta — a mesma proteção que o `disabled` dava, só que sem tirar o foco
+   * do botão que o operador acabou de apertar. (`useAcaoTarefa` tem a mesma
+   * trava por dentro; esta aqui evita até a chamada.)
+   */
+  function aoClicar(valor: T): void {
     if (desabilitado) return;
+    aoMudar(valor);
+  }
+
+  function aoTeclar(e: KeyboardEvent<HTMLButtonElement>, indice: number): void {
+    // Navegar por seta continua permitido durante a gravação (só move foco,
+    // não comita) — o que é recusado é o COMMIT, em `aoClicar`.
     // Enter/Espaço não passam por `indiceDeFocoParaTecla` (devolve `null`) —
     // sem `e.preventDefault()`, o comportamento nativo do `<button>` já
     // dispara `onClick` (que comita via `aoMudar`), então não duplicamos o
@@ -138,10 +158,14 @@ export function ControleSegmentado<T extends string | number>({
             role="radio"
             aria-checked={selecionado}
             tabIndex={ehParadaDoTab ? 0 : -1}
-            disabled={desabilitado}
-            onClick={() => aoMudar(op.valor)}
+            // [MÉDIO #2, rodada 5] NÃO `disabled` — ver o bloco v5 acima.
+            aria-busy={desabilitado ? true : undefined}
+            aria-disabled={desabilitado ? true : undefined}
+            onClick={() => aoClicar(op.valor)}
             onKeyDown={(e) => aoTeclar(e, indice)}
-            className={`min-h-[36px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra disabled:opacity-50 ${
+            className={`min-h-[36px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra ${
+              desabilitado ? "opacity-50" : ""
+            } ${
               selecionado
                 ? "border-gold-500 bg-navy-800 text-gold-300"
                 : "border-navy-700 bg-navy-850 text-bone-300 hover:border-navy-600 hover:text-bone-100"

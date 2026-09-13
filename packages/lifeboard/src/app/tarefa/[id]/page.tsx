@@ -98,7 +98,12 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
     [...tasks].filter((t) => t.isGoal === true).sort((a, b) => a.id.localeCompare(b.id))[0]?.id ??
     null;
   const cpm = caminhoCritico(tasks, edges, goalId);
-  const score = scoreAssimetria(task, tasks, edges, cpm);
+  // [BAIXO #7, rodada 5] `scoreAssimetria` agora devolve o par
+  // `{ valor, motivo }`: a tela precisa distinguir "ninguém declarou os
+  // átomos" de "os átomos estão lá, mas a conta não fecha" — antes as duas
+  // situações mostravam a mesma frase ("Sem átomos declarados"), e a segunda
+  // mandava o operador re-declarar o que já estava salvo.
+  const resultadoScore = scoreAssimetria(task, tasks, edges, cpm);
   const janela = cpm.janelas.get(task.id) ?? null;
 
   const filhas = tasks.filter((t) => t.parentId === task.id);
@@ -177,7 +182,8 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
         <AtomosForm
           taskId={task.id}
           assimetriaAtual={task.assimetria ?? null}
-          score={score}
+          score={resultadoScore.valor}
+          motivo={resultadoScore.motivo}
           heranca={herancaResultado}
         />
       </Secao>

@@ -23,6 +23,7 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
+    if (pendente) return; // [MÉDIO #2, rodada 5] duplo envio recusado sem `disabled`.
     const form = new FormData();
     form.set("task_id", taskId);
     form.set("estimativa_dias", valor);
@@ -50,8 +51,11 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
       </label>
       <button
         type="submit"
-        disabled={pendente}
-        className="inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 disabled:opacity-50"
+        aria-busy={pendente ? true : undefined}
+        aria-disabled={pendente ? true : undefined}
+        className={`inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 ${
+          pendente ? "opacity-50" : ""
+        }`}
       >
         Salvar duração
       </button>

@@ -78,6 +78,32 @@ describe("PaginaTarefa (fixture)", () => {
     expect(html).toMatch(/A = \d/); // score de assimetria (task-build tem `assimetria` declarada)
   });
 
+  /**
+   * [MÉDIO #3, rodada 5 do crítico] A região viva NASCIA JUNTO COM O TEXTO —
+   * `MensagemSucesso` devolvia `null` até haver mensagem, e um leitor de tela
+   * só anuncia o conteúdo novo de uma `aria-live` que já estava no documento.
+   * Agora TODA região da página existe desde o primeiro render, vazia; o
+   * texto entra por troca de conteúdo. Este teste conta as regiões no HTML
+   * inicial e exige que todas estejam vazias.
+   *
+   * Reverter para ver falhar: em `src/components/task/mensagem-sucesso.tsx`,
+   * voltar o `if (!mensagem) return null;` — a contagem cai de 8 para 3.
+   */
+  it("PRONTO QUANDO: as regiões vivas (role=status) já nascem no DOM, todas vazias", async () => {
+    const elemento = await PaginaTarefa({ params: Promise.resolve({ id: "task-build" }) });
+    const html = renderToStaticMarkup(elemento);
+
+    const total = html.match(/role="status"/g)?.length ?? 0;
+    const vazias = html.match(/role="status"[^>]*><\/p>/g)?.length ?? 0;
+    // 5 formulários (duração, mãe, meta, status, átomos) + a região "Relação
+    // criada." do formulário de relação + as duas de "Excluída." (notas e
+    // relações). A régua do crítico é ≥ 5 — a página entrega 8.
+    expect(total).toBeGreaterThanOrEqual(5);
+    expect(total).toBe(8);
+    expect(vazias).toBe(total); // nenhuma nasce com texto
+    expect(html).toContain('aria-atomic="true"');
+  });
+
   it("PRONTO QUANDO: id desconhecido aciona notFound() (404 de verdade, não tela em branco)", async () => {
     await expect(
       PaginaTarefa({ params: Promise.resolve({ id: "task-que-nao-existe" }) }),

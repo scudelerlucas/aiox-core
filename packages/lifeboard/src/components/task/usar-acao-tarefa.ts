@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import type { EstadoAcaoTarefa } from "@/app/tarefa/actions";
 
@@ -38,6 +38,31 @@ export interface AcaoTarefaControlada {
 }
 
 /**
+ * O MIOLO da chamada, sem React — extraído na rodada 5 (achado MÉDIO #4: 8
+ * dos 9 componentes de P6 não tinham teste, e a parte mais cara de errar
+ * aqui — "falha de rede vira frase em português", "recusa do servidor chama
+ * `aoFalha`" — só existia dentro de um hook, que sem jsdom não dá para
+ * montar. Como função pura, ela é testável direto (`tarefa-acao-executar.test.ts`).
+ *
+ * Nunca lança: uma falha de REDE de verdade (o fetch da Server Action
+ * rejeita) não devolve `{erro}` nenhum — sem este `catch` o `await` do
+ * chamador estouraria, o controle otimista ficaria preso no valor recusado
+ * e nenhum `aoFalha`/`router.refresh()` rodaria. Mensagem genérica em
+ * português; nunca a stack nem o erro cru na tela.
+ */
+export async function executarAcaoTarefa(
+  acao: AcaoServidor,
+  estado: EstadoAcaoTarefa,
+  form: FormData,
+): Promise<EstadoAcaoTarefa> {
+  try {
+    return await acao(estado, form);
+  } catch {
+    return { erro: "Não foi possível salvar agora — tente de novo." };
+  }
+}
+
+/**
  * `aoFalha` (achado MÉDIO #1, rodada 3 do crítico 13/09): chamado quando a
  * action devolve `{erro}` (`ok !== true`) — antes disto, um controle
  * otimista (`MaeForm`/`StatusForm`/`MetaForm`, que chamam `setValor(novo)`
@@ -56,22 +81,27 @@ export function useAcaoTarefa(
   const [estado, setEstado] = useState<EstadoAcaoTarefa>({});
   const [pendente, startTransition] = useTransition();
   const router = useRouter();
+  /**
+   * [MÉDIO #2, rodada 5] a proteção contra DUPLO ENVIO morava no
+   * `disabled={pendente}` dos botões — e era justamente ele que jogava o
+   * foco no `<body>` a cada operação (o navegador desfoca o elemento que
+   * vira `disabled`). Os controles agora usam `aria-busy`/`aria-disabled`
+   * (visíveis para leitor de tela, invisíveis para o gerenciador de foco) e
+   * quem recusa o segundo disparo é esta trava — um ref, não o estado:
+   * `pendente` do `useTransition` só vira `true` no render SEGUINTE, então
+   * dois cliques no mesmo tick passariam por uma checagem de estado.
+   */
+  const emVooRef = useRef(false);
 
   function disparar(form: FormData): void {
+    if (emVooRef.current) return; // clique repetido durante a gravação: ignorado.
+    emVooRef.current = true;
     startTransition(() => {
       void (async () => {
-        let resultado: EstadoAcaoTarefa;
-        try {
-          resultado = await acao(estado, form);
-        } catch {
-          // [MÉDIO #1, rodada 3] uma falha de REDE de verdade (fetch da
-          // Server Action rejeita) nunca chega a devolver `{erro}` — sem
-          // este `catch`, o `await` acima lançava, o resto da função nunca
-          // rodava, e o controle otimista ficava preso no valor recusado
-          // PARA SEMPRE (nem `aoFalha` nem `router.refresh()` disparavam).
-          // Mensagem genérica em português — nunca a stack/erro cru na tela.
-          resultado = { erro: "Não foi possível salvar agora — tente de novo." };
-        }
+        const resultado = await executarAcaoTarefa(acao, estado, form);
+        // Libera ANTES dos callbacks: `aoFalha` pode querer disparar de novo
+        // (é o caso do "Desfazer" que falhou e o operador reclica).
+        emVooRef.current = false;
         setEstado(resultado);
         if (resultado.ok === true) {
           aoSucesso?.(resultado);

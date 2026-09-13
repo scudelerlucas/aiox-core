@@ -36,6 +36,7 @@ import "server-only";
  * um Client Component.
  */
 
+import type { MotivoSemScore } from "@/core/prioritize/assimetria-motivo";
 import { filhosPorPai, herancaEfetiva, herancaEmLote } from "@/core/prioritize/heranca";
 import {
   atomosDeclaradosValidos,
@@ -224,6 +225,30 @@ export function arestasPorDestino(edges: TaskEdge[]): Map<string, TaskEdge[]> {
   return porDestino;
 }
 
+/**
+ * [BAIXO #7, rodada 5] Resultado do score COM o motivo — `valor` é o score
+ * quando há um, e `null` quando não há; `motivo` diz qual dos dois casos é
+ * (ver `assimetria-motivo.ts`). `scoreAssimetriaLote` continua devolvendo
+ * `ScoreAssimetria | null` (é o que o grafo/linha do tempo consomem); quem
+ * precisa distinguir os casos — a página da tarefa — usa `scoreAssimetria`.
+ */
+export type ResultadoScoreAssimetria =
+  | { valor: ScoreAssimetria; motivo: null }
+  | { valor: null; motivo: MotivoSemScore };
+
+/**
+ * A GUARDA, como função pura e exportada (achado MÉDIO #4, rodada 5: ela não
+ * tinha teste porque os 4 ramos só eram alcançáveis por dentro do núcleo,
+ * com uma herança corrompida que o módulo vizinho não produz mais).
+ * Devolve `"nao_calculavel"` quando a divisão `(s1*s2*s3)/(e*c)` não pode ser
+ * feita — `e` ou `c` zerados, `NaN`, `Infinity` —, e `null` quando pode.
+ * Sem ela, o cartão da tarefa receberia `Infinity`/`NaN` como "score".
+ */
+export function motivoNaoCalculavel(e: number, c: number): MotivoSemScore | null {
+  if (!Number.isFinite(e) || !Number.isFinite(c) || e === 0 || c === 0) return "nao_calculavel";
+  return null;
+}
+
 function scoreAssimetriaNucleo(
   task: Task,
   porDestino: Map<string, TaskEdge[]>,
@@ -231,10 +256,10 @@ function scoreAssimetriaNucleo(
   byId: Map<string, Task>,
   grafo: Map<string, Set<string>>,
   efetiva: HerancaResultado,
-): ScoreAssimetria | null {
+): ResultadoScoreAssimetria {
   const declarado = task.assimetria;
-  if (declarado === null || declarado === undefined) return null;
-  if (!atomosDeclaradosValidos(declarado)) return null;
+  if (declarado === null || declarado === undefined) return { valor: null, motivo: "sem_atomos" };
+  if (!atomosDeclaradosValidos(declarado)) return { valor: null, motivo: "sem_atomos" };
 
   const s1 = alavanca(task.id, cpm);
   const s2 = declarado.opcionalidade; // opcionalidade NUNCA herda — sempre o átomo próprio.
@@ -291,14 +316,17 @@ function scoreAssimetriaNucleo(
     const primeira = origensObsoletas[0];
     if (primeira) {
       return {
-        valor: 0,
-        s1,
-        s2,
-        s3,
-        e,
-        c,
-        porque: `desnecessária: ${primeira.title} já foi feita`,
-        obsoleta: true,
+        valor: {
+          valor: 0,
+          s1,
+          s2,
+          s3,
+          e,
+          c,
+          porque: `desnecessária: ${primeira.title} já foi feita`,
+          obsoleta: true,
+        },
+        motivo: null,
       };
     }
   }
@@ -307,35 +335,42 @@ function scoreAssimetriaNucleo(
   // devem chegar aqui zerados ou não finitos (o piso `Math.max(1, …)` acima
   // já cobre a parte de `c`), mas o score não pode depender de um módulo
   // vizinho nunca falhar — se algo fizer `e*c` ser 0 ou não finito, o
-  // veredito é `null` ("sem átomos válidos", o MESMO veredito de átomo fora
-  // do domínio), nunca `Infinity`/`NaN` vazando pro cartão da tarefa.
-  if (!Number.isFinite(e) || !Number.isFinite(c) || e === 0 || c === 0) return null;
+  // veredito é "sem valor" — e, desde a rodada 5 (achado BAIXO #7), com o
+  // MOTIVO junto (`nao_calculavel`), para a tela não dizer "sem átomos
+  // declarados" a quem declarou os três. Nunca `Infinity`/`NaN` no cartão.
+  const naoCalculavel = motivoNaoCalculavel(e, c);
+  if (naoCalculavel !== null) return { valor: null, motivo: naoCalculavel };
 
   const valor = arredonda2((s1 * s2 * s3) / (e * c));
   return {
-    valor,
-    s1,
-    s2,
-    s3,
-    e,
-    c,
-    porque: montaPorque(s1, s3, e, c, efetiva.herdado),
-    obsoleta: false,
+    valor: {
+      valor,
+      s1,
+      s2,
+      s3,
+      e,
+      c,
+      porque: montaPorque(s1, s3, e, c, efetiva.herdado),
+      obsoleta: false,
+    },
+    motivo: null,
   };
 }
 
 /**
- * Score de assimetria de UMA tarefa (P3). `null` quando a tarefa não declarou
- * `assimetria` ou declarou algum átomo fora do domínio (`atomosDeclaradosValidos`)
- * — o cartão mostra "sem átomos declarados" (decisão do consumidor da
- * interface, não desta função). Nunca muta `task`, `tasks` ou `edges`.
+ * Score de assimetria de UMA tarefa (P3). Devolve `{ valor, motivo }`
+ * (`ResultadoScoreAssimetria`): `valor: null` + `motivo: "sem_atomos"` quando
+ * a tarefa não declarou `assimetria` ou declarou átomo fora do domínio;
+ * `valor: null` + `motivo: "nao_calculavel"` quando a conta não fecha. A
+ * frase que o operador lê continua sendo decisão do consumidor da interface
+ * — mas agora ela pode ser a frase CERTA. Nunca muta `task`, `tasks` ou `edges`.
  */
 export function scoreAssimetria(
   task: Task,
   tasks: Task[],
   edges: TaskEdge[],
   cpm: ResultadoCPM,
-): ScoreAssimetria | null {
+): ResultadoScoreAssimetria {
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const grafo = grafoSucessao(tasks, edges);
   const filhosMapa = filhosPorPai(tasks);
@@ -374,7 +409,7 @@ export function scoreAssimetriaLote(
       resultado.set(task.id, null);
       continue;
     }
-    resultado.set(task.id, scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo, efetiva));
+    resultado.set(task.id, scoreAssimetriaNucleo(task, porDestino, cpm, byId, grafo, efetiva).valor);
   }
   return resultado;
 }

@@ -47,6 +47,10 @@ export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.El
   );
 
   function aoMudar(e: ChangeEvent<HTMLSelectElement>): void {
+    // [MÉDIO #2, rodada 5] enquanto a gravação anterior não volta, a troca é
+    // ignorada (era o `disabled={pendente}` que fazia isso — e era ele que
+    // jogava o foco do `<select>` para o `<body>` a cada troca de mãe).
+    if (pendente) return;
     const novo = e.target.value;
     tentativaRef.current = novo;
     setValor(novo);
@@ -58,12 +62,20 @@ export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.El
 
   return (
     <div>
+      {/* [MÉDIO #2, rodada 5] sem `disabled` durante a gravação: um
+          `<select>` que vira `disabled` perde o foco para o `<body>` (medido:
+          5 de 5 operações da página faziam isso). `aria-busy`/`aria-disabled`
+          dizem o mesmo ao leitor de tela sem mexer no foco; a recusa do
+          segundo envio está em `aoMudar`. */}
       <select
         value={valor}
         onChange={aoMudar}
-        disabled={pendente}
+        aria-busy={pendente ? true : undefined}
+        aria-disabled={pendente ? true : undefined}
         aria-label="Tarefa mãe"
-        className="w-full max-w-sm rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500 disabled:opacity-50"
+        className={`w-full max-w-sm rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500 ${
+          pendente ? "opacity-50" : ""
+        }`}
       >
         <option value="">nenhuma</option>
         {opcoes.map((t) => (

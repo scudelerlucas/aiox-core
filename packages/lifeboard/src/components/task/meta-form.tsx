@@ -38,6 +38,9 @@ export function MetaForm({ taskId, isGoal }: MetaFormProps): JSX.Element {
   );
 
   function alternar(): void {
+    // [MÉDIO #2, rodada 5] recusa o 2º clique sem `disabled` (que tiraria o
+    // foco do próprio botão apertado).
+    if (pendente) return;
     const novo = !valor;
     tentativaRef.current = novo;
     setValor(novo);
@@ -52,9 +55,12 @@ export function MetaForm({ taskId, isGoal }: MetaFormProps): JSX.Element {
       <button
         type="button"
         onClick={alternar}
-        disabled={pendente}
+        aria-busy={pendente ? true : undefined}
+        aria-disabled={pendente ? true : undefined}
         aria-pressed={valor}
-        className={`inline-flex min-h-[36px] items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition disabled:opacity-50 ${
+        className={`inline-flex min-h-[36px] items-center gap-2 rounded-lg border px-3 text-sm font-semibold transition ${
+          pendente ? "opacity-50" : ""
+        } ${
           valor
             ? "border-gold-500 bg-navy-800 text-gold-300"
             : "border-navy-700 bg-navy-850 text-bone-300 hover:border-navy-600"

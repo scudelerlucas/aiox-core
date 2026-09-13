@@ -1,11 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type MutableRefObject,
+} from "react";
 
 import { arestaAddAction, arestaDelAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
+import { focar, focarComAlternativa } from "@/components/task/foco";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 import type { EdgeTipo, TaskEdge } from "@/types/canonical";
 
@@ -23,6 +31,9 @@ const OPCOES_TIPO: readonly OpcaoSegmentada<EdgeTipo>[] = [
   { valor: "obsolescencia", rotulo: "obsolescência" },
 ];
 
+/** 10 s — mesma janela do "Desfazer" da nota excluída (`notas-painel.tsx`). */
+const JANELA_DESFAZER_MS = 10_000;
+
 export interface OpcaoTarefaRelacao {
   id: string;
   title: string;
@@ -39,6 +50,14 @@ export interface RelacoesPainelProps {
   tituloPorId: ReadonlyMap<string, string>;
 }
 
+/** O payload que recria uma aresta idêntica (achado BAIXO #5, rodada 5). */
+interface ArestaExcluida {
+  origem: string;
+  destino: string;
+  tipo: EdgeTipo;
+  peso: number;
+}
+
 export function RelacoesPainel({
   taskId,
   saindo,
@@ -46,35 +65,139 @@ export function RelacoesPainel({
   opcoesDestino,
   tituloPorId,
 }: RelacoesPainelProps): JSX.Element {
+  const selectDestinoRef = useRef<HTMLSelectElement | null>(null);
+  const botaoAdicionarRef = useRef<HTMLButtonElement | null>(null);
+  /** Botões "excluir" por índice — o alvo do foco quando a linha some. */
+  const botoesExcluirRef = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const botaoDesfazerRef = useRef<HTMLButtonElement | null>(null);
+  const [excluida, setExcluida] = useState<ArestaExcluida | null>(null);
+  const [erroDesfazer, setErroDesfazer] = useState<string | undefined>(undefined);
+  const timerRef = useRef<number | null>(null);
+
+  function limparTimer(): void {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+
+  useEffect(() => limparTimer, []);
+
+  const { pendente: desfazendo, disparar: dispararDesfazer } = useAcaoTarefa(
+    arestaAddAction,
+    () => {
+      limparTimer();
+      setErroDesfazer(undefined);
+      setExcluida(null);
+      focar(selectDestinoRef.current);
+    },
+    () => {
+      // [MÉDIO #1 + BAIXO #5, rodada 5] falha do desfazer nunca é silenciosa.
+      limparTimer();
+      setErroDesfazer("Não foi possível desfazer — a relação continua excluída.");
+    },
+  );
+
+  const linhas = [
+    ...saindo.map((e) => ({ aresta: e, direcao: "saindo" as const, outraPonta: e.destino })),
+    ...entrando.map((e) => ({ aresta: e, direcao: "entrando" as const, outraPonta: e.origem })),
+  ];
+
+  function aoExcluirComSucesso(aresta: TaskEdge, indice: number): void {
+    // (1) FOCO antes de a linha sair da árvore: a relação seguinte, ou o
+    // seletor de destino do formulário quando era a última.
+    const seguinte = botoesExcluirRef.current.get(indice + 1);
+    if (seguinte) focar(seguinte);
+    else focar(selectDestinoRef.current);
+    // (2) janela de desfazer, com o payload que recria a MESMA aresta.
+    limparTimer();
+    setErroDesfazer(undefined);
+    setExcluida({
+      origem: aresta.origem,
+      destino: aresta.destino,
+      tipo: aresta.tipo,
+      peso: aresta.peso,
+    });
+    timerRef.current = window.setTimeout(() => {
+      setExcluida(null);
+      if (
+        typeof document !== "undefined" &&
+        botaoDesfazerRef.current !== null &&
+        document.activeElement === botaoDesfazerRef.current
+      ) {
+        focar(selectDestinoRef.current);
+      }
+    }, JANELA_DESFAZER_MS);
+  }
+
+  function desfazerExclusao(): void {
+    if (!excluida || desfazendo) return;
+    const form = new FormData();
+    form.set("origem", excluida.origem);
+    form.set("destino", excluida.destino);
+    form.set("tipo", excluida.tipo);
+    form.set("peso", String(excluida.peso));
+    dispararDesfazer(form);
+  }
+
   return (
     <div className="space-y-3">
-      {saindo.length === 0 && entrando.length === 0 ? (
+      {linhas.length === 0 ? (
         <p className="text-sm text-bone-400">Nenhuma relação ainda.</p>
       ) : (
         <ul className="space-y-2">
-          {saindo.map((e) => (
+          {linhas.map((linha, indice) => (
             <LinhaAresta
-              key={e.id}
-              aresta={e}
+              key={linha.aresta.id}
+              aresta={linha.aresta}
               taskId={taskId}
-              direcao="saindo"
-              rotuloOutraPonta={tituloPorId.get(e.destino) ?? e.destino}
-              outraPontaId={e.destino}
-            />
-          ))}
-          {entrando.map((e) => (
-            <LinhaAresta
-              key={e.id}
-              aresta={e}
-              taskId={taskId}
-              direcao="entrando"
-              rotuloOutraPonta={tituloPorId.get(e.origem) ?? e.origem}
-              outraPontaId={e.origem}
+              indice={indice}
+              direcao={linha.direcao}
+              rotuloOutraPonta={tituloPorId.get(linha.outraPonta) ?? linha.outraPonta}
+              outraPontaId={linha.outraPonta}
+              refDoBotao={(el) => {
+                if (el) botoesExcluirRef.current.set(indice, el);
+                else botoesExcluirRef.current.delete(indice);
+              }}
+              aoExcluir={aoExcluirComSucesso}
             />
           ))}
         </ul>
       )}
-      <FormularioNovaAresta taskId={taskId} opcoesDestino={opcoesDestino} />
+      {/* [MÉDIO #3, rodada 5] região viva PERSISTENTE (nasce vazia no DOM). */}
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          excluida ? "text-xs font-medium text-state-done" : "m-0 min-h-0 text-xs text-state-done"
+        }
+      >
+        {excluida ? (
+          <>
+            {erroDesfazer ? "" : "Excluída. "}
+            <button
+              ref={botaoDesfazerRef}
+              type="button"
+              onClick={desfazerExclusao}
+              aria-busy={desfazendo ? true : undefined}
+              aria-disabled={desfazendo ? true : undefined}
+              className={`underline underline-offset-2 hover:text-gold-300 ${
+                desfazendo ? "opacity-50" : ""
+              }`}
+            >
+              Desfazer
+            </button>
+          </>
+        ) : (
+          ""
+        )}
+      </p>
+      <CampoErro mensagem={erroDesfazer} />
+      <FormularioNovaAresta
+        taskId={taskId}
+        opcoesDestino={opcoesDestino}
+        selectDestinoRef={selectDestinoRef}
+        botaoAdicionarRef={botaoAdicionarRef}
+      />
     </div>
   );
 }
@@ -82,23 +205,32 @@ export function RelacoesPainel({
 function LinhaAresta({
   aresta,
   taskId,
+  indice,
   direcao,
   rotuloOutraPonta,
   outraPontaId,
+  refDoBotao,
+  aoExcluir,
 }: {
   aresta: TaskEdge;
   taskId: string;
+  indice: number;
   direcao: "saindo" | "entrando";
   rotuloOutraPonta: string;
   outraPontaId: string;
+  refDoBotao: (el: HTMLButtonElement | null) => void;
+  aoExcluir: (aresta: TaskEdge, indice: number) => void;
 }): JSX.Element {
-  const { estado, pendente, disparar } = useAcaoTarefa(arestaDelAction);
+  const { estado, pendente, disparar } = useAcaoTarefa(arestaDelAction, () =>
+    aoExcluir(aresta, indice),
+  );
   // [MÉDIO #20, crítico 13/09] excluir nota já pedia confirmação em 2 passos
   // (clique → "confirmar exclusão?" → clique de novo); excluir relação
   // apagava direto no 1º clique. Mesma disciplina agora nos dois.
   const [confirmando, setConfirmando] = useState(false);
 
   function excluir(): void {
+    if (pendente) return; // [MÉDIO #2, rodada 5] 2º clique recusado sem `disabled`.
     if (!confirmando) {
       setConfirmando(true);
       window.setTimeout(() => setConfirmando(false), 3000);
@@ -130,10 +262,14 @@ function LinhaAresta({
         ) : null}
       </div>
       <button
+        ref={refDoBotao}
         type="button"
         onClick={excluir}
-        disabled={pendente}
-        className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold disabled:opacity-50 ${
+        aria-busy={pendente ? true : undefined}
+        aria-disabled={pendente ? true : undefined}
+        className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold ${
+          pendente ? "opacity-50" : ""
+        } ${
           confirmando
             ? "bg-state-blocked/12 text-state-blocked"
             : "text-bone-400 hover:bg-state-blocked/10 hover:text-state-blocked"
@@ -149,9 +285,13 @@ function LinhaAresta({
 function FormularioNovaAresta({
   taskId,
   opcoesDestino,
+  selectDestinoRef,
+  botaoAdicionarRef,
 }: {
   taskId: string;
   opcoesDestino: readonly OpcaoTarefaRelacao[];
+  selectDestinoRef: MutableRefObject<HTMLSelectElement | null>;
+  botaoAdicionarRef: MutableRefObject<HTMLButtonElement | null>;
 }): JSX.Element {
   // [MÉDIO #3, rodada 4] começa VAZIO — antes, o `<select>` nascia com a
   // 1ª opção da lista já selecionada e o botão já `enabled`: um único clique
@@ -164,6 +304,10 @@ function FormularioNovaAresta({
   // [MÉDIO #3] a aresta recém-criada — sustenta o "Desfazer" por 10s (ou até
   // a próxima criação/desfazimento, o que vier primeiro).
   const [criada, setCriada] = useState<{ id: string } | null>(null);
+  // [MÉDIO #1, rodada 5] o desfazer que FALHA precisa dizer isso — em
+  // português, `role="alert"`, ao lado do botão, que continua na tela.
+  const [erroDesfazer, setErroDesfazer] = useState<string | undefined>(undefined);
+  const botaoDesfazerRef = useRef<HTMLButtonElement | null>(null);
   // `number`, não `ReturnType<typeof window.setTimeout>` — mesma nota de
   // `mensagem-sucesso.tsx` (a CHAMADA resolve por sobrecarga para `number`,
   // mesmo o TIPO da propriedade discordando neste tsconfig).
@@ -174,21 +318,61 @@ function FormularioNovaAresta({
     desfazerTimeoutRef.current = null;
   }
 
+  useEffect(() => limparDesfazer, []);
+
   const { estado, pendente, disparar } = useAcaoTarefa(arestaAddAction, (estadoSucesso) => {
     setDestino("");
     limparDesfazer();
+    setErroDesfazer(undefined);
     // `id` só falta se o backend (RPC live) não devolver — degrada de forma
     // graciosa: a relação foi criada (a lista ao lado já mostra), só sem
     // "Desfazer" nesta resposta específica.
     if (estadoSucesso.id) {
       const idDaNova = estadoSucesso.id;
       setCriada({ id: idDaNova });
-      desfazerTimeoutRef.current = window.setTimeout(() => setCriada(null), 10_000);
+      desfazerTimeoutRef.current = window.setTimeout(() => {
+        setCriada(null);
+        if (
+          typeof document !== "undefined" &&
+          botaoDesfazerRef.current !== null &&
+          document.activeElement === botaoDesfazerRef.current
+        ) {
+          focarComAlternativa(botaoAdicionarRef.current, selectDestinoRef.current);
+        }
+      }, JANELA_DESFAZER_MS);
     }
   });
-  const { pendente: desfazendo, disparar: dispararDesfazer } = useAcaoTarefa(arestaDelAction, () => {
-    setCriada(null);
-  });
+
+  /**
+   * [MÉDIO #1, rodada 5] O desfazer usa o MESMO hook — com `aoFalha`. Antes,
+   * `useAcaoTarefa(arestaDelAction, () => setCriada(null))` descartava o
+   * `estado` inteiro: a chamada podia falhar (rede caída, RPC recusando) e a
+   * tela seguia mostrando "Relação criada. Desfazer" como se nada tivesse
+   * acontecido — o operador clicava, nada mudava, e nada explicava.
+   *  - sucesso: some a mensagem, o foco vai para "Adicionar relação" (o botão
+   *    "Desfazer" sai do DOM — MÉDIO #2);
+   *  - falha: frase em português em `role="alert"` ao lado do botão, que
+   *    CONTINUA disponível para nova tentativa; a contagem "Relações (N)" do
+   *    cabeçalho segue refletindo o banco (a relação continua lá — e é isso
+   *    que a frase diz).
+   */
+  const { pendente: desfazendo, disparar: dispararDesfazer } = useAcaoTarefa(
+    arestaDelAction,
+    () => {
+      limparDesfazer();
+      setErroDesfazer(undefined);
+      // O "Desfazer" some agora: entrega o foco ao botão "Adicionar relação"
+      // — e, quando ele está `disabled` (nenhum destino escolhido, que é o
+      // estado normal logo após um desfazer), ao `<select>` de destino, o
+      // primeiro controle do mesmo formulário. Nunca ao `<body>`.
+      focarComAlternativa(botaoAdicionarRef.current, selectDestinoRef.current);
+      setCriada(null);
+    },
+    () => {
+      limparDesfazer(); // não esconde o botão: o operador ainda vai querer tentar.
+      setErroDesfazer("Não foi possível desfazer — a relação continua.");
+    },
+  );
 
   const podeEnviar = destino !== "";
 
@@ -198,8 +382,10 @@ function FormularioNovaAresta({
     // esta guarda, um submit por outro caminho que não o clique no botão
     // (já `disabled` sem destino) ainda criaria a aresta com destino vazio.
     if (!podeEnviar) return;
+    if (pendente) return; // [MÉDIO #2, rodada 5] duplo envio recusado sem `disabled`.
     limparDesfazer();
     setCriada(null);
+    setErroDesfazer(undefined);
     const form = new FormData();
     form.set("origem", taskId);
     form.set("destino", destino);
@@ -209,8 +395,7 @@ function FormularioNovaAresta({
   }
 
   function desfazer(): void {
-    if (!criada) return;
-    limparDesfazer();
+    if (!criada || desfazendo) return;
     const form = new FormData();
     form.set("id", criada.id);
     form.set("task_id", taskId);
@@ -234,6 +419,7 @@ function FormularioNovaAresta({
       <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
         Destino
         <select
+          ref={selectDestinoRef}
           value={destino}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => setDestino(e.target.value)}
           className="w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
@@ -269,27 +455,55 @@ function FormularioNovaAresta({
           </label>
         ) : null}
         <button
+          ref={botaoAdicionarRef}
           type="submit"
-          disabled={pendente || !podeEnviar}
-          className="inline-flex min-h-[40px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 disabled:opacity-50"
+          // `disabled` SÓ pela validade (sem destino escolhido) — nunca pelo
+          // `pendente` (MÉDIO #2, rodada 5).
+          disabled={!podeEnviar}
+          aria-busy={pendente ? true : undefined}
+          aria-disabled={pendente || !podeEnviar ? true : undefined}
+          className={`inline-flex min-h-[40px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 disabled:opacity-50 ${
+            pendente ? "opacity-50" : ""
+          }`}
         >
           Adicionar relação
         </button>
       </div>
       <CampoErro mensagem={estado.erro} />
-      {criada ? (
-        <p role="status" aria-live="polite" className="text-xs font-medium text-state-done">
-          Relação criada.{" "}
-          <button
-            type="button"
-            onClick={desfazer}
-            disabled={desfazendo}
-            className="underline underline-offset-2 hover:text-gold-300 disabled:opacity-50"
-          >
-            Desfazer
-          </button>
-        </p>
-      ) : null}
+      {/* [MÉDIO #3, rodada 5] região viva PERSISTENTE do formulário: nasce
+          vazia no DOM e recebe o texto por troca de conteúdo. */}
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          criada ? "text-xs font-medium text-state-done" : "m-0 min-h-0 text-xs text-state-done"
+        }
+      >
+        {criada ? (
+          <>
+            {/* [MÉDIO #1, rodada 5] depois de um desfazer que FALHOU, repetir
+                "Relação criada." é dizer a notícia velha: o que o operador
+                precisa ler é o alerta abaixo e o botão para tentar de novo. */}
+            {erroDesfazer ? "" : "Relação criada. "}
+            <button
+              ref={botaoDesfazerRef}
+              type="button"
+              onClick={desfazer}
+              aria-busy={desfazendo ? true : undefined}
+              aria-disabled={desfazendo ? true : undefined}
+              className={`underline underline-offset-2 hover:text-gold-300 ${
+                desfazendo ? "opacity-50" : ""
+              }`}
+            >
+              Desfazer
+            </button>
+          </>
+        ) : (
+          ""
+        )}
+      </p>
+      <CampoErro mensagem={erroDesfazer} />
     </form>
   );
 }

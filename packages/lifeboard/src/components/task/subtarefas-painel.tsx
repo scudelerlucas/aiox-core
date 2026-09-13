@@ -56,6 +56,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
+    if (pendente) return; // [MÉDIO #2, rodada 5] duplo envio recusado sem `disabled`.
     const form = new FormData();
     form.set("parent_id", parentId);
     form.set("title", title);
@@ -90,8 +91,14 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
       </label>
       <button
         type="submit"
-        disabled={pendente || title.trim().length === 0}
-        className="inline-flex min-h-[40px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 disabled:opacity-50"
+        // `disabled` SÓ pela regra de validade (título vazio) — nunca pelo
+        // `pendente`, que é o que tirava o foco do botão (MÉDIO #2, rodada 5).
+        disabled={title.trim().length === 0}
+        aria-busy={pendente ? true : undefined}
+        aria-disabled={pendente || title.trim().length === 0 ? true : undefined}
+        className={`inline-flex min-h-[40px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 disabled:opacity-50 ${
+          pendente ? "opacity-50" : ""
+        }`}
       >
         Adicionar subtarefa
       </button>

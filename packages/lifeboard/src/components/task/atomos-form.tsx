@@ -4,9 +4,11 @@ import { useRef, useState } from "react";
 
 import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
+import { focar } from "@/components/task/foco";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import type { MotivoSemScore } from "@/core/prioritize/assimetria-motivo";
 import type { HerancaResultado, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada } from "@/types/canonical";
 
@@ -33,6 +35,15 @@ export interface AtomosFormProps {
    * servidor (kill-switch nº 3, `import "server-only"` em `assimetria.ts`).
    */
   score: ScoreAssimetria | null;
+  /**
+   * [BAIXO #7, rodada 5] POR QUE não há score. `"sem_atomos"` = ninguém
+   * declarou os três ainda (o operador resolve com dois cliques, e a tela diz
+   * isso); `"nao_calculavel"` = os átomos existem mas a conta não fecha
+   * (esforço/custo efetivos 0 ou não finitos — a guarda de `assimetria.ts`).
+   * Antes os dois caíam na MESMA frase, "Sem átomos declarados", que no
+   * segundo caso é falsa: os átomos estão lá.
+   */
+  motivo: MotivoSemScore | null;
   heranca: HerancaResultado;
 }
 
@@ -55,7 +66,13 @@ function filhasSemAtomosTexto(n: number): string {
   return n === 1 ? "1 subtarefa sem átomos" : `${n} subtarefas sem átomos`;
 }
 
-export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFormProps): JSX.Element {
+export function AtomosForm({
+  taskId,
+  assimetriaAtual,
+  score,
+  motivo,
+  heranca,
+}: AtomosFormProps): JSX.Element {
   // [MÉDIO #2, rodada 4] `null` = nada escolhido ainda — antes o `?? 2`/`?? 1`
   // pré-marcava o denominador MÍNIMO (2/1/1, prioridade quase máxima) para
   // toda tarefa sem átomos declarados, e "Salvar átomos" gravava isso com um
@@ -68,6 +85,14 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
   // Distingue, no callback de sucesso ÚNICO do hook, se o disparo em curso
   // era "salvar" ou "limpar" — os dois usam a mesma `disparar()`.
   const ultimaAcaoRef = useRef<"salvar" | "limpar" | null>(null);
+  /**
+   * [MÉDIO #2, rodada 5] "Limpar átomos" SOME no sucesso (só existe quando
+   * `assimetriaAtual !== null`) — e o foco caía no `<body>`. O grupo
+   * Opcionalidade é o alvo lógico: é de onde a declaração recomeça. O foco é
+   * entregue ANTES de o botão sair da árvore (a re-renderização vem do
+   * `router.refresh()`, que só acontece depois deste callback).
+   */
+  const grupoOpcionalidadeRef = useRef<HTMLDivElement | null>(null);
   const { mensagem, mostrar } = useMensagemSucesso();
   const { estado, pendente, disparar } = useAcaoTarefa(atomosSetAction, () => {
     if (ultimaAcaoRef.current === "limpar") {
@@ -77,6 +102,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
       setOpcionalidade(null);
       setEsforco(null);
       setCusto(null);
+      focar(grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"));
       mostrar("Átomos limpos.");
     } else {
       mostrar("Átomos salvos.");
@@ -84,6 +110,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
   });
 
   function salvar(): void {
+    if (pendente) return; // [MÉDIO #2, rodada 5] 2º clique recusado sem `disabled`.
     if (!todosEscolhidos) return; // defensivo — o botão já nasce `disabled` neste caso.
     ultimaAcaoRef.current = "salvar";
     const form = new FormData();
@@ -95,6 +122,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
   }
 
   function limpar(): void {
+    if (pendente) return; // [MÉDIO #2, rodada 5]
     ultimaAcaoRef.current = "limpar";
     const form = new FormData();
     form.set("task_id", taskId);
@@ -104,7 +132,7 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
 
   return (
     <div className="space-y-3">
-      <div>
+      <div ref={grupoOpcionalidadeRef}>
         <p className="mb-1 text-xs font-semibold text-bone-300">Opcionalidade</p>
         <ControleSegmentado
           rotuloGrupo="Opcionalidade"
@@ -143,8 +171,14 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
         <button
           type="button"
           onClick={salvar}
-          disabled={pendente || !todosEscolhidos}
-          className="inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 disabled:opacity-50"
+          // `disabled` SÓ pela validade (os três átomos) — o `pendente` saiu
+          // daqui na rodada 5 (MÉDIO #2): era ele que mandava o foco ao body.
+          disabled={!todosEscolhidos}
+          aria-busy={pendente ? true : undefined}
+          aria-disabled={pendente || !todosEscolhidos ? true : undefined}
+          className={`inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 disabled:opacity-50 ${
+            pendente ? "opacity-50" : ""
+          }`}
         >
           Salvar átomos
         </button>
@@ -152,8 +186,11 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
           <button
             type="button"
             onClick={limpar}
-            disabled={pendente}
-            className="inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm text-bone-300 hover:border-navy-600 disabled:opacity-50"
+            aria-busy={pendente ? true : undefined}
+            aria-disabled={pendente ? true : undefined}
+            className={`inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm text-bone-300 hover:border-navy-600 ${
+              pendente ? "opacity-50" : ""
+            }`}
           >
             Limpar átomos
           </button>
@@ -179,7 +216,13 @@ export function AtomosForm({ taskId, assimetriaAtual, score, heranca }: AtomosFo
           </>
         ) : (
           <p className="text-xs text-bone-400">
-            Sem átomos declarados — salve os três acima para calcular o score de assimetria.
+            {motivo === "nao_calculavel"
+              ? // [BAIXO #7, rodada 5] os átomos ESTÃO declarados; o que falhou
+                // foi a conta (esforço/custo efetivos 0 ou não finitos). Dizer
+                // "sem átomos declarados" aqui era mandar o operador re-declarar
+                // o que já estava lá.
+                "Não foi possível calcular o score agora."
+              : "Sem átomos declarados — salve os três acima para calcular o score de assimetria."}
           </p>
         )}
         {heranca.herdado ? (

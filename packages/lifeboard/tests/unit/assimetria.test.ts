@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   alavanca,
   alcance,
-  scoreAssimetria,
+  motivoNaoCalculavel,
+  scoreAssimetria as scoreAssimetriaComMotivo,
   scoreAssimetriaLote,
 } from "@/core/prioritize/assimetria";
+import type { ResultadoScoreAssimetria } from "@/core/prioritize/assimetria";
 import { compareHierarq, scoreHierarq } from "@/core/prioritize/hierarq";
 import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import { FixtureTasksRepository } from "@/lib/repositories/tasks.fixture";
@@ -15,6 +17,20 @@ import type {
   TaskEdge,
   TaskStatus,
 } from "@/types/canonical";
+
+/**
+ * [BAIXO #7, rodada 5] `scoreAssimetria` passou a devolver o PAR
+ * `{ valor, motivo }` — o motivo é o que faz a página da tarefa parar de
+ * dizer "Sem átomos declarados" para quem declarou os três e esbarrou na
+ * guarda de cálculo. Os testes abaixo (todos os anteriores a esta rodada)
+ * continuam falando do SCORE; este atalho preserva cada asserção como estava,
+ * e o par completo é exercido no bloco novo ("motivo de não ter score").
+ */
+function scoreAssimetria(
+  ...args: Parameters<typeof scoreAssimetriaComMotivo>
+): ReturnType<typeof scoreAssimetriaComMotivo>["valor"] {
+  return scoreAssimetriaComMotivo(...args).valor;
+}
 
 interface TaskInput {
   id: string;
@@ -574,7 +590,14 @@ describe("scoreAssimetria — guarda defensiva contra e/c inválido (achado MÉD
         await import("@/core/prioritize/assimetria");
       const t = task({ id: "t", assimetria: { opcionalidade: 2, esforco: 3, custo: 3 } });
 
-      expect(scoreAssimetriaComHerancaQuebrada(t, [t], [], cpm())).toBeNull();
+      // [BAIXO #7, rodada 5] além de não vazar `Infinity`, o veredito diz
+      // POR QUE: `nao_calculavel` (os átomos estão declarados e válidos — o
+      // que falhou foi a conta). É esse motivo que faz a tela mostrar "Não
+      // foi possível calcular o score agora." em vez de mandar o operador
+      // declarar de novo o que já está salvo.
+      const r = scoreAssimetriaComHerancaQuebrada(t, [t], [], cpm());
+      expect(r.valor).toBeNull();
+      expect(r.motivo).toBe("nao_calculavel");
       expect(loteComHerancaQuebrada([t], [], cpm()).get("t")).toBeNull();
     } finally {
       // Nunca deixar o mock vazar para os outros arquivos de teste do mesmo
@@ -583,5 +606,71 @@ describe("scoreAssimetria — guarda defensiva contra e/c inválido (achado MÉD
       vi.doUnmock("@/core/prioritize/heranca");
       vi.resetModules();
     }
+  });
+});
+
+/**
+ * OS-LIFEBOARD · P6 — achado BAIXO #7 + MÉDIO #4 (rodada 5 do crítico).
+ *
+ * A guarda de divisão de `scoreAssimetriaNucleo` existia desde a rodada 4 e
+ * NUNCA teve teste: os 4 ramos dela só são alcançáveis com uma herança
+ * corrompida, que o módulo vizinho (`heranca.ts`) deixou de produzir quando a
+ * causa raiz foi corrigida — ou seja, a defesa em profundidade estava sem
+ * rede. Extraída como função pura (`motivoNaoCalculavel`), os 4 ramos são
+ * exercíveis um a um; e o veredito deixou de ser `null` mudo: vem com o
+ * MOTIVO, que é o que a tela lê para não dizer "Sem átomos declarados" a quem
+ * declarou os três.
+ *
+ * Reverter para ver falhar: em `src/core/prioritize/assimetria.ts`, trocar o
+ * corpo de `motivoNaoCalculavel` por `return null;` (o 1º teste quebra nos 4
+ * ramos) ou devolver `{ valor: null, motivo: "sem_atomos" }` na guarda (o
+ * teste "átomos válidos + conta impossível" quebra).
+ */
+describe("motivoNaoCalculavel — os 4 ramos da guarda (achado MÉDIO #4/BAIXO #7, rodada 5)", () => {
+  it("PRONTO QUANDO: e = 0 → nao_calculavel (era uma divisão por zero = Infinity no cartão)", () => {
+    expect(motivoNaoCalculavel(0, 3)).toBe("nao_calculavel");
+  });
+
+  it("c = 0 → nao_calculavel", () => {
+    expect(motivoNaoCalculavel(2, 0)).toBe("nao_calculavel");
+  });
+
+  it("e não finito (NaN/Infinity) → nao_calculavel", () => {
+    expect(motivoNaoCalculavel(Number.NaN, 3)).toBe("nao_calculavel");
+    expect(motivoNaoCalculavel(Number.POSITIVE_INFINITY, 3)).toBe("nao_calculavel");
+  });
+
+  it("c não finito (NaN/Infinity) → nao_calculavel", () => {
+    expect(motivoNaoCalculavel(2, Number.NaN)).toBe("nao_calculavel");
+    expect(motivoNaoCalculavel(2, Number.NEGATIVE_INFINITY)).toBe("nao_calculavel");
+  });
+
+  it("e e c finitos e não nulos → null (a conta pode ser feita)", () => {
+    expect(motivoNaoCalculavel(1, 1)).toBeNull();
+    expect(motivoNaoCalculavel(5, 0.5)).toBeNull();
+    expect(motivoNaoCalculavel(-1, 2)).toBeNull(); // negativo é outro problema, não desta guarda
+  });
+});
+
+describe("scoreAssimetria devolve { valor, motivo } (achado BAIXO #7, rodada 5)", () => {
+  it("PRONTO QUANDO: sem átomos declarados → valor null + motivo 'sem_atomos'", () => {
+    const t = task({ id: "t", assimetria: null });
+    const r: ResultadoScoreAssimetria = scoreAssimetriaComMotivo(t, [t], [], cpm());
+    expect(r.valor).toBeNull();
+    expect(r.motivo).toBe("sem_atomos");
+  });
+
+  it("átomo fora do domínio → valor null + motivo 'sem_atomos' (não é falha de cálculo)", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 9, esforco: 1, custo: 1 } });
+    const r = scoreAssimetriaComMotivo(t, [t], [], cpm());
+    expect(r.valor).toBeNull();
+    expect(r.motivo).toBe("sem_atomos");
+  });
+
+  it("com átomos válidos → valor preenchido e motivo null", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 3, esforco: 1, custo: 1 } });
+    const r = scoreAssimetriaComMotivo(t, [t], [], cpm());
+    expect(r.motivo).toBeNull();
+    expect(r.valor?.valor).toBeGreaterThan(0);
   });
 });
