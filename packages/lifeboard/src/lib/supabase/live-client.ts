@@ -73,7 +73,7 @@ function normalizeEdges(raw: unknown[]): TaskEdge[] {
     else descartadas++;
   }
   if (descartadas > 0) {
-    console.warn(`[lifeboard/live] ${descartadas} aresta(s) com tipo desconhecido foram ignoradas`);
+    console.warn("[lifeboard/live] arestas com tipo desconhecido foram ignoradas:", descartadas);
   }
   return out;
 }
@@ -211,7 +211,7 @@ export async function mutateLifeboard(
   if (!response.ok) {
     // Sempre logado por inteiro server-side — é o único lugar em que o
     // detalhe cru (inclusive de um código que a UI nunca traduz) sobrevive.
-    console.error(`[lifeboard/live] lifeboard_mutate (${op}) falhou:`, response.status, body);
+    console.error("[lifeboard/live] lifeboard_mutate falhou:", op, response.status, body);
     if (body?.code === CODIGO_PAINEL_NAO_CONFIGURADO) {
       return { erro: "O painel não está configurado — avise o Lucas." };
     }
@@ -271,7 +271,7 @@ async function chamarRpc(nome: string, corpo: Record<string, unknown>): Promise<
     | { message?: unknown; code?: unknown }
     | null;
   if (!response.ok) {
-    console.error(`[lifeboard/live] ${nome} falhou:`, response.status, body);
+    console.error("[lifeboard/live] RPC falhou:", nome, response.status, body);
     const message =
       body && typeof body === "object" && "message" in body
         ? String(body.message)

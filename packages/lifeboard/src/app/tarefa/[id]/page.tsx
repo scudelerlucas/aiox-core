@@ -86,7 +86,7 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
     notes = estado.notes;
     sources = estado.sources;
   } catch (erro) {
-    console.error(`[tarefa/${id}] falha ao ler o estado do dia:`, erro);
+    console.error("[tarefa] falha ao ler o estado do dia:", id, erro);
     return <NaoConsegui id={id} />;
   }
 

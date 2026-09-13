@@ -161,7 +161,7 @@ export async function mutar(op: string, payload: Record<string, unknown>): Promi
       // [BAIXO #5, rodada 3] a mensagem não ecoa mais `op` (valor recebido,
       // não confiável) — texto fixo em português; o valor real ainda vai
       // para o log do servidor, nunca para a tela.
-      console.error(`[tarefa/actions] operação desconhecida no dispatcher fixture: ${op}`);
+      console.error("[tarefa/actions] operação desconhecida no dispatcher fixture:", op);
       return { erro: "Operação desconhecida." };
   }
 }

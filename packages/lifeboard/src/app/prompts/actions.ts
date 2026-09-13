@@ -46,7 +46,7 @@ function revalidar(): void {
  * vai para `console.error` — nunca se perde, só não aparece na tela.
  */
 function formatarRecusaFila(erroBruto: string): string {
-  console.error(`[prompts] recusa da fila (bruto): ${erroBruto}`);
+  console.error("[prompts] recusa da fila (bruto):", erroBruto);
 
   let texto = erroBruto.replace(/^fila:\s*/, "");
   for (const conta of CONTAS) {
