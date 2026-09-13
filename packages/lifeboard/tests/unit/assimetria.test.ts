@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { alavanca, alcance, scoreAssimetria } from "@/core/prioritize/assimetria";
+import {
+  alavanca,
+  alcance,
+  scoreAssimetria,
+  scoreAssimetriaLote,
+} from "@/core/prioritize/assimetria";
 import { compareHierarq, scoreHierarq } from "@/core/prioritize/hierarq";
 import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import { FixtureTasksRepository } from "@/lib/repositories/tasks.fixture";
@@ -158,20 +163,114 @@ describe("scoreAssimetria — contrato P3 (tipos-v3.ts)", () => {
     expect(scoreAssimetria(t, [t], [], cpm())).toBeNull();
   });
 
-  it("8) HIERARQ (scoreHierarq/compareHierarq) continua com a MESMA ordem — P3 não mudou produção", async () => {
+  it("8) scoreAssimetria não muta task/tasks/edges, e não muda a ordem HIERARQ do fixture (property test)", async () => {
     const repo = new FixtureTasksRepository();
     const tasks = await repo.listAll();
+    const edges = await repo.listEdges();
+    const resultado = cpm();
+
+    // Snapshot ANTES — deep clone, não referência (senão a comparação de
+    // "não mutou" seria contra o próprio objeto que teria mudado junto).
+    const tasksAntes = structuredClone(tasks);
+    const edgesAntes = structuredClone(edges);
+    const cpmAntes = structuredClone(resultado);
+    const ordemAntes = [...tasks].sort(compareHierarq).map((t) => t.id);
+
+    // Roda o score sobre TODA tarefa do fixture — é o "para cada" do teste
+    // de propriedade, não só a task-build/task-docs de antes.
+    for (const t of tasks) {
+      scoreAssimetria(t, tasks, edges, resultado);
+    }
+
+    expect(tasks).toEqual(tasksAntes);
+    expect(edges).toEqual(edgesAntes);
+    expect(resultado).toEqual(cpmAntes);
+
+    const ordemDepois = [...tasks].sort(compareHierarq).map((t) => t.id);
+    expect(ordemDepois).toEqual(ordemAntes);
+
+    // Documentado no cabeçalho do fixture: task-build (S125) vem antes de
+    // task-docs (S60) na lista "hoje" — a mesma prova de antes, agora dentro
+    // do teste de propriedade em vez de solta sem chamar scoreAssimetria.
     const build = tasks.find((t) => t.id === "task-build");
     const docs = tasks.find((t) => t.id === "task-docs");
     expect(build).toBeDefined();
     expect(docs).toBeDefined();
     if (!build || !docs) return;
-
-    // Documentado no cabeçalho do fixture: task-build (S125) vem antes de
-    // task-docs (S60) na lista "hoje" — prova de que HIERARQ não mudou.
     expect(scoreHierarq(build)).toBe(125);
     expect(scoreHierarq(docs)).toBe(60);
     expect(compareHierarq(build, docs)).toBeLessThan(0);
+  });
+
+  it("9) duas arestas de obsolescência (1ª origem ABERTA, 2ª origem DONE) → zera mesmo assim", () => {
+    const alvo = task({ id: "alvo", assimetria: { opcionalidade: 3, esforco: 1, custo: 1 } });
+    const origemAberta = task({ id: "origem-aberta", status: "open", title: "Ainda não feita" });
+    const origemFeita = task({ id: "origem-feita", status: "done", title: "Já feita" });
+    const edges = [
+      edge({ origem: "origem-aberta", destino: "alvo", tipo: "obsolescencia" }),
+      edge({ origem: "origem-feita", destino: "alvo", tipo: "obsolescencia" }),
+    ];
+
+    const score = scoreAssimetria(alvo, [alvo, origemAberta, origemFeita], edges, cpm());
+    expect(score?.valor).toBe(0);
+    expect(score?.obsoleta).toBe(true);
+    expect(score?.porque).toContain("Já feita");
+  });
+
+  it("10) sinergia cuja origem não existe em `tasks` é ignorada — sem desconto", () => {
+    const alvo = task({ id: "alvo", assimetria: { opcionalidade: 1, esforco: 1, custo: 2 } });
+    const edges = [edge({ origem: "fantasma", destino: "alvo", tipo: "sinergia", peso: 0.9 })];
+
+    const score = scoreAssimetria(alvo, [alvo], edges, cpm());
+    expect(score?.c).toBe(2); // origem inexistente: nunca desconta
+  });
+
+  it("11) peso NaN é ignorado — c fica intacto, valor continua finito", () => {
+    const alvo = task({ id: "alvo", assimetria: { opcionalidade: 1, esforco: 1, custo: 2 } });
+    const origem = task({ id: "origem", status: "open" });
+    const edges = [edge({ origem: "origem", destino: "alvo", tipo: "sinergia", peso: Number.NaN })];
+
+    const score = scoreAssimetria(alvo, [alvo, origem], edges, cpm());
+    expect(score?.c).toBe(2);
+    expect(Number.isFinite(score?.valor)).toBe(true);
+  });
+
+  it("12) peso 1.5 (fora de 0..1) é ignorado — sem desconto", () => {
+    const alvo = task({ id: "alvo", assimetria: { opcionalidade: 1, esforco: 1, custo: 2 } });
+    const origem = task({ id: "origem", status: "open" });
+    const edges = [edge({ origem: "origem", destino: "alvo", tipo: "sinergia", peso: 1.5 })];
+
+    const score = scoreAssimetria(alvo, [alvo, origem], edges, cpm());
+    expect(score?.c).toBe(2);
+  });
+
+  it("13) opcionalidade 100 (fora do domínio 1..3) → null", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 100, esforco: 1, custo: 1 } });
+    expect(scoreAssimetria(t, [t], [], cpm())).toBeNull();
+  });
+
+  it("14) esforco 0.001 (fora das faixas 1|2|3|5) → null", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 1, esforco: 0.001, custo: 1 } });
+    expect(scoreAssimetria(t, [t], [], cpm())).toBeNull();
+  });
+
+  it("15) custo Infinity → null", () => {
+    const t = task({ id: "t", assimetria: { opcionalidade: 1, esforco: 1, custo: Number.POSITIVE_INFINITY } });
+    expect(scoreAssimetria(t, [t], [], cpm())).toBeNull();
+  });
+
+  it("16) scoreAssimetriaLote devolve os MESMOS valores que scoreAssimetria tarefa a tarefa, no fixture inteiro", async () => {
+    const repo = new FixtureTasksRepository();
+    const tasks = await repo.listAll();
+    const edges = await repo.listEdges();
+    const resultado = cpm();
+
+    const lote = scoreAssimetriaLote(tasks, edges, resultado);
+    expect(lote.size).toBe(tasks.length);
+    for (const t of tasks) {
+      const avulso = scoreAssimetria(t, tasks, edges, resultado);
+      expect(lote.get(t.id)).toEqual(avulso);
+    }
   });
 });
 
