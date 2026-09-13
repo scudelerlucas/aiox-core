@@ -1,6 +1,8 @@
 import {
   CalendarDays,
+  CircleDot,
   FolderOpen,
+  GraduationCap,
   Mail,
   MessagesSquare,
   NotebookPen,
@@ -11,15 +13,30 @@ import type { SourceKind } from "@/types/canonical";
 
 /**
  * OS-LIFEBOARD · E5 — Ícone da fonte (spec §1.5 / §8.6 `SourceIcon`).
- * Mapa 1:1 `SourceKind` → ícone lucide-react. Nenhum ícone inventado (Artigo IV).
+ * Mapa `kind` → ícone lucide-react. Nenhum ícone inventado (Artigo IV).
+ *
+ * O mapa é indexado por STRING, não por `SourceKind`, de propósito: o tipo é uma
+ * promessa que o banco não cumpre. A tabela `public.sources` tem, desde 12/08/2026,
+ * uma fonte `kind = "lms"` (Cativa) que não está na união — e um `kind` fora do mapa
+ * fazia `<Icon/>` renderizar `undefined`, derrubando a home inteira com
+ * "Element type is invalid… got: undefined" (HTTP 500, medido em produção em
+ * 13/09/2026 e reproduzido localmente). Fonte desconhecida agora vira ícone neutro.
  */
-const ICON_BY_KIND: Record<SourceKind, LucideIcon> = {
+const ICONE_PADRAO: LucideIcon = CircleDot;
+
+const ICON_BY_KIND: Record<string, LucideIcon> = {
   calendar: CalendarDays,
   gmail: Mail,
   drive: FolderOpen,
   notes: NotebookPen,
   claude_chat: MessagesSquare,
+  lms: GraduationCap,
 };
+
+/** Ícone de uma fonte; nunca devolve `undefined`, mesmo com `kind` novo no banco. */
+export function iconeDaFonte(kind: string): LucideIcon {
+  return ICON_BY_KIND[kind] ?? ICONE_PADRAO;
+}
 
 export interface SourceIconProps {
   kind: SourceKind;
@@ -34,7 +51,7 @@ export function SourceIcon({
   size = 16,
   className,
 }: SourceIconProps): JSX.Element {
-  const Icon = ICON_BY_KIND[kind];
+  const Icon = iconeDaFonte(kind);
   return (
     <Icon
       size={size}
