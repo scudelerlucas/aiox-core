@@ -93,6 +93,8 @@ module.exports = [
         URL: 'readonly',
         URLSearchParams: 'readonly',
         structuredClone: 'readonly',
+        Blob: 'readonly',
+        FormData: 'readonly',
         // Jest globals
         describe: 'readonly',
         it: 'readonly',
@@ -177,8 +179,13 @@ module.exports = [
       'no-undef': 'off',
     },
   },
+  // `.mjs` é ES module por definição — o bloco de JavaScript acima assume
+  // commonjs e fazia 63 arquivos falharem no parse ("'import' and 'export' may
+  // appear only with 'sourceType: module'"), mascarando todas as outras regras
+  // neles. Era o mesmo remédio já aplicado só a packages/lifeboard; aqui ele
+  // vale para a extensão inteira, que é onde a premissa realmente vale.
   {
-    files: ['packages/lifeboard/**/*.mjs'],
+    files: ['**/*.mjs'],
     languageOptions: { sourceType: 'module' },
   },
 

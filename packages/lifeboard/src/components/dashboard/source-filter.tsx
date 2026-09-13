@@ -1,5 +1,6 @@
 "use client";
 import { SourceIcon } from "@/components/ui/source-icon";
+import { corDaFonte } from "@/lib/cor-da-fonte";
 import type { SourceKind } from "@/types/canonical";
 
 export interface SourceFilterOption {
@@ -7,7 +8,7 @@ export interface SourceFilterOption {
   label: string;
   /** Nº de tarefas dessa fonte (badge). */
   count: number;
-  /** Fonte desatualizada → ponto de aviso inline (§6). */
+  /** Fonte desatualizada → ponto de aviso inline. */
   isStale?: boolean;
 }
 
@@ -19,9 +20,12 @@ export interface SourceFilterProps {
 }
 
 /**
- * OS-LIFEBOARD · E5 — Filtro por fonte (spec §5). Alimenta grafo + lista ao mesmo
- * tempo. `selected` vazio OU todas = mostra tudo; só restringe num subconjunto
- * próprio. [Limpar] volta a "todas".
+ * OS-LIFEBOARD — Filtro por fonte. Alimenta grafo + lista ao mesmo tempo.
+ * `selected` vazio = mostra tudo; só restringe num subconjunto próprio.
+ *
+ * v2 (13/09/2026): cada fonte carrega sua cor (a mesma da faixa do cartão na
+ * lista), alvo de toque ≥ 44 px e contagem legível. Antes eram cinco linhas
+ * cinzentas idênticas de 40 px, sem relação visual com a lista.
  */
 export function SourceFilter({
   options,
@@ -29,51 +33,75 @@ export function SourceFilter({
   onChange,
 }: SourceFilterProps): JSX.Element {
   const allKinds = options.map((o) => o.kind);
-  const effective = selected.length === 0 ? allKinds : selected;
-  const isChecked = (k: SourceKind): boolean => effective.includes(k);
+  const semFiltro = selected.length === 0;
+  const isChecked = (k: SourceKind): boolean =>
+    semFiltro || selected.includes(k);
 
   const toggle = (k: SourceKind): void => {
-    let next = isChecked(k)
-      ? effective.filter((x) => x !== k)
-      : [...effective, k];
+    const base = semFiltro ? allKinds : selected;
+    let next = isChecked(k) ? base.filter((x) => x !== k) : [...base, k];
     // Normaliza "todas marcadas" → [] (sem filtro).
     if (next.length === allKinds.length) next = [];
     onChange(next);
   };
 
   return (
-    <fieldset className="flex h-full flex-col">
-      <legend className="px-4 pb-2 pt-4 text-sm font-semibold text-bone-300">
-        Filtrar por fonte
+    <fieldset className="flex h-full min-h-0 flex-col">
+      <legend className="px-4 pb-1 pt-4 text-sm font-bold uppercase tracking-wider text-bone-400">
+        Fontes
       </legend>
+      <p className="px-4 pb-3 text-xs text-bone-400">
+        {semFiltro
+          ? "Mostrando todas."
+          : `Mostrando ${selected.length} de ${allKinds.length}.`}
+      </p>
 
-      <ul className="flex-1 space-y-1 px-2">
+      <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2.5">
         {options.map((opt) => {
           const checked = isChecked(opt.kind);
+          const cor = corDaFonte(opt.kind);
           return (
-            <li key={opt.kind}>
+            <li key={`${opt.kind}-${opt.label}`}>
               <label
-                className={`flex min-h-[40px] cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-navy-800 ${
-                  checked ? "" : "opacity-60"
+                className={`flex min-h-[52px] cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 transition ${
+                  checked
+                    ? `${cor.borda} ${cor.fundo}`
+                    : "border-navy-700 bg-navy-850 opacity-55 hover:opacity-80"
                 }`}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggle(opt.kind)}
-                  aria-label={`${opt.label}, ${opt.count} tarefas${opt.isStale ? ", desatualizada" : ""}`}
-                  className="h-4 w-4 accent-gold-500"
+                  // 24 px é o piso da régua de UI/UX para alvo de toque.
+                  className="h-6 w-6 shrink-0 accent-gold-400"
                 />
-                <SourceIcon kind={opt.kind} label={opt.label} size={16} />
-                <span className="flex-1 text-sm text-bone-100">{opt.label}</span>
+                <SourceIcon
+                  kind={opt.kind}
+                  label={opt.label}
+                  size={18}
+                  className={checked ? cor.texto : "text-bone-400"}
+                />
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm font-semibold ${
+                    checked ? "text-bone-100" : "text-bone-300"
+                  }`}
+                  title={opt.label}
+                >
+                  {opt.label}
+                </span>
                 {opt.isStale ? (
                   <span
-                    className="h-2 w-2 shrink-0 rounded-full bg-state-warning"
-                    aria-hidden="true"
+                    aria-label="fonte desatualizada"
                     title="fonte desatualizada"
+                    className="h-2 w-2 shrink-0 rounded-full bg-state-progress"
                   />
                 ) : null}
-                <span className="min-w-6 rounded-full bg-navy-700 px-1.5 text-center font-mono text-xs text-bone-300">
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-xs font-semibold ${
+                    checked ? `${cor.fundo} ${cor.texto}` : "bg-navy-800 text-bone-400"
+                  }`}
+                >
                   {opt.count}
                 </span>
               </label>
@@ -82,13 +110,14 @@ export function SourceFilter({
         })}
       </ul>
 
-      <div className="p-3">
+      <div className="shrink-0 p-3">
         <button
           type="button"
           onClick={() => onChange([])}
-          className="w-full rounded-md border border-navy-600 px-3 py-1.5 text-xs font-medium text-bone-300 hover:bg-navy-700 hover:text-bone-100"
+          disabled={semFiltro}
+          className="min-h-[44px] w-full rounded-xl border border-navy-600 text-sm font-semibold text-bone-200 transition hover:bg-navy-800 disabled:opacity-40 disabled:hover:bg-transparent"
         >
-          Limpar
+          Mostrar todas
         </button>
       </div>
     </fieldset>

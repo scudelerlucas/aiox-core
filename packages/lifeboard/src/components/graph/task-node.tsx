@@ -5,8 +5,9 @@ import { Handle, Position, type NodeProps } from "reactflow";
 
 import { GraphSelectionContext } from "@/components/graph/selection-context";
 import { SourceIcon } from "@/components/ui/source-icon";
+import { corDaFonte } from "@/lib/cor-da-fonte";
 import { StatusChip } from "@/components/ui/status-chip";
-import type { SourceKind, Task, TaskStatus } from "@/types/canonical";
+import type { SourceKind, Task } from "@/types/canonical";
 
 /** Estado DERIVADO do grafo (não persistido na Task). spec §8.1. */
 export interface TaskNodeData {
@@ -30,23 +31,44 @@ export interface TaskNodeData {
 export type TaskNodeProps = NodeProps<TaskNodeData>;
 
 /** Borda por status (spec §1.1). in_progress = 2px, blocked = 1.5px. */
-const BORDER_BY_STATUS: Record<TaskStatus, string> = {
-  open: "border border-state-neutral/70",
+const BORDA_ABERTA = "border border-state-neutral/70";
+const FUNDO_ABERTA = "bg-navy-800";
+
+const BORDER_BY_STATUS: Record<string, string> = {
+  open: BORDA_ABERTA,
   in_progress: "border-2 border-gold-500",
   blocked: "border-[1.5px] border-state-error",
   done: "border border-state-success/70",
 };
 
-const FILL_BY_STATUS: Record<TaskStatus, string> = {
-  open: "bg-navy-800",
-  in_progress: "bg-navy-800",
-  blocked: "bg-navy-800",
+const FILL_BY_STATUS: Record<string, string> = {
+  open: FUNDO_ABERTA,
+  in_progress: FUNDO_ABERTA,
+  blocked: FUNDO_ABERTA,
   done: "bg-navy-850",
 };
+
+/**
+ * Estado desconhecido (valor novo no Postgres, fora da união `TaskStatus`) cai
+ * na aparência de "aberta". Não derruba a rota — `.filter(Boolean)` engole o
+ * `undefined` —, mas sem isto o nó perde borda e fundo e some no escuro do
+ * grafo. Mesma família do conserto de `iconeDaFonte` e `configDoEstado`.
+ *
+ * Classe de borda do nó; nunca `undefined`, mesmo com estado novo no banco.
+ */
+export function bordaDoEstado(status: string): string {
+  return BORDER_BY_STATUS[status] ?? BORDA_ABERTA;
+}
+
+/** Classe de fundo do nó; nunca `undefined`, mesmo com estado novo no banco. */
+export function fundoDoEstado(status: string): string {
+  return FILL_BY_STATUS[status] ?? FUNDO_ABERTA;
+}
 
 export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
   const { task, sourceKind, sourceLabel } = data;
   const { selectedTaskId, onSelectTask } = useContext(GraphSelectionContext);
+  const cor = corDaFonte(sourceKind);
   const { s1, s2, s3 } = task.priorityHierarq;
   const score = s1 * s2 * s3;
 
@@ -56,7 +78,7 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
 
   const borderClass = data.inCycle
     ? "border-[1.5px] border-state-error"
-    : BORDER_BY_STATUS[task.status];
+    : bordaDoEstado(task.status);
 
   const ariaLabel =
     `${task.title}, status ${task.status}, fonte ${sourceLabel}` +
@@ -78,9 +100,10 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         }
       }}
       className={[
-        "w-[200px] rounded-md px-3 py-2 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
+        // `relative` + `overflow-hidden`: a faixa da fonte é absoluta dentro do nó.
+        "relative w-[200px] overflow-hidden rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
         borderClass,
-        FILL_BY_STATUS[task.status],
+        fundoDoEstado(task.status),
         isBlockedByPred ? "border-dashed opacity-55" : "",
         data.isFilteredOut ? "pointer-events-none opacity-20" : "",
         data.isTopToday ? "shadow-focus ring-2 ring-gold-400" : "",
@@ -89,6 +112,13 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         .filter(Boolean)
         .join(" ")}
     >
+      {/* Faixa na cor da fonte — o mesmo código de cor da lista "Hoje", para
+          que o olho ligue nó e cartão sem precisar ler o rótulo. */}
+      <span
+        aria-hidden="true"
+        className={`absolute inset-y-0 left-0 w-1 ${cor.faixa}`}
+      />
+
       <Handle
         type="target"
         position={Position.Top}
@@ -112,7 +142,12 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
               aria-hidden="true"
             />
           ) : null}
-          <SourceIcon kind={sourceKind} label={sourceLabel} size={14} />
+          <SourceIcon
+            kind={sourceKind}
+            label={sourceLabel}
+            size={14}
+            className={cor.texto}
+          />
         </span>
       </div>
 
