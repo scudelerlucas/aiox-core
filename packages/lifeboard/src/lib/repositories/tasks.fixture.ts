@@ -177,7 +177,7 @@ const FIXTURE_EDGES: readonly TaskEdge[] = [
   },
   {
     id: "edge-triage-barateia-notes",
-    origem: "task-triage",
+    origem: "task-triage-inbox",
     destino: "task-notes-idea",
     tipo: "sinergia",
     peso: 0.5,
