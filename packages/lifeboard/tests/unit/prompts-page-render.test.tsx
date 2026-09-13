@@ -36,7 +36,7 @@ const { default: PaginaPrompts } = await import("@/app/prompts/page");
  */
 describe("PaginaPrompts (fixture)", () => {
   it("PRONTO QUANDO: renderiza os 3 cartões de conta, o formulário e os 5 estados da fila", async () => {
-    const elemento = await PaginaPrompts();
+    const elemento = await PaginaPrompts({});
     const html = renderToStaticMarkup(elemento);
 
     expect(html).toContain("Prompts");
@@ -46,7 +46,7 @@ describe("PaginaPrompts (fixture)", () => {
     expect(html).toContain("Lucas");
     expect(html).toContain("Pandora");
     expect(html).toContain("Alma Petra");
-    expect(html).toContain("teto atingido"); // almapetra.ltda@gmail.com está a 150 de 150
+    expect(html).toContain("teto atingido — próximo espaço amanhã"); // Alma Petra está a 150 de 150
 
     // os 5 estados da fila (fixture cobre um de cada).
     expect(html).toContain("na fila");
@@ -54,6 +54,10 @@ describe("PaginaPrompts (fixture)", () => {
     expect(html).toContain("concluída");
     expect(html).toContain("falhou");
     expect(html).toContain("cancelada");
+    // D7: o item pega e MUDO há 70 min diz as duas coisas na linha dele.
+    expect(html).toContain("sem sinal");
+    expect(html).toContain("volta para a fila no próximo pull");
+    expect(html).toContain("último sinal há");
 
     // modelo por complexidade aparece na legenda do formulário.
     expect(html).toMatch(/Haiku/);

@@ -299,30 +299,44 @@ function traduzirErroFila(error: unknown): string {
   return "Não consegui falar com o banco agora.";
 }
 
-function asFilaPromptsState(raw: unknown): FilaPromptsState {
+function asFilaPromptsState(raw: unknown, limitePedido: number): FilaPromptsState {
   const payload = (raw ?? {}) as Partial<FilaPromptsState>;
   return {
     fila: asArray(payload.fila),
     consumo: asArray(payload.consumo),
+    temMais: payload.temMais === true,
+    limite: typeof payload.limite === "number" ? payload.limite : limitePedido,
   };
 }
 
-/** Lê a fila inteira + consumo/teto das 3 contas. Memoizado por request. */
-export const loadFilaPromptsState = cache(async (): Promise<FilaPromptsState> => {
-  try {
-    const body = await chamarRpc("fila_prompts_listar", { p_secret: env.LIFEBOARD_LOAD_SECRET });
-    return asFilaPromptsState(body);
-  } catch (error) {
-    throw new Error(
-      `[lifeboard/live] Falha ao chamar fila_prompts_listar: ${
-        error instanceof Error ? error.message : "desconhecido"
-      }`,
-    );
-  }
-});
+/**
+ * Lê uma PÁGINA da fila + consumo/teto das 3 contas. Memoizado por request.
+ *
+ * D8 (rodada 3): a RPC pagina (`p_limite` 1..200, default 50; `p_antes_de`
+ * opcional) e devolve o prompt truncado em 300 caracteres — antes, 200 itens
+ * de até 20.000 caracteres vinham inteiros a cada render da página.
+ */
+export const loadFilaPromptsState = cache(
+  async (limite = 50, antesDe: string | null = null): Promise<FilaPromptsState> => {
+    try {
+      const body = await chamarRpc("fila_prompts_listar", {
+        p_secret: env.LIFEBOARD_LOAD_SECRET,
+        p_limite: limite,
+        p_antes_de: antesDe,
+      });
+      return asFilaPromptsState(body, limite);
+    } catch (error) {
+      throw new Error(
+        `[lifeboard/live] Falha ao chamar fila_prompts_listar: ${
+          error instanceof Error ? error.message : "desconhecido"
+        }`,
+      );
+    }
+  },
+);
 
 export type MutateFilaResult =
-  | { ok: true; id?: string; conta?: string; motivo?: string }
+  | { ok: true; id?: string; conta?: string; motivo?: string; cabeHoje?: boolean }
   | { erro: string };
 
 /** `p_payload.conta` ausente = roteamento automático (menor consumo hoje). */
@@ -337,17 +351,34 @@ export async function enfileirarPrompt(payload: {
     const body = (await chamarRpc("fila_prompts_enfileirar", {
       p_secret: env.LIFEBOARD_LOAD_SECRET,
       p_payload: payload,
-    })) as { ok?: boolean; id?: string; conta?: string; modelo_sugerido?: string; motivo?: string };
+    })) as {
+      ok?: boolean;
+      id?: string;
+      conta?: string;
+      modelo_sugerido?: string;
+      motivo?: string;
+      cabe_hoje?: boolean;
+    };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
     }
-    return { ok: true, id: body.id, conta: body.conta, motivo: body.motivo };
+    return {
+      ok: true,
+      id: body.id,
+      conta: body.conta,
+      motivo: body.motivo,
+      cabeHoje: body.cabe_hoje !== false,
+    };
   } catch (error) {
     return { erro: traduzirErroFila(error) };
   }
 }
 
-/** Só cancela item ainda `na_fila` — a RPC recusa qualquer outro estado. */
+/**
+ * D7 (rodada 3): cancela item `na_fila` E `pega` — a RPC recusa só o que já
+ * fechou. Um item `pega` cancelado para de reservar orçamento na hora e o
+ * worker descobre pelo heartbeat que deve interromper a sessão filha.
+ */
 export async function cancelarPromptFila(id: string): Promise<MutateFilaResult> {
   try {
     const body = (await chamarRpc("fila_prompts_cancelar", {

@@ -127,76 +127,80 @@ os passos abaixo.
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
 
-## Fila de prompts entre as 3 contas (P7, 13/09/2026 — corrigida 13/09/2026 após REPROVAÇÃO do crítico hostil)
+## Fila de prompts entre as 3 contas (P7 · rodada 3, 13/09/2026)
 
 Pedido do operador: "poder promptar soluções pelo painel na conta que tem mais tokens
 disponíveis para a complexidade da tarefa". Arquitetura decidida pelo mapa `!4z` do hub
-(`docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`, linhas R1/R2/R6): a cota real
-de uma conta Max não é mensurável por nenhuma API (R1) — o roteador usa o INVERSO medido
-(consumo do dia por conta) — e um painel numa conta não abre sessão em outra (R2) — por
-isso o modelo é **PULL**: o painel só escreve na fila; a Routine diária de cada conta é
-quem pega o que é dela.
+(`docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`, R1/R2/R6): a cota real de uma conta
+Max não é mensurável por nenhuma API (R1) — o roteador usa o INVERSO medido — e um painel numa
+conta não abre sessão em outra (R2) — por isso o modelo é **PULL**: o painel escreve na fila; a
+Routine diária de cada conta é o WORKER que pega o que é dela.
 
 - **Migrations:** `0007_lifeboard_v3_fila_prompts.sql` (tabelas
-  `painel_fila_prompts`/`painel_teto_diario`, seed US$150/dia por conta — régua da casa
-  `teto-de-gasto-diario`) + `0009_lifeboard_v3_fila_ajustes.sql` (correção da RODADA 1 do
-  crítico hostil, 16 achados — trigger com reserva, worker sem segredo de app, fuso do
-  operador, RLS fechada, etc.) + `0011_lifeboard_v3_fila_ajustes_2.sql` (correção da
-  RODADA 2: boundary do teto alinhado entre TS e SQL — aceita sse
-  `medido+reservado+estimado <= teto`, recusa só ao ULTRAPASSAR, nunca no empate; `falhou`
-  agora conta no medido do dia; trigger ganha lock `FOR UPDATE` na linha do teto da conta
-  — TOCTOU de dois inserts concorrentes; item `pega` há mais de 6h volta sozinho para
-  `na_fila`; `painel_fila_reservado`/`painel_fila_medido_ate` fecham privilégio de
-  anon/authenticated — ver o cabeçalho de cada arquivo para a lista inteira).
-- **`painel_custo_estimado(complexidade, usd)`** — 1 fonte para o custo estimado por
-  complexidade (baixa 5 · media 15 · alta 50 · maxima 120), lida pelo trigger E espelhada
-  em `CUSTO_ESTIMADO_POR_COMPLEXIDADE` (`src/core/prompts/tipos.ts`). Cada item da fila
-  grava `custo_estimado_usd` — SEMPRE recalculado pelo trigger a partir de
-  `complexidade`, nunca aceito de fora.
-- **Reserva de teto (achado CRÍTICO #1):** o trigger `BEFORE INSERT` em
-  `painel_fila_prompts` recusa quando `medido_hoje + reservado (na_fila+pega) + este item
-  > teto` (0011: era `>=`, empatava no exato valor do teto — corrigido para alinhar com o
-  TS, que sempre aceitou em empate) — antes só olhava o medido, e 5 prompts Fable cabiam a
-  US$149,99/150 porque nada somava o que já estava na fila. `painel_fila_reservado(conta)`
-  faz essa soma (0011: ignora `pega` há mais de 6h — ver abaixo).
-- **RPCs secret-gated (painel apenas):** `fila_prompts_enfileirar(p_secret, p_payload)` —
-  cria o item; sem `conta` no payload, roteia pela conta com mais HEADROOM (não só menor
-  consumo — uma conta quase no teto não cabe pra uma tarefa Fable mesmo com "espaço"
-  nominal). `fila_prompts_cancelar(p_secret, p_id)` — só cancela `na_fila`.
-  `fila_prompts_listar(p_secret)` — fila inteira + consumo/teto/reservado/`medidoAteEm`
-  das 3 contas numa chamada só. Guardadas pelo MESMO segredo de
-  `lifeboard_load`/`lifeboard_mutate` (`private.lifeboard_config.load_secret`).
-- **O WORKER (Routine de cada conta) NUNCA usa o segredo do painel (achado CRÍTICO #4,
-  DECISÃO do operador):** `fila_prompts_pegar_interno(p_conta)` e
-  `fila_prompts_fechar_interno(p_id, p_conta, p_estado, p_custo_usd, p_sessao_url,
-  p_resultado)` são `SECURITY DEFINER` com `revoke all from public/anon/authenticated` —
-  só quem é dono/`postgres` executa, que é exatamente o papel do MCP Supabase da PRÓPRIA
-  conta do operador (`mcp__Supabase__execute_sql`), sem nenhum segredo em trânsito.
-  `fechar_interno` amarra chamador↔conta (`estado='pega' and conta=p_conta`) — uma conta
-  não fecha o item de outra. As RPCs antigas `fila_prompts_pegar`/`fila_prompts_fechar`
-  (secret-gated) foram REMOVIDAS em 0009 — o worker novo é só as `_interno`. O texto
-  exato que a Routine de cada conta roda (SQL do `execute_sql` + o passo de
-  `create_session` no modelo sugerido) está em
+  `painel_fila_prompts`/`painel_teto_diario`, seed US$150/dia — régua da casa
+  `teto-de-gasto-diario`) → `0009_lifeboard_v3_fila_ajustes.sql` → `0011_lifeboard_v3_fila_ajustes_2.sql`
+  → **`0012_lifeboard_v3_fila_posse_e_tentativas.sql`** (a rodada 3, aditiva e re-aplicável;
+  o cabeçalho do arquivo traz as 9 decisões por extenso).
+
+### O que a rodada 3 mudou
+
+| | Decisão | Efeito |
+|---|---|---|
+| **D1** | **posse + heartbeat** | colunas `worker_id`, `heartbeat_em`, `tentativas`, `max_tentativas` (3), `session_id`, `motivo_falha`. `fila_prompts_pegar_interno(p_conta, p_worker_id)` grava posse e incrementa a tentativa; `fechar_interno` só aceita de quem pegou (*fencing*). `p_worker_id` = o id da sessão da Routine (`get_session` sem argumento → `session_id`). |
+| **D2** | **expiração com fim** | a régua é **45 min sem sinal** (não 6 h desde o `pego_em`): sessão longa e VIVA não é roubada; morta há 46 min devolve. `tentativas < max_tentativas` → volta para `na_fila`; senão → `falhou` com `motivo_falha = 'expirou N vezes sem fechamento'` e `custo_usd` = o ESTIMADO (conservador: quem sumiu gastou). Item devolvido **não** é re-pego pela mesma chamada. `pegar_interno` devolve `devolvidos` e `mortos`. |
+| **D3** | **elegibilidade por item** | `painel_fila_reservado(conta)` soma só `pega` com heartbeat vivo (EM EXECUÇÃO); `na_fila` não reserva mais nada. O pull escolhe o mais antigo cujo `medido + em_execucao + estimado <= teto` (`for update skip locked`, ordem `criado_em`), pulando os que não cabem (`pulados`; quando nada cabe, o `motivo` nomeia o menor custo que sobrou). **Admissão só recusa o impossível** (`estimado > teto` da conta, ou conta inexistente) — item que não cabe hoje ENTRA na fila e roda quando houver espaço. `painel_fila_na_fila(conta)` existe só para ESCOLHER a conta. |
+| **D4** | **vazão** | o doc do worker ganhou laço 5b→5g: até 3 itens por disparo, sequenciais (um `create_session` por vez), com heartbeat a cada passo. |
+| **D5** | **desempate único** | roteamento automático = maior espaço livre (`teto − medido − em_execucao − na_fila`); empate pela ordem de `CONTAS` no TS (lucasscudeler, lsgpandora, almapetra). A regra mora em **um** lugar — `src/core/prompts/roteador.ts` — e o `case` do SQL cita esse caminho em comentário. `tests/unit/roteador-de-conta.test.ts` roda a mesma tabela de cenários contra um espelho da ordem SQL (mais 200 cenários aleatórios). |
+| **D6** | **sem dupla contagem** | `fechar_interno` grava `p_session_id` (a sessão FILHA). `painel_fila_consumo_hoje` **não soma** o item da fila cuja sessão já aparece em `painel_frentes_sessoes` (mesma conta, mesmo dia do operador) — a medição publicada prevalece. |
+| **D7** | **`pega` não é beco sem saída** | `fila_prompts_cancelar(p_secret, p_id)` aceita `na_fila` **e** `pega`; o item para de reservar na hora e `fila_prompts_heartbeat_interno` passa a devolver `{ok:false, motivo:'cancelado'}` — o worker interrompe a sessão filha (`interrupt_session`). Na tela, o botão cancelar aparece nos dois estados. |
+| **D8** | **idempotência e paginação** | 2º `fechar_interno` do MESMO worker → `{ok:true, ja_fechado:true}` (de outro worker → erro de posse). `fila_prompts_listar(p_secret, p_limite default 50, p_antes_de default null)` pagina por `criado_em desc` e devolve `prompt` truncado em 300 caracteres + `promptTamanho`; a tela mostra 50 e um "mostrar mais 50" (`/prompts?limite=100`). |
+| **D9** | **textos** | recusas e avisos usam `ROTULO_COMPLEXIDADE` ("máxima") e dinheiro com vírgula (`formatarUsd`): *"Nenhuma conta tem US$ 120,00 livres hoje para uma tarefa máxima. A mais próxima (Pandora) tem US$ 102,90."* Cartão no teto não sugere modelo — diz "teto atingido — próximo espaço amanhã". |
+
+### Assinaturas (as antigas foram removidas de propósito)
+
+| RPC | Quem chama | Assinatura |
+|---|---|---|
+| `fila_prompts_enfileirar` | painel (segredo) | `(p_secret text, p_payload jsonb)` → `{ok, id, conta, modelo_sugerido, motivo, cabe_hoje, espaco_livre_usd}` |
+| `fila_prompts_cancelar` | painel (segredo) | `(p_secret text, p_id uuid)` — aceita `na_fila` e `pega` |
+| `fila_prompts_listar` | painel (segredo) | `(p_secret text, p_limite integer default 50, p_antes_de timestamptz default null)` — **a versão de 1 argumento foi removida** (duas assinaturas com default dariam "function is not unique") |
+| `fila_prompts_pegar_interno` | worker (sem segredo) | `(p_conta text, p_worker_id text)` — **a de 1 argumento foi removida**: sem ela, um worker pegaria item sem gravar posse nem tentativa |
+| `fila_prompts_heartbeat_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_session_id text default null)` — nunca levanta exceção por estado; devolve `{ok:false, motivo}` |
+| `fila_prompts_fechar_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_estado text, p_custo_usd numeric, p_session_id text default null, p_sessao_url text default null, p_resultado text default null)` — **a de 6 argumentos foi removida** |
+
+As três `_interno` são `SECURITY DEFINER` com `revoke all from public, anon, authenticated` — só
+dono/`postgres` executa, que é o papel do MCP Supabase da PRÓPRIA conta
+(`mcp__Supabase__execute_sql`), sem nenhum segredo de aplicação em trânsito. Provado ao vivo:
+`has_function_privilege('anon'|'authenticated', …)` = `false` nas 3, e nas 4 funções auxiliares
+(`painel_fila_consumo_hoje`, `painel_fila_reservado`, `painel_fila_na_fila`,
+`painel_fila_medido_ate`).
+
+### O que continua valendo das rodadas anteriores
+
+- **`painel_custo_estimado(complexidade, usd)`** — 1 fonte para o custo estimado (baixa 5 · media
+  15 · alta 50 · maxima 120), lida pelo trigger E espelhada em `CUSTO_ESTIMADO_POR_COMPLEXIDADE`
+  (`src/core/prompts/tipos.ts`). `custo_estimado_usd` é SEMPRE recalculado pelo trigger — nenhum
+  caller pode forjar o valor.
+- **Fuso do operador:** `painel_dia_operador()` (America/Sao_Paulo) em toda contagem de "hoje".
+- **RLS fechada:** `painel_consumo_por_conta_dia` com `security_invoker = on` +
+  `revoke select … from anon, authenticated`; leitura do painel reusa a allowlist de
+  `painel_frentes_*` (`painel_frentes_leitor_autorizado()`, migration do hub
+  `20260912a_painel_frentes_tres_contas.sql`).
+- **`custo_usd` 0..500** na coluna e em `fechar_interno` (negativo zerava o freio do teto).
+- O texto exato que a Routine de cada conta roda está em
   `Lucas-Contexto-Geral/docs/ops/PROMPT-ROUTINE-publicar-sessoes-outras-contas-2026-09-12.md`
-  §"Fila de prompts (P7)". Isto exige edição manual do operador nas 3 contas (a API de
+  §"Fila de prompts (P7 · rodada 3)". Exige edição manual do operador nas 3 contas (a API de
   Routines não deixa uma sessão editar a Routine de outra conta).
-- **Fuso do operador (achado ALTO #6):** `painel_dia_operador()` (America/Sao_Paulo)
-  substitui `current_date`/UTC cru em toda contagem de "hoje" — view, função de consumo,
-  trigger.
-- **RLS fechada (achado ALTO #5):** `painel_consumo_por_conta_dia` ganhou
-  `security_invoker = on` + `revoke select … from anon, authenticated` (antes vazava 60
-  linhas pra `anon` enquanto a tabela-base devolvia 0); `painel_fila_consumo_hoje` não é
-  mais chamável direto por `anon`/`authenticated` (só pelas RPCs secret-gated).
-- **RLS de leitura do painel:** reusa a MESMA allowlist de `painel_frentes_*` — tabela
-  `painel_frentes_leitores` + função `painel_frentes_leitor_autorizado()` (migration do
-  hub, `20260912a_painel_frentes_tres_contas.sql`, já aplicada no mesmo projeto Supabase).
-- **Página:** `/prompts` — 3 cartões de conta (medido + reservado vs teto, "medido até
-  <última sync>", headroom livre em US$, cor ok/warn/crit) + formulário "Novo prompt"
-  (complexidade → modelo sugerido ao vivo, conta opcional com aviso "no teto — vai
-  recusar" quando sem espaço, tarefa opcional para linkar) + tabela da fila com prompt
-  truncado/expansível e cancelar. Modo fixture: store em memória
-  (`src/lib/repositories/prompts-fila.fixture-store.ts`), mesmo padrão de
-  `tasks.fixture-store.ts` (P6).
+
+### Página
+
+`/prompts` — 3 cartões de conta (gasto medido + em execução vs teto, "medido até <última sync>",
+livre em US$, o que espera na fila, cor ok/warn/crit, e no teto "próximo espaço amanhã" sem
+sugerir modelo) + formulário "Novo prompt" (complexidade → modelo ao vivo; "não cabe hoje" é
+AVISO, não bloqueio — só o impossível desabilita o envio) + tabela da fila com estado ("sem
+sinal" quando o worker emudeceu), idade da execução, último sinal, tentativa N de M, prompt
+truncado/expansível, cancelar em `na_fila` e `pega`, e "mostrar mais 50". Modo fixture: store em
+memória (`src/lib/repositories/prompts-fila.fixture-store.ts`) que espelha D1–D3/D7/D8, coberto
+por `tests/unit/prompts-fila-fixture-store.test.ts`.
 
 ## Rollback
 

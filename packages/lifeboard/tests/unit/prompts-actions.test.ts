@@ -74,7 +74,7 @@ describe("prompts/actions — validação", () => {
 
   it("novoPromptAction: válido chama enfileirarFixture em modo fixture (default)", async () => {
     const r = await novoPromptAction({}, form({ prompt: "algo válido", complexidade: "media" }));
-    expect(r).toEqual({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
+    expect(r).toMatchObject({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
     // Achado MÉDIO #14: criadoPor vem da sessão (mockada acima), nunca de um
     // campo do formulário — o form não manda "criado_por".
     expect(fixtureStore.enfileirarFixture).toHaveBeenCalledWith({
@@ -90,7 +90,7 @@ describe("prompts/actions — validação", () => {
   it("novoPromptAction: sem sessão (getUser falha) grava criadoPor null, sem quebrar a ação", async () => {
     getUserMock.mockRejectedValueOnce(new Error("sem cookie de sessão"));
     const r = await novoPromptAction({}, form({ prompt: "algo válido", complexidade: "baixa" }));
-    expect(r).toEqual({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
+    expect(r).toMatchObject({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
     expect(fixtureStore.enfileirarFixture).toHaveBeenCalledWith({
       prompt: "algo válido",
       complexidade: "baixa",
@@ -108,7 +108,7 @@ describe("prompts/actions — validação", () => {
         {},
         form({ prompt: "prompt live", complexidade: "alta", conta: "lsgpandora@gmail.com" }),
       );
-      expect(r).toEqual({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
+      expect(r).toMatchObject({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
       expect(enfileirarPrompt).toHaveBeenCalledWith({
         prompt: "prompt live",
         complexidade: "alta",

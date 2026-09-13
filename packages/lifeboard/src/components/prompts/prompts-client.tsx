@@ -5,59 +5,43 @@ import { useMemo, useState } from "react";
 import { ContaCard } from "@/components/prompts/conta-card";
 import { NovoPromptForm, type TarefaParaLink } from "@/components/prompts/novo-prompt-form";
 import { contaTemEspacoPara, escolherConta } from "@/core/prompts/roteador";
-import type { Complexidade, Conta, ConsumoConta } from "@/core/prompts/tipos";
+import type { Complexidade, ConsumoConta } from "@/core/prompts/tipos";
 import { CONTAS, modeloParaComplexidade } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — casca client que liga os 3 cartões de conta ao
- * formulário: os dois compartilham `complexidade` (o modelo sugerido é o
- * mesmo nos dois) e o roteador PURO (`escolherConta`, mesma função testada em
- * `tests/unit/roteador-de-conta.test.ts`) decide, ao vivo, qual cartão
- * ganha o selo "escolhida agora" — sem round-trip nenhum até o envio real.
+ * formulário: os dois compartilham `complexidade` e o roteador PURO
+ * (`escolherConta`, a FONTE ÚNICA da regra, espelhada pelo SQL) decide ao
+ * vivo qual cartão ganha o selo "escolhida agora" — sem round-trip até o envio.
  *
- * Achados ALTO #8 / MÉDIO #13 (crítico hostil, rodada de correção
- * 13/09/2026): o roteador agora recebe `reservados` (o que já está
- * `na_fila`/`pega` por conta) e filtra por HEADROOM, não só "consumo <
- * teto" — e quando o operador escolhe uma conta À MÃO sem espaço, o cartão
- * dela vira "no teto — vai recusar" e o formulário desabilita o envio.
+ * D3 (rodada 3): "sem espaço hoje" deixou de desabilitar o envio. A fila
+ * ACEITA o item e ele roda quando houver espaço; o que a tela deve fazer é
+ * dizer isso, não impedir. O único bloqueio real é o impossível (uma tarefa
+ * que custa mais que o teto de qualquer conta) — aí `escolha.conta` é `null`.
  */
 export function PromptsClient({
   consumo,
   tarefas,
+  agora,
 }: {
   consumo: readonly ConsumoConta[];
   tarefas: readonly TarefaParaLink[];
+  agora?: number;
 }): JSX.Element {
   const [complexidade, setComplexidade] = useState<Complexidade>("baixa");
   const [contaOverride, setContaOverride] = useState<string>("");
 
-  const { consumos, tetos, reservados } = useMemo(() => {
-    const c: Partial<Record<Conta, number>> = {};
-    const t: Partial<Record<Conta, number>> = {};
-    const r: Partial<Record<Conta, number>> = {};
-    for (const item of consumo) {
-      c[item.conta] = item.consumoHojeUsd;
-      t[item.conta] = item.tetoUsd;
-      r[item.conta] = item.reservadoUsd;
-    }
-    return { consumos: c, tetos: t, reservados: r };
-  }, [consumo]);
-
-  const escolha = useMemo(
-    () => escolherConta(consumos, tetos, complexidade, reservados),
-    [consumos, tetos, reservados, complexidade],
-  );
-
+  const escolha = useMemo(() => escolherConta(consumo, complexidade), [consumo, complexidade]);
   const modeloImplicado = modeloParaComplexidade(complexidade);
 
-  // Achado MÉDIO #13: a conta escolhida À MÃO tem espaço para esta
-  // complexidade? (o roteamento automático já garante isto — `escolha.conta`
-  // só vem preenchido quando alguma conta tem headroom.)
   const contaOverrideItem =
     contaOverride === "" ? undefined : consumo.find((c) => c.conta === contaOverride);
   const overrideSemEspaco =
     contaOverrideItem !== undefined && !contaTemEspacoPara(contaOverrideItem, complexidade);
-  const semEspacoNenhuma = contaOverride === "" ? escolha.conta === null : overrideSemEspaco;
+
+  // "Não cabe hoje" é um AVISO; "impossível" (conta null) é o único bloqueio.
+  const naoCabeHoje = contaOverride === "" ? !escolha.cabeHoje : overrideSemEspaco;
+  const impossivel = escolha.conta === null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,10 +51,10 @@ export function PromptsClient({
           if (!item) return null;
           const ehAOverride = contaOverride !== "" && contaOverride === conta;
           const seriaEscolhida = contaOverride === "" ? escolha.conta === conta : ehAOverride;
-          const semEspacoParaComplexidade = ehAOverride
+          const semEspacoHoje = ehAOverride
             ? overrideSemEspaco
             : contaOverride === "" && escolha.conta === conta
-              ? false // escolha automática só aponta contas que JÁ têm headroom
+              ? !escolha.cabeHoje
               : undefined;
           return (
             <ContaCard
@@ -78,7 +62,8 @@ export function PromptsClient({
               consumo={item}
               proximoModelo={modeloImplicado}
               seriaEscolhida={seriaEscolhida}
-              semEspacoParaComplexidade={semEspacoParaComplexidade}
+              semEspacoHoje={semEspacoHoje}
+              agora={agora}
             />
           );
         })}
@@ -93,7 +78,8 @@ export function PromptsClient({
         motivoAuto={escolha.motivo}
         contaAuto={escolha.conta}
         tarefas={tarefas}
-        semEspaco={semEspacoNenhuma}
+        naoCabeHoje={naoCabeHoje}
+        impossivel={impossivel}
       />
     </div>
   );

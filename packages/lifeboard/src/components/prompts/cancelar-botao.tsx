@@ -4,15 +4,27 @@ import { cancelarPromptAction } from "@/app/prompts/actions";
 import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
 
 /**
- * OS-LIFEBOARD · P7 — botão "cancelar" de um item ainda `na_fila`. Confirmação
- * simples (`window.confirm`) porque a ação é irreversível para o item (a RPC
- * não desfaz `cancelada`), mesmo espírito de qualquer ação destrutiva do app.
+ * OS-LIFEBOARD · P7 — botão "cancelar". Desde a rodada 3 (D7) ele aparece
+ * também em item `pega`: cancelar um item em execução é a única saída que o
+ * operador tem quando a sessão filha travou (antes, o item ficava preso até
+ * expirar). A confirmação muda de texto nesse caso, porque a consequência é
+ * outra — a sessão que está rodando vai ser interrompida pelo worker no
+ * próximo sinal de vida.
  */
-export function CancelarBotao({ id }: { id: string }): JSX.Element {
+export function CancelarBotao({
+  id,
+  emExecucao = false,
+}: {
+  id: string;
+  emExecucao?: boolean;
+}): JSX.Element {
   const { estado, pendente, disparar } = useAcaoPrompt(cancelarPromptAction);
 
   function aoClicar(): void {
-    if (!window.confirm("Cancelar este prompt da fila?")) return;
+    const pergunta = emExecucao
+      ? "Este prompt está em execução. Cancelar mesmo assim? A sessão que está rodando vai ser interrompida."
+      : "Cancelar este prompt da fila?";
+    if (!window.confirm(pergunta)) return;
     const form = new FormData();
     form.set("id", id);
     disparar(form);

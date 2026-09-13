@@ -3,10 +3,12 @@
  *
  * Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`
  * (linhas R1/R2/R6, transferências T1/T2) + o contrato exato de
- * `supabase/migrations/0007_lifeboard_v3_fila_prompts.sql`. Espelha
- * literalmente as 3 contas da casa e a tabela de roteamento de modelo
- * (`Lucas-Contexto-Geral/.claude/rules/model-routing.md`) — mudar aqui sem
- * mudar lá (ou vice-versa) quebra o "porquê" que a tela mostra.
+ * `supabase/migrations/0007…` → `0009…` → `0011…` → `0012_lifeboard_v3_fila_
+ * posse_e_tentativas.sql` (rodada 3: posse, heartbeat, tentativas,
+ * elegibilidade por item). Espelha literalmente as 3 contas da casa e a
+ * tabela de roteamento de modelo (`Lucas-Contexto-Geral/.claude/rules/
+ * model-routing.md`) — mudar aqui sem mudar lá (ou vice-versa) quebra o
+ * "porquê" que a tela mostra.
  */
 
 export const CONTAS = [
@@ -49,6 +51,11 @@ export const MODELO_POR_COMPLEXIDADE: Record<Complexidade, ModeloSugerido> = {
   maxima: "Fable",
 };
 
+/**
+ * D9 (rodada 3): a tela NUNCA escreve o valor cru do enum. "maxima" é chave de
+ * banco; "máxima" é português. Toda frase que cita a complexidade passa por
+ * aqui — foi a falta disto que produziu "uma tarefa maxima" na recusa.
+ */
 export const ROTULO_COMPLEXIDADE: Record<Complexidade, string> = {
   baixa: "baixa",
   media: "média",
@@ -61,14 +68,10 @@ export function modeloParaComplexidade(complexidade: Complexidade): ModeloSugeri
 }
 
 /**
- * Achado CRÍTICO #1 do crítico hostil (rodada de correção, 13/09/2026):
- * mapa complexidade → custo ESTIMADO em US$, idêntico à seed de
- * `public.painel_custo_estimado` (`supabase/migrations/
- * 0009_lifeboard_v3_fila_ajustes.sql`). Mesma disciplina de
- * `MODELO_POR_COMPLEXIDADE` × `model-routing.md`: duas implementações porque
- * rodam em runtimes diferentes — o banco decide de verdade (o trigger SEMPRE
- * recalcula do lado do SQL, nenhum caller pode forjar o valor); esta tabela é
- * só o que a TELA usa para mostrar o headroom ANTES de enviar.
+ * Mapa complexidade → custo ESTIMADO em US$, idêntico à seed de
+ * `public.painel_custo_estimado`. O banco decide de verdade (o trigger SEMPRE
+ * recalcula; nenhum caller pode forjar o valor); esta tabela é o que a TELA
+ * usa para mostrar o espaço livre ANTES de enviar.
  */
 export const CUSTO_ESTIMADO_POR_COMPLEXIDADE: Record<Complexidade, number> = {
   baixa: 5,
@@ -81,22 +84,51 @@ export function custoEstimadoParaComplexidade(complexidade: Complexidade): numbe
   return CUSTO_ESTIMADO_POR_COMPLEXIDADE[complexidade];
 }
 
+/**
+ * D9 (rodada 3): dinheiro em português — "US$ 120,00", nunca "US$ 120.00".
+ * `Intl` daria o mesmo resultado, mas com dependência de ICU no runtime do
+ * servidor; o valor aqui vai de 0 a 500, então a troca do ponto é suficiente
+ * e determinística em qualquer ambiente (inclusive no teste).
+ */
+export function formatarUsd(valor: number): string {
+  return `US$ ${valor.toFixed(2).replace(".", ",")}`;
+}
+
+// ── D1/D2 · posse e sinal de vida ────────────────────────────────────────────
+
+/** 45 min sem sinal = o worker morreu (mesma constante do SQL, 0012). */
+export const HEARTBEAT_LIMITE_MIN = 45;
+const MINUTO_MS = 60_000;
+export const HEARTBEAT_LIMITE_MS = HEARTBEAT_LIMITE_MIN * MINUTO_MS;
+
 export const ESTADOS_FILA = ["na_fila", "pega", "concluida", "falhou", "cancelada"] as const;
 export type EstadoFila = (typeof ESTADOS_FILA)[number];
 
 export interface ItemFilaPrompt {
   id: string;
   conta: Conta;
+  /** D8: vem TRUNCADO em 300 caracteres da RPC — `promptTamanho` diz o real. */
   prompt: string;
+  promptTamanho: number;
   complexidade: Complexidade;
   modeloSugerido: ModeloSugerido;
   estado: EstadoFila;
   custoUsd: number | null;
-  /** Achado CRÍTICO #1: custo estimado gravado no item — sempre recalculado pelo trigger, nunca aceito de fora. */
+  /** Custo estimado gravado no item — sempre recalculado pelo trigger, nunca aceito de fora. */
   custoEstimadoUsd: number;
   criadoEm: string;
   pegoEm: string | null;
   concluidoEm: string | null;
+  /** D1: último sinal de vida do worker que pegou (ISO) — null quando ninguém está com ele. */
+  heartbeatEm: string | null;
+  /** D1: id da sessão da Routine que pegou (fencing token). */
+  workerId: string | null;
+  tentativas: number;
+  maxTentativas: number;
+  /** D1/D6: id da sessão FILHA criada pelo `create_session`. */
+  sessionId: string | null;
+  /** D2: por que virou `falhou` sem o worker dizer nada. */
+  motivoFalha: string | null;
   sessaoUrl: string | null;
   resultado: string | null;
   criadoPor: string | null;
@@ -106,27 +138,28 @@ export interface ItemFilaPrompt {
 export interface ConsumoConta {
   conta: Conta;
   tetoUsd: number;
-  /** Gasto MEDIDO do dia (sem estimativa) — sessões publicadas + itens concluídos hoje. */
+  /** Gasto MEDIDO do dia — sessões publicadas + itens fechados hoje cuja sessão ainda não foi publicada (D6). */
   consumoHojeUsd: number;
-  /** Achado CRÍTICO #1/#2: soma do custo estimado de tudo que está `na_fila` ou `pega` para esta conta. */
+  /** D3: soma do estimado do que está EM EXECUÇÃO agora (`pega` com heartbeat vivo). `na_fila` NÃO entra. */
   reservadoUsd: number;
-  /** Achado ALTO #7: instante da última sincronização medida (ISO) — null se nenhuma sessão foi publicada hoje ainda. */
+  /** D3: soma do estimado do que ESPERA (`na_fila`) — só pesa na ESCOLHA da conta, nunca na recusa. */
+  naFilaUsd: number;
+  /** Instante da última sincronização medida (ISO) — null se nenhuma sessão foi publicada hoje. */
   medidoAteEm: string | null;
 }
 
 export interface FilaPromptsState {
   fila: ItemFilaPrompt[];
   consumo: ConsumoConta[];
+  /** D8: existe página anterior a esta (itens mais antigos) além do limite pedido. */
+  temMais: boolean;
+  limite: number;
 }
 
-/** Faixa de cor da barra de progresso (régua declarada no pedido do P7). */
+/** Faixa de cor da barra de consumo. */
 export type FaixaConsumo = "ok" | "warn" | "crit";
 
-/**
- * Achado ALTO #7: a faixa e o "atingido" agora olham medido + reservado — um
- * item Fable na_fila que empurraria a conta para o teto já pinta a barra
- * como crítica, mesmo antes de qualquer sessão real gastar 1 centavo.
- */
+/** A barra mostra o que já foi gasto + o que está gastando AGORA (nunca a fila parada). */
 export function faixaConsumo(
   consumoHojeUsd: number,
   reservadoUsd: number,
@@ -147,7 +180,65 @@ export function tetoAtingido(
   return consumoHojeUsd + reservadoUsd >= tetoUsd;
 }
 
-/** Headroom (US$) ainda livre hoje para esta conta, podendo ficar negativo. */
+/**
+ * D3: o que o PULL realmente checa — `medido + em_execucao + estimado <= teto`.
+ * A fila parada (`naFilaUsd`) NÃO entra: ela não gastou nada ainda.
+ */
 export function headroomUsd(consumo: ConsumoConta): number {
   return consumo.tetoUsd - consumo.consumoHojeUsd - consumo.reservadoUsd;
+}
+
+/**
+ * D5: o que o ROTEADOR usa para ESCOLHER a conta — desconta também a fila
+ * parada, para não empilhar tudo na mesma conta. Nunca é motivo de recusa.
+ */
+export function espacoLivreUsd(consumo: ConsumoConta): number {
+  return headroomUsd(consumo) - consumo.naFilaUsd;
+}
+
+// ── D7 · o que a tela diz sobre um item em execução ──────────────────────────
+
+/** Um item `pega` cujo último sinal passou de 45 min: o próximo pull o devolve. */
+export function semSinal(item: ItemFilaPrompt, agora: number): boolean {
+  if (item.estado !== "pega") return false;
+  const ultimo = item.heartbeatEm ?? item.pegoEm;
+  if (!ultimo) return true;
+  const t = Date.parse(ultimo);
+  if (Number.isNaN(t)) return true;
+  return agora - t > HEARTBEAT_LIMITE_MS;
+}
+
+/** "2 h 10 min", "37 min", "3 d 4 h" — duração sóbria, sem "há". */
+export function duracaoCurta(ms: number): string {
+  const total = Math.max(0, Math.round(ms / MINUTO_MS));
+  if (total < 1) return "menos de 1 min";
+  if (total < 60) return `${total} min`;
+  const horas = Math.floor(total / 60);
+  const minutos = total % 60;
+  if (horas < 24) return minutos === 0 ? `${horas} h` : `${horas} h ${minutos} min`;
+  const dias = Math.floor(horas / 24);
+  const resto = horas % 24;
+  return resto === 0 ? `${dias} d` : `${dias} d ${resto} h`;
+}
+
+/**
+ * D7: a frase que a linha da fila mostra para um item `pega`.
+ * Vivo:  "em execução há 2 h 10 min · último sinal há 3 min"
+ * Morto: "sem sinal há 1 h — volta para a fila no próximo pull"
+ * (na última tentativa, o próximo pull não devolve: marca como falhou.)
+ */
+export function descricaoExecucao(item: ItemFilaPrompt, agora: number): string | null {
+  if (item.estado !== "pega") return null;
+  const idade = item.pegoEm ? duracaoCurta(agora - Date.parse(item.pegoEm)) : null;
+  const ultimo = item.heartbeatEm ?? item.pegoEm;
+  const desdeSinal = ultimo ? duracaoCurta(agora - Date.parse(ultimo)) : null;
+
+  if (semSinal(item, agora)) {
+    const fim =
+      item.tentativas >= item.maxTentativas
+        ? "vira “falhou” no próximo pull (última tentativa)"
+        : "volta para a fila no próximo pull";
+    return `sem sinal há ${desdeSinal ?? "muito tempo"} — ${fim}`;
+  }
+  return `em execução há ${idade ?? "pouco"} · último sinal há ${desdeSinal ?? "pouco"}`;
 }

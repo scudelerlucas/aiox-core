@@ -27,6 +27,8 @@ export type EstadoAcaoPrompt = {
   id?: string;
   conta?: string;
   motivo?: string;
+  /** D3: entrou na fila mas não cabe no teto de hoje — roda quando houver espaço. */
+  cabeHoje?: boolean;
 };
 
 function revalidar(): void {
@@ -34,28 +36,25 @@ function revalidar(): void {
 }
 
 /**
- * Achado BAIXO #9 (crítico hostil, rodada 2): a recusa que vinha do trigger
- * (via `traduzirErroFila`, código `check_violation`) ou do fixture-store
- * chegava À TELA verbatim — jargão interno ("medido"/"reservado"/"este
- * item") + o E-MAIL CRU da conta ("fila: conta lucasscudeler@gmail.com
- * ficaria em US$ ... — teto US$ ..."). O operador não devia precisar saber
- * qual e-mail é qual conta. Mapeia para o rótulo (Lucas/Pandora/Alma Petra) e
- * reduz para a frase que interessa; o texto INTEIRO (o de dentro) sempre vai
- * para `console.error` — nunca se perde, só não aparece na tela.
+ * D3/D9 (rodada 3): depois da mudança de admissão, a fila só recusa UMA coisa
+ * — o item que nunca caberia (custo estimado maior que o teto da conta). A
+ * mensagem do trigger já nasce em português e já traz a complexidade por
+ * extenso ("uma tarefa máxima"); o que sobra aqui é (a) tirar o prefixo
+ * técnico `fila: `, (b) trocar qualquer e-mail cru pelo rótulo da conta
+ * (Lucas/Pandora/Alma Petra — o operador não precisa saber qual e-mail é
+ * qual) e (c) pôr a vírgula decimal no lugar do ponto. O texto INTEIRO sempre
+ * vai para `console.error` — nunca se perde, só não aparece na tela.
  */
 function formatarRecusaFila(erroBruto: string): string {
   console.error(`[prompts] recusa da fila (bruto): ${erroBruto}`);
 
-  const conta = CONTAS.find((c) => erroBruto.includes(c));
-  const estimado = erroBruto.match(/este item US\$\s*([\d.,]+)\)/)?.[1];
-  const teto = erroBruto.match(/teto US\$\s*([\d.,]+)\s*\.?$/)?.[1];
-
-  if (conta && estimado && teto) {
-    return `A conta ${ROTULO_CONTA[conta]} não tem US$ ${estimado} livres hoje (teto US$ ${teto}).`;
+  let texto = erroBruto.replace(/^fila:\s*/, "");
+  for (const conta of CONTAS) {
+    texto = texto.split(conta).join(ROTULO_CONTA[conta]);
   }
-  // Formato que não bate (ex.: recusa do roteamento automático, sem conta
-  // específica) atravessa como está — não tem e-mail cru para mapear.
-  return erroBruto;
+  // "US$ 120.00" -> "US$ 120,00" (só onde é dinheiro, nunca no resto do texto).
+  texto = texto.replace(/US\$\s*(\d+)\.(\d{2})\b/g, "US$ $1,$2");
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
 function textoOu(form: FormData, campo: string): string {
@@ -90,7 +89,7 @@ async function emailDaSessao(): Promise<string | null> {
 }
 
 type ResultadoMutar =
-  | { ok: true; id?: string; conta?: string; motivo?: string }
+  | { ok: true; id?: string; conta?: string; motivo?: string; cabeHoje?: boolean }
   | { erro: string };
 
 async function mutarEnfileirar(input: {
@@ -161,7 +160,7 @@ export async function novoPromptAction(
   // simples e nunca citam uma conta.
   if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };
   revalidar();
-  return { ok: true, id: r.id, conta: r.conta, motivo: r.motivo };
+  return { ok: true, id: r.id, conta: r.conta, motivo: r.motivo, cabeHoje: r.cabeHoje !== false };
 }
 
 // ══════════════════════════════════════════════════════════ cancelar ═════

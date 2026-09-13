@@ -31,13 +31,16 @@ export interface NovoPromptFormProps {
   contaAuto: string | null;
   tarefas: readonly TarefaParaLink[];
   /**
-   * Achado MÉDIO #13 (crítico hostil, rodada de correção 13/09/2026): nem a
-   * conta escolhida à mão nem o roteamento automático têm headroom para a
-   * complexidade atual — o banco vai recusar o insert (mesma régua do
-   * trigger). O botão desabilita e mostra o motivo em vez de deixar o
-   * operador descobrir só depois de enviar.
+   * D3 (rodada 3): não há espaço HOJE — AVISO, não bloqueio. O item entra na
+   * fila e roda quando houver espaço; a tela diz isso e o botão continua vivo.
+   * (Na rodada anterior isto desabilitava o envio e o prompt era perdido.)
    */
-  semEspaco?: boolean;
+  naoCabeHoje?: boolean;
+  /**
+   * D3: o ÚNICO bloqueio real — a tarefa custa mais que o teto de qualquer
+   * conta e nunca vai caber, em nenhum dia. Aí o banco recusa mesmo.
+   */
+  impossivel?: boolean;
 }
 
 /**
@@ -55,7 +58,8 @@ export function NovoPromptForm({
   motivoAuto,
   contaAuto,
   tarefas,
-  semEspaco,
+  naoCabeHoje,
+  impossivel,
 }: NovoPromptFormProps): JSX.Element {
   const [prompt, setPrompt] = useState("");
   const { estado, pendente, disparar } = useAcaoPrompt(novoPromptAction, () => setPrompt(""));
@@ -117,7 +121,7 @@ export function NovoPromptForm({
             disabled={pendente}
             className="min-h-[36px] rounded-md border border-navy-700 bg-navy-900 px-2 text-sm text-bone-100 focus:border-gold-500 focus:outline-none disabled:opacity-50"
           >
-            <option value="">automático (menor consumo hoje)</option>
+            <option value="">automático (maior espaço livre hoje)</option>
             {CONTAS.map((c) => (
               <option key={c} value={c}>
                 {ROTULO_CONTA[c]}
@@ -125,9 +129,14 @@ export function NovoPromptForm({
             ))}
           </select>
           <p className="mt-1.5 max-w-[260px] text-xs text-bone-400">
+            {/* Quando não cabe hoje, o motivo já é uma frase inteira e aparece
+                logo abaixo em destaque — repeti-lo aqui produzia "agora
+                escolheria Lucas — Nenhuma conta tem…", que se contradiz. */}
             {contaOverride === ""
               ? contaAuto
-                ? `agora escolheria ${ROTULO_CONTA[contaAuto as keyof typeof ROTULO_CONTA]} — ${motivoAuto}`
+                ? naoCabeHoje
+                  ? `agora iria para ${ROTULO_CONTA[contaAuto as keyof typeof ROTULO_CONTA]}`
+                  : `agora iria para ${ROTULO_CONTA[contaAuto as keyof typeof ROTULO_CONTA]} — ${motivoAuto}`
                 : motivoAuto
               : "escolha manual — ignora o roteamento automático"}
           </p>
@@ -162,19 +171,21 @@ export function NovoPromptForm({
           {estado.motivo ? ` — ${estado.motivo}` : ""}.
         </p>
       ) : null}
-      {/* Achado MÉDIO #13: sem headroom (conta escolhida à mão ou automática
-          no teto) — dizer isto ANTES do envio, não deixar o banco recusar em
-          silêncio depois de um round-trip. */}
-      {semEspaco ? (
+      {/* D3: dois avisos diferentes, porque são duas coisas diferentes — um é
+          "espera até amanhã" (o item entra), o outro é "nunca" (o banco recusa). */}
+      {impossivel ? (
         <p role="alert" className="mt-2 text-xs font-medium text-state-blocked">
-          Sem espaço hoje para esta complexidade — o envio será recusado. Escolha outra conta,
-          outra complexidade, ou espere o consumo do dia baixar.
+          {motivoAuto}
+        </p>
+      ) : naoCabeHoje ? (
+        <p role="status" className="mt-2 text-xs font-medium text-state-progress">
+          {motivoAuto} Entra na fila assim mesmo e roda quando houver espaço.
         </p>
       ) : null}
 
       <button
         type="submit"
-        disabled={pendente || prompt.trim().length === 0 || semEspaco === true}
+        disabled={pendente || prompt.trim().length === 0 || impossivel === true}
         className="mt-4 min-h-[40px] rounded-md border border-gold-500 bg-navy-800 px-4 text-sm font-semibold text-gold-300 transition duration-150 ease-almapetra hover:bg-navy-700 disabled:opacity-50"
       >
         {pendente ? "enviando…" : "Enviar para a fila"}

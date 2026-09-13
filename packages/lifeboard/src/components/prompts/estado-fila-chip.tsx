@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, Clock, Loader, XCircle, type LucideIcon } from "lucide-react";
+import { Ban, CheckCircle2, Clock, Loader, WifiOff, XCircle, type LucideIcon } from "lucide-react";
 
 import type { EstadoFila } from "@/core/prompts/tipos";
 
@@ -53,8 +53,28 @@ const ESTADOS: Record<EstadoFila, Config> = {
   },
 };
 
-export function EstadoFilaChip({ estado }: { estado: EstadoFila }): JSX.Element {
-  const cfg = ESTADOS[estado];
+/**
+ * D7 (rodada 3): `semSinal` é um estado VISÍVEL, não um detalhe de banco. Um
+ * item `pega` cujo worker não dá sinal há mais de 45 min deixa de ser "em
+ * execução" e passa a ser "sem sinal" — a cor muda para a de bloqueio e o
+ * ícone para o de desconexão (cor nunca é o único sinal; o texto também muda).
+ */
+const SEM_SINAL: Config = {
+  label: "sem sinal",
+  icon: WifiOff,
+  text: "text-state-blocked",
+  border: "border-state-blocked/50",
+  bg: "bg-state-blocked/12",
+};
+
+export function EstadoFilaChip({
+  estado,
+  semSinal = false,
+}: {
+  estado: EstadoFila;
+  semSinal?: boolean;
+}): JSX.Element {
+  const cfg = estado === "pega" && semSinal ? SEM_SINAL : ESTADOS[estado];
   const Icon = cfg.icon;
   return (
     <span
