@@ -9,6 +9,13 @@
  * Público (sem login): `/login`, `/auth/*` (callback/signout) e `/api/health`
  * (sonda de uptime + rollback, kill-switch nº 6).
  *
+ * FONTE DUPLA DE AUTORIZAÇÃO (12/09/2026): além da env `LIFEBOARD_ALLOWED_EMAILS`,
+ * vale estar na tabela `painel_frentes_leitores` — assim liberar a esposa (ou
+ * qualquer pessoa) é INSERT no banco, sem redeploy. A policy
+ * `painel_frentes_leitores_proprio` deixa cada um ler só a própria linha, então a
+ * consulta vai na identidade de quem está entrando. O resultado fica 5 min em
+ * memória por e-mail para não bater no banco a cada requisição.
+ *
  * Se `NEXT_PUBLIC_SUPABASE_URL` não estiver setado (dev fixture), o gate fica
  * DESATIVADO — não atrapalha o desenvolvimento local.
  */
@@ -26,6 +33,66 @@ const ALLOWED = (
   .split(",")
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
+
+/**
+ * Cache do "pode ler" por e-mail (5 min) — uma instância do middleware.
+ *
+ * Só entra aqui RESPOSTA do banco (achou linha ou não achou). Erro de consulta
+ * nunca é cacheado: senão um soluço de rede trancaria a pessoa por 5 minutos.
+ * Teto de 500 e-mails, descartando o mais antigo — mapa sem teto num processo
+ * de longa vida é vazamento de memória com outro nome.
+ */
+const CACHE_MS = 5 * 60_000;
+const CACHE_TETO = 500;
+const cacheLeitores = new Map<string, { pode: boolean; expira: number }>();
+
+function guardarNoCache(email: string, pode: boolean): void {
+  // Reinsere para o e-mail virar o mais novo na ordem do Map.
+  cacheLeitores.delete(email);
+  cacheLeitores.set(email, { pode, expira: Date.now() + CACHE_MS });
+  while (cacheLeitores.size > CACHE_TETO) {
+    const maisAntigo = cacheLeitores.keys().next();
+    if (maisAntigo.done) break;
+    cacheLeitores.delete(maisAntigo.value);
+  }
+}
+
+type ClienteLeitura = {
+  from: (tabela: string) => {
+    select: (colunas: string) => {
+      eq: (coluna: string, valor: string) => {
+        maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+      };
+    };
+  };
+};
+
+/** Está na env OU tem linha em `painel_frentes_leitores`? */
+async function podeLer(supabase: ClienteLeitura, email: string): Promise<boolean> {
+  if (ALLOWED.includes(email)) return true;
+
+  const agora = Date.now();
+  const guardado = cacheLeitores.get(email);
+  if (guardado && guardado.expira > agora) return guardado.pode;
+
+  try {
+    const { data, error } = await supabase
+      .from("painel_frentes_leitores")
+      .select("email")
+      .eq("email", email)
+      .maybeSingle();
+    if (error) {
+      // Erro do banco: nega só nesta requisição e NÃO grava no cache.
+      return false;
+    }
+    const pode = data !== null;
+    guardarNoCache(email, pode);
+    return pode;
+  } catch {
+    // Banco fora do ar não é autorização — e também não vira cache.
+    return false;
+  }
+}
 
 function isPublicPath(path: string): boolean {
   return (
@@ -63,7 +130,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   } = await supabase.auth.getUser();
 
   const email = (user?.email ?? "").toLowerCase();
-  if (!user || !ALLOWED.includes(email)) {
+  const autorizado = user ? await podeLer(supabase as unknown as ClienteLeitura, email) : false;
+  if (!user || !autorizado) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.search = user ? "?error=forbidden" : "";

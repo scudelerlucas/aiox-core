@@ -20,6 +20,7 @@ module.exports = [
       '**/build/**',
       '**/dist/**',
       '**/.next/**',
+      'packages/lifeboard/next-env.d.ts',
       // Dashboard has its own ESLint config
       'apps/dashboard/**',
       '**/.aiox-core/_legacy-v4.31.0/**',
@@ -163,6 +164,22 @@ module.exports = [
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
     },
+  },
+
+  // OS-LIFEBOARD (packages/lifeboard): Next.js + TypeScript. O TypeScript já verifica
+  // identificadores (window, JSX, URL, Deno nas Edge Functions); manter `no-undef` aqui
+  // só gera falso positivo, porque este config não carrega os tipos de DOM/Deno.
+  // O gate real do pacote é `npm run typecheck` (tsc --noEmit) dentro dele.
+  {
+    files: ['packages/lifeboard/**/*.ts', 'packages/lifeboard/**/*.tsx'],
+    ignores: ['packages/lifeboard/next-env.d.ts'], // gerado pelo Next a cada build
+    rules: {
+      'no-undef': 'off',
+    },
+  },
+  {
+    files: ['packages/lifeboard/**/*.mjs'],
+    languageOptions: { sourceType: 'module' },
   },
 
   // Test files - more relaxed rules
