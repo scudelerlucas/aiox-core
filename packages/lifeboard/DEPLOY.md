@@ -139,9 +139,15 @@ quem pega o que é dela.
 
 - **Migrations:** `0007_lifeboard_v3_fila_prompts.sql` (tabelas
   `painel_fila_prompts`/`painel_teto_diario`, seed US$150/dia por conta — régua da casa
-  `teto-de-gasto-diario`) + `0009_lifeboard_v3_fila_ajustes.sql` (correção do crítico
-  hostil, 16 achados — trigger com reserva, worker sem segredo de app, fuso do operador,
-  RLS fechada, etc. — ver o cabeçalho do arquivo para a lista inteira).
+  `teto-de-gasto-diario`) + `0009_lifeboard_v3_fila_ajustes.sql` (correção da RODADA 1 do
+  crítico hostil, 16 achados — trigger com reserva, worker sem segredo de app, fuso do
+  operador, RLS fechada, etc.) + `0011_lifeboard_v3_fila_ajustes_2.sql` (correção da
+  RODADA 2: boundary do teto alinhado entre TS e SQL — aceita sse
+  `medido+reservado+estimado <= teto`, recusa só ao ULTRAPASSAR, nunca no empate; `falhou`
+  agora conta no medido do dia; trigger ganha lock `FOR UPDATE` na linha do teto da conta
+  — TOCTOU de dois inserts concorrentes; item `pega` há mais de 6h volta sozinho para
+  `na_fila`; `painel_fila_reservado`/`painel_fila_medido_ate` fecham privilégio de
+  anon/authenticated — ver o cabeçalho de cada arquivo para a lista inteira).
 - **`painel_custo_estimado(complexidade, usd)`** — 1 fonte para o custo estimado por
   complexidade (baixa 5 · media 15 · alta 50 · maxima 120), lida pelo trigger E espelhada
   em `CUSTO_ESTIMADO_POR_COMPLEXIDADE` (`src/core/prompts/tipos.ts`). Cada item da fila
@@ -149,8 +155,10 @@ quem pega o que é dela.
   `complexidade`, nunca aceito de fora.
 - **Reserva de teto (achado CRÍTICO #1):** o trigger `BEFORE INSERT` em
   `painel_fila_prompts` recusa quando `medido_hoje + reservado (na_fila+pega) + este item
-  >= teto` — antes só olhava o medido, e 5 prompts Fable cabiam a US$149,99/150 porque
-  nada somava o que já estava na fila. `painel_fila_reservado(conta)` faz essa soma.
+  > teto` (0011: era `>=`, empatava no exato valor do teto — corrigido para alinhar com o
+  TS, que sempre aceitou em empate) — antes só olhava o medido, e 5 prompts Fable cabiam a
+  US$149,99/150 porque nada somava o que já estava na fila. `painel_fila_reservado(conta)`
+  faz essa soma (0011: ignora `pega` há mais de 6h — ver abaixo).
 - **RPCs secret-gated (painel apenas):** `fila_prompts_enfileirar(p_secret, p_payload)` —
   cria o item; sem `conta` no payload, roteia pela conta com mais HEADROOM (não só menor
   consumo — uma conta quase no teto não cabe pra uma tarefa Fable mesmo com "espaço"

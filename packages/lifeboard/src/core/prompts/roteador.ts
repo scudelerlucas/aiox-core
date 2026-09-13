@@ -122,6 +122,19 @@ export function escolherConta(
   };
 }
 
+/**
+ * Achado ALTO #1 (crítico hostil, rodada 2, 13/09/2026): esta função e
+ * `escolherConta` acima SEMPRE aceitaram em empate (`headroom >= custo`, ou
+ * seja `medido+reservado+custo <= teto`) — era o TRIGGER (`painel_fila_
+ * prompts_checar_teto`, SQL) que recusava esse mesmo empate (`>= teto`). A
+ * migration `0011_lifeboard_v3_fila_ajustes_2.sql` alinhou o trigger para cá
+ * (recusa só ao ULTRAPASSAR o teto, `>`) — nada mudou neste arquivo porque o
+ * TS já estava certo; provado ao vivo contra o banco (rollback block da
+ * 0011): teto 50/medido 0/reservado 0/alta(50) → aceita; medido 0.01 →
+ * recusada. Ver o caso de fronteira no teste de paridade em
+ * `tests/unit/roteador-de-conta.test.ts`.
+ */
+
 /** Esta conta tem headroom (teto − medido − reservado) para a complexidade dada? */
 export function contaTemEspacoPara(
   consumo: { consumoHojeUsd: number; reservadoUsd: number; tetoUsd: number },

@@ -204,6 +204,33 @@ describe("escolherConta", () => {
         headroomEsperado: 200,
         cabeNoBanco: true, // provado: insert OK, pegar_interno pegou o item
       },
+      // ── Achado ALTO #1 (rodada 2, 13/09/2026): o caso que REPROVOU ──────────
+      // o trigger recusava em EMPATE (`>= teto`) enquanto o TS sempre aceitou
+      // (`headroom >= custo`). 0011_lifeboard_v3_fila_ajustes_2.sql alinhou o
+      // trigger para `>` — os 2 casos abaixo foram rodados AO VIVO contra o
+      // banco (rollback block da 0011, mesma sessão): "1a" inseriu de verdade
+      // e não levantou exceção; "1b" recusou com a mensagem exata do trigger
+      // ("fila: conta lucasscudeler@gmail.com ficaria em US$ 50.01 hoje
+      // (medido US$ 0.01 + reservado US$ 0.00 + este item US$ 50.00) — teto
+      // US$ 50.00").
+      {
+        rotulo: "boundary (achado ALTO #1): teto 50, medido 0, reservado 0, alta (50) -> ACEITA (empate)",
+        consumo: 0,
+        reservado: 0,
+        teto: 50,
+        complexidade: "alta" as const,
+        headroomEsperado: 50,
+        cabeNoBanco: true, // provado no banco: insert nao levantou excecao
+      },
+      {
+        rotulo: "boundary (achado ALTO #1): teto 50, medido 0.01, reservado 0, alta (50) -> RECUSA (estourou por 1 centavo)",
+        consumo: 0.01,
+        reservado: 0,
+        teto: 50,
+        complexidade: "alta" as const,
+        headroomEsperado: 49.99,
+        cabeNoBanco: false, // provado no banco: RAISE EXCEPTION 'fila: ... US$ 50.01 ... teto US$ 50.00'
+      },
     ];
 
     it.each(casosProvadosNoBanco)(

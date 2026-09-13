@@ -13,7 +13,7 @@
 import { revalidatePath } from "next/cache";
 
 import { env } from "@/config/env";
-import { complexidadeValida, type Complexidade } from "@/core/prompts/tipos";
+import { CONTAS, ROTULO_CONTA, complexidadeValida, type Complexidade } from "@/core/prompts/tipos";
 import {
   cancelarFixture,
   enfileirarFixture,
@@ -31,6 +31,31 @@ export type EstadoAcaoPrompt = {
 
 function revalidar(): void {
   revalidatePath("/prompts");
+}
+
+/**
+ * Achado BAIXO #9 (crítico hostil, rodada 2): a recusa que vinha do trigger
+ * (via `traduzirErroFila`, código `check_violation`) ou do fixture-store
+ * chegava À TELA verbatim — jargão interno ("medido"/"reservado"/"este
+ * item") + o E-MAIL CRU da conta ("fila: conta lucasscudeler@gmail.com
+ * ficaria em US$ ... — teto US$ ..."). O operador não devia precisar saber
+ * qual e-mail é qual conta. Mapeia para o rótulo (Lucas/Pandora/Alma Petra) e
+ * reduz para a frase que interessa; o texto INTEIRO (o de dentro) sempre vai
+ * para `console.error` — nunca se perde, só não aparece na tela.
+ */
+function formatarRecusaFila(erroBruto: string): string {
+  console.error(`[prompts] recusa da fila (bruto): ${erroBruto}`);
+
+  const conta = CONTAS.find((c) => erroBruto.includes(c));
+  const estimado = erroBruto.match(/este item US\$\s*([\d.,]+)\)/)?.[1];
+  const teto = erroBruto.match(/teto US\$\s*([\d.,]+)\s*\.?$/)?.[1];
+
+  if (conta && estimado && teto) {
+    return `A conta ${ROTULO_CONTA[conta]} não tem US$ ${estimado} livres hoje (teto US$ ${teto}).`;
+  }
+  // Formato que não bate (ex.: recusa do roteamento automático, sem conta
+  // específica) atravessa como está — não tem e-mail cru para mapear.
+  return erroBruto;
 }
 
 function textoOu(form: FormData, campo: string): string {
@@ -131,7 +156,10 @@ export async function novoPromptAction(
     criadoPor,
     taskId,
   });
-  if ("erro" in r) return { erro: r.erro };
+  // Achado BAIXO #9: só a recusa da RPC/fixture (jargão + e-mail cru) passa
+  // pelo formatador — os `erro` de validação acima já estão em português
+  // simples e nunca citam uma conta.
+  if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };
   revalidar();
   return { ok: true, id: r.id, conta: r.conta, motivo: r.motivo };
 }

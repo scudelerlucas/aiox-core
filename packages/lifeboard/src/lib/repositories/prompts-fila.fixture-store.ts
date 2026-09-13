@@ -18,6 +18,12 @@
  * de tudo que está `na_fila`/`pega`) e recusa enfileirar (manual OU
  * automático) quando o HEADROOM (teto − medido − reservado) não cobre o
  * custo estimado da complexidade — mesma régua do trigger em SQL.
+ *
+ * Achado ALTO #1 (rodada 2, 13/09/2026): este arquivo sempre aceitou em
+ * empate (recusa só quando `headroom < custoEstimado`, ou seja aceita
+ * quando `headroom >= custoEstimado`) — era o TRIGGER em SQL que recusava
+ * esse mesmo empate. Corrigido em `0011_lifeboard_v3_fila_ajustes_2.sql`
+ * para o MESMO critério daqui — nada muda neste arquivo.
  */
 
 import { escolherConta } from "@/core/prompts/roteador";
