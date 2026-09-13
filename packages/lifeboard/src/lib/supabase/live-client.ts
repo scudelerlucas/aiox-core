@@ -22,8 +22,13 @@ import "server-only";
 import { cache } from "react";
 
 import { env } from "@/config/env";
-import { normalizeHierarq } from "@/lib/supabase/normalize-task";
-import type { Project, Source, SyncLog, Task } from "@/types/canonical";
+import {
+  normalizeAssimetria,
+  normalizeEdge,
+  normalizeHierarq,
+  numeroOuNulo,
+} from "@/lib/supabase/normalize-task";
+import type { Project, Source, SyncLog, Task, TaskEdge, TaskNote } from "@/types/canonical";
 
 /** Forma exata do JSON retornado pela RPC `lifeboard_load` (já camelCase). */
 export interface LifeboardState {
@@ -31,6 +36,10 @@ export interface LifeboardState {
   syncLogs: SyncLog[];
   projects: Project[];
   tasks: Task[];
+  /** v3 — arestas declaradas (RPC devolve `[]` em banco sem a migration 0004). */
+  edges: TaskEdge[];
+  /** v3 — notas em lista. */
+  notes: TaskNote[];
 }
 
 /** Normaliza arrays possivelmente nulos vindos do JSON. */
@@ -45,6 +54,40 @@ function normalizeTask(raw: Task): Task {
     predecessorIds: asArray<string>(raw.predecessorIds),
     successorIds: asArray<string>(raw.successorIds),
     priorityHierarq: normalizeHierarq(raw.priorityHierarq),
+    estimativaDias: numeroOuNulo(raw.estimativaDias),
+    iniciadoEm: typeof raw.iniciadoEm === "string" ? raw.iniciadoEm : null,
+    parentId: typeof raw.parentId === "string" ? raw.parentId : null,
+    isGoal: raw.isGoal === true,
+    assimetria: normalizeAssimetria(raw.assimetria),
+  };
+}
+
+/** Descarta arestas de tipo desconhecido em vez de deixar o grafo cair. */
+function normalizeEdges(raw: unknown[]): TaskEdge[] {
+  const out: TaskEdge[] = [];
+  let descartadas = 0;
+  for (const r of raw) {
+    const e = normalizeEdge(r);
+    if (e) out.push(e);
+    else descartadas++;
+  }
+  if (descartadas > 0) {
+    console.warn(`[lifeboard/live] ${descartadas} aresta(s) com tipo desconhecido foram ignoradas`);
+  }
+  return out;
+}
+
+function normalizeNote(raw: unknown): TaskNote | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const n = raw as Partial<TaskNote>;
+  if (typeof n.id !== "string" || typeof n.taskId !== "string" || typeof n.texto !== "string")
+    return null;
+  return {
+    id: n.id,
+    taskId: n.taskId,
+    texto: n.texto,
+    autor: typeof n.autor === "string" ? n.autor : null,
+    createdAt: typeof n.createdAt === "string" ? n.createdAt : "",
   };
 }
 
@@ -90,5 +133,9 @@ export const loadLifeboardState = cache(async (): Promise<LifeboardState> => {
     syncLogs: asArray<SyncLog>(payload?.syncLogs),
     projects: asArray<Project>(payload?.projects),
     tasks: asArray<Task>(payload?.tasks).map(normalizeTask),
+    edges: normalizeEdges(asArray<unknown>(payload?.edges)),
+    notes: asArray<unknown>(payload?.notes)
+      .map(normalizeNote)
+      .filter((n): n is TaskNote => n !== null),
   };
 });

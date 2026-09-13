@@ -40,6 +40,18 @@ export interface HierarqScore {
   s3: number;
 }
 
+/**
+ * Átomos DECLARADOS do score de assimetria (v3, 13/09/2026). Os outros dois
+ * átomos — alavanca (s1) e alcance (s3) — são calculados a cada leitura a partir
+ * do grafo, por isso não vivem aqui. Escalas: opcionalidade 1–3; esforço e custo
+ * em 1 | 2 | 3 | 5 (p80). Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md` §3.
+ */
+export interface AssimetriaDeclarada {
+  opcionalidade: number;
+  esforco: number;
+  custo: number;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -53,6 +65,40 @@ export interface Task {
   sourceId: string;
   externalRef: string;
   updatedAt: string;
+  // ── v3 (opcionais: linhas antigas não têm; o normalizador preenche) ──────
+  /** Duração p80 em dias. Sem ela a tarefa fica fora do caminho crítico, com aviso. */
+  estimativaDias?: number | null;
+  iniciadoEm?: string | null;
+  /** Subtarefa aponta para a mãe. */
+  parentId?: string | null;
+  /** Alvo do caminho crítico. */
+  isGoal?: boolean;
+  assimetria?: AssimetriaDeclarada | null;
+}
+
+/**
+ * Tipos de aresta DECLARADOS. "Sucessão" é `predecessor` lido ao contrário;
+ * "caminho crítico" é resultado do CPM — nenhum dos dois se grava.
+ */
+export type EdgeTipo = "predecessor" | "correlacao" | "sinergia" | "obsolescencia";
+
+export interface TaskEdge {
+  id: string;
+  origem: string;
+  destino: string;
+  tipo: EdgeTipo;
+  /** Sinergia: desconto no custo do destino (0..1). Demais tipos: 1. */
+  peso: number;
+  nota: string | null;
+  createdAt: string;
+}
+
+export interface TaskNote {
+  id: string;
+  taskId: string;
+  texto: string;
+  autor: string | null;
+  createdAt: string;
 }
 
 export interface SyncLog {
