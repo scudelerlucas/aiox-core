@@ -28,16 +28,20 @@ import type { TaskEdge } from "@/types/canonical";
  * seria compilado). `tests/unit/altura-do-cartao.test.ts` prova que os três
  * consumidores leem o mesmo valor.
  *
- * P4e (achado ALTO #2 do crítico hostil ROUND 4): o rodapé passou a ter DUAS
- * linhas fixas (linha 1 `S xx · folga: N d` + badge `A xx`; linha 2 o chip de
- * status com rótulo inteiro) — em UMA linha só, o `shrink-0` da folga empurrava
- * o badge e o chip para FORA da caixa e o `overflow-hidden` do cartão cortava
- * em silêncio ("A 18" renderizava "A 1": número plausível e FALSO). 144 é a
- * altura que a 2ª linha pede, medida no navegador (conteúdo real ≈ 137px:
- * 16 de padding + 20 do cabeçalho + 34 da nota + 67 do rodapé de 2 linhas).
+ * P4f (decisão D4 + achado BAIXO #10 do crítico hostil ROUND 5): o rodapé
+ * continua com duas linhas, mas agora a de cima é SÓ o dado numérico
+ * (`S xx · folga: N d`, sem truncar nunca) e a de baixo é chip de estado +
+ * badge `A xx`; e a base tipográfica do cartão subiu de 12 para 13px (título
+ * 14px) para que o texto de TELA fique acima de 11,4px também no piso de zoom
+ * do modo cartão. Os dois somam altura: 156 é o que o conteúdo real pede
+ * 180 é a ALTURA NATURAL do cartão mais alto, medida no navegador (clone do
+ * cartão real fora do canvas, sem altura imposta: 179px no fixture de 11,
+ * 180px no cenário de 40). É a régua que a decisão D4 manda seguir — "se ainda
+ * não couber, o cartão cresce em altura pelo token": nada do rodapé pode ser
+ * cortado em silêncio, e a nota (2 linhas) é o que definia o piso.
  * Continua sendo o ÚNICO número — layout e cartão seguem o token.
  */
-export const ALTURA_DO_CARTAO = 144;
+export const ALTURA_DO_CARTAO = 180;
 
 export interface GrafoV3Props {
   /** Arestas declaradas v3 (predecessor · correlação · sinergia · obsolescência). */

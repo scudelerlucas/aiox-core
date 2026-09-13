@@ -80,9 +80,17 @@ export interface StatusChipProps {
   /** Vem do banco como texto: aceitar `string` é o que impede a queda. */
   status: TaskStatus | string;
   className?: string;
+  /**
+   * P4f (achado BAIXO #10 do crítico hostil ROUND 4): o chip nascia com
+   * `text-xs` (12px) — a 0,85 de zoom isso dá 10,2px de TELA, abaixo do piso
+   * de 11,4px da régua. Dentro do grafo quem manda no tamanho é
+   * `tipografia-do-cartao.ts` (13px de base, compensado por zoom quando
+   * preciso); fora do grafo o default de 12px continua valendo.
+   */
+  fontSizePx?: number;
 }
 
-export function StatusChip({ status, className }: StatusChipProps): JSX.Element {
+export function StatusChip({ status, className, fontSizePx }: StatusChipProps): JSX.Element {
   const cfg = configDoEstado(status);
   const Icon = cfg.icon;
   return (
@@ -95,6 +103,7 @@ export function StatusChip({ status, className }: StatusChipProps): JSX.Element 
     // o rótulo NUNCA encolhe nem corta (`whitespace-nowrap`, sem `truncate`) —
     // quem cede espaço, quando faltar, é a folga na linha de cima.
     <span
+      style={fontSizePx ? { fontSize: fontSizePx, lineHeight: 1.25 } : undefined}
       className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-semibold ${cfg.border} ${cfg.bg} ${cfg.text} ${className ?? ""}`}
     >
       <Icon size={13} aria-hidden="true" className="shrink-0" />

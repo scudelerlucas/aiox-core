@@ -235,6 +235,15 @@ export interface ArestaSvgGroupProps {
    * abaixo de ~12px de tela (achado ALTO #4).
    */
   glifoEscala?: number;
+  /**
+   * P4f (achado BAIXO #10 do crítico hostil ROUND 4, generalizado): o rótulo
+   * de % da sinergia era o último texto do grafo com tamanho FIXO (12px) — a
+   * 0,85 de zoom isso dá 10,2px de TELA, abaixo do piso de 11,4px. Agora
+   * `v3-edge.tsx` passa o mesmo tamanho que o cartão usa naquele zoom
+   * (`tipografia-do-cartao.ts`). Default 12: o valor de sempre para quem
+   * instancia este componente fora do canvas (legenda, teste de render).
+   */
+  labelFontePx?: number;
 }
 
 /**
@@ -258,6 +267,7 @@ export function ArestaSvgGroup({
   eixoDeslocamento = "y",
   offsetPx = 3.5,
   glifoEscala = 1,
+  labelFontePx = 12,
 }: ArestaSvgGroupProps): JSX.Element {
   const cor = corDaAresta(spec);
   const forma = FORMA_POR_CAMADA[spec.camada];
@@ -334,10 +344,9 @@ export function ArestaSvgGroup({
           className="lb-edge-label lb-edge-label-sinergia"
           x={midX}
           y={midY}
-          // P4c (achado MÉDIO #7 do crítico hostil ROUND 2): 10px CSS a zoom
-          // ~0,95 rendeu 9,5px de tela (abaixo do piso de 11,4px da régua) —
-          // 12px é o mesmo piso que `task-node.tsx` usa pros badges.
-          fontSize={12}
+          // Tamanho pela régua única de tipografia do grafo (piso de 11,4px
+          // de TELA em qualquer zoom) — ver `labelFontePx`.
+          fontSize={labelFontePx}
           textAnchor="middle"
           fill={cor}
         >
