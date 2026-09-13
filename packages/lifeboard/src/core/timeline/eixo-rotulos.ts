@@ -37,15 +37,26 @@ export const MINIMO_DIST_ROTULO_PX = 40;
 export const LIMIAR_TICK_PX = 160;
 /**
  * Padding lateral aproximado (px) somado à largura estimada de um rótulo.
- * Calibrado por MEDIÇÃO REAL no navegador (Playwright, rodada 4): "04/09"
- * (5 car.) mede 42,78px; "13/09/2026" (10 car., o chip de "hoje") mede
- * 79,56px. Ajuste linear: ~7,36px/caractere + ~6px fixos. Os valores abaixo
- * arredondam PARA CIMA de propósito (7,5 / 10) — a heurística deve
- * superestimar a largura, nunca subestimar.
+ *
+ * Rodada 6 (achado BAIXO A5 do crítico): a calibração da rodada 4 (7,5px/car.
+ * + 10px) SUBESTIMAVA o chip de mês grudado, contra o comentário que prometia
+ * superestimar — "ago/2026" (8 car.) estimava 70px e MEDIA 74,72px. Duas
+ * causas, as duas fechadas aqui: o chip tem `pl-1 pr-2` (12px de padding, não
+ * 10) e a fonte semibold mede ~7,84px/caractere, não 7,5. Os três valores
+ * abaixo são a FONTE ÚNICA: a estimativa usa `PX_POR_CHAR`/`PADDING_ROTULO_PX`
+ * e o componente usa `PADDING_CHIP_PX` no padding INLINE do chip (nunca mais
+ * classes Tailwind soltas que podem divergir do número usado na conta).
+ * Limite superior real medido: 7,84 × nº de caracteres + 12.
  */
-const PADDING_ROTULO_PX = 10;
-/** Largura aproximada por caractere (px), fonte 12px semibold. */
-const PX_POR_CARACTERE = 7.5;
+export const PADDING_ROTULO_PX = 12;
+/** Largura aproximada por caractere (px), fonte 12px semibold — acima dos 7,84 medidos. */
+export const PX_POR_CHAR = 8;
+/**
+ * Padding horizontal TOTAL do chip de mês grudado, em px, aplicado inline
+ * (metade de cada lado). É a MESMA constante que entra na estimativa de
+ * largura — o defeito da rodada 5 foi exatamente as duas se separarem.
+ */
+export const PADDING_CHIP_PX = 12;
 /**
  * Respiro extra (px) além da largura estimada do rótulo à ESQUERDA — nunca
  * zero (rótulos colados, sem nenhum ar, ainda leem mal mesmo sem sobrepor).
@@ -88,6 +99,70 @@ function mesCurto(iso: string): string {
 }
 
 export type FaixaEixo = "dia" | "semana" | "mes";
+
+/**
+ * Rodada 6 (achado ALTO A3): o TETO de dias cortava a janela em silêncio —
+ * `gerarEscalaEixo` desenhava até `min(TETO, diff)`, mas a VIEW decidia "está
+ * depois da janela?" comparando com `maxIso`. Uma barra de 400 dias terminava
+ * no último pixel do eixo, com ponta arredondada, escondendo 50 dias.
+ *
+ * `diasDesenhados`/`fimDesenhadoIso` são a ÚNICA fonte do fim real da janela:
+ * a escala, o clamp de `xFor`, o chevron "▶" e a contagem de itens fora da
+ * janela passaram todos a olhar para ELES, nunca mais para `maxIso`.
+ */
+export function diasDesenhados(minIso: string, maxIso: string): number {
+  return Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
+}
+
+/** Último dia REALMENTE desenhado (ISO curto) — `maxIso` quando o teto não corta. */
+export function fimDesenhadoIso(minIso: string, maxIso: string): string {
+  return somaDiasIso(minIso, diasDesenhados(minIso, maxIso));
+}
+
+/** `iso` cai DEPOIS do fim desenhado? (mutação: comparar com `maxIso` deixa 50 dias mudos). */
+export function depoisDoFimDesenhado(iso: string, fimDesenhado: string): boolean {
+  return paraEpoch(iso) > paraEpoch(fimDesenhado);
+}
+
+/** Densidade → faixa do eixo. Função de PRODUÇÃO — `gerarEscalaEixo` chama esta. */
+export function faixaDoEixo(pxPorDia: number): FaixaEixo {
+  return pxPorDia >= 24 ? "dia" : pxPorDia >= 8 ? "semana" : "mes";
+}
+
+/**
+ * Rótulo de uma data no eixo. Horizonte que pode repetir o mesmo `dd/MM`
+ * (≥ 364 dias) → o rótulo leva o ano. Exportada (rodada 6, achado BAIXO A7):
+ * o teste de 200 combinações copiava esta regra à mão e a cópia JÁ tinha
+ * divergido da produção — agora não existe segunda implementação.
+ */
+export function rotuloDeData(iso: string, totalDias: number): string {
+  return totalDias >= 364 ? diaMesAnoCurto(iso) : diaMesCurto(iso);
+}
+
+/**
+ * Rótulo de um mês no eixo. Rodada 6 (achado BAIXO A8): `primeiraVezNoAno`
+ * sozinho deixava DOIS "ago" idênticos na mesma régua num horizonte de mais
+ * de um ano (só janeiro ganhava o ano). Horizonte desenhado ≥ 366 dias →
+ * TODO rótulo de mês leva o ano, a mesma disciplina que o `dd/MM` já tinha.
+ */
+export function rotuloDeMes(iso: string, totalDias: number, primeiraVezNoAno: boolean): string {
+  return totalDias >= 366 || primeiraVezNoAno ? `${mesCurto(iso)}/${anoDoIso(iso)}` : mesCurto(iso);
+}
+
+/**
+ * O rótulo que a borda `x=0` teria nesta escala — exatamente o que
+ * `gerarEscalaEixo` coloca lá. Exportada para o teste provar que a borda só
+ * cede quando PROVADAMENTE não cabe, medindo contra a largura do rótulo REAL
+ * (a cópia manual do teste acrescentava/omitia o ano por conta própria).
+ */
+export function labelDaBordaDoEixo(minIso: string, maxIso: string, pxPorDia: number): string {
+  const totalDias = diasDesenhados(minIso, maxIso);
+  const faixa = faixaDoEixo(pxPorDia);
+  if (faixa === "dia") return String(new Date(paraEpoch(minIso)).getUTCDate());
+  if (faixa === "mes") return rotuloDeMes(minIso, totalDias, true);
+  return rotuloDeData(minIso, totalDias);
+}
+
 export type TipoRotulo = "dia" | "semana" | "mes" | "preenchimento" | "hoje" | "borda";
 
 export interface RotuloEixo {
@@ -124,7 +199,7 @@ interface Candidato extends RotuloEixo {
 
 /** Largura aproximada (px) do rótulo — heurística por caracteres, a MESMA para todos. */
 export function larguraAproximada(label: string): number {
-  return label.length * PX_POR_CARACTERE + PADDING_ROTULO_PX;
+  return label.length * PX_POR_CHAR + PADDING_ROTULO_PX;
 }
 
 /**
@@ -192,9 +267,9 @@ export function gerarEscalaEixo(params: {
   hojeIso: string;
 }): EscalaEixo {
   const { minIso, maxIso, pxPorDia, hojeIso } = params;
-  const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
+  const totalDias = diasDesenhados(minIso, maxIso);
   const larguraTotal = totalDias * pxPorDia;
-  const faixa: FaixaEixo = pxPorDia >= 24 ? "dia" : pxPorDia >= 8 ? "semana" : "mes";
+  const faixa: FaixaEixo = faixaDoEixo(pxPorDia);
   const guiasSemana: number[] = [];
 
   // ── 1. candidatos ────────────────────────────────────────────────────────
@@ -206,9 +281,7 @@ export function gerarEscalaEixo(params: {
    * um rótulo já colocado e quebraria a régua contra o vizinho da direita):
    * horizonte que pode repetir → todo rótulo de data leva o ano.
    */
-  const dataPodeRepetir = totalDias >= 364;
-  const rotuloDeData = (iso: string): string =>
-    dataPodeRepetir ? diaMesAnoCurto(iso) : diaMesCurto(iso);
+  const rotuloDeDataDaEscala = (iso: string): string => rotuloDeData(iso, totalDias);
 
   const candidatos: Candidato[] = [];
   const candidatosMes: Candidato[] = [];
@@ -235,7 +308,7 @@ export function gerarEscalaEixo(params: {
       if (ehSegunda) {
         candidatos.push({
           x,
-          label: rotuloDeData(iso),
+          label: rotuloDeDataDaEscala(iso),
           forte: ehInicioMes,
           tipo: "semana",
           prioridade: ehInicioMes ? 2 : 1,
@@ -247,7 +320,7 @@ export function gerarEscalaEixo(params: {
       anoAnteriorPrincipal = ano;
       candidatos.push({
         x,
-        label: primeiraVezNoAno ? `${mesCurto(iso)}/${ano}` : mesCurto(iso),
+        label: rotuloDeMes(iso, totalDias, primeiraVezNoAno),
         forte: true,
         tipo: "mes",
         prioridade: 2,
@@ -264,7 +337,7 @@ export function gerarEscalaEixo(params: {
       anoAnteriorMes = ano;
       candidatosMes.push({
         x: xMes,
-        label: primeiraVezNoAno ? `${mesCurto(iso)}/${ano}` : mesCurto(iso),
+        label: rotuloDeMes(iso, totalDias, primeiraVezNoAno),
         forte: true,
         tipo: "mes",
         prioridade: 2,
@@ -279,7 +352,7 @@ export function gerarEscalaEixo(params: {
   const bordaNatural = candidatos.find((c) => c.x === 0);
   candidatos.push({
     x: 0,
-    label: bordaNatural?.label ?? (faixa === "mes" ? mesCurto(minIso) : rotuloDeData(minIso)),
+    label: bordaNatural?.label ?? labelDaBordaDoEixo(minIso, maxIso, pxPorDia),
     forte: true,
     tipo: "borda",
     prioridade: 3,
@@ -326,7 +399,7 @@ export function gerarEscalaEixo(params: {
         if (x - ancora < espacoDesejado) continue;
         const entrou = principal.colocar({
           x,
-          label: rotuloDeData(somaDiasIso(minIso, d)),
+          label: rotuloDeDataDaEscala(somaDiasIso(minIso, d)),
           forte: false,
           tipo: "preenchimento",
           prioridade: 0,

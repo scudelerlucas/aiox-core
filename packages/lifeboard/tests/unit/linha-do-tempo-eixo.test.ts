@@ -4,8 +4,9 @@ import {
   LIMIAR_TICK_PX,
   MINIMO_DIST_ROTULO_PX,
   distanciaMinima,
+  faixaDoEixo,
   gerarEscalaEixo,
-  type FaixaEixo,
+  labelDaBordaDoEixo,
   type RotuloEixo,
 } from "@/core/timeline/eixo-rotulos";
 
@@ -26,29 +27,30 @@ const MS_POR_DIA = 86_400_000;
 function somaDiasIso(iso: string, dias: number): string {
   return new Date(Date.parse(`${iso}T00:00:00.000Z`) + dias * MS_POR_DIA).toISOString().slice(0, 10);
 }
-function diaMes(iso: string): string {
-  const d = new Date(Date.parse(`${iso}T00:00:00.000Z`));
-  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 /**
- * O rótulo que a BORDA `x=0` teria — replicado aqui de propósito: é contra a
- * largura DELE que se prova que a borda só cede quando não cabe ao lado do
- * chip de "hoje" (achado ALTO A2, rodada 5), nunca por capricho.
+ * Rodada 6 (achado BAIXO A7): a cópia manual `labelDaBorda` foi APAGADA. Ela
+ * já tinha divergido da produção — na faixa "semana" devolvia `dd/MM` sempre,
+ * enquanto `rotuloDeData` acrescenta o ano a partir de 364 dias de horizonte
+ * —, e a asserção que a usava comparava a escala contra uma régua que a
+ * escala não usa. Agora o teste importa a função de PRODUÇÃO
+ * (`labelDaBordaDoEixo`): não existe segunda implementação para divergir.
  */
-function labelDaBorda(minIso: string, faixa: FaixaEixo): string {
-  const d = new Date(Date.parse(`${minIso}T00:00:00.000Z`));
-  if (faixa === "dia") return String(d.getUTCDate());
-  if (faixa === "semana") return diaMes(minIso);
-  return `${MESES[d.getUTCMonth()]}/${d.getUTCFullYear()}`;
-}
+
+/** Quantos combos exercitaram DE FATO o ramo "a borda cedeu" (asserção 4). */
+let combosComBordaCedida = 0;
 
 /** As densidades reais do app: Trimestre 6 · Mês 16 · o alvo do auto 24 · Semana 46 · teto do auto 64. */
 const PX_POR_DIA = [6, 16, 24, 46, 64] as const;
-/** 8 horizontes entre 30 e 400 dias × 5 densidades × 5 posições de "hoje" = 200 combinações. */
+/** 8 horizontes entre 30 e 400 dias × 5 densidades × 7 posições de "hoje" = 280 combinações. */
 const HORIZONTES_DIAS = [30, 45, 60, 90, 120, 200, 300, 400] as const;
-const FRACOES_HOJE = [0, 0.1, 0.4, 0.9, 1] as const;
+/**
+ * Rodada 6: `0.02` e `0.06` entraram de propósito — com `fracaoHoje > 0` e
+ * "hoje" a poucos pixels da borda é que o ramo "a borda cede" acontece. Sem
+ * pelo menos um combo nesse ramo, a asserção 4 nunca era exercitada e passava
+ * verde por vacuidade (o teste final deste arquivo cobra a contagem > 0).
+ */
+const FRACOES_HOJE = [0, 0.02, 0.06, 0.1, 0.4, 0.9, 1] as const;
 
 const MIN_BASE = "2026-09-01";
 
@@ -88,18 +90,33 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
           expect(hoje?.x).toBe(Math.min(diasAteHoje, totalDias) * pxPorDia);
           expect(hoje?.label).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
 
-          // 4. A borda `x=0` está lá — ou cedeu para "hoje", e nesse caso ela
-          //    PROVADAMENTE não cabia (a régua contra o rótulo que sobreviveu).
+          // 4. (i) OU existe um rótulo colocado em `x=0`, OU o 1º sobrevivente
+          //    está perto demais para a borda caber — medido contra o rótulo
+          //    REAL que a produção colocaria ali (`labelDaBordaDoEixo`), nunca
+          //    contra uma cópia do teste. (ii) num horizonte que repete datas
+          //    (≥ 364 d), o 1º rótulo visível carrega o ano; na faixa "dia" o
+          //    ano vive na 2ª linha do cabeçalho (os rótulos são "13", "14").
           const primeiro = ordenados[0]!;
-          if (primeiro.x !== 0) {
+          const bordaDeProducao: RotuloEixo = {
+            x: 0,
+            label: labelDaBordaDoEixo(MIN_BASE, maxIso, pxPorDia),
+            forte: true,
+            tipo: "borda",
+          };
+          const temBorda = ordenados.some((r) => r.x === 0);
+          expect(temBorda || primeiro.x < distanciaMinima(bordaDeProducao, primeiro)).toBe(true);
+          if (!temBorda) {
+            combosComBordaCedida += 1;
             expect(primeiro.tipo).toBe("hoje");
-            const borda: RotuloEixo = {
-              x: 0,
-              label: labelDaBorda(MIN_BASE, escala.faixa),
-              forte: true,
-              tipo: "borda",
-            };
-            expect(primeiro.x).toBeLessThan(distanciaMinima(borda, primeiro));
+          }
+          if (totalDias >= 364) {
+            const faixa = faixaDoEixo(pxPorDia);
+            if (faixa === "dia") {
+              const primeiroMes = [...escala.ticksMes].sort((a, b) => a.x - b.x)[0];
+              expect(primeiroMes?.label ?? "").toMatch(/\/\d{4}$/);
+            } else {
+              expect(primeiro.label).toMatch(/\d{4}/);
+            }
           }
 
           // 5. Nenhum vão maior que o limiar — a não ser quando a largura dos
@@ -133,6 +150,14 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
       }
     }
   }
+});
+
+describe("as combinações acima exercitaram o ramo da asserção 4 (achado BAIXO A7, rodada 6)", () => {
+  it("pelo menos um combo teve a borda cedendo — a asserção 4 não passa por vacuidade", () => {
+    // Nunca interpolar valor no 1º argumento de `console.*` (CodeQL).
+    console.log("combos em que a borda x=0 cedeu:", combosComBordaCedida);
+    expect(combosComBordaCedida).toBeGreaterThan(0);
+  });
 });
 
 describe("gerarEscalaEixo — o chip de 'hoje' nunca é movido para a borda (achado ALTO A2)", () => {
@@ -220,6 +245,52 @@ describe("gerarEscalaEixo — o ano aparece na virada (achado BAIXO #7, rodada 4
     });
     const deMes = escala.rotulos.filter((r) => r.tipo === "mes" || r.tipo === "borda");
     expect(deMes.filter((r) => r.label.includes("/2026")).length).toBe(1);
+  });
+});
+
+describe("gerarEscalaEixo — dois 'ago' na mesma régua nunca mais (achado BAIXO A8, rodada 6)", () => {
+  it("faixa 'mes', horizonte de 400 dias: nenhum rótulo de mês repetido", () => {
+    const escala = gerarEscalaEixo({
+      minIso: "2026-08-01",
+      maxIso: "2027-09-05", // 400 dias — "ago" cai duas vezes
+      pxPorDia: 6,
+      hojeIso: "2026-09-13",
+    });
+    expect(escala.faixa).toBe("mes");
+    const deMes = escala.rotulos
+      .filter((r) => r.tipo === "mes" || r.tipo === "borda")
+      .map((r) => r.label);
+    expect(deMes.length).toBeGreaterThan(2);
+    expect(new Set(deMes).size).toBe(deMes.length);
+    // E o ano está lá nos DOIS agostos (a régua é "sempre com ano", não "só em janeiro").
+    expect(deMes.filter((l) => l.startsWith("ago/")).length).toBeGreaterThanOrEqual(1);
+    expect(deMes.every((l) => /\/\d{4}$/.test(l))).toBe(true);
+  });
+
+  it("faixa 'dia', horizonte > 366 dias: a 2ª linha do cabeçalho também não repete mês", () => {
+    const escala = gerarEscalaEixo({
+      minIso: "2026-08-01",
+      maxIso: "2027-09-05",
+      pxPorDia: 24,
+      hojeIso: "2026-09-13",
+    });
+    expect(escala.faixa).toBe("dia");
+    const meses = escala.ticksMes.map((t) => t.label);
+    expect(meses.length).toBeGreaterThan(2);
+    expect(new Set(meses).size).toBe(meses.length);
+  });
+
+  it("horizonte de 365 dias ou menos mantém a régua antiga (ano só na virada)", () => {
+    const escala = gerarEscalaEixo({
+      minIso: "2026-01-05",
+      maxIso: "2026-11-01",
+      pxPorDia: 6,
+      hojeIso: "2026-06-15",
+    });
+    const deMes = escala.rotulos
+      .filter((r) => r.tipo === "mes" || r.tipo === "borda")
+      .map((r) => r.label);
+    expect(deMes.filter((l) => l.includes("/2026")).length).toBe(1);
   });
 });
 

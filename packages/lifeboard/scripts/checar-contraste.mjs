@@ -150,6 +150,21 @@ const PARES = [
   // problema original. `navy-950` pontilhado quando `row.critico` mede
   // 7,90:1; par decorativo (só borda/marcador, nunca texto corrido) — régua 3:1.
   ["navy-950", "aresta-critico", 3, "marcador pontilhado de atraso sobre a barra crítica do Gantt (P5e #8)"],
+  // ── Linha do tempo / Gantt, rodada 6 do crítico hostil (P5g, 13/09/2026) ──
+  // Achado ALTO A3: a barra cortada pelo teto de dias ganhou "▶" DENTRO dela
+  // (fora, o glifo esticava o `scrollWidth` do painel — achado BAIXO A6). O
+  // glifo é `navy-950` sobre o preenchimento da barra, qualquer que ele seja;
+  // carrega significado (não é enfeite), então vale a régua de texto, 4,5:1.
+  ["navy-950", "state-open", 4.5, "▶ 'continua além da janela' sobre a barra aberta (P5g A3)"],
+  ["navy-950", "state-done", 4.5, "▶ 'continua além da janela' sobre a barra concluída (P5g A3)"],
+  ["navy-950", "state-progress", 4.5, "▶ 'continua além da janela' sobre a barra em progresso (P5g A3)"],
+  ["navy-950", "state-blocked", 4.5, "▶ 'continua além da janela' sobre a barra bloqueada (P5g A3)"],
+  ["navy-950", "aresta-critico", 4.5, "▶ 'continua além da janela' sobre a barra crítica (P5g A3)"],
+  // Sobre o cinza de "fechado sem merge" o glifo escuro mede só 3,95:1 — ali
+  // (e só ali) ele é CLARO. Sobre as barras translúcidas ("sem data", "início
+  // não definido") o fundo real é o canvas: `bone-300` sobre `navy-950`.
+  ["bone-50", "barra-fechada-composta", 4.5, "▶ claro sobre a barra cinza 'fechado sem merge' já composta (P5g A3)"],
+  ["bone-300", "navy-950", 4.5, "▶ sobre barra translúcida do Gantt — o fundo real é o canvas (P5g A3)"],
   // ── Página da tarefa, rodada 4 do crítico hostil (13/09/2026) ──
   // Achado BAIXO #5: mensagem de sucesso ("Duração salva." e o mesmo padrão
   // em mãe/status/meta/átomos/relação) sobre o `<section class="bg-navy-900">`

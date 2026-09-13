@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { ARESTA_STROKE_CRITICO } from "@/components/graph/aresta-svg";
-import { LinhaDoTempoView } from "@/components/timeline/linha-do-tempo";
+import { LinhaDoTempoView, PainelDetalheTarefa } from "@/components/timeline/linha-do-tempo";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoProps,
@@ -870,7 +870,11 @@ describe("LinhaDoTempoView — rodada 5", () => {
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
     expect(html).toContain("▶");
-    expect(html).toContain("PR longo — 10/09/2026 → 01/03/2027 (termina depois da janela)");
+    // Rodada 6 (achado ALTO A3): o `title` nomeia as DUAS datas — a real e o
+    // fim da janela desenhada —, nunca só "(termina depois da janela)".
+    expect(html).toContain(
+      "PR longo — 10/09/2026 → 01/03/2027 — termina em 01/03/2027 — depois do fim da janela (",
+    );
     expect(html).toContain("fora da janela"); // legenda, agora com os dois glifos
   });
 
@@ -936,5 +940,113 @@ describe("LinhaDoTempoView — rodada 5", () => {
     // chip grudado não existe de propósito. O caso que importa (faixa "dia",
     // rolando) é medido no navegador, com scroll real.
     expect(html).not.toContain("lb-tl-mes-grudado");
+  });
+});
+
+/**
+ * OS-LIFEBOARD · P5g — rodada 6 do crítico hostil. O que depende de DOM vivo
+ * (foco, `scrollLeft` clampado, `scrollWidth` do painel) é medido no
+ * NAVEGADOR, com os scripts do próprio crítico — este arquivo roda sob
+ * `environment: "node"` e não existe `jsdom` no `node_modules` do repo (nem
+ * se pode instalar). O que se prova aqui é o CONTRATO do markup e a
+ * geometria que a função pura calcula; a régua pura de cada achado está em
+ * `tests/unit/linha-do-tempo-geometria.test.ts`.
+ */
+describe("LinhaDoTempoView — rodada 6", () => {
+  /**
+   * A3: uma tarefa de 400 dias e outra 60 dias no passado — a janela pedida
+   * passa de 460 dias e o TETO (420) corta o eixo ANTES do fim da barra. Era
+   * exatamente o corte mudo: a barra terminava no último pixel do eixo, com
+   * ponta arredondada, escondendo ~42 dias, e o "▶" só existia na legenda.
+   */
+  function propsHorizonteCortado(): LinhaDoTempoProps {
+    return {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 400,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({
+              id: "LONGA",
+              titulo: "Tarefa de 400 dias",
+              inicio: HOJE,
+              fim: "2027-10-18", // HOJE + 400 dias
+              fimComFolga: "2027-10-18",
+            }),
+            tarefa({
+              id: "ANTIGA",
+              titulo: "Tarefa que começou há 60 dias",
+              inicio: "2026-07-15",
+              fim: "2026-07-16",
+              fimComFolga: "2026-07-16",
+            }),
+          ],
+        },
+      ],
+    };
+  }
+
+  it("A3: barra cortada pelo teto ganha '▶' NO CORPO (não só na legenda), ponta reta e as duas datas no title", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...propsHorizonteCortado()} />);
+    // O corpo da tela, sem a legenda — é lá que o crítico contou 1 só "▶".
+    const corpo = html.slice(html.indexOf('class="mt-6 flex w-full flex-col"'));
+    const chevronsNoCorpo = (corpo.match(/▶/g) ?? []).length;
+    expect(chevronsNoCorpo).toBeGreaterThanOrEqual(1);
+    // O "▶" mora DENTRO da barra (fora dela esticava o scrollWidth — A6).
+    expect(corpo).toContain('class="lb-tl-fora-da-janela absolute right-0 top-0');
+    // Ponta reta: a barra cortada perde o arredondamento da direita.
+    expect(corpo).toContain("rounded-l-sm");
+    // O title nomeia a data real E o fim da janela desenhada.
+    const titulo = /title="Tarefa de 400 dias — [^"]*"/.exec(corpo)?.[0] ?? "";
+    expect(titulo).toContain("termina em 18/10/2027");
+    expect(titulo).toContain("depois do fim da janela (");
+  });
+
+  it("A3: o aviso conta o item cortado e nomeia o último dia desenhado", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...propsHorizonteCortado()} />);
+    expect(html).toContain("fora da janela desenhada (até");
+    expect(/(\d+) item começa/.exec(html)?.[1]).toBe("1");
+  });
+
+  it("A2: o painel de detalhe é um diálogo FIXO (folha inferior no celular, lateral em ≥768px)", () => {
+    const html = renderToStaticMarkup(
+      <PainelDetalheTarefa linha={tarefa({ id: "A", titulo: "Tarefa A" })} onFechar={() => {}} />,
+    );
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="false"');
+    // O rótulo do diálogo é o próprio título (que também recebe o foco).
+    const idTitulo = /aria-labelledby="([^"]+)"/.exec(html)?.[1];
+    expect(idTitulo).toBeTruthy();
+    expect(html).toContain(`id="${idTitulo}"`);
+    expect(html).toContain('tabindex="-1"');
+    // Fora do fluxo: `fixed` não empurra a página (o `scrollY` não muda ao abrir).
+    expect(html).toContain("fixed");
+    expect(html).not.toContain("mt-3 rounded-lg");
+    // Folha inferior abaixo de 768px; painel de 360px à direita a partir daí.
+    expect(html).toContain("bottom-0");
+    expect(html).toContain("max-h-[60vh]");
+    expect(html).toContain("overflow-y-auto");
+    expect(html).toContain("md:w-[360px]");
+    expect(html).toContain("md:left-auto");
+  });
+
+  it("A4: o chip de zoom mantém o nome acessível 'Auto' mesmo quando o rótulo visível avisa que não cabe", () => {
+    // Sem DOM, `larguraPainel` é 0 e o aviso não aparece (nada foi medido) —
+    // o que se prova aqui é que o NOME acessível do botão não depende disso.
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    expect(html).toContain('aria-label="Auto"');
+    expect(html).not.toContain("não cabe");
+  });
+
+  it("A5: o chip de mês grudado usa padding INLINE (a mesma constante da estimativa), nunca pl-1 pr-2", () => {
+    const html = renderToStaticMarkup(
+      <LinhaDoTempoView {...props()} />,
+    );
+    // Na densidade do fallback SSR a faixa é "semana" e o chip não existe —
+    // o que se garante é que a classe antiga saiu do código do componente.
+    expect(html).not.toContain("lb-tl-mes-grudado absolute left-0 top-0 z-20 flex items-center bg-navy-900 pl-1 pr-2");
   });
 });
