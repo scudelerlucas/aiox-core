@@ -71,6 +71,12 @@ const PARES = [
   ["aresta-sinergia", "navy-950", 3, "aresta de sinergia — pontilhada roxa + rótulo % (P4 §5)"],
   ["aresta-obsolescencia", "navy-950", 3, "aresta de obsolescência — ❌ no destino (P4 §5)"],
   ["aresta-critico", "navy-950", 3, "traço triplo do caminho crítico (P4 §5)"],
+  // ── Linha do tempo / Gantt (P5, 13/09/2026) — barras sólidas sobre o canvas (navy-950) ──
+  ["state-open", "navy-950", 3, "barra de assunto/tarefa 'aberta' no Gantt (P5)"],
+  ["state-done", "navy-950", 3, "barra de assunto/tarefa 'concluída' no Gantt (P5)"],
+  ["state-error", "navy-950", 3, "barra de assunto 'fechado sem merge' no Gantt (P5)"],
+  ["state-progress", "navy-950", 3, "barra de tarefa 'em progresso' no Gantt (P5)"],
+  ["state-blocked", "navy-950", 3, "barra de tarefa 'bloqueada' no Gantt (P5)"],
 ];
 
 let falhou = 0;
