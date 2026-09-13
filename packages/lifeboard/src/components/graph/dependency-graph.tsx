@@ -318,7 +318,6 @@ function GraphLegend({ fecharSinal }: { fecharSinal: number }): JSX.Element {
   // (`onPaneClick` em `dependency-graph.tsx` incrementa `fecharSinal`).
   useEffect(() => {
     if (fecharSinal > 0) setExpandido(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecharSinal]);
   // P4d (achado BAIXO #11): ESC e clique fora também fecham.
   useFecharPopover(expandido, containerRef, fechar);

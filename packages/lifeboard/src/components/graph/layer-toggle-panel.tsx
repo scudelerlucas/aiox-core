@@ -187,7 +187,6 @@ export function LayerTogglePanel({ ativas, alternar, fecharSinal }: LayerToggleP
   // P4d (achado BAIXO #9): fecha ao clicar/tocar no canvas.
   useEffect(() => {
     if (fecharSinal > 0) setExpandido(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecharSinal]);
   // P4d (achado BAIXO #11, popover desktop): ESC e clique fora fecham — antes
   // só o próprio botão de toggle fechava. Mobile já tinha ESC (achado BAIXO
