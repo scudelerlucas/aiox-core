@@ -163,7 +163,7 @@ export function caminhoCritico(
       duracao.set(t.id, 0); // já aconteceu
       continue;
     }
-    if (typeof t.estimativaDias === "number" && t.estimativaDias > 0) {
+    if (typeof t.estimativaDias === "number" && Number.isFinite(t.estimativaDias) && t.estimativaDias > 0) {
       duracao.set(t.id, t.estimativaDias);
     } else {
       duracao.set(t.id, DURACAO_PLACEHOLDER);

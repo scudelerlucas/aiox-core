@@ -340,3 +340,27 @@ describe("caminhoCritico — rodada 2 do crítico", () => {
     expect(comInicio.janelas.get("A")).toEqual(semInicio.janelas.get("A"));
   });
 });
+
+describe("caminhoCritico — estimativaDias inválida vira placeholder (rodada 3 do crítico)", () => {
+  it.each([
+    ["Infinity", Infinity],
+    ["NaN", NaN],
+    ["zero", 0],
+    ["negativa", -2],
+  ])("estimativaDias %s → placeholder + semDuracao; duracaoTotal finita", (_nome, valor) => {
+    const r = caminhoCritico(
+      [task({ id: "A", estimativaDias: valor, successorIds: ["G"] }), task({ id: "G", estimativaDias: 1, isGoal: true })],
+      [],
+    );
+    expect(r.semDuracao).toContain("A");
+    expect(r.janelas.get("A")?.duracao).toBe(DURACAO_PLACEHOLDER);
+    expect(Number.isFinite(r.duracaoTotal)).toBe(true);
+    expect(r.duracaoTotal).toBe(DURACAO_PLACEHOLDER + 1);
+  });
+
+  it("goal sem estimativaDias entra em semDuracao e ainda é crítico", () => {
+    const r = caminhoCritico([task({ id: "G", isGoal: true })], []);
+    expect(r.semDuracao).toEqual(["G"]);
+    expect([...r.critico]).toEqual(["G"]);
+  });
+});
