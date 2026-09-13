@@ -37,12 +37,23 @@ describe("ArestaSvgGroup — as 6 arestas no SVG", () => {
     expect(paths).toHaveLength(6); // 3 <path> por grupo × 2 grupos
   });
 
-  it("obsolescência desenha o ❌ no fim da aresta", () => {
+  it("obsolescência desenha o ❌ no fim da aresta, com matiz PRÓPRIA (nunca igual ao crítico)", () => {
     const spec: ArestaSvgSpec = { id: "e3", camada: "obsolescencia", critica: false, destacadaPeloSelecionado: false };
     const html = renderToStaticMarkup(<svg>{grupo(spec)}</svg>);
     expect(html).toContain("❌");
     expect(html).toContain("lb-edge-marca-obsolescencia");
-    expect(html).toContain("#FF7A6B"); // aresta.obsolescencia
+    expect(html).toContain("#FF6EC7"); // aresta.obsolescenciaHue — P4b achado ALTO #4
+    expect(html).not.toContain("#FF7A6B"); // nunca a mesma cor do caminho crítico
+  });
+
+  it("crítica E destacada ao mesmo tempo: a COR fica amarela (destaque vence), o traço TRIPLO continua (P4b achado CRÍTICO #2)", () => {
+    const spec: ArestaSvgSpec = { id: "e7", camada: "sucessao", critica: true, destacadaPeloSelecionado: true };
+    const html = renderToStaticMarkup(<svg>{grupo(spec)}</svg>);
+    expect(html).toContain('stroke="#F7CE73"'); // amarelo — destaque vence a cor
+    expect(html).not.toContain('stroke="#FF7A6B"'); // NÃO fica vermelho
+    expect(html).toContain("lb-edge-critico-triplo"); // mas o traço triplo continua
+    expect(html.match(/<path/g) ?? []).toHaveLength(3); // 3 <path> — continua tripla
+    expect(html).toContain("lb-edge-destacada");
   });
 
   it("sinergia é pontilhada, roxa, e mostra o rótulo '50%'", () => {

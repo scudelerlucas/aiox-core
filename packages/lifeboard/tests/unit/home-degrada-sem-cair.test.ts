@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
 import { passaNoFiltro } from "@/lib/filtro-de-fontes";
 import { buildTodayList } from "@/core/prioritize/server-only";
@@ -93,5 +94,47 @@ describe("filtro por fonte", () => {
 
   it("tarefa sem fonte conhecida nunca some da lista", () => {
     expect(passaNoFiltro(undefined, ["calendar"])).toBe(true);
+  });
+});
+
+/**
+ * P4b (achado MÉDIO #12 do crítico hostil): os dois testes acima cobrem o
+ * caminho da LISTA "hoje" (`buildTodayList`), mas nunca o caminho do CPM v3
+ * (`caminhoCritico`/`scoreAssimetriaLote`) que `page.tsx` também chama dentro
+ * do MESMO `try`. Uma exceção ali (ex.: um goal com ciclo que o algoritmo não
+ * blinda, um dado do banco fora do que o CPM espera) tinha o mesmo poder de
+ * derrubar a home com HTTP 500 — e nenhum teste provava que o `catch` cobria
+ * essa frente também.
+ */
+vi.mock("@/core/prioritize/caminho-critico", () => ({
+  caminhoCritico: () => {
+    throw new Error("CPM explodiu — simula um goal/ciclo que o algoritmo não blinda");
+  },
+}));
+/**
+ * `factory.ts` importa os DOIS repositórios (fixture e Supabase) incondicio-
+ * nalmente — o flip é em runtime (`LIFEBOARD_DATA_MODE`), não no import. O
+ * módulo Supabase carrega `live-client.ts`, que chama `cache()` (API do React
+ * que só existe dentro do bundler do Next, não em `react` puro sob Vitest) NO
+ * TOPO DO MÓDULO — quebra só de importar, mesmo em modo fixture. Sem relação
+ * com o achado #12; stub mínimo (nunca chamado, `LIFEBOARD_DATA_MODE` não
+ * setada → fixture) só para o import não derrubar o teste.
+ */
+vi.mock("@/lib/supabase/live-client", () => ({
+  loadLifeboardState: async () => {
+    throw new Error("stub de teste — não deveria ser chamado em modo fixture");
+  },
+  mutateLifeboard: async () => ({ erro: "stub de teste" }),
+}));
+
+describe("Page() — o catch cobre também o caminho crítico (CPM), não só a lista de hoje", () => {
+  it("caminhoCritico lançando ainda resolve para o fallback NaoConsegui (nunca HTTP 500)", async () => {
+    // LIFEBOARD_DATA_MODE não setada → factory cai no fixture (env.ts):
+    // zero I/O, zero rede, o teste exercita só o `try/catch` de `page.tsx`.
+    const { default: Page } = await import("@/app/page");
+    const elemento = await Page();
+    const html = renderToStaticMarkup(elemento);
+    expect(html).toContain("Não consegui ler as tarefas de hoje agora");
+    expect(html).not.toContain("500");
   });
 });

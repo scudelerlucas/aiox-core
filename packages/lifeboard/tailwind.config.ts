@@ -93,6 +93,32 @@ const config: Config = {
           sinergia: "#C58CFF",
           obsolescencia: "#FF7A6B",
           critico: "#FF7A6B",
+          /**
+           * P4b (13/09/2026, achado ALTO #4 do crítico hostil contra Asana
+           * Timeline): `obsolescencia` acima é IDÊNTICA a `critico` — as duas só
+           * se distinguiam por FORMA (traço triplo × ❌), e num screenshot real
+           * liam-se como a mesma cor. Matiz própria (magenta), ≥3:1 sobre
+           * navy-950 para traço e ≥4,5:1 para texto — ver
+           * `scripts/checar-contraste.mjs`. ADITIVO: `obsolescencia` acima
+           * fica como está (não editado, só somado) — só `aresta-svg.tsx`
+           * (P4, dono do arquivo) passou a consumir esta chave nova.
+           */
+          obsolescenciaHue: "#FF6EC7",
+        },
+        /**
+         * P5b (13/09/2026, achado ALTO #7 do crítico hostil contra Asana
+         * Timeline): a hachura de FOLGA do Gantt reusava `aresta.critico` a
+         * 25% (`bg-aresta-critico/25` + `rgba(255,122,107,0.35)` literal em
+         * `className`) — 2,71:1 contra `navy-950` (abaixo da régua de 3:1
+         * para traço/hachura) E o MESMO matiz do crítico para o conceito
+         * OPOSTO (folga = margem de segurança; crítico = risco de prazo).
+         * Ciano dessaturado, nunca usado como texto corrido (só traço/
+         * hachura) — por isso a régua em `scripts/checar-contraste.mjs` é
+         * 3:1, contra `navy-950` (canvas) E contra `navy-850` (base da
+         * barra). ADITIVO — grupo novo, nenhum token existente mudou.
+         */
+        folga: {
+          tracado: "#57C9C0",
         },
       },
       fontFamily: {
