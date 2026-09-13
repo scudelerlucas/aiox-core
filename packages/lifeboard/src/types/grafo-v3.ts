@@ -14,6 +14,22 @@
 import type { JanelaCPM, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { TaskEdge } from "@/types/canonical";
 
+/**
+ * P4d (achado MÉDIO #6 do crítico hostil ROUND 3): altura ÚNICA do cartão de
+ * tarefa. Antes eram DOIS números hardcoded que só coincidiam por disciplina
+ * manual — `h-[112px]` (classe Tailwind literal) em `task-node.tsx` e
+ * `nodeH: 112` em `layout-do-grafo.ts`/`dependency-graph.tsx` — nenhum teste
+ * comparava um contra o outro, então os três podiam divergir em silêncio (o
+ * crítico provou: rodar com `h-[160px]`/`NODE_H: 112` fazia os 384 testes
+ * passarem do mesmo jeito). Agora só existe ESTE número; `task-node.tsx`
+ * consome via `style={{ height }}` (nunca uma classe Tailwind gerada
+ * dinamicamente — o JIT do Tailwind só compila classes que aparecem como
+ * STRING LITERAL no código-fonte, então um template `h-[${token}px]` nunca
+ * seria compilado). `tests/unit/altura-do-cartao.test.ts` prova que os três
+ * consumidores leem o mesmo valor.
+ */
+export const ALTURA_DO_CARTAO = 112;
+
 export interface GrafoV3Props {
   /** Arestas declaradas v3 (predecessor · correlação · sinergia · obsolescência). */
   edges: TaskEdge[];

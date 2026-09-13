@@ -138,6 +138,53 @@ describe("layoutDoGrafo — rank por caminho mais longo + coluna estável", () =
     }
   });
 
+  // ── P4d (rodada 3) — achado ALTO #4 + MÉDIO #5: handle por rank relativo ──
+
+  it("aresta 'PRA TRÁS' (destino de rank MENOR, ex. obsolescência build→standup) desvia contornando o rank intermediário — nunca degenera (desvioYInicio !== desvioYFim)", () => {
+    // rank0: r0 · rank1: r1 · rank2: r2 — uma coluna só, então r1 SEMPRE está
+    // no corredor vertical entre r0 e r2 (mesma coluna). "voltar" de r2 pra r0
+    // (rank 2 → rank 0, pula o rank 1 onde mora r1) é a mesma forma da
+    // obsolescência real do fixture (`task-build`(rank1)→`task-archive`(rank0)).
+    const idsBack = ["r0", "r1", "r2"];
+    const edgesForward = [
+      { origem: "r0", destino: "r1" },
+      { origem: "r1", destino: "r2" },
+    ];
+    const { nodes, edges } = layoutDoGrafo({
+      ids: idsBack,
+      edges: edgesForward,
+      todasArestas: [...edgesForward, { origem: "r2", destino: "r0" }],
+    });
+    const r1 = nodes.get("r1")!;
+    const voltando = edges.find((e) => e.origem === "r2" && e.destino === "r0");
+    expect(voltando?.desviar).toBe(true);
+    // Nunca degenerado (achado MÉDIO #5): início estritamente antes do fim.
+    expect(voltando!.desvioYInicio).toBeLessThan(voltando!.desvioYFim!);
+    // A faixa contornada cobre o rank intermediário (r1) inteiro — a mesma
+    // prova que já existia para o pulo "pra frente" (review→deploy), agora
+    // também para o pulo "pra trás".
+    expect(voltando?.desvioYInicio).toBeLessThanOrEqual(r1.y);
+    expect(voltando?.desvioYFim).toBeGreaterThanOrEqual(r1.y + 112);
+  });
+
+  it("aresta de MESMO rank (ex. sinergia entre dois nós do rank 0) nunca aciona desvio — rota direta, nunca degenerada (achado MÉDIO #5)", () => {
+    // 3 nós, todos sem predecessor/sucessor → todos rank 0. Coluna por id
+    // ascendente: "a" < "meio" < "z" — "meio" fica ENTRE "a" e "z".
+    const { edges } = layoutDoGrafo({
+      ids: ["a", "meio", "z"],
+      edges: [],
+      todasArestas: [{ origem: "a", destino: "z" }],
+    });
+    const aZ = edges.find((e) => e.origem === "a" && e.destino === "z");
+    // P4d: com o handle Top/Top (mesmo rank), sourceY===targetY (o topo da
+    // fileira) — a checagem de bloqueio geométrico é estrita (`>`), então
+    // NENHUM nó da própria fileira aciona `desviar`; a rota é sempre direta,
+    // ao longo do topo da fileira, nunca atravessando o interior de "meio".
+    expect(aZ?.desviar).toBe(false);
+    expect(aZ?.desvioYInicio).toBeUndefined();
+    expect(aZ?.desvioYFim).toBeUndefined();
+  });
+
   it("ciclo não trava (corta em rank 0, layout ainda sai)", () => {
     const { nodes } = layoutDoGrafo({
       ids: ["a", "b"],

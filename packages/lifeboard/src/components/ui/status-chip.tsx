@@ -86,11 +86,18 @@ export function StatusChip({ status, className }: StatusChipProps): JSX.Element 
   const cfg = configDoEstado(status);
   const Icon = cfg.icon;
   return (
+    // P4d (achado ALTO #3 do crítico hostil ROUND 3): `min-w-0` no próprio
+    // chip + `truncate` no rótulo deixam ESTE componente ceder espaço quando
+    // o pai (o rodapé de `task-node.tsx`) está sob aperto — sem isto, o rodapé
+    // inteiro só tinha DOIS jeitos de lidar com o transbordo: espremer o irmão
+    // (a folga, que ia a `clientWidth` 0) ou vazar da caixa. Sem pressão de
+    // espaço (todo outro uso do chip), `min-w-0`/`truncate` não mudam nada —
+    // só entram em ação quando o pai realmente aperta.
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${cfg.border} ${cfg.bg} ${cfg.text} ${className ?? ""}`}
+      className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${cfg.border} ${cfg.bg} ${cfg.text} ${className ?? ""}`}
     >
-      <Icon size={13} aria-hidden="true" />
-      {cfg.label}
+      <Icon size={13} aria-hidden="true" className="shrink-0" />
+      <span className="truncate">{cfg.label}</span>
     </span>
   );
 }

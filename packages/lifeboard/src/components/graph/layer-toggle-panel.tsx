@@ -1,6 +1,6 @@
 "use client";
 import { Layers, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AmostraDeAresta } from "@/components/graph/aresta-svg";
 import {
@@ -9,6 +9,7 @@ import {
   CAMADA_LABEL,
   type CamadaGrafo,
 } from "@/lib/camadas-do-grafo";
+import { useFecharPopover } from "@/lib/use-fechar-popover";
 
 /**
  * P4b (achado ALTO #5): amostra do traço de cada camada, ao lado do rótulo —
@@ -155,25 +156,77 @@ function useEhMobile(larguraCorte = 1024): boolean {
  * painel flutuante ANCORADO no pill (não cobre nada até o clique); celular
  * continua com a folha inteira (o painel ancorado não cabe a 390px).
  */
-export function LayerTogglePanel({ ativas, alternar }: UseCamadasDoGrafo): JSX.Element {
+export interface LayerTogglePanelProps extends UseCamadasDoGrafo {
+  /**
+   * P4d (achado BAIXO #9 do crítico hostil ROUND 3): incrementa a cada
+   * clique/toque no canvas (`dependency-graph.tsx`) — o painel fecha em
+   * resposta, para nunca ficar plantado sobre um cartão depois que o
+   * operador já saiu para o grafo.
+   */
+  fecharSinal: number;
+}
+
+/** Seletor de elementos focáveis dentro do popover/folha (botão, input, ou tabindex explícito). */
+const SELETOR_FOCAVEL = 'button, input, [tabindex]:not([tabindex="-1"])';
+
+export function LayerTogglePanel({ ativas, alternar, fecharSinal }: LayerTogglePanelProps): JSX.Element {
   const [expandido, setExpandido] = useState(false);
   const mobile = useEhMobile();
-  const fechar = useCallback(() => setExpandido(false), []);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
 
-  // P4c (achado BAIXO #10): a folha mobile fecha no ESC (backdrop já fecha
-  // por `onClick` abaixo — não tinha nenhum dos dois antes).
+  const fechar = useCallback(() => {
+    setExpandido(false);
+    // P4d (achado BAIXO #10/#11): o foco volta ao pill que abriu o popover/
+    // folha — em QUALQUER via de fechamento (X, backdrop, ESC, clique fora,
+    // canvas).
+    window.requestAnimationFrame(() => pillRef.current?.focus());
+  }, []);
+
+  // P4d (achado BAIXO #9): fecha ao clicar/tocar no canvas.
+  useEffect(() => {
+    if (fecharSinal > 0) setExpandido(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fecharSinal]);
+  // P4d (achado BAIXO #11, popover desktop): ESC e clique fora fecham — antes
+  // só o próprio botão de toggle fechava. Mobile já tinha ESC (achado BAIXO
+  // #10 da rodada anterior) e o backdrop cobre o "clique fora"; o hook cobre
+  // os dois casos de um jeito só, sem duplicar listener.
+  useFecharPopover(expandido, containerRef, fechar);
+
+  // P4d (achado BAIXO #10 do crítico hostil ROUND 3): armadilha de foco na
+  // folha mobile — `aria-modal="true"` prometia isso e não entregava (Tab
+  // depois do último checkbox ia para o BODY). Foca o 1º elemento ao abrir;
+  // Tab no último volta ao 1º, Shift+Tab no 1º vai ao último.
   useEffect(() => {
     if (!expandido || !mobile) return;
-    const aoTeclar = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") fechar();
+    const raiz = sheetRef.current;
+    if (!raiz) return;
+    const primeiro = raiz.querySelector<HTMLElement>(SELETOR_FOCAVEL);
+    primeiro?.focus();
+    const aoTeclarTab = (e: KeyboardEvent): void => {
+      if (e.key !== "Tab") return;
+      const focaveis = Array.from(raiz.querySelectorAll<HTMLElement>(SELETOR_FOCAVEL));
+      if (focaveis.length === 0) return;
+      const inicio = focaveis[0]!;
+      const fim = focaveis[focaveis.length - 1]!;
+      if (e.shiftKey && document.activeElement === inicio) {
+        e.preventDefault();
+        fim.focus();
+      } else if (!e.shiftKey && document.activeElement === fim) {
+        e.preventDefault();
+        inicio.focus();
+      }
     };
-    window.addEventListener("keydown", aoTeclar);
-    return () => window.removeEventListener("keydown", aoTeclar);
-  }, [expandido, mobile, fechar]);
+    window.addEventListener("keydown", aoTeclarTab);
+    return () => window.removeEventListener("keydown", aoTeclarTab);
+  }, [expandido, mobile]);
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <button
+        ref={pillRef}
         type="button"
         onClick={() => setExpandido((v) => !v)}
         aria-haspopup="dialog"
@@ -206,6 +259,7 @@ export function LayerTogglePanel({ ativas, alternar }: UseCamadasDoGrafo): JSX.E
           />
           {/* Celular: folha por cima do grafo inteiro — o painel ancorado não cabe a 390px. */}
           <div
+            ref={sheetRef}
             role="dialog"
             aria-modal="true"
             aria-label="Camadas do grafo"

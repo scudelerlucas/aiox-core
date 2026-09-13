@@ -78,14 +78,21 @@ interface PontoPath {
  * coluna de destino depois de sair dela — um desvio geométrico de verdade,
  * não um parâmetro que a lib ignora.
  */
-interface CaminhoOrtogonal {
+export interface CaminhoOrtogonal {
   path: string;
   midX: number;
   midY: number;
   anguloGraus: number;
 }
 
-function caminhoOrtogonal(
+/**
+ * Path ortogonal PRÓPRIO — exportado para teste direto (achado MÉDIO #6 do
+ * crítico hostil ROUND 3: "teste unitário do `d` de `caminhoOrtogonal`"),
+ * sem precisar montar um `<V3Edge>` dentro de um `ReactFlowProvider` (o
+ * componente usa `useViewport`, que só existe dentro de um provider — a
+ * função pura não).
+ */
+export function caminhoOrtogonal(
   sourceX: number,
   sourceY: number,
   targetX: number,
@@ -94,38 +101,80 @@ function caminhoOrtogonal(
   desvioYInicio: number | undefined,
   desvioYFim: number | undefined,
 ): CaminhoOrtogonal {
-  const pontos: PontoPath[] = [{ x: sourceX, y: sourceY }];
+  const pontosBrutos: PontoPath[] = [{ x: sourceX, y: sourceY }];
 
   if (desvioPx && desvioYInicio !== undefined && desvioYFim !== undefined) {
     const xDesvio = sourceX + desvioPx;
-    // Nunca deixar o "início"/"fim" do desvio invertidos com sourceY/targetY
-    // (defensivo — origem sempre acima do destino no layout em rank, mas um
-    // grafo com ciclo/rank 0 forçado pode produzir entradas fora de ordem).
-    const yInicio = Math.max(sourceY, Math.min(desvioYInicio, targetY));
-    const yFim = Math.max(yInicio, Math.min(desvioYFim, targetY));
-    pontos.push({ x: sourceX, y: yInicio });
-    pontos.push({ x: xDesvio, y: yInicio });
-    pontos.push({ x: xDesvio, y: yFim });
-    pontos.push({ x: targetX, y: yFim });
-    pontos.push({ x: targetX, y: targetY });
+    // P4d (achado MÉDIO #5 do crítico hostil ROUND 3): a versão anterior
+    // fazia `Math.max(sourceY, Math.min(desvioYInicio, targetY))` — um clamp
+    // que SÓ fazia sentido quando `sourceY <= targetY` sempre (a única
+    // direção que existia até a rodada 2). Com os 3 pares de handle por rank
+    // relativo (`layout-do-grafo.ts`), a janela de desvio pode legitimamente
+    // ficar FORA do intervalo [sourceY,targetY] (o corredor "mesmo rank" fica
+    // acima dos dois) — o clamp colapsava essa janela a um ponto, a causa
+    // exata do "desvio degenerado" medido pelo crítico. `layout-do-grafo.ts`
+    // já entrega `desvioYInicio`/`desvioYFim` corretos (e nunca colapsados —
+    // ver o cinto-e-suspensório lá); aqui só ordena defensivamente.
+    const yInicio = Math.min(desvioYInicio, desvioYFim);
+    const yFim = Math.max(desvioYInicio, desvioYFim);
+    pontosBrutos.push({ x: sourceX, y: yInicio });
+    pontosBrutos.push({ x: xDesvio, y: yInicio });
+    pontosBrutos.push({ x: xDesvio, y: yFim });
+    pontosBrutos.push({ x: targetX, y: yFim });
+    pontosBrutos.push({ x: targetX, y: targetY });
   } else {
     const midY = (sourceY + targetY) / 2;
-    pontos.push({ x: sourceX, y: midY });
-    pontos.push({ x: targetX, y: midY });
-    pontos.push({ x: targetX, y: targetY });
+    pontosBrutos.push({ x: sourceX, y: midY });
+    pontosBrutos.push({ x: targetX, y: midY });
+    pontosBrutos.push({ x: targetX, y: targetY });
   }
 
+  // P4d (achado MÉDIO #5/#6 do crítico hostil ROUND 3): pontos consecutivos
+  // idênticos (segmento de comprimento zero) nunca entram no `d` — o
+  // crítico mediu DOIS no MESMO path (`M1892,115 L1892,115 …`), sobra do
+  // caso "mesmo rank" com sourceY===targetY. Limiar de 0,01px absorve ruído
+  // de ponto flutuante sem apagar segmento real nenhum (o menor gap do
+  // layout é dezenas de px).
+  const pontos: PontoPath[] = [];
+  for (const p of pontosBrutos) {
+    const anterior = pontos[pontos.length - 1];
+    if (anterior && Math.abs(anterior.x - p.x) < 0.01 && Math.abs(anterior.y - p.y) < 0.01) continue;
+    pontos.push(p);
+  }
+  // Só pode ficar com 1 ponto se origem e destino coincidirem exatamente
+  // (nunca no grafo real — nós não se sobrepõem) — duplicar em vez de
+  // deixar o `d` vazio.
+  if (pontos.length < 2) pontos.push({ ...pontos[0]! });
+
   const path = pontos.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
-  // `pontos` sempre tem ≥3 elementos (os dois ramos acima empurram pelo menos
-  // 2, mais o ponto inicial) — non-null assertion documentada, não um `any`.
-  const meio = pontos[Math.floor(pontos.length / 2)]!;
+
+  // P4d (achado MÉDIO #5): o rótulo (só sinergia) ancora no ponto médio do
+  // segmento MAIS LONGO — nunca num vértice do meio do array, que podia cair
+  // bem no "toco" de poucos pixels de um desvio (o rótulo "50%" pousando
+  // fora do traço visível, medido pelo crítico).
+  let a = pontos[0]!;
+  let b = pontos[1] ?? pontos[0]!;
+  let maiorComprimento = -1;
+  for (let i = 0; i < pontos.length - 1; i++) {
+    const pa = pontos[i]!;
+    const pb = pontos[i + 1]!;
+    const comprimento = Math.hypot(pb.x - pa.x, pb.y - pa.y);
+    if (comprimento > maiorComprimento) {
+      maiorComprimento = comprimento;
+      a = pa;
+      b = pb;
+    }
+  }
+  const midX = (a.x + b.x) / 2;
+  const midY = (a.y + b.y) / 2;
+
   const fim = pontos[pontos.length - 1]!;
-  const penultimo = pontos[pontos.length - 2]!;
+  const penultimo = pontos[pontos.length - 2] ?? fim;
   const dx = fim.x - penultimo.x;
   const dy = fim.y - penultimo.y;
-  const comprimento = Math.hypot(dx, dy);
-  const anguloGraus = comprimento === 0 ? 0 : (Math.atan2(dy, dx) * 180) / Math.PI;
-  return { path, midX: meio.x, midY: meio.y, anguloGraus };
+  const comprimentoFinal = Math.hypot(dx, dy);
+  const anguloGraus = comprimentoFinal === 0 ? 0 : (Math.atan2(dy, dx) * 180) / Math.PI;
+  return { path, midX, midY, anguloGraus };
 }
 
 export function V3Edge(props: EdgeProps<V3EdgeData>): JSX.Element | null {

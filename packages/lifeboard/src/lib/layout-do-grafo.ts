@@ -30,6 +30,8 @@
  * `dependency-graph.tsx`.
  */
 
+import { ALTURA_DO_CARTAO } from "@/types/grafo-v3";
+
 export interface LayoutDoGrafoParams {
   /** Todas as tarefas do grafo (nós sem nenhuma aresta entram no rank 0). */
   ids: readonly string[];
@@ -104,12 +106,15 @@ export interface ResultadoLayout {
  * P4c (achado CRÍTICO #1a/#1b, 13/09/2026): `nodeH: 96` era o palpite antigo —
  * o card real mede 124-207px de mundo quando o rodapé quebra em 3-4 linhas
  * (medido pelo crítico hostil, ROUND 2). `task-node.tsx` agora tem altura
- * FIXA `h-[112px]` (mesmo valor abaixo — os dois têm que casar; comentário
- * lá aponta pra cá) — `112` é o novo piso determinístico. `gapY: 84` já
- * satisfazia o piso de 60px do item 1b; o `Math.max` abaixo é só a garantia
- * de que nenhum caller consegue passar um `gapY` menor que isso sem querer.
+ * FIXA — `112` é o piso determinístico. P4d (achado MÉDIO #6, rodada 3):
+ * `ALTURA_DO_CARTAO` (`@/types/grafo-v3`) é o ÚNICO lugar onde esse número
+ * existe — antes eram DOIS hardcoded (aqui e em `task-node.tsx`) que só
+ * coincidiam por disciplina manual, e nenhum teste comparava um contra o
+ * outro. `gapY: 84` já satisfazia o piso de 60px do item 1b; o `Math.max`
+ * abaixo é só a garantia de que nenhum caller consegue passar um `gapY`
+ * menor que isso sem querer.
  */
-const DEFAULTS = { nodeW: 200, nodeH: 112, gapX: 56, gapY: 84 } as const;
+const DEFAULTS = { nodeW: 200, nodeH: ALTURA_DO_CARTAO, gapX: 56, gapY: 84 } as const;
 /** Piso de `gapY` (item 1b da spec do P4c) — nunca aceitar menos, mesmo passado por fora. */
 const GAP_Y_MINIMO = 60;
 
@@ -219,13 +224,35 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
     const noDestino = nodes.get(destino);
     if (!noOrigem || !noDestino) return { desviar: false };
 
-    // Handles: Bottom (saída, embaixo/centro da origem) → Top (entrada, topo/
-    // centro do destino) — mesma convenção de `task-node.tsx`. Não presume
-    // origem acima de destino (sinergia/obsolescência podem ir "pra trás").
+    // P4d (achado ALTO #4 + MÉDIO #5 do crítico hostil ROUND 3): handle de
+    // saída/entrada por RANK RELATIVO — não mais Bottom→Top fixo. Uma aresta
+    // "pra trás" (obsolescência/sinergia ligando um destino de rank ≤ ao da
+    // origem) que sempre saísse por Bottom/entrasse por Top tinha que
+    // atravessar o PRÓPRIO cartão de origem por dentro para alcançar um
+    // destino que está ACIMA (penetração medida: 55,3–54,1px — a metade da
+    // altura do cartão, quase exatamente `nodeH/2`, o raio do ponto médio
+    // ingênuo entre Bottom-da-origem e Top-do-destino). Três casos, cada um
+    // com o par de handles que NUNCA precisa atravessar nenhum dos dois
+    // cartões (handles reais em `task-node.tsx`; escolha replicada em
+    // `dependency-graph.tsx` → `handlesDaConexao`, os três comentam um para
+    // o outro):
+    //   • destino ADIANTE (rank maior)  → sai por Bottom, entra por Top —
+    //     igual a antes, o único caso que existia até a rodada 2.
+    //   • destino no MESMO rank        → sai por Top, entra por Top: os dois
+    //     lados ficam na MESMA cota Y (o topo da fileira) — a média dos dois
+    //     é essa MESMA cota, nunca a metade de um cartão (a causa do achado
+    //     MÉDIO #5, o "desvio degenerado": com Bottom/Top, sourceY e targetY
+    //     diferem por `nodeH`, e a média cai bem no meio da fileira).
+    //   • destino ATRÁS (rank menor)   → sai por Top, entra por Bottom: os
+    //     dois lados abrem para o VÃO entre as duas fileiras (nunca para
+    //     dentro do próprio cartão), exatamente como o caso "adiante"
+    //     espelhado.
+    const rankOrigem = noOrigem.rank;
+    const rankDestino = noDestino.rank;
     const sourceX = noOrigem.x + nodeW / 2;
-    const sourceY = noOrigem.y + nodeH;
     const targetX = noDestino.x + nodeW / 2;
-    const targetY = noDestino.y;
+    const sourceY = rankDestino > rankOrigem ? noOrigem.y + nodeH : noOrigem.y;
+    const targetY = rankDestino < rankOrigem ? noDestino.y + nodeH : noDestino.y;
     const midY = (sourceY + targetY) / 2;
     const xLo = Math.min(sourceX, targetX);
     const xHi = Math.max(sourceX, targetX);
@@ -256,11 +283,21 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
       }
     }
     if (!desviar) return { desviar: false };
-    return {
-      desviar: true,
-      desvioYInicio: Math.max(Math.min(sourceY, targetY), yTopo - margemDesvioY),
-      desvioYFim: Math.min(Math.max(sourceY, targetY), yBase + margemDesvioY),
-    };
+    const desvioYInicio = Math.max(Math.min(sourceY, targetY), yTopo - margemDesvioY);
+    const desvioYFim = Math.min(Math.max(sourceY, targetY), yBase + margemDesvioY);
+    // P4d (achado MÉDIO #5 do crítico hostil ROUND 3, "desvio degenerado"):
+    // o clamp acima existe para nunca desviar mais longe do que o próprio
+    // segmento precisa — mas com `sourceY === targetY` (podia acontecer com a
+    // convenção antiga de handles fixos) ele colapsava a janela inteira num
+    // único ponto, e o path renderizado saía com dois segmentos de
+    // comprimento zero e um toco de fração de pixel (medido pelo crítico:
+    // `M1892,115 L1892,115 …`). Com os 3 pares de handle acima isso não
+    // deveria mais acontecer (prova: `tests/unit/layout-do-grafo.test.ts`,
+    // "nunca degenera") — mas o cinto-e-suspensório fica: uma janela que
+    // colapsa (ou inverte) vira ROTA DIRETA (sem desvio) em vez de um desvio
+    // de largura zero/negativa.
+    if (desvioYFim - desvioYInicio < 1) return { desviar: false };
+    return { desviar: true, desvioYInicio, desvioYFim };
   }
 
   // P4c: o desvio geométrico roda sobre TODAS as arestas visuais quando o

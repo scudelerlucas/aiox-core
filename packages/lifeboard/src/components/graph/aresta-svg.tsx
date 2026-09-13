@@ -94,10 +94,16 @@ function transformAoRedorDoPonto(x: number, y: number, escala: number, anguloGra
  * encolhe tudo pelo MESMO fator do zoom do canvas — a 0,43–0,51 (zoom real
  * medido pelo crítico) o ❌ de 13px de fonte vira ~6px de tela, ilegível. O
  * wrapper ReactFlow (`v3-edge.tsx`) lê o zoom real (`useViewport`) e passa
- * `escala = 1/zoom` (com piso 1 — nunca ENCOLHE abaixo do tamanho normal,
- * só CRESCE quando o zoom cai) para o glifo manter ≥12px DE TELA em
- * qualquer zoom. Chamado direto (fora do ReactFlow, como no teste de render)
- * usa o default 1 — mesmo tamanho de sempre.
+ * `escala = 1/zoom` (com piso 1 — nunca ENCOLHE abaixo do tamanho normal, só
+ * CRESCE quando o zoom cai). Chamado direto (fora do ReactFlow, como no
+ * teste de render) usa o default 1 — mesmo tamanho de sempre.
+ *
+ * P4d (achado BAIXO #8 do crítico hostil ROUND 3, medição real): perto de
+ * zoom 1 (0,99) o piso "nunca escala abaixo de 1" não ajuda em nada (1/0,99 ≈
+ * 1,01) — o ❌ media 10,1×10,1px de tela, abaixo do piso de 12px. A régua
+ * certa é a BASE do desenho, não a escala: `meia-largura 6,5` (abaixo, no
+ * `case "x"`) garante ≥12px de tela já em `escala=1`, e a escala continua
+ * como reforço só para zoom baixo.
  */
 function GlifoFim({
   x,
@@ -138,17 +144,24 @@ function GlifoFim({
           transform={transform}
         />
       );
-    case "x":
+    case "x": {
       // P4c (achado ALTO #5 do crítico hostil ROUND 2): o `<text>❌` (emoji)
       // não tem `fill` — computa preto por padrão, invisível sobre o fundo
       // escuro (o crop DPR-1 do crítico deu ZERO pixel magenta). Um `<path>`
       // com `stroke={cor}` é zoom-invariante de verdade (a fonte do emoji
       // depende do sistema/navegador para escalar; um path SVG escala com o
       // `transform` que já existe aqui) e sempre pinta com a cor da camada.
+      //
+      // P4d (achado BAIXO #8 do crítico hostil ROUND 3): meia-largura 5 (10px
+      // de lado, em `escala=1`) media 10,1×10,1px de TELA a zoom 0,99 — o
+      // piso da `escala` (`Math.max(1, 1/zoom)`) mal ajuda perto de zoom 1.
+      // 6,5 (13px de lado) garante ≥12px de tela JÁ na base, sem depender do
+      // zoom cair o bastante para a escala compensar.
+      const meiaLargura = 6.5;
       return (
         <path
           className="lb-edge-glifo lb-edge-marca-obsolescencia"
-          d={`M${x - 5},${y - 5} L${x + 5},${y + 5} M${x - 5},${y + 5} L${x + 5},${y - 5}`}
+          d={`M${x - meiaLargura},${y - meiaLargura} L${x + meiaLargura},${y + meiaLargura} M${x - meiaLargura},${y + meiaLargura} L${x + meiaLargura},${y - meiaLargura}`}
           stroke={cor}
           strokeWidth={2}
           strokeLinecap="round"
@@ -156,6 +169,7 @@ function GlifoFim({
           transform={transform}
         />
       );
+    }
     default:
       return null;
   }
