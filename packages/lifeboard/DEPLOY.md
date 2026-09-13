@@ -46,7 +46,26 @@ os passos abaixo.
    | `LIFEBOARD_LOAD_SECRET` | segredo da RPC `lifeboard_load` |
    | `LIFEBOARD_ALLOWED_EMAILS` | `lucas.scudeler@pandoratreinamentos.com.br,lucasscudeler@gmail.com` (opcional — já é o default) |
 
-5. **Deploy.** Depois de saber a URL final, volte ao Passo 2 e confirme que a
+5. **Segredo da RPC no banco (obrigatório em banco NOVO).** A função `lifeboard_load`
+   lê o segredo de `private.lifeboard_config` (migration 0004/0005) — as migrations
+   NÃO inserem o valor. Sem a linha, toda chamada devolve
+   `lifeboard_load: segredo nao configurado` (não é "unauthorized" — se aparecer
+   "unauthorized", o valor existe e está diferente do da Vercel). Inserir uma vez,
+   no SQL Editor do projeto, com o MESMO valor de `LIFEBOARD_LOAD_SECRET`:
+
+   ```sql
+   insert into private.lifeboard_config (chave, valor) values ('load_secret', '<valor>')
+   on conflict (chave) do update set valor = excluded.valor, atualizado_em = now();
+   ```
+
+   Rotação: rodar o mesmo comando com o valor novo e trocar a env var na Vercel no
+   mesmo ato (redeploy). O valor nunca passa por chat, commit ou log.
+
+   Também só existe no banco vivo, sem migration: `public.lifeboard_stats()` (agregado
+   público, sem segredo) — em banco novo, recriar a partir de
+   `supabase/functions/lifeboard/index.ts` antes de publicar a página de saúde.
+
+6. **Deploy.** Depois de saber a URL final, volte ao Passo 2 e confirme que a
    Redirect URL da Vercel está na lista do Supabase.
 
 ## Depois do deploy

@@ -17,7 +17,8 @@ export type SourceKind =
   | "gmail"
   | "drive"
   | "notes"
-  | "claude_chat";
+  | "claude_chat"
+  | "lms";
 
 export type AuthMode = "api" | "manual";
 

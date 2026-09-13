@@ -48,8 +48,40 @@ export interface ResultadoCPM {
  * - Tarefa sem `estimativaDias` usa `DURACAO_PLACEHOLDER` e entra em `semDuracao`.
  * - Tarefa cuja `obsolescencia` de origem está `done` sai do grafo (virou desnecessária).
  * - Nunca lança: ciclo → `emCiclo`; goal ausente → `goalId: null` e caminho mais longo.
+ * - Aresta cuja origem ou destino NÃO está na lista de tarefas é descartada em
+ *   silêncio (mesma guarda de `dag.ts`: "ignora arestas para fora da lista").
+ *   A RPC pode entregar ponta solta quando os filtros por dono divergem.
+ * - Tarefa `done` continua no grafo (duração 0) e CONTA como sucessor transitivo
+ *   no alcance (s3) — espelha o CPM, que também a mantém.
  */
 export const DURACAO_PLACEHOLDER = 1;
+
+/** Faixas p80 aceitas para esforço e custo declarados. */
+export const FAIXAS_ESFORCO_CUSTO: ReadonlySet<number> = new Set([1, 2, 3, 5]);
+
+/**
+ * Domínio dos átomos declarados — a MESMA régua do CHECK `tasks_assimetria_dominio`
+ * (migration 0005): opcionalidade 1..3; esforço e custo em {1, 2, 3, 5}. Fora
+ * disso o objeto inteiro é inválido (o cartão mostra "sem átomos declarados").
+ * Usada pelo normalizador da RPC e pelo score — nunca duplicar a régua.
+ */
+export function atomosDeclaradosValidos(
+  raw: unknown,
+): raw is { opcionalidade: number; esforco: number; custo: number } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return false;
+  const { opcionalidade, esforco, custo } = raw as Record<string, unknown>;
+  const numero = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+  return (
+    numero(opcionalidade) && opcionalidade >= 1 && opcionalidade <= 3 &&
+    numero(esforco) && FAIXAS_ESFORCO_CUSTO.has(esforco) &&
+    numero(custo) && FAIXAS_ESFORCO_CUSTO.has(custo)
+  );
+}
+
+/** `peso` de aresta válido para entrar numa conta: número finito em 0..1. */
+export function pesoValido(peso: unknown): peso is number {
+  return typeof peso === "number" && Number.isFinite(peso) && peso >= 0 && peso <= 1;
+}
 
 /** O score de assimetria de UMA tarefa — os 5 átomos por extenso, mais o porquê. */
 export interface ScoreAssimetria {
@@ -76,7 +108,13 @@ export interface ScoreAssimetria {
  * - Sem `task.assimetria` declarado → devolve `null` (o cartão mostra "sem átomos declarados").
  * - Sinergia: cada aresta `sinergia` cujo destino é esta tarefa e cuja origem NÃO está
  *   `done` desconta `peso` do custo: `c = max(1, c × Π(1 − peso))`.
- * - Obsolescência: aresta `obsolescencia` cujo destino é esta tarefa e origem está `done`
- *   → `valor = 0`, `obsoleta = true`, porquê nomeia a origem.
+ * - Obsolescência: QUALQUER aresta `obsolescencia` cujo destino é esta tarefa e cuja
+ *   origem está `done` → `valor = 0`, `obsoleta = true`, porquê nomeia essa origem
+ *   (não só a primeira aresta encontrada).
+ * - Aresta (sinergia ou obsolescência) cuja origem não existe na lista, ou cujo
+ *   `peso` não é finito em 0..1, é ignorada — nunca desconta, nunca zera.
+ * - Átomos declarados fora do domínio (`atomosDeclaradosValidos`) → `null`.
+ * - `valor` e `c` saem arredondados a 2 casas decimais (regra do contrato, não da UI).
  * - Nunca muda a ordem do HIERARQ em produção: é um número a mais no cartão.
+ * - Nunca muta `task`, `tasks`, `edges` nem `cpm` recebidos.
  */

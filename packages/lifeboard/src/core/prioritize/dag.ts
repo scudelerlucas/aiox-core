@@ -2,6 +2,12 @@ import "server-only";
 /**
  * OS-LIFEBOARD · E4 — Resolução de dependências + detecção de ciclo (camada O). PURA.
  *
+ * [v3, 2026-09-13] `detectCycleIds` passou a aceitar `task_edges` (só as de
+ * `tipo = "predecessor"`) como terceira fonte de precedência — a mesma união que
+ * a migration 0005 impõe no banco. O `server-only` FICA: o CPM (`caminho-critico.ts`)
+ * roda no servidor e o resultado (ids críticos, janelas) desce ao grafo como
+ * dado serializado, nunca a função.
+ *
  * Espelha CONCEITUALMENTE o trigger SQL anti-ciclo de E1
  * (`supabase/migrations/0001_init.sql` → `lifeboard_check_task_dag`), mas em
  * TypeScript puro sobre o array em memória. Cobre o stress test 1 do PRD §11
@@ -29,7 +35,7 @@ import "server-only";
  *     (successorIds não bloqueiam — quem depende é o sucessor).
  */
 
-import type { Task } from "@/types/canonical";
+import type { Task, TaskEdge } from "@/types/canonical";
 
 export interface DagResult {
   /** Não-concluídas, sem predecessor aberto e fora de ciclo. Candidatas a "hoje". */
@@ -50,7 +56,7 @@ export interface DagResult {
  * um SCC de tamanho > 1, além de qualquer auto-referência. Termina sempre (sem
  * loop infinito), igual à garantia do `union` deduplicado do trigger SQL.
  */
-export function detectCycleIds(tasks: Task[]): Set<string> {
+export function detectCycleIds(tasks: Task[], edges: readonly TaskEdge[] = []): Set<string> {
   const ids = new Set(tasks.map((t) => t.id));
   const adj = new Map<string, string[]>();
   const cyclic = new Set<string>();
@@ -69,6 +75,13 @@ export function detectCycleIds(tasks: Task[]): Set<string> {
     }
     for (const p of t.predecessorIds) addEdge(p, t.id); // p → t
     for (const s of t.successorIds) addEdge(t.id, s); // t → s
+  }
+  // Terceira fonte (v3): arestas declaradas de precedência. Auto-laço não chega
+  // aqui (o normalizador e o CHECK do banco descartam), mas custa nada cobrir.
+  for (const e of edges) {
+    if (e.tipo !== "predecessor") continue;
+    if (e.origem === e.destino && ids.has(e.origem)) cyclic.add(e.origem);
+    else addEdge(e.origem, e.destino);
   }
 
   // ── Tarjan SCC (iterativo via recursão simples; profundidade ≤ N ≤ 1k) ──────

@@ -5,6 +5,7 @@ import {
   type HierarqScore,
   type TaskEdge,
 } from "@/types/canonical";
+import { atomosDeclaradosValidos } from "@/core/prioritize/tipos-v3";
 
 /**
  * OS-LIFEBOARD — saneamento da fronteira crua com o Postgres.
@@ -49,14 +50,13 @@ function numeroOuNulo(raw: unknown): number | null {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
-/** Átomos declarados: cada um inteiro positivo, senão o objeto inteiro é nulo. */
+/**
+ * Átomos declarados: mesma régua do CHECK `tasks_assimetria_dominio` (0005) e do
+ * score (`atomosDeclaradosValidos`). Fora do domínio → objeto inteiro nulo.
+ */
 export function normalizeAssimetria(raw: unknown): AssimetriaDeclarada | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const { opcionalidade, esforco, custo } = raw as Partial<AssimetriaDeclarada>;
-  const ok = (n: unknown): n is number =>
-    typeof n === "number" && Number.isFinite(n) && n > 0;
-  if (!ok(opcionalidade) || !ok(esforco) || !ok(custo)) return null;
-  return { opcionalidade, esforco, custo };
+  if (!atomosDeclaradosValidos(raw)) return null;
+  return { opcionalidade: raw.opcionalidade, esforco: raw.esforco, custo: raw.custo };
 }
 
 /**

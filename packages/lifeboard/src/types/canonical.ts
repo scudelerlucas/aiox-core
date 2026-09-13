@@ -10,7 +10,7 @@
  * manual) importa daqui e NUNCA redefine estes tipos (coding standard §11).
  */
 
-export type SourceKind = "calendar" | "gmail" | "drive" | "notes" | "claude_chat";
+export type SourceKind = "calendar" | "gmail" | "drive" | "notes" | "claude_chat" | "lms";
 
 export type AuthMode = "api" | "manual";
 
