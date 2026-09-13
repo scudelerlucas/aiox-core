@@ -43,7 +43,8 @@ const FORMA_POR_CAMADA: Record<Exclude<CamadaGrafo, "critico">, Forma> = {
   obsolescencia: "x",
 };
 
-export interface ArestaSvgSpec extends Pick<ArestaVisual, "id" | "pesoPercent" | "destacadaPeloSelecionado"> {
+export interface ArestaSvgSpec
+  extends Pick<ArestaVisual, "id" | "origem" | "destino" | "pesoPercent" | "destacadaPeloSelecionado"> {
   /** Camada BASE (nunca "critico" — isso vem do flag `critica`). */
   camada: Exclude<CamadaGrafo, "critico">;
   /** `true` quando esta aresta de sucessão está no caminho crítico E a camada "critico" está ativa. */
@@ -138,18 +139,22 @@ function GlifoFim({
         />
       );
     case "x":
+      // P4c (achado ALTO #5 do crítico hostil ROUND 2): o `<text>❌` (emoji)
+      // não tem `fill` — computa preto por padrão, invisível sobre o fundo
+      // escuro (o crop DPR-1 do crítico deu ZERO pixel magenta). Um `<path>`
+      // com `stroke={cor}` é zoom-invariante de verdade (a fonte do emoji
+      // depende do sistema/navegador para escalar; um path SVG escala com o
+      // `transform` que já existe aqui) e sempre pinta com a cor da camada.
       return (
-        <text
+        <path
           className="lb-edge-glifo lb-edge-marca-obsolescencia"
-          x={x}
-          y={y}
-          fontSize={13}
-          textAnchor="middle"
-          dominantBaseline="middle"
+          d={`M${x - 5},${y - 5} L${x + 5},${y + 5} M${x - 5},${y + 5} L${x + 5},${y - 5}`}
+          stroke={cor}
+          strokeWidth={2}
+          strokeLinecap="round"
+          fill="none"
           transform={transform}
-        >
-          ❌
-        </text>
+        />
       );
     default:
       return null;
@@ -241,7 +246,22 @@ export function ArestaSvgGroup({
   const naoEscalarTraco = { vectorEffect: "non-scaling-stroke" as const };
 
   return (
-    <g className={classes} data-aresta-id={spec.id} data-camada={spec.camada} data-critica={spec.critica}>
+    <g
+      className={classes}
+      data-aresta-id={spec.id}
+      data-camada={spec.camada}
+      data-critica={spec.critica}
+      // P4c: `id` não é parseável de volta em origem/destino pra TODAS as
+      // camadas (só "sucessao:origem->destino" é; sinergia/correlação/
+      // obsolescência usam o id do dado bruto, ex. "sinergia:edge-xyz") —
+      // isso fez o harness de medição do crítico ROUND 2 contar o próprio
+      // nó de origem/destino como "invadido" (falso positivo de ~55-64px,
+      // quase metade da altura do card). Estes dois atributos dão a
+      // qualquer ferramenta de teste/medição os endpoints reais, sem
+      // depender de parsear string.
+      data-origem={spec.origem}
+      data-destino={spec.destino}
+    >
       {spec.critica ? (
         <>
           <path
@@ -281,7 +301,10 @@ export function ArestaSvgGroup({
           className="lb-edge-label lb-edge-label-sinergia"
           x={midX}
           y={midY}
-          fontSize={10}
+          // P4c (achado MÉDIO #7 do crítico hostil ROUND 2): 10px CSS a zoom
+          // ~0,95 rendeu 9,5px de tela (abaixo do piso de 11,4px da régua) —
+          // 12px é o mesmo piso que `task-node.tsx` usa pros badges.
+          fontSize={12}
           textAnchor="middle"
           fill={cor}
         >
@@ -309,6 +332,9 @@ export function AmostraDeAresta({
 }): JSX.Element {
   const spec: ArestaSvgSpec = {
     id: `amostra-${camada}-${critica ? "critica" : "base"}`,
+    // Amostra decorativa da legenda — não há nó real nos dois lados.
+    origem: "amostra-origem",
+    destino: "amostra-destino",
     camada,
     critica,
     destacadaPeloSelecionado: false,

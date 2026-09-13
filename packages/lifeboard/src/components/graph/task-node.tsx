@@ -1,5 +1,5 @@
 "use client";
-import { AlertTriangle, Lock, Target } from "lucide-react";
+import { AlertTriangle, CircleSlash2, Lock, Target } from "lucide-react";
 import { useContext } from "react";
 import { Handle, Position, useViewport, type NodeProps } from "reactflow";
 
@@ -113,7 +113,9 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
     (isBlockedByPred && data.blockingPredecessorTitle
       ? `, bloqueada por ${data.blockingPredecessorTitle}`
       : "") +
-    (data.inCycle ? ", em ciclo de dependência" : "");
+    (data.inCycle ? ", em ciclo de dependência" : "") +
+    (!data.janela && data.temMeta ? ", fora do caminho da meta" : "") +
+    (data.semDuracao ? ", estimativa faltando" : "");
 
   return (
     <div
@@ -128,8 +130,13 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         }
       }}
       className={[
-        // `relative` + `overflow-hidden`: a faixa da fonte é absoluta dentro do nó.
-        "relative w-[200px] overflow-hidden rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
+        // P4c (achado CRÍTICO #1a): altura FIXA — `nodeH` do layout (112, em
+        // `dependency-graph.tsx`) só é verdade se o card NUNCA crescer com o
+        // conteúdo. `overflow-hidden` + `flex flex-col` faz o que não cabe
+        // ser cortado em vez de empurrar o rodapé para fora da grade (era
+        // isso — o rodapé quebrando em 3-4 linhas — que fazia a aresta
+        // crítica entrar 108-185px dentro do card seguinte).
+        "relative flex h-[112px] w-[200px] flex-col overflow-hidden rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
         borderClass,
         fundoDoEstado(task.status),
         isBlockedByPred ? "border-dashed opacity-55" : "",
@@ -157,7 +164,7 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         className="!h-2 !w-2 !border-navy-600 !bg-navy-500"
       />
 
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex shrink-0 items-start justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1">
           {task.isGoal ? (
             <span
@@ -176,7 +183,19 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {isBlockedByPred ? (
-            <Lock size={13} className="text-state-error-fg" aria-hidden="true" />
+            <Lock
+              size={13}
+              className="text-state-error-fg"
+              aria-hidden="true"
+              // P4c (achado CRÍTICO #1a): a linha "aguardando: <título>" saiu
+              // do corpo do card (era o que empurrava o rodapé pra 3-4
+              // linhas) — o `title` do próprio ícone carrega a mesma
+              // informação no hover, sem custo de altura.
+            >
+              {data.blockingPredecessorTitle ? (
+                <title>{`aguardando: ${data.blockingPredecessorTitle}`}</title>
+              ) : null}
+            </Lock>
           ) : null}
           {data.inCycle ? (
             <AlertTriangle
@@ -194,50 +213,55 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         </span>
       </div>
 
-      {/* P4b (achado ALTO #6): nota, "aguardando" e "estimativa faltando" são
-          detalhe SECUNDÁRIO — somem abaixo de zoom 0,75; só título + folga
-          continuam. */}
+      {/* P4b (achado ALTO #6): nota é detalhe SECUNDÁRIO — some abaixo de
+          zoom 0,75; só título + folga continuam. P4c (achado CRÍTICO #1a):
+          `line-clamp-2` + `min-h-0` dentro do `flex-1` — nunca mais que 2
+          linhas, e a altura sobra pro rodapé em vez de empurrá-lo pra fora
+          da grade (o card inteiro tem `overflow-hidden` como cinto de
+          segurança, mas o alvo é nunca precisar cortar). */}
       {!detalheReduzido && task.notes ? (
-        <p className="mt-0.5 line-clamp-1 text-xs text-bone-400">{task.notes}</p>
-      ) : null}
-
-      {!detalheReduzido && isBlockedByPred && data.blockingPredecessorTitle ? (
-        <p className="mt-1 text-xs text-bone-400">
-          aguardando: {data.blockingPredecessorTitle}
+        <p className="mt-0.5 min-h-0 flex-1 line-clamp-2 text-xs text-bone-400">
+          {task.notes}
         </p>
-      ) : null}
+      ) : (
+        <span className="min-h-0 flex-1" aria-hidden="true" />
+      )}
 
-      {!detalheReduzido && data.semDuracao ? (
-        <p className="mt-1 text-xs italic text-state-warning">estimativa faltando</p>
-      ) : null}
-
-      <div className="mt-2 flex items-center justify-between border-t border-navy-700 pt-1.5">
-        {/* P4b (achado ALTO #6): título + folga são o que SOBREVIVE ao LOD —
-            por isso em `text-sm` (14px), não `text-xs` (12px): no piso real
-            de zoom que o `fitView` produz (0,85 — nunca menos, corrigido
-            acima), 12px screen renderiza 10,2px (abaixo de 11); 14px vira
-            11,9px. Medido e reportado em `p4b-shot.mjs`. */}
-        <span className="flex items-center gap-1.5 font-mono text-sm text-bone-200">
+      {/* P4c (achado CRÍTICO #1a): rodapé em UMA linha só — nunca quebra.
+          `min-w-0 truncate` no lado esquerdo deixa "S 60 · folga: 2 d"
+          cortar com reticências em vez de empurrar pro fim da linha; "fora
+          do caminho da meta" (frase mais longa do card) virou ícone com
+          `title`/`aria-label` em vez de texto por extenso. */}
+      <div className="mt-2 flex shrink-0 items-center justify-between gap-1 border-t border-navy-700 pt-1.5">
+        <span className="flex min-w-0 items-center gap-1.5 truncate font-mono text-sm text-bone-200">
           {!detalheReduzido ? <>S {score}</> : null}
           {data.janela ? (
             // P4b (achado MÉDIO #10): "folga: 2 d" ao lado de "estimativa
             // faltando" afirmava precisão que a duração-placeholder não tem —
             // o "~" avisa que o número é estimado, não medido.
-            <span className="text-bone-400">
+            <span className="truncate text-bone-400">
               · folga: {data.semDuracao ? "~" : ""}
               {data.janela.folga} d
             </span>
           ) : data.temMeta ? (
             // P4b (achado MÉDIO #11): sem isto, um nó fora do caminho até a
             // meta não mostrava folga NEM explicava por quê — parecia bug.
-            <span className="italic text-bone-500">· fora do caminho da meta</span>
+            // P4c (achado CRÍTICO #1a): ícone em vez de frase — a frase
+            // sozinha já era a maior causa de quebra de linha do rodapé.
+            <span
+              title="fora do caminho da meta"
+              aria-label="fora do caminho da meta"
+              className="inline-flex shrink-0 items-center text-bone-500"
+            >
+              <CircleSlash2 size={13} aria-hidden="true" />
+            </span>
           ) : null}
         </span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex shrink-0 items-center gap-1">
           {!detalheReduzido && data.score ? (
             <span
               title={data.score.porque}
-              className="inline-flex items-center rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1.5 py-0.5 font-mono text-[10px] text-fonte-notes"
+              className="inline-flex items-center rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1 py-0.5 font-mono text-xs text-fonte-notes"
             >
               A {data.score.valor}
             </span>

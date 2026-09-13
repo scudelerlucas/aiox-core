@@ -1,6 +1,6 @@
 "use client";
 import { Layers, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AmostraDeAresta } from "@/components/graph/aresta-svg";
 import {
@@ -103,13 +103,16 @@ function Checkboxes({
         return (
           <label
             key={camada}
-            className="flex min-h-[28px] cursor-pointer items-center gap-2 text-xs text-bone-200"
+            // P4c (achado BAIXO #10): 14×14 (h-3.5 w-3.5) e linha de 28px são
+            // menores que o alvo de toque de 44×44 (régua UI/UX). `h-5 w-5` +
+            // `min-h-[44px]` dão o alvo inteiro, não só o quadradinho visível.
+            className="flex min-h-[44px] cursor-pointer items-center gap-2 text-xs text-bone-200"
           >
             <input
               type="checkbox"
               checked={ativas.has(camada)}
               onChange={() => alternar(camada)}
-              className="h-3.5 w-3.5 accent-gold-500"
+              className="h-5 w-5 accent-gold-500"
             />
             <AmostraDeAresta camada={amostra.camada} critica={amostra.critica} />
             {CAMADA_LABEL[camada]}
@@ -118,6 +121,29 @@ function Checkboxes({
       })}
     </div>
   );
+}
+
+/**
+ * P4c (achado BAIXO #9 do crítico hostil ROUND 2): a v P4b renderizava os
+ * DOIS `role="dialog"` (popover desktop ancorado + folha mobile) sempre que
+ * `expandido`, um escondido por CSS (`hidden lg:block` / `lg:hidden`) — dois
+ * elementos com o MESMO `aria-label` no DOM ao mesmo tempo. `matchMedia`
+ * decide qual variante existe de verdade; SSR-safe (default = desktop, o
+ * mesmo breakpoint que os dois usavam via Tailwind `lg` = 1024px) — no
+ * primeiro paint do servidor não há `window`, então o hook só liga depois de
+ * montar, igual ao padrão já usado em `useCamadasDoGrafo` pro localStorage.
+ */
+function useEhMobile(larguraCorte = 1024): boolean {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia(`(max-width: ${larguraCorte - 1}px)`);
+    const atualizar = (): void => setMobile(mq.matches);
+    atualizar();
+    mq.addEventListener("change", atualizar);
+    return () => mq.removeEventListener("change", atualizar);
+  }, [larguraCorte]);
+  return mobile;
 }
 
 /**
@@ -131,6 +157,19 @@ function Checkboxes({
  */
 export function LayerTogglePanel({ ativas, alternar }: UseCamadasDoGrafo): JSX.Element {
   const [expandido, setExpandido] = useState(false);
+  const mobile = useEhMobile();
+  const fechar = useCallback(() => setExpandido(false), []);
+
+  // P4c (achado BAIXO #10): a folha mobile fecha no ESC (backdrop já fecha
+  // por `onClick` abaixo — não tinha nenhum dos dois antes).
+  useEffect(() => {
+    if (!expandido || !mobile) return;
+    const aoTeclar = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") fechar();
+    };
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, [expandido, mobile, fechar]);
 
   return (
     <div className="relative">
@@ -145,30 +184,39 @@ export function LayerTogglePanel({ ativas, alternar }: UseCamadasDoGrafo): JSX.E
         Camadas
       </button>
 
-      {expandido ? (
-        <>
-          {/* Desktop/tablet: painel flutuante ancorado no pill, some ao recolher. */}
-          <div
-            role="dialog"
-            aria-label="Camadas do grafo"
-            className="absolute right-0 top-full z-40 mt-1.5 hidden w-56 rounded-md border border-navy-600 bg-navy-850/95 px-3 py-2 shadow-panel lg:block"
-          >
-            <Checkboxes ativas={ativas} alternar={alternar} />
-          </div>
+      {expandido && !mobile ? (
+        // Desktop/tablet: painel flutuante ancorado no pill.
+        <div
+          role="dialog"
+          aria-label="Camadas do grafo"
+          className="absolute right-0 top-full z-40 mt-1.5 w-56 rounded-md border border-navy-600 bg-navy-850/95 px-3 py-2 shadow-panel"
+        >
+          <Checkboxes ativas={ativas} alternar={alternar} />
+        </div>
+      ) : null}
 
+      {expandido && mobile ? (
+        <>
+          {/* P4c (achado BAIXO #10): backdrop que fecha a folha ao tocar fora —
+              não existia antes (a folha só fechava pelo botão "Fechar"). */}
+          <div
+            aria-hidden="true"
+            onClick={fechar}
+            className="fixed inset-0 z-40 bg-navy-950/60"
+          />
           {/* Celular: folha por cima do grafo inteiro — o painel ancorado não cabe a 390px. */}
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Camadas do grafo"
-            className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-xl border-t border-navy-600 bg-navy-900 p-4 shadow-panel lg:hidden"
+            className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-xl border-t border-navy-600 bg-navy-900 p-4 shadow-panel"
           >
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-semibold text-bone-100">Camadas</span>
               <button
                 type="button"
                 aria-label="Fechar"
-                onClick={() => setExpandido(false)}
+                onClick={fechar}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-bone-400 hover:bg-navy-800 hover:text-bone-100"
               >
                 <X size={16} aria-hidden="true" />

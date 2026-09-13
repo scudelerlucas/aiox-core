@@ -72,7 +72,7 @@ describe("layoutDoGrafo — rank por caminho mais longo + coluna estável", () =
     }
   });
 
-  it("aresta que pula rank (review→deploy, pula o rank de 'build') ganha desviar=true quando a célula intermediária está ocupada", () => {
+  it("aresta que pula rank (review→deploy, pula o rank de 'build') ganha desviar=true e desvioPx>0 — a célula intermediária ('build', rank 1) está ocupada na coluna de destino", () => {
     const { edges } = layoutDoGrafo({
       ids: [...IDS],
       edges: EDGES,
@@ -80,20 +80,62 @@ describe("layoutDoGrafo — rank por caminho mais longo + coluna estável", () =
     });
     const reviewDeploy = edges.find((e) => e.origem === "review" && e.destino === "deploy");
     expect(reviewDeploy?.pulaRank).toBe(true);
-    // "build" é o único nó do rank 1 (intermediário) — na coluna 0 tanto de
-    // "review" (rank0,col?) quanto de "deploy" (rank2,col?) só coincide se a
-    // coluna bater; testa a MECÂNICA (o campo existe e é booleano coerente
-    // com pulaRank), não um valor específico de coluna (isso é acidente do
-    // fixture, o que importa é a flag existir e nunca disparar sem pular rank).
-    expect(typeof reviewDeploy?.desviar).toBe("boolean");
+    // P4c (achado CRÍTICO #2 do crítico hostil ROUND 2): a v P4b só testava
+    // "é boolean" — passava mesmo com `desviar` sempre false. O fixture tem
+    // "build" (único nó do rank 1) na coluna de "deploy" (destino) — É a
+    // obstrução real; o valor tem que ser `true`, não só "é um boolean".
+    expect(reviewDeploy?.desviar).toBe(true);
     expect(reviewDeploy?.desvioPx).toBeGreaterThan(0);
+    // P4c (achado CRÍTICO #2): a faixa vertical que o desvio contorna tem que
+    // existir e cobrir o rank de "build" (rank 1) — é o que `v3-edge.tsx`
+    // usa pra desenhar o path ortogonal que de fato sai da coluna.
+    const build = layoutDoGrafo({
+      ids: [...IDS],
+      edges: EDGES,
+      criticoIds: ["setup", "build", "deploy"],
+    }).nodes.get("build")!;
+    expect(reviewDeploy?.desvioYInicio).toBeLessThanOrEqual(build.y);
+    expect(reviewDeploy?.desvioYFim).toBeGreaterThanOrEqual(build.y + 112);
   });
 
-  it("aresta adjacente (rank a rank+1) nunca pula — desviar sempre false", () => {
+  it("aresta adjacente (rank a rank+1) nunca pula — desviar sempre false, sem faixa de desvio", () => {
     const { edges } = layoutDoGrafo({ ids: [...IDS], edges: EDGES });
     const setupBuild = edges.find((e) => e.origem === "setup" && e.destino === "build");
     expect(setupBuild?.pulaRank).toBe(false);
     expect(setupBuild?.desviar).toBe(false);
+    expect(setupBuild?.desvioYInicio).toBeUndefined();
+    expect(setupBuild?.desvioYFim).toBeUndefined();
+  });
+
+  it("nenhum nó ocupa o corredor vertical de uma aresta SEM desvio, usando nodeW/nodeH do próprio layout (achado CRÍTICO #1)", () => {
+    const nodeW = 200;
+    const nodeH = 112;
+    const gapX = 56;
+    const gapY = 84;
+    const { nodes, edges } = layoutDoGrafo({
+      ids: [...IDS],
+      edges: EDGES,
+      criticoIds: ["setup", "build", "deploy"],
+      nodeW,
+      nodeH,
+      gapX,
+      gapY,
+    });
+    for (const aresta of edges) {
+      if (aresta.desviar) continue; // rota de desvio é outra faixa — testada acima
+      const o = nodes.get(aresta.origem);
+      const d = nodes.get(aresta.destino);
+      if (!o || !d) continue;
+      const colX = o.x + nodeW / 2;
+      const y0 = o.y + nodeH; // sai do handle de baixo da origem
+      const y1 = d.y; // entra no handle de cima do destino
+      for (const [id, n] of nodes) {
+        if (id === aresta.origem || id === aresta.destino) continue;
+        const dentroX = colX > n.x && colX < n.x + nodeW;
+        const dentroY = n.y < y1 && n.y + nodeH > y0;
+        expect(dentroX && dentroY).toBe(false);
+      }
+    }
   });
 
   it("ciclo não trava (corta em rank 0, layout ainda sai)", () => {

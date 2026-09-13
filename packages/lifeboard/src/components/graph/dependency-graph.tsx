@@ -1,12 +1,14 @@
 "use client";
-import { ArrowRight, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
+import { ArrowRight, Info, Maximize2, ZoomIn, ZoomOut } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Background,
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
   useReactFlow,
+  useViewport,
   type Edge,
   type EdgeTypes,
   type FitViewOptions,
@@ -82,9 +84,18 @@ const BG_DOTS = "#13253D"; // navy-800
 const FIT_VIEW_OPTIONS: FitViewOptions = { padding: 0.2, minZoom: 0.85 };
 
 const NODE_W = 200;
-const NODE_H = 96;
+/**
+ * P4c (achado CRÍTICO #1a): TEM que casar com o `h-[112px]` fixo de
+ * `task-node.tsx` — os dois são o mesmo número por acoplamento manual (não
+ * há um token TS que os dois importem; comentário nos dois lados aponta pro
+ * outro). `layoutDoGrafo` usa o MESMO default (112) — passado aqui explícito
+ * só pra deixar claro que é o valor real, não um palpite.
+ */
+const NODE_H = 112;
 const GAP_X = 56;
 const GAP_Y = 84;
+/** Piso de `gapY` (item 1b da spec) — mesmo valor que `layout-do-grafo.ts` já impõe internamente. */
+const GAP_Y_MINIMO = 60;
 
 const nodeTypes: NodeTypes = { task: TaskNode };
 const edgeTypes: EdgeTypes = { v3: V3Edge };
@@ -186,13 +197,9 @@ const LEGEND: { label: string; className: string }[] = [
 ];
 
 /**
- * P4b (achado ALTO #5, 2ª parte): tira compacta e SEMPRE visível — no máximo
- * 3 itens (a régua do próprio achado) — com as 3 arestas que mais importam
- * para ler o grafo à primeira vista. As outras 3 (correlação/sinergia/
- * predecessor comum) já têm amostra completa no painel "Camadas" (achado #5,
- * 1ª parte) — não duplicar as 6 aqui, isto é o resumo, não a legenda inteira.
- * `hidden md:flex` (≥768px, a régua do achado): a 390px a tira competiria
- * pelo mesmo espaço do legend de status, já apertado.
+ * P4b (achado ALTO #5, 2ª parte): as 3 arestas que mais importam pra ler o
+ * grafo à primeira vista. As outras 3 (correlação/sinergia/predecessor comum)
+ * já têm amostra completa no painel "Camadas" — não duplicar as 6 aqui.
  */
 const TIRA_ARESTAS: { label: string; camada: Exclude<CamadaGrafo, "critico">; critica: boolean }[] = [
   { label: "caminho crítico", camada: "sucessao", critica: true },
@@ -200,31 +207,138 @@ const TIRA_ARESTAS: { label: string; camada: Exclude<CamadaGrafo, "critico">; cr
   { label: "obsolescência", camada: "obsolescencia", critica: false },
 ];
 
+/**
+ * P4c (achado ALTO #4 + MÉDIO #6 do crítico hostil ROUND 2): a legenda
+ * SEMPRE visível cobria 24% do card da META a 1280 e o rodapé inteiro a
+ * 390 — e a 390 ela nem aparecia (`hidden md:flex` na tira de arestas), então
+ * a régua "mostrar em toda largura" também falhava. As duas causas têm a
+ * MESMA cura: virar um pill colapsável (mesmo padrão de `LayerTogglePanel`),
+ * fechado por padrão em QUALQUER largura — nada fica plantado em cima de nó
+ * nenhum até o operador pedir, e a tira de 3 arestas passa a existir também a
+ * 390 (ela só não aparecia por causa do `md:flex` que sumiu). `top-left`:
+ * fora da área onde o grafo normalmente centraliza o caminho crítico
+ * (`fitViewOptionsAuto`, que enquadra os nós críticos com padding — o canto
+ * superior esquerdo do pane raramente tem nó ali).
+ */
 function GraphLegend(): JSX.Element {
+  const [expandido, setExpandido] = useState(false);
   return (
-    <Panel
-      position="bottom-right"
-      className="flex max-w-[280px] flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-navy-600 bg-navy-850/90 px-3 py-2 text-xs text-bone-300"
-    >
-      <span className="inline-flex w-full items-center gap-1 text-bone-400">
-        precedência <ArrowRight size={12} /> posterioridade
-      </span>
-      {LEGEND.map((l) => (
-        <span key={l.label} className="inline-flex items-center gap-1.5">
-          <span className={`inline-block h-2.5 w-2.5 rounded-full ${l.className}`} />
-          {l.label}
-        </span>
-      ))}
-      <span className="hidden w-full items-center gap-3 border-t border-navy-700 pt-1.5 md:flex">
-        {TIRA_ARESTAS.map((a) => (
-          <span key={a.label} className="inline-flex items-center gap-1.5">
-            <AmostraDeAresta camada={a.camada} critica={a.critica} />
-            {a.label}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setExpandido((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={expandido}
+        className="flex min-h-[36px] items-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/90 px-2.5 text-xs font-medium text-bone-200 shadow-panel"
+      >
+        <Info size={14} aria-hidden="true" />
+        Legenda
+      </button>
+      {expandido ? (
+        <div
+          role="dialog"
+          aria-label="Legenda do grafo"
+          className="absolute left-0 top-full z-40 mt-1.5 flex w-64 max-w-[85vw] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-navy-600 bg-navy-850/95 px-3 py-2 text-xs text-bone-300 shadow-panel"
+        >
+          <span className="inline-flex w-full items-center gap-1 text-bone-400">
+            precedência <ArrowRight size={12} /> posterioridade
           </span>
-        ))}
-      </span>
+          {LEGEND.map((l) => (
+            <span key={l.label} className="inline-flex items-center gap-1.5">
+              <span className={`inline-block h-2.5 w-2.5 rounded-full ${l.className}`} />
+              {l.label}
+            </span>
+          ))}
+          {/* P4c (achado MÉDIO #6): antes `hidden md:flex` — a 390px a tira
+              simplesmente não existia. Agora o painel inteiro é sob-demanda
+              em qualquer largura, então a tira aparece em UMA linha (a régua
+              do achado) sempre que o operador abre "Legenda". */}
+          <span className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-t border-navy-700 pt-1.5">
+            {TIRA_ARESTAS.map((a) => (
+              <span key={a.label} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <AmostraDeAresta camada={a.camada} critica={a.critica} />
+                {a.label}
+              </span>
+            ))}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * P4c (achado MÉDIO #8 do crítico hostil ROUND 2): a 390px só 5 de 11 nós
+ * ficam visíveis depois do fit do caminho crítico (`fitViewOptionsAuto`
+ * restringe o enquadramento automático aos nós críticos — spec §3.3, decisão
+ * deliberada) e nada na tela avisava. Conta quantos nós ficam fora do
+ * retângulo do pane (em coordenadas de tela, usando a MESMA transformação
+ * que o ReactFlow aplica: `screen = node.position * zoom + viewport.{x,y}`)
+ * e mostra um chip com o total + atalho pra "ver tudo".
+ */
+function ChipForaDaTela({ containerRef }: { containerRef: RefObject<HTMLDivElement> }): JSX.Element | null {
+  const { getNodes, fitView } = useReactFlow();
+  const { x, y, zoom } = useViewport();
+  const [foraDaTela, setForaDaTela] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    let fora = 0;
+    for (const n of getNodes()) {
+      const w = n.width ?? NODE_W;
+      const h = n.height ?? NODE_H;
+      const telaX = n.position.x * zoom + x;
+      const telaY = n.position.y * zoom + y;
+      const dentro =
+        telaX + w * zoom > 0 && telaX < rect.width && telaY + h * zoom > 0 && telaY < rect.height;
+      if (!dentro) fora++;
+    }
+    setForaDaTela(fora);
+    // Reavalia sempre que o viewport muda (fit, pan, zoom) ou os nós mudam
+    // de posição/quantidade (filtro, novo dado).
+  }, [containerRef, getNodes, x, y, zoom]);
+
+  if (foraDaTela === 0) return null;
+
+  return (
+    <Panel position="top-center">
+      <button
+        type="button"
+        onClick={() => void fitView({ duration: 200, padding: 0.2 })}
+        className="flex items-center gap-1.5 rounded-full border border-gold-500/60 bg-navy-850/95 px-3 py-1.5 text-xs font-medium text-gold-300 shadow-panel"
+      >
+        {foraDaTela} {foraDaTela === 1 ? "tarefa fora" : "tarefas fora"} da tela · Ajustar à tela
+      </button>
     </Panel>
   );
+}
+
+/**
+ * P4c (achado CRÍTICO #1b, "cinto e suspensório"): `task-node.tsx` tem altura
+ * FIXA (`h-[112px]`), então `NODE_H` já devia bater com a realidade — mas
+ * este componente MEDE a altura de verdade que o ReactFlow relatou depois do
+ * 1º layout (`useNodesInitialized` fica `true` só depois que o
+ * ResizeObserver interno mede cada nó) e devolve a MAIOR altura encontrada.
+ * Se algum dia o CSS do card mudar e a altura fixa parar de bater, o layout
+ * se realinha sozinho em vez de voltar ao bug original (aresta entrando
+ * dentro do card). Só sobe (nunca desce abaixo do fallback) — depois da 1ª
+ * medição o valor estabiliza (a altura do card é CSS fixo, não muda de novo).
+ */
+function MedirAlturaReal({ onAltura }: { onAltura: (altura: number) => void }): null {
+  const nodesInitialized = useNodesInitialized();
+  const { getNodes } = useReactFlow();
+  useEffect(() => {
+    if (!nodesInitialized) return;
+    const alturas = getNodes()
+      .map((n) => n.height ?? 0)
+      .filter((h) => h > 0);
+    if (alturas.length === 0) return;
+    onAltura(Math.max(...alturas));
+  }, [nodesInitialized, getNodes, onAltura]);
+  return null;
 }
 
 /** Reenquadra ao montar e quando o filtro muda (spec §3.3). */
@@ -423,6 +537,30 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
    * transbordo — a aresta crítica passava reto por cima do card dele. Prova:
    * `tests/unit/layout-do-grafo.test.ts`. Módulo puro em `layout-do-grafo.ts`.
    */
+  /** P4c (achado CRÍTICO #1b): altura real medida pós-render — só sobe. */
+  const [alturaMedida, setAlturaMedida] = useState(NODE_H);
+  const aoMedirAltura = useCallback(
+    (altura: number) => setAlturaMedida((atual) => (altura > atual ? altura : atual)),
+    [],
+  );
+  const nodeHEfetivo = Math.max(alturaMedida, NODE_H);
+
+  // ── As 6 arestas (P4 §5): construídas a partir de tasks+edges+critico —
+  //    movido pra ANTES do layout (era depois) porque o layout agora também
+  //    precisa dos PARES origem→destino das 6 camadas pro desvio geométrico
+  //    (achado CRÍTICO #2, cobertura completa — ver `todasArestas` abaixo).
+  //    Filtro por camada ativa e dimming continuam onde estavam, no `edges` useMemo.
+  const arestasVisuais = useMemo(
+    () =>
+      construirArestasVisuais({
+        tasks,
+        edges: grafoV3.edges,
+        criticoIds: criticoSet,
+        selectedTaskId,
+      }),
+    [tasks, grafoV3.edges, criticoSet, selectedTaskId],
+  );
+
   const layout = useMemo(
     () =>
       layoutDoGrafo({
@@ -430,11 +568,17 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
         edges: precedenceEdges.map((e) => ({ origem: e.from, destino: e.to })),
         criticoIds: criticoSet,
         nodeW: NODE_W,
-        nodeH: NODE_H,
+        nodeH: nodeHEfetivo,
         gapX: GAP_X,
-        gapY: GAP_Y,
+        gapY: Math.max(GAP_Y, GAP_Y_MINIMO),
+        // P4c (achado CRÍTICO #2, cobertura completa): o crítico mediu
+        // invasão real de até 64px em arestas de SINERGIA/OBSOLESCÊNCIA (não
+        // só sucessão) que pulam rank sobre um nó ocupado — o RANK continua
+        // preso só à precedência (`edges` acima), mas o desvio geométrico
+        // agora roda sobre as 6 camadas.
+        todasArestas: arestasVisuais.map((a) => ({ origem: a.origem, destino: a.destino })),
       }),
-    [tasks, precedenceEdges, criticoSet],
+    [tasks, precedenceEdges, criticoSet, nodeHEfetivo, arestasVisuais],
   );
 
   const nodes = useMemo<Node<TaskNodeData>[]>(() => {
@@ -487,29 +631,25 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     temMeta,
   ]);
 
-  /** `origem|destino` → meio gap de desvio, só para as arestas que o layout marcou (achado CRÍTICO #1). */
+  /**
+   * `origem|destino` → geometria do desvio, só para as arestas que o layout
+   * marcou (achado CRÍTICO #1/#2). P4c: agora carrega a faixa Y também —
+   * `v3-edge.tsx` precisa dela pra desenhar o path ortogonal que de fato
+   * contorna o nó ocupado (não só um `desvioPx` que a lib ignorava).
+   */
   const desvioPorAresta = useMemo(() => {
-    const m = new Map<string, number>();
+    const m = new Map<string, { desvioPx: number; desvioYInicio?: number; desvioYFim?: number }>();
     for (const a of layout.edges) {
-      if (a.desviar) m.set(`${a.origem}|${a.destino}`, a.desvioPx);
+      if (a.desviar) {
+        m.set(`${a.origem}|${a.destino}`, {
+          desvioPx: a.desvioPx,
+          desvioYInicio: a.desvioYInicio,
+          desvioYFim: a.desvioYFim,
+        });
+      }
     }
     return m;
   }, [layout]);
-
-  // ── As 6 arestas (P4 §5): construídas a partir de tasks+edges+critico, e
-  //    filtradas pelas camadas ativas do painel "Camadas" (default: sucessão +
-  //    caminho crítico). Dimming por filtro de fonte (§5 antigo) só se aplica
-  //    quando os DOIS lados da aresta estão fora do filtro — mesma regra de antes.
-  const arestasVisuais = useMemo(
-    () =>
-      construirArestasVisuais({
-        tasks,
-        edges: grafoV3.edges,
-        criticoIds: criticoSet,
-        selectedTaskId,
-      }),
-    [tasks, grafoV3.edges, criticoSet, selectedTaskId],
-  );
 
   const edges = useMemo<Edge<V3EdgeData>[]>(() => {
     const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
@@ -527,13 +667,17 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
         style: { opacity: dimmed ? 0.15 : 1 },
         data: {
           id: aresta.id,
+          origem: aresta.origem,
+          destino: aresta.destino,
           camada: camadaBaseDeAresta(aresta),
           critica,
           destacadaPeloSelecionado: aresta.destacadaPeloSelecionado,
           pesoPercent: aresta.pesoPercent,
-          // P4b (achado CRÍTICO #1): só as arestas que o layout marcou como
-          // "pula rank E célula intermediária ocupada" ganham desvio.
-          desvioPx: desvioPorAresta.get(`${aresta.origem}|${aresta.destino}`),
+          // P4b/P4c (achado CRÍTICO #1/#2): só as arestas que o layout marcou
+          // como "pula rank E célula intermediária ocupada" ganham desvio.
+          desvioPx: desvioPorAresta.get(`${aresta.origem}|${aresta.destino}`)?.desvioPx,
+          desvioYInicio: desvioPorAresta.get(`${aresta.origem}|${aresta.destino}`)?.desvioYInicio,
+          desvioYFim: desvioPorAresta.get(`${aresta.origem}|${aresta.destino}`)?.desvioYFim,
         },
       };
     });
@@ -604,8 +748,12 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             <Background color={BG_DOTS} gap={22} size={1} />
             <FitOnChange signature={filterSignature} options={fitViewOptionsAuto} />
             <RefitOnResize containerRef={containerRef} options={fitViewOptionsAuto} />
+            <MedirAlturaReal onAltura={aoMedirAltura} />
+            <ChipForaDaTela containerRef={containerRef} />
             <GraphControls />
-            <GraphLegend />
+            <Panel position="top-left">
+              <GraphLegend />
+            </Panel>
             <Panel position="top-right">
               <LayerTogglePanel ativas={camadasAtivas} alternar={alternarCamada} />
             </Panel>

@@ -24,7 +24,7 @@ function grupo(spec: ArestaSvgSpec): JSX.Element {
 
 describe("ArestaSvgGroup — as 6 arestas no SVG", () => {
   it("uma aresta crítica por caminho crítico ganha exatamente 3 <path> e a classe de traço triplo", () => {
-    const especCritica: ArestaSvgSpec = { id: "e1", camada: "sucessao", critica: true, destacadaPeloSelecionado: false };
+    const especCritica: ArestaSvgSpec = { id: "e1", origem: "a", destino: "b", camada: "sucessao", critica: true, destacadaPeloSelecionado: false };
     const html = renderToStaticMarkup(
       <svg>
         {grupo(especCritica)}
@@ -37,17 +37,22 @@ describe("ArestaSvgGroup — as 6 arestas no SVG", () => {
     expect(paths).toHaveLength(6); // 3 <path> por grupo × 2 grupos
   });
 
-  it("obsolescência desenha o ❌ no fim da aresta, com matiz PRÓPRIA (nunca igual ao crítico)", () => {
-    const spec: ArestaSvgSpec = { id: "e3", camada: "obsolescencia", critica: false, destacadaPeloSelecionado: false };
+  it("obsolescência desenha o ❌ (path SVG com stroke, não emoji) no fim da aresta, com matiz PRÓPRIA (nunca igual ao crítico)", () => {
+    // P4c (achado ALTO #5 do crítico hostil ROUND 2): o `<text>❌` (emoji) não
+    // tinha `fill` — computava preto, invisível sobre o fundo escuro (crop
+    // DPR-1 do crítico: zero pixel magenta). Virou `<path>` com `stroke`.
+    const spec: ArestaSvgSpec = { id: "e3", origem: "a", destino: "b", camada: "obsolescencia", critica: false, destacadaPeloSelecionado: false };
     const html = renderToStaticMarkup(<svg>{grupo(spec)}</svg>);
-    expect(html).toContain("❌");
     expect(html).toContain("lb-edge-marca-obsolescencia");
+    // stroke (não fill) — o path é desenhado com a cor no traço, nunca preto.
+    expect(html).toMatch(/class="lb-edge-glifo lb-edge-marca-obsolescencia"[^>]*stroke="#FF6EC7"/);
     expect(html).toContain("#FF6EC7"); // aresta.obsolescenciaHue — P4b achado ALTO #4
+    expect(html).not.toContain("❌"); // nunca mais emoji sem fill
     expect(html).not.toContain("#FF7A6B"); // nunca a mesma cor do caminho crítico
   });
 
   it("crítica E destacada ao mesmo tempo: a COR fica amarela (destaque vence), o traço TRIPLO continua (P4b achado CRÍTICO #2)", () => {
-    const spec: ArestaSvgSpec = { id: "e7", camada: "sucessao", critica: true, destacadaPeloSelecionado: true };
+    const spec: ArestaSvgSpec = { id: "e7", origem: "a", destino: "b", camada: "sucessao", critica: true, destacadaPeloSelecionado: true };
     const html = renderToStaticMarkup(<svg>{grupo(spec)}</svg>);
     expect(html).toContain('stroke="#F7CE73"'); // amarelo — destaque vence a cor
     expect(html).not.toContain('stroke="#FF7A6B"'); // NÃO fica vermelho
@@ -59,6 +64,8 @@ describe("ArestaSvgGroup — as 6 arestas no SVG", () => {
   it("sinergia é pontilhada, roxa, e mostra o rótulo '50%'", () => {
     const spec: ArestaSvgSpec = {
       id: "e4",
+      origem: "a",
+      destino: "b",
       camada: "sinergia",
       critica: false,
       destacadaPeloSelecionado: false,
@@ -71,14 +78,14 @@ describe("ArestaSvgGroup — as 6 arestas no SVG", () => {
   });
 
   it("correlação é pontilhada e SEM rótulo de %", () => {
-    const spec: ArestaSvgSpec = { id: "e5", camada: "correlacao", critica: false, destacadaPeloSelecionado: false };
+    const spec: ArestaSvgSpec = { id: "e5", origem: "a", destino: "b", camada: "correlacao", critica: false, destacadaPeloSelecionado: false };
     const html = renderToStaticMarkup(<svg>{grupo(spec)}</svg>);
     expect(html).toMatch(/stroke-dasharray="4 5"/);
     expect(html).not.toContain("lb-edge-label-sinergia");
   });
 
   it("sucessão destacada pelo nó selecionado fica amarela (token aresta.predecessor)", () => {
-    const spec: ArestaSvgSpec = { id: "e6", camada: "sucessao", critica: false, destacadaPeloSelecionado: true };
+    const spec: ArestaSvgSpec = { id: "e6", origem: "a", destino: "b", camada: "sucessao", critica: false, destacadaPeloSelecionado: true };
     const html = renderToStaticMarkup(<svg>{grupo(spec)}</svg>);
     expect(html).toContain("#F7CE73");
     expect(html).toContain("lb-edge-destacada");
@@ -115,6 +122,8 @@ describe("filtrarArestasPorCamada + render — toggle remove a aresta do SVG", (
           <g key={v.id}>
             {grupo({
               id: v.id,
+              origem: v.origem,
+              destino: v.destino,
               camada: camadaBaseDeAresta(v),
               critica: false,
               destacadaPeloSelecionado: v.destacadaPeloSelecionado,

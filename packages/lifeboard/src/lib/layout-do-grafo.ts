@@ -41,6 +41,18 @@ export interface LayoutDoGrafoParams {
   nodeH?: number;
   gapX?: number;
   gapY?: number;
+  /**
+   * P4c (achado CRÍTICO #2, cobertura completa): o RANK só pode vir da
+   * precedência (`edges` acima) — misturar sinergia/correlação/obsolescência
+   * ali corromperia a topologia (uma sinergia entre irmãos viraria precedência
+   * falsa). Mas o DESVIO geométrico (item 2 da spec) precisa valer para TODAS
+   * as 6 arestas visuais, não só sucessão — o crítico mediu invasão real de
+   * até 64px em arestas de sinergia/obsolescência que pulam rank sobre um nó
+   * ocupado. Passar aqui a união de TODOS os pares origem→destino visíveis no
+   * grafo (as 6 camadas); ausente = usa só `edges` (compat, mesmo
+   * comportamento de antes — é o que os testes existentes fazem).
+   */
+  todasArestas?: readonly { origem: string; destino: string }[];
 }
 
 export interface NoDoLayout {
@@ -61,12 +73,26 @@ export interface ArestaDoLayout {
   /**
    * `true` só quando `pulaRank` E alguma linha intermediária tem um nó na
    * MESMA coluna de origem ou de destino — é aí que o traço reto passaria por
-   * cima de um card sem relação. `renderer` (v3-edge.tsx) lê esta flag para
-   * desviar o `centerX` do smoothstep por meio gap.
+   * cima de um card sem relação. `renderer` (v3-edge.tsx) usa esta flag para
+   * desenhar o desvio ortogonal (não é mais um parâmetro do smoothstep — P4c
+   * achado CRÍTICO #2: com handles Bottom→Top, `getSmoothStepPath` só lê
+   * `centerY`, nunca `centerX`, então o `centerX` desviado do P4b nunca
+   * aparecia no `d` renderizado).
    */
   desviar: boolean;
-  /** Meio gap horizontal sugerido para o desvio, em px de mundo (não de tela). */
+  /** Meio gap horizontal do desvio, em px de mundo (não de tela). */
   desvioPx: number;
+  /**
+   * Faixa vertical (em px de mundo, mesma escala de `NoDoLayout.y`) que o
+   * desvio precisa contornar — união de todos os ranks intermediários
+   * ocupados que causaram `desviar`, com margem de meio `gapY`. `undefined`
+   * quando `desviar` é `false`. `v3-edge.tsx` usa os dois para desenhar o
+   * caminho ortogonal: desce até `desvioYInicio`, salta `desvioPx` para o
+   * lado, desce até `desvioYFim`, volta para a coluna de destino, desce até
+   * o handle.
+   */
+  desvioYInicio?: number;
+  desvioYFim?: number;
 }
 
 export interface ResultadoLayout {
@@ -74,7 +100,18 @@ export interface ResultadoLayout {
   edges: ArestaDoLayout[];
 }
 
-const DEFAULTS = { nodeW: 200, nodeH: 96, gapX: 56, gapY: 84 } as const;
+/**
+ * P4c (achado CRÍTICO #1a/#1b, 13/09/2026): `nodeH: 96` era o palpite antigo —
+ * o card real mede 124-207px de mundo quando o rodapé quebra em 3-4 linhas
+ * (medido pelo crítico hostil, ROUND 2). `task-node.tsx` agora tem altura
+ * FIXA `h-[112px]` (mesmo valor abaixo — os dois têm que casar; comentário
+ * lá aponta pra cá) — `112` é o novo piso determinístico. `gapY: 84` já
+ * satisfazia o piso de 60px do item 1b; o `Math.max` abaixo é só a garantia
+ * de que nenhum caller consegue passar um `gapY` menor que isso sem querer.
+ */
+const DEFAULTS = { nodeW: 200, nodeH: 112, gapX: 56, gapY: 84 } as const;
+/** Piso de `gapY` (item 1b da spec do P4c) — nunca aceitar menos, mesmo passado por fora. */
+const GAP_Y_MINIMO = 60;
 
 /** Rank por caminho mais longo a partir das fontes, com guarda de ciclo (corta em 0, nunca trava). */
 function computeRanks(
@@ -105,7 +142,7 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
   const nodeW = params.nodeW ?? DEFAULTS.nodeW;
   const nodeH = params.nodeH ?? DEFAULTS.nodeH;
   const gapX = params.gapX ?? DEFAULTS.gapX;
-  const gapY = params.gapY ?? DEFAULTS.gapY;
+  const gapY = Math.max(params.gapY ?? DEFAULTS.gapY, GAP_Y_MINIMO);
   const critico =
     params.criticoIds instanceof Set
       ? params.criticoIds
@@ -155,19 +192,83 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
     });
   }
 
-  // Índice coluna→ids por rank, para o teste de ocupação das arestas que pulam rank.
-  const colunaPorRank = new Map<number, Map<number, string>>();
-  for (const no of nodes.values()) {
-    let mapa = colunaPorRank.get(no.rank);
-    if (!mapa) {
-      mapa = new Map();
-      colunaPorRank.set(no.rank, mapa);
+  const desvioPx = (gapX + nodeW) / 2;
+  const margemDesvioY = gapY / 2; // meio gap vertical de folga acima/abaixo da faixa ocupada
+  /**
+   * P4c (achado CRÍTICO #2, cobertura completa — 2ª rodada de medição): a v1
+   * do desvio só disparava em `pulaRank` (destino ≥2 ranks à frente da
+   * origem) checando a coluna de origem/destino especificamente — cobria o
+   * caso do crítico (`task-review→task-deploy`), mas o crítico hostil TAMBÉM
+   * mediu 55-64px de invasão em arestas de SINERGIA/OBSOLESCÊNCIA que ligam
+   * nós de rank IGUAL ou até rank MENOR (essas camadas não seguem precedência
+   * — o destino pode estar "antes" da origem no rank). O teste certo não é
+   * "pulou quantos ranks", é geométrico: o path reto de 3 segmentos (desce →
+   * atravessa → desce, os mesmos que `v3-edge.tsx` desenha sem desvio)
+   * atravessa o bbox de algum OUTRO nó? Prova de que o desvio em X sempre
+   * cabe: `desvioPx = (gapX+nodeW)/2` somado ao CENTRO de um nó (a metade do
+   * próprio gap) cai exatamente no meio do corredor vazio entre duas colunas
+   * — nenhum nó do grid mora ali, em NENHUM rank — então uma vez detectada a
+   * faixa Y a contornar, o desvio de sempre já resolve.
+   */
+  const nodesLista = [...nodes.values()];
+  function calcularDesvio(
+    origem: string,
+    destino: string,
+  ): Pick<ArestaDoLayout, "desviar" | "desvioYInicio" | "desvioYFim"> {
+    const noOrigem = nodes.get(origem);
+    const noDestino = nodes.get(destino);
+    if (!noOrigem || !noDestino) return { desviar: false };
+
+    // Handles: Bottom (saída, embaixo/centro da origem) → Top (entrada, topo/
+    // centro do destino) — mesma convenção de `task-node.tsx`. Não presume
+    // origem acima de destino (sinergia/obsolescência podem ir "pra trás").
+    const sourceX = noOrigem.x + nodeW / 2;
+    const sourceY = noOrigem.y + nodeH;
+    const targetX = noDestino.x + nodeW / 2;
+    const targetY = noDestino.y;
+    const midY = (sourceY + targetY) / 2;
+    const xLo = Math.min(sourceX, targetX);
+    const xHi = Math.max(sourceX, targetX);
+    const yVertLo1 = Math.min(sourceY, midY);
+    const yVertHi1 = Math.max(sourceY, midY);
+    const yVertLo2 = Math.min(midY, targetY);
+    const yVertHi2 = Math.max(midY, targetY);
+
+    let yTopo = Infinity;
+    let yBase = -Infinity;
+    let desviar = false;
+    for (const n of nodesLista) {
+      if (n.id === origem || n.id === destino) continue;
+      const nx0 = n.x;
+      const nx1 = n.x + nodeW;
+      const ny0 = n.y;
+      const ny1 = n.y + nodeH;
+      // (a) bloqueia o desce inicial (vertical, em sourceX)?
+      const bloqueiaA = sourceX > nx0 && sourceX < nx1 && ny0 < yVertHi1 && ny1 > yVertLo1;
+      // (b) bloqueia o desce final (vertical, em targetX)?
+      const bloqueiaB = targetX > nx0 && targetX < nx1 && ny0 < yVertHi2 && ny1 > yVertLo2;
+      // (c) bloqueia o atravessamento (horizontal, em midY)?
+      const bloqueiaC = midY > ny0 && midY < ny1 && nx0 < xHi && nx1 > xLo;
+      if (bloqueiaA || bloqueiaB || bloqueiaC) {
+        desviar = true;
+        yTopo = Math.min(yTopo, ny0);
+        yBase = Math.max(yBase, ny1);
+      }
     }
-    mapa.set(no.coluna, no.id);
+    if (!desviar) return { desviar: false };
+    return {
+      desviar: true,
+      desvioYInicio: Math.max(Math.min(sourceY, targetY), yTopo - margemDesvioY),
+      desvioYFim: Math.min(Math.max(sourceY, targetY), yBase + margemDesvioY),
+    };
   }
 
-  const desvioPx = (gapX + nodeW) / 2; // "meio gap" — spec do crítico, item 1
-  const arestasLayout: ArestaDoLayout[] = edges
+  // P4c: o desvio geométrico roda sobre TODAS as arestas visuais quando o
+  // chamador passar `todasArestas` (as 6 camadas) — só o RANK fica preso à
+  // precedência (`edges`, acima). Sem `todasArestas`, comportamento idêntico
+  // a antes (só `edges`) — os testes existentes não precisam mudar.
+  const arestasParaDesvio = params.todasArestas ?? edges;
+  const arestasLayout: ArestaDoLayout[] = arestasParaDesvio
     .filter(({ origem, destino }) => idSet.has(origem) && idSet.has(destino))
     .map(({ origem, destino }) => {
       const noOrigem = nodes.get(origem);
@@ -175,20 +276,9 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
       if (!noOrigem || !noDestino) {
         return { origem, destino, pulaRank: false, desviar: false, desvioPx };
       }
-      const distancia = noDestino.rank - noOrigem.rank;
-      const pulaRank = distancia > 1;
-      let desviar = false;
-      if (pulaRank) {
-        for (let r = noOrigem.rank + 1; r < noDestino.rank; r++) {
-          const mapa = colunaPorRank.get(r);
-          if (!mapa) continue;
-          if (mapa.has(noOrigem.coluna) || mapa.has(noDestino.coluna)) {
-            desviar = true;
-            break;
-          }
-        }
-      }
-      return { origem, destino, pulaRank, desviar, desvioPx };
+      const pulaRank = Math.abs(noDestino.rank - noOrigem.rank) > 1;
+      const { desviar, desvioYInicio, desvioYFim } = calcularDesvio(origem, destino);
+      return { origem, destino, pulaRank, desviar, desvioPx, desvioYInicio, desvioYFim };
     });
 
   return { nodes, edges: arestasLayout };
