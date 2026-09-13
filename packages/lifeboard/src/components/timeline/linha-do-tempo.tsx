@@ -74,24 +74,42 @@ const AUTO_MARGEM_RESPIRO_FUTURO_DIAS = 3;
 const LARGURA_MINIMA_BARRA = 12;
 /** Nenhum tick de data pode ficar mais longe que isto do vizinho — achado CRÍTICO #1, rodada 2. */
 const LIMIAR_TICK_PX = 160;
+/**
+ * P5d (achado MÉDIO #4, rodada 3): nenhum rótulo de data pode ficar a menos
+ * de 40px do vizinho — antes, o preenchimento da rede de segurança acima
+ * (`LIMIAR_TICK_PX`) podia cair perto o bastante de um tick NATURAL para os
+ * textos se sobreporem visualmente ("jul" + "ago" virando "juago").
+ */
+const MINIMO_DIST_ROTULO_PX = 40;
 /** Namespaced — mesma disciplina de qualquer outra chave de `localStorage` da casa. */
 const CHAVE_ZOOM = "lifeboard:linha-do-tempo:zoom";
 
 const ROW_H = 34;
 const BAR_H = 16;
 const HEADER_H = 40;
+/**
+ * P5d (achado MÉDIO #5, rodada 3): altura da 2ª faixa do cabeçalho — o nome
+ * do MÊS, uma vez por mês — que só aparece na densidade "dia" (≥24px/dia),
+ * onde os rótulos de baixo são só números soltos ("13", "14"…) sem contexto
+ * nenhum de mês.
+ */
+const HEADER_MES_H = 18;
 const MS_POR_DIA = 86_400_000;
 /** Teto de dias na escala — rede de segurança contra datas podres/distantes. */
 const TETO_DIAS_ESCALA = 420;
 /** "Hoje" mira ~40% da largura visível do painel (achados CRÍTICO #1/#2). */
 const ANCORA_HOJE_FRACAO = 0.4;
 /**
- * Offset do cabeçalho STICKY (achado MÉDIO #15) — a altura da nav do shell
- * (`src/app/layout.tsx`, `min-h-[44px]`). Sticky, não fixed: quando a nav sai
- * de cena rolando a página, o cabeçalho da escala sobe junto até este offset
- * e então gruda — nunca deixa uma faixa vazia permanente no topo.
+ * P5d (achado ALTO #1, rodada 3): o offset do cabeçalho STICKY não é mais uma
+ * constante — antes supunha 44px fixos para a nav do shell, mas a nav não era
+ * sticky: na TRANSIÇÃO do scroll (nav saindo de cena, cabeçalho já grudado no
+ * offset fixo) sobrava uma faixa sem nav NEM cabeçalho, onde linhas da tabela
+ * vazavam por cima do eixo de datas. A nav agora É sticky (`src/app/
+ * layout.tsx`) — nunca sai de cena — e a altura real dela é MEDIDA em
+ * runtime (`navAltura`, `getBoundingClientRect`); este é só o valor antes da
+ * 1ª medição (SSR / sem nav encontrada no DOM).
  */
-const HEADER_TOP_STICKY = 44;
+const NAV_ALTURA_FALLBACK = 0;
 
 function ehZoomValido(v: unknown): v is Zoom {
   return v === "auto" || v === "semana" || v === "mes" || v === "trimestre";
@@ -164,11 +182,12 @@ function gerarEscala(
   minIso: string,
   maxIso: string,
   pxPorDia: number,
-): { guiasSemana: number[]; ticks: Tick[] } {
+): { guiasSemana: number[]; ticks: Tick[]; ticksMes: Tick[]; faixa: "dia" | "semana" | "mes" } {
   const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
   const faixa: "dia" | "semana" | "mes" = pxPorDia >= 24 ? "dia" : pxPorDia >= 8 ? "semana" : "mes";
   const guiasSemana: number[] = [];
   const porX = new Map<number, Tick>();
+  const porXMes = new Map<number, Tick>();
   for (let d = 0; d <= totalDias; d += 1) {
     const iso = somaDiasIso(minIso, d);
     const data = new Date(paraEpoch(iso));
@@ -183,10 +202,22 @@ function gerarEscala(
     } else if (ehInicioMes) {
       porX.set(x, { x, label: mesCurto(iso), forte: true });
     }
+    // P5d (achado MÉDIO #5, rodada 3): faixa de MESES — só existe (o chamador
+    // só a renderiza) na densidade "dia", onde os rótulos abaixo são números
+    // soltos sem nenhum contexto de mês. Um rótulo por início de mês, mais um
+    // no 1º dia visível (mesmo que não seja dia 1) — nunca começa "no vazio".
+    if (faixa === "dia" && (ehInicioMes || d === 0)) {
+      const xMes = ehInicioMes ? x : 0;
+      porXMes.set(xMes, { x: xMes, label: mesCurto(iso), forte: true });
+    }
   }
 
   // Rede de segurança: pelo menos 1 rótulo por ~160px, mesmo quando a faixa
   // natural (semana/mês) não cruza nenhum marco dentro da janela visível.
+  // P5d (achado MÉDIO #4, rodada 3): o rótulo de PREENCHIMENTO é SEMPRE
+  // `dd/MM` — nunca nome de mês (`mesCurto`). Um "ago" de preenchimento do
+  // lado de um "ago" natural virava "juago" ilegível (dois rótulos de MÊS
+  // colados, cada um só um dígito visualmente distinguível do outro).
   const largoDemais = pxPorDia * 1 <= 0 ? 1 : Math.max(1, Math.floor(LIMIAR_TICK_PX / pxPorDia));
   const xsOrdenados = [...porX.keys()].sort((a, b) => a - b);
   const fronteiras = [0, ...xsOrdenados, totalDias * pxPorDia];
@@ -198,13 +229,27 @@ function gerarEscala(
       if (porX.has(x)) continue;
       const d = Math.round(x / pxPorDia);
       const iso = somaDiasIso(minIso, d);
-      const label = faixa === "mes" ? mesCurto(iso) : diaMesCurto(iso);
-      porX.set(x, { x, label, forte: false });
+      porX.set(x, { x, label: diaMesCurto(iso), forte: false });
     }
   }
 
-  const ticks = [...porX.values()].sort((a, b) => a.x - b.x);
-  return { guiasSemana, ticks };
+  // P5d (achado MÉDIO #4, rodada 3): rede de segurança FINAL — nenhum rótulo
+  // pode ficar a menos de `MINIMO_DIST_ROTULO_PX` do vizinho já escolhido,
+  // mesmo vindo de fontes diferentes (natural × preenchimento). Em colisão, o
+  // "forte" (início de mês/semana) vence; em empate, o mais à esquerda fica.
+  const todosOrdenados = [...porX.values()].sort((a, b) => a.x - b.x);
+  const ticks: Tick[] = [];
+  for (const t of todosOrdenados) {
+    const anterior = ticks[ticks.length - 1];
+    if (anterior && t.x - anterior.x < MINIMO_DIST_ROTULO_PX) {
+      if (t.forte && !anterior.forte) ticks[ticks.length - 1] = t;
+      continue;
+    }
+    ticks.push(t);
+  }
+
+  const ticksMes = [...porXMes.values()].sort((a, b) => a.x - b.x);
+  return { guiasSemana, ticks, ticksMes, faixa };
 }
 
 // ─── linha "achatada" (cabeçalho de grupo + linhas), para o 1:1 rótulo↔barra ──
@@ -263,6 +308,38 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     const el = headerTicksRef.current;
     if (el) el.style.transform = `translateX(${-scrollLeft}px)`;
   };
+
+  /**
+   * P5d (achado ALTO #1, rodada 3): a nav do shell (`src/app/layout.tsx`)
+   * agora é `sticky top-0` — nunca sai de cena. O offset do cabeçalho da
+   * escala precisa ser a altura REAL dela (não um número fixo suposto): mede
+   * via `getBoundingClientRect` no mount e observa resize (a nav pode crescer
+   * — telas muito estreitas quebram os links de linha). Fallback 0 antes da
+   * 1ª medição (SSR, ou nav não encontrada).
+   */
+  const [navAltura, setNavAltura] = useState<number>(NAV_ALTURA_FALLBACK);
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Navegação principal"]');
+    if (!nav) return undefined;
+    const medir = (): void => setNavAltura(nav.getBoundingClientRect().height);
+    medir();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const obs = new ResizeObserver(medir);
+    obs.observe(nav);
+    return () => obs.disconnect();
+  }, []);
+
+  // Achado BAIXO #8: `Escape` limpa a seleção — sem isto, a única forma de
+  // desmarcar uma linha ativa era clicar nela de novo (nada no teclado).
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const aoTeclar = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setAtivoId(null);
+    };
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, []);
 
   const mudarZoom = (z: Zoom): void => {
     setZoom(z);
@@ -341,10 +418,13 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   }, [minIsoAuto, maxIsoAuto, larguraPainel]);
 
   const pxPorDia = zoom === "auto" ? pxPorDiaAuto : PX_POR_DIA_FIXO[zoom];
-  const { guiasSemana, ticks } = useMemo(
+  const { guiasSemana, ticks, ticksMes, faixa } = useMemo(
     () => gerarEscala(minIso, maxIso, pxPorDia),
     [minIso, maxIso, pxPorDia],
   );
+  /** P5d (achado MÉDIO #5, rodada 3): 2ª faixa (nome do mês) só na densidade "dia". */
+  const mostrarLinhaMeses = faixa === "dia";
+  const alturaHeaderTotal = HEADER_H + (mostrarLinhaMeses ? HEADER_MES_H : 0);
   const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
   const totalWidth = totalDias * pxPorDia;
   const alturaLinhas = linhas.length * ROW_H;
@@ -360,6 +440,23 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     const bruto = diffDias(minIso, iso) * pxPorDia;
     return Math.min(Math.max(bruto, 0), totalWidth);
   };
+  /**
+   * P5d (achados ALTO #2/#7, rodada 3): antes, uma data que caía ANTES da
+   * janela vigente (o horizonte do "auto", ou o teto raro dos zooms fixos)
+   * era silenciosamente grudada em `x=0` pelo clamp de `xFor` acima — um
+   * assunto de meses atrás virava um coto de 4px sem nenhum aviso, ou um
+   * ponto de conclusão nascia "cortado" em `left:-4`. `foraDaJanela` é o
+   * sinal que os componentes de barra usam para desenhar um chevron "◀ fora
+   * da janela" (com as datas reais no `title`) em vez de fingir uma posição.
+   */
+  const foraDaJanela = (iso: string): boolean => paraEpoch(iso) < paraEpoch(minIso);
+  /**
+   * P5d (achado BAIXO #11, rodada 3): a caixa de aviso ("datas inconsistentes",
+   * "data inválida") não tinha limite de largura — a 390px ela encostava na
+   * borda e cortava o texto. `undefined` antes da 1ª medição real do painel
+   * (SSR / sem `ResizeObserver`) — sem `maxWidth`, mas nunca lança.
+   */
+  const larguraErroMax = larguraPainel > 0 ? Math.max(80, larguraPainel - 8) : undefined;
 
   // Mede a largura real do painel (para o "auto") e mantém a linha de "hoje"
   // ancorada a ~40% da largura visível — no mount, a cada mudança de escala
@@ -377,17 +474,68 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     return () => obs.disconnect();
   }, []);
 
+  /**
+   * P5d (achado BAIXO #9, rodada 3): x do fim (com folga) da tarefa do GOAL
+   * — ou, na falta dela/sem bar, da última barra CRÍTICA — usado para
+   * deslocar a âncora de "hoje" quando ela deixaria a meta fora do painel.
+   */
+  const linhaDoGoal = props.goalId
+    ? (linhas.find(
+        (l): l is LinhaExibicaoDado & { linha: LinhaDoTempoTarefaRow } =>
+          l.tipo === "linha" && l.linha.kind === "tarefa" && l.linha.id === props.goalId,
+      )?.linha ?? null)
+    : null;
+  const xFimAlvo = ((): number | null => {
+    if (linhaDoGoal && !linhaDoGoal.semBarra) return xFor(linhaDoGoal.fimComFolga);
+    let alvo: number | null = null;
+    for (const l of linhas) {
+      if (l.tipo !== "linha" || l.linha.kind !== "tarefa" || l.linha.semBarra || !l.linha.critico) continue;
+      const x = xFor(l.linha.fimComFolga);
+      if (alvo === null || x > alvo) alvo = x;
+    }
+    return alvo;
+  })();
+
   useEffect(() => {
     const el = painelRef.current;
     if (!el) return;
     const largura = el.clientWidth || larguraPainel;
-    const novoScrollLeft = Math.max(0, xHoje - largura * ANCORA_HOJE_FRACAO);
+    let novoScrollLeft = Math.max(0, xHoje - largura * ANCORA_HOJE_FRACAO);
+    // Achado BAIXO #9 (rodada 3): a âncora de 40% ignorava onde a meta
+    // termina — em telas estreitas + zoom denso ("Semana"), a barra do
+    // objetivo nascia fora do painel, sem nenhuma pista de que existia mais
+    // adiante. Desloca a âncora para caber o fim da meta quando ele CABE na
+    // largura do painel junto de "hoje" (senão a prioridade continua sendo
+    // manter "hoje" visível, como sempre foi — nunca escondê-lo pelo alvo).
+    if (largura > 0 && xFimAlvo !== null && xFimAlvo - xHoje <= largura) {
+      const MARGEM_ALVO_PX = 8;
+      if (xFimAlvo > novoScrollLeft + largura - MARGEM_ALVO_PX) {
+        novoScrollLeft = Math.min(xHoje, Math.max(0, xFimAlvo - largura + MARGEM_ALVO_PX));
+      }
+    }
     el.scrollLeft = novoScrollLeft;
     sincronizarHeaderComPainel(novoScrollLeft);
     // `pxPorDia` muda em toda troca de zoom (inclusive "auto" recalculando)
     // — reancorar em "hoje" sempre que a escala muda é o que resolve o
     // "Semana" esvaziando a tela (achado CRÍTICO #2: a âncora era perdida).
-  }, [xHoje, pxPorDia, larguraPainel]);
+  }, [xHoje, pxPorDia, larguraPainel, xFimAlvo]);
+
+  /**
+   * P5d (achado ALTO #2, rodada 3): quantos ASSUNTOS começam antes da janela
+   * vigente — só interessa em "auto" (os zooms fixos já mostram o histórico
+   * inteiro por construção, `minIsoDados`). Alimenta o aviso sob o seletor de
+   * zoom; cada assunto em si já ganha o chevron "◀ fora da janela" (com as
+   * datas reais no `title`) em vez de ser cortado em silêncio.
+   */
+  const assuntosForaDaJanela = (() => {
+    let n = 0;
+    for (const l of linhas) {
+      if (l.tipo !== "linha" || l.linha.kind !== "assunto") continue;
+      if (l.linha.dataInvalida || l.linha.datasInconsistentes) continue;
+      if (foraDaJanela(l.linha.inicio)) n += 1;
+    }
+    return n;
+  })();
 
   const indicePorTarefaId = useMemo(() => {
     const m = new Map<string, number>();
@@ -486,26 +634,41 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             <span className="text-aresta-critico">vermelho triplo</span>.
           </p>
         </div>
-        <div
-          role="group"
-          aria-label="Zoom da escala de dias"
-          className="inline-flex overflow-hidden rounded-md border border-navy-700"
-        >
-          {ZOOM_OPCOES.map((op) => (
-            <button
-              key={op.id}
-              type="button"
-              aria-pressed={zoom === op.id}
-              onClick={() => mudarZoom(op.id)}
-              className={
-                zoom === op.id
-                  ? "min-h-[36px] border-l border-navy-700 bg-navy-850 px-3 text-xs font-semibold text-gold-300 first:border-l-0"
-                  : "min-h-[36px] border-l border-navy-700 bg-navy-900 px-3 text-xs text-bone-300 first:border-l-0 hover:text-bone-100"
-              }
-            >
-              {op.label}
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-1">
+          <div
+            role="group"
+            aria-label="Zoom da escala de dias"
+            className="inline-flex overflow-hidden rounded-md border border-navy-700"
+          >
+            {ZOOM_OPCOES.map((op) => (
+              <button
+                key={op.id}
+                type="button"
+                aria-pressed={zoom === op.id}
+                onClick={() => mudarZoom(op.id)}
+                className={
+                  zoom === op.id
+                    ? "min-h-[36px] border-l border-navy-700 bg-navy-850 px-3 text-xs font-semibold text-gold-300 first:border-l-0"
+                    : "min-h-[36px] border-l border-navy-700 bg-navy-900 px-3 text-xs text-bone-300 first:border-l-0 hover:text-bone-100"
+                }
+              >
+                {op.label}
+              </button>
+            ))}
+          </div>
+          {/*
+            Achado ALTO #2 (rodada 3): "auto" recorta a janela pelo horizonte
+            das TAREFAS — nunca clampa um assunto mais antigo em silêncio (ele
+            ganha o chevron "◀ fora da janela"), mas o aviso aqui diz QUANTOS
+            e para onde ir para ver o histórico inteiro.
+          */}
+          {zoom === "auto" && assuntosForaDaJanela > 0 ? (
+            <p role="note" className="max-w-[280px] text-right text-[12px] text-bone-400">
+              {assuntosForaDaJanela} assunto{assuntosForaDaJanela > 1 ? "s" : ""} começa
+              {assuntosForaDaJanela > 1 ? "m" : ""} antes da janela — Mês/Trimestre mostra o
+              histórico
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -525,36 +688,74 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             fora do scroller horizontal — `sticky` aqui stacka contra a
             PÁGINA (nenhum ancestral com overflow != visible), nunca contra o
             painel. `z-20` fica acima das linhas quando a página rola por
-            baixo dele.
+            baixo dele. Achado ALTO #1 (rodada 3): `top` é a altura REAL da
+            nav (`navAltura`, medida em runtime) — a nav agora é sticky
+            (`src/app/layout.tsx`) e nunca sai de cena, então não sobra mais
+            faixa vazia entre as duas.
           */}
           <div
-            style={{ top: HEADER_TOP_STICKY, height: HEADER_H }}
+            style={{ top: navAltura, height: alturaHeaderTotal }}
             className="sticky z-20 flex w-full"
           >
             {/* Célula do cabeçalho da coluna de rótulos — mesma largura da coluna abaixo. */}
             <div className="w-[108px] shrink-0 border-b border-r border-navy-700 bg-navy-900 sm:w-[240px]" />
             {/* Célula do cabeçalho da escala — clip (nunca scroll próprio) + conteúdo deslocado por `transform` para acompanhar o `scrollLeft` do painel. */}
             <div className="relative min-w-0 flex-1 overflow-hidden border-b border-navy-700 bg-navy-900">
-              <div ref={headerTicksRef} style={{ width: totalWidth, height: HEADER_H }} className="relative">
-                {ticks.map((t) => (
+              <div
+                ref={headerTicksRef}
+                style={{ width: totalWidth, height: alturaHeaderTotal }}
+                className="relative"
+              >
+                {/*
+                  Achado MÉDIO #5 (rodada 3): faixa do MÊS — só na densidade
+                  "dia" (≥24px/dia), onde a faixa de baixo é só números soltos
+                  ("13", "14"…) sem nenhum contexto de mês.
+                */}
+                {mostrarLinhaMeses ? (
                   <div
-                    key={t.x}
-                    className={
-                      t.forte
-                        ? "absolute top-0 flex h-full items-center border-l border-navy-600 pl-1 text-[12px] font-semibold text-bone-200"
-                        : "absolute top-0 flex h-full items-center border-l border-navy-800 pl-1 text-[12px] text-bone-400"
-                    }
-                    style={{ left: t.x }}
+                    className="absolute inset-x-0 top-0 border-b border-navy-800"
+                    style={{ height: HEADER_MES_H }}
                   >
-                    {t.label}
+                    {ticksMes.map((t) => (
+                      <div
+                        key={`mes-${t.x}`}
+                        className="absolute top-0 flex h-full items-center border-l border-navy-700 pl-1 text-[12px] font-semibold text-bone-300"
+                        style={{ left: t.x }}
+                      >
+                        {t.label}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : null}
+                <div
+                  className="absolute inset-x-0"
+                  style={{ top: mostrarLinhaMeses ? HEADER_MES_H : 0, height: HEADER_H }}
+                >
+                  {ticks.map((t) => (
+                    <div
+                      key={t.x}
+                      className={
+                        t.forte
+                          ? "absolute top-0 flex h-full items-center border-l border-navy-600 pl-1 text-[12px] font-semibold text-bone-200"
+                          : "absolute top-0 flex h-full items-center border-l border-navy-800 pl-1 text-[12px] text-bone-400"
+                      }
+                      style={{ left: t.x }}
+                    >
+                      {t.label}
+                    </div>
+                  ))}
+                </div>
                 <div
                   data-timeline-hoje="true"
                   className="lb-tl-hoje absolute top-0 h-full border-l-2 border-gold-500"
                   style={{ left: xHoje }}
                   title="Hoje"
-                />
+                >
+                  {/* Achado MÉDIO #5 (rodada 3): a linha de "hoje" ganha uma data legível, não só a cor. */}
+                  <span className="absolute left-1 top-0 whitespace-nowrap rounded-sm bg-navy-900/80 px-0.5 text-[12px] font-semibold text-gold-300">
+                    {diaMesCurto(props.hoje)}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -617,6 +818,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                         row={l.linha}
                         top={top}
                         xFor={xFor}
+                        foraDaJanela={foraDaJanela}
+                        larguraErro={larguraErroMax}
                       />
                     );
                   }
@@ -626,6 +829,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                       row={l.linha}
                       top={top}
                       xFor={xFor}
+                      foraDaJanela={foraDaJanela}
+                      larguraErro={larguraErroMax}
                       ativo={ativoId === l.linha.id}
                       predecessora={predecessorasAtivas.has(l.linha.id)}
                       sucessora={sucessorasAtivas.has(l.linha.id)}
@@ -749,10 +954,14 @@ function BarraAssunto({
   row,
   top,
   xFor,
+  foraDaJanela,
+  larguraErro,
 }: {
   row: LinhaDoTempoAssuntoRow;
   top: number;
   xFor: (iso: string) => number;
+  foraDaJanela: (iso: string) => boolean;
+  larguraErro: number | undefined;
 }): JSX.Element {
   const cor = corDoAssunto(row);
   const x = xFor(row.inicio);
@@ -765,8 +974,8 @@ function BarraAssunto({
       <div
         tabIndex={-1}
         aria-hidden="true"
-        className="lb-tl-erro absolute flex items-center rounded-sm border border-dashed border-state-warning px-1 text-[12px] text-state-warning"
-        style={{ left: 0, top, height: BAR_H }}
+        className="lb-tl-erro absolute flex items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-dashed border-state-warning px-1 text-[12px] text-state-warning"
+        style={{ left: 0, top, height: BAR_H, maxWidth: larguraErro }}
         title={`${row.titulo} — data inválida`}
       >
         data inválida
@@ -781,12 +990,32 @@ function BarraAssunto({
       <div
         tabIndex={-1}
         aria-hidden="true"
-        className="lb-tl-erro absolute flex items-center rounded-sm border border-dashed border-state-error px-1 text-[12px] text-state-error-fg"
-        style={{ left: x, top, height: BAR_H }}
+        className="lb-tl-erro absolute flex items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-dashed border-state-error px-1 text-[12px] text-state-error-fg"
+        style={{ left: x, top, height: BAR_H, maxWidth: larguraErro }}
         title={`${row.titulo} — datas inconsistentes`}
       >
         datas inconsistentes
       </div>
+    );
+  }
+
+  // Achados ALTO #2/#7 (rodada 3): assunto que começa ANTES da janela vigente
+  // — nunca mais um coto de 4px grudado em `x=0` sem aviso nenhum. Chevron na
+  // borda esquerda, com as datas REAIS no `title` (nunca cortado em silêncio).
+  if (foraDaJanela(row.inicio)) {
+    return (
+      <a
+        href={row.url}
+        target="_blank"
+        rel="noreferrer"
+        tabIndex={-1}
+        aria-hidden="true"
+        className={`lb-tl-fora-da-janela absolute flex items-center text-[12px] font-semibold ${cor.texto}`}
+        style={{ left: 0, top, height: BAR_H }}
+        title={`${row.titulo} — ${diaMesCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesCurto(row.fim)} (fora da janela)`}
+      >
+        ◀
+      </a>
     );
   }
 
@@ -802,7 +1031,7 @@ function BarraAssunto({
         aria-hidden="true"
         className={`lb-tl-marco absolute rotate-45 ${cor.barra}`}
         style={{ left: x - 5, top: top + (BAR_H - 10) / 2, width: 10, height: 10 }}
-        title={`${row.titulo} — mesmo dia`}
+        title={`${row.titulo} — ${diaMesCurto(row.inicio)} (mesmo dia)`}
       />
     );
   }
@@ -817,7 +1046,7 @@ function BarraAssunto({
       aria-hidden="true"
       className={`absolute rounded-sm ${cor.barra} opacity-90 hover:opacity-100`}
       style={{ left: x, top, width: largura, height: BAR_H }}
-      title={`${row.titulo} — ${row.inicio} → ${row.aberto ? "em aberto" : row.fim}`}
+      title={`${row.titulo} — ${diaMesCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesCurto(row.fim)}`}
     >
       {cor.riscado ? (
         <span aria-hidden="true" className="absolute inset-x-0 top-1/2 h-px bg-navy-950/70" />
@@ -830,6 +1059,8 @@ function BarraTarefa({
   row,
   top,
   xFor,
+  foraDaJanela,
+  larguraErro,
   ativo,
   predecessora,
   sucessora,
@@ -838,6 +1069,8 @@ function BarraTarefa({
   row: LinhaDoTempoTarefaRow;
   top: number;
   xFor: (iso: string) => number;
+  foraDaJanela: (iso: string) => boolean;
+  larguraErro: number | undefined;
   ativo: boolean;
   predecessora: boolean;
   sucessora: boolean;
@@ -856,8 +1089,8 @@ function BarraTarefa({
         tabIndex={-1}
         aria-hidden="true"
         onClick={onAtivar}
-        className="lb-tl-erro absolute flex cursor-pointer items-center rounded-sm border border-dashed border-state-error px-1 text-[12px] text-state-error-fg"
-        style={{ left: xFor(row.inicio), top, height: BAR_H }}
+        className="lb-tl-erro absolute flex cursor-pointer items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-dashed border-state-error px-1 text-[12px] text-state-error-fg"
+        style={{ left: xFor(row.inicio), top, height: BAR_H, maxWidth: larguraErro }}
         title={`${row.titulo} — datas inconsistentes`}
       >
         datas inconsistentes
@@ -869,6 +1102,23 @@ function BarraTarefa({
   // (nunca a barra fabricada "hoje → hoje+1" que o crítico pegou no futuro).
   if (row.semBarra) {
     if (!row.pontoConcluidoEm) return null;
+    // Achado ALTO #7 (rodada 3): ponto de conclusão ANTES da janela vigente
+    // — antes ficava "colado" em `left: -4` (metade cortada pela borda do
+    // painel). Mesmo mecanismo do #2: chevron + data real no `title`.
+    if (foraDaJanela(row.pontoConcluidoEm)) {
+      return (
+        <div
+          tabIndex={-1}
+          aria-hidden="true"
+          onClick={onAtivar}
+          className="lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold text-state-done"
+          style={{ left: 0, top, height: BAR_H }}
+          title={`${row.titulo} — concluída em ${diaMesCurto(row.pontoConcluidoEm)} (fora da janela)`}
+        >
+          ◀
+        </div>
+      );
+    }
     const cx = xFor(row.pontoConcluidoEm);
     return (
       <div
@@ -877,8 +1127,26 @@ function BarraTarefa({
         onClick={onAtivar}
         className="lb-tl-ponto-concluida absolute cursor-pointer rounded-full bg-state-done"
         style={{ left: cx - 4, top: top + (BAR_H - 8) / 2, width: 8, height: 8 }}
-        title={`${row.titulo} — concluída em ${row.pontoConcluidoEm}`}
+        title={`${row.titulo} — concluída em ${diaMesCurto(row.pontoConcluidoEm)}`}
       />
+    );
+  }
+
+  // Achados ALTO #2/#7 (rodada 3): tarefa cujo início cai antes da janela
+  // vigente — nunca mais um coto grudado em `x=0` sem nenhum aviso. Chevron
+  // na borda esquerda, com as datas reais no `title`.
+  if (foraDaJanela(row.inicio)) {
+    return (
+      <div
+        tabIndex={-1}
+        aria-hidden="true"
+        onClick={onAtivar}
+        className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${row.critico ? "text-aresta-critico" : "text-bone-300"}`}
+        style={{ left: 0, top, height: BAR_H }}
+        title={`${row.titulo} — ${diaMesCurto(row.inicio)} → ${diaMesCurto(row.fim)} (fora da janela)`}
+      >
+        ◀
+      </div>
     );
   }
 
@@ -895,7 +1163,7 @@ function BarraTarefa({
           ativo ? "ring-2 ring-gold-500" : ""
         }`}
         style={{ left: x - 6, top: top + (BAR_H - 12) / 2, width: 12, height: 12 }}
-        title={`${row.titulo} — marco`}
+        title={`${row.titulo} — marco em ${diaMesCurto(row.inicio)}`}
       />
     );
   }
@@ -947,6 +1215,15 @@ function BarraTarefa({
   const dueXRelativo = row.dueDate ? xFor(row.dueDate) - x : null;
   const dueDentroDaBarra = dueXRelativo !== null && dueXRelativo >= 0 && dueXRelativo <= largura;
 
+  // Achado MÉDIO #5 (rodada 3): título com datas legíveis (dd/MM), não só a
+  // folga em dias. Achado MÉDIO #6: `folga: null` (fora do CPM) nunca lê como
+  // "0 d" (que se confundia com "tão crítica quanto o caminho do goal") — o
+  // tooltip diz explicitamente que não foi calculada.
+  const folgaTexto = row.folga === null ? "folga não calculada" : `folga: ${row.folga} d`;
+  const tituloBarra =
+    `${row.titulo} — ${diaMesCurto(row.inicio)} → ${diaMesCurto(row.fim)} (${folgaTexto})` +
+    (rotuloLateral ? ` — ${rotuloLateral}` : "");
+
   return (
     <div
       tabIndex={-1}
@@ -954,7 +1231,7 @@ function BarraTarefa({
       onClick={onAtivar}
       className={`absolute cursor-pointer rounded-sm ${classesEstado} ${anel} ${row.critico ? "lb-tl-bar-critico" : ""}`}
       style={{ left: x, top, width: largura, height: BAR_H }}
-      title={`${row.titulo} — folga: ${row.folga} d${rotuloLateral ? ` — ${rotuloLateral}` : ""}`}
+      title={tituloBarra}
     >
       {row.critico ? <TracoTriploCritico largura={largura} /> : null}
       {/* Achado ALTO #5 (rodada 2): marcador ADITIVO de atraso — nunca troca
@@ -1159,7 +1436,16 @@ function Conector({
   );
 }
 
-/** Amostras (achado ALTO #9): crítico · sucessão · folga · conflito · sem data · marco — texto ≥12px (achado MÉDIO #16). */
+/**
+ * Amostras (achado ALTO #9): crítico · sucessão · folga · conflito · sem
+ * data · marco · hoje · atrasada · fechado sem merge · indefinido — texto
+ * ≥12px (achado MÉDIO #16). Os 4 últimos entraram na rodada 3 (achados
+ * MÉDIO #5 e BAIXO #10): "hoje" e "atrasada" já apareciam na tela sem
+ * nenhuma entrada que os decodificasse; "fechado sem merge" (cinza + traço)
+ * e "indefinido" (cinza tracejado) usam o MESMO cinza (`bone-500` ==
+ * `#6C7A99`) e só se distinguiam por forma — sem a legenda, ninguém sabia
+ * que eram conceitos diferentes.
+ */
 function Legenda(): JSX.Element {
   const ITENS: readonly { chave: string; amostra: JSX.Element; label: string }[] = [
     {
@@ -1200,6 +1486,30 @@ function Legenda(): JSX.Element {
       chave: "marco",
       amostra: <span aria-hidden="true" className="h-2.5 w-2.5 rotate-45 bg-gold-400" />,
       label: "marco",
+    },
+    {
+      chave: "hoje",
+      amostra: <span aria-hidden="true" className="h-2 w-0.5 rounded-sm bg-gold-500" />,
+      label: "hoje",
+    },
+    {
+      chave: "atrasada",
+      amostra: <span aria-hidden="true" className="h-0.5 w-5 rounded-full border-t-2 border-state-error" />,
+      label: "atrasada",
+    },
+    {
+      chave: "fechado-sem-merge",
+      amostra: (
+        <span aria-hidden="true" className="relative h-2 w-5 rounded-sm bg-bone-500">
+          <span aria-hidden="true" className="absolute inset-x-0 top-1/2 h-px bg-navy-950/70" />
+        </span>
+      ),
+      label: "fechado sem merge",
+    },
+    {
+      chave: "indefinido",
+      amostra: <span aria-hidden="true" className="h-0.5 w-5 rounded-sm border-t-2 border-dashed border-bone-500" />,
+      label: "data indefinida",
     },
   ];
   // Achado BAIXO #12 (rodada 2): a legenda inteira era `aria-hidden`, o que

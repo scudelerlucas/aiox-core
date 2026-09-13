@@ -15,6 +15,15 @@ import "@/app/globals.css";
  * `page.tsx` nem `dashboard-client.tsx` tinham um cabeçalho de link (ambos
  * fora do escopo desta peça), então a rota nova (`/linha-do-tempo`) entra na
  * única casa segura para editar: este shell, presente em toda página.
+ *
+ * P5d (13/09/2026, achado ALTO #1 do crítico hostil, rodada 3): `<nav>` agora
+ * é `sticky top-0 z-40` — antes rolava com a página, e a linha do tempo
+ * assumia (via `HEADER_TOP_STICKY` fixo) que ela sempre ocupava uma faixa de
+ * 44px no topo. Na TRANSIÇÃO do scroll (nav saindo de cena, cabeçalho da
+ * escala já grudado no seu offset fixo) sobrava uma faixa sem nav NEM
+ * cabeçalho, onde linhas da tabela apareciam por cima do eixo de datas.
+ * Sticky faz a nav nunca sair de cena — a linha do tempo agora mede a altura
+ * real dela em runtime (`getBoundingClientRect`) em vez de supor 44px.
  */
 export const metadata: Metadata = {
   title: "ALMA PETRA · OS-LIFEBOARD",
@@ -39,7 +48,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-navy-950 font-sans text-bone-100 antialiased">
         <nav
           aria-label="Navegação principal"
-          className="flex min-h-[44px] items-center gap-4 border-b border-navy-800 bg-navy-900 px-4 text-sm sm:px-6"
+          className="sticky top-0 z-40 flex min-h-[44px] items-center gap-4 border-b border-navy-800 bg-navy-900 px-4 text-sm sm:px-6"
         >
           {NAV_LINKS.map((l) => (
             <Link

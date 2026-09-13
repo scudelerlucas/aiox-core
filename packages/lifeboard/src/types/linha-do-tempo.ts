@@ -65,8 +65,13 @@ export interface LinhaDoTempoTarefaRow {
   fimComFolga: string;
   /** `true` quando o id está em `ResultadoCPM.critico` (folga zero até o goal). */
   critico: boolean;
-  /** Folga em dias (`JanelaCPM.folga`). 0 para tarefa fora do subgrafo do goal. */
-  folga: number;
+  /**
+   * Folga em dias (`JanelaCPM.folga`). `null` fora do subgrafo do goal — P5d
+   * (achado MÉDIO #6, rodada 3): `0` ali lia-se como "sem folga" (== crítica),
+   * quando na verdade é "não calculada" (o CPM não sabe de tarefas fora do
+   * caminho até o goal).
+   */
+  folga: number | null;
   /** `true` quando a tarefa não tem `estimativaDias` válida (dentro ou fora do CPM). */
   semDuracao: boolean;
   /** Ids de predecessoras (união de 3 fontes — mesma regra do CPM). */

@@ -276,7 +276,11 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
 });
 
 describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
-  it("done DENTRO do CPM tem duração zero por construção → marco=true", () => {
+  it("done DENTRO do CPM nunca vira losango em hoje — ponto real em updatedAt (achado ALTO #3, rodada 3)", () => {
+    // P5d (rodada 3): antes, `es === ef` (duração zero por construção do CPM)
+    // virava `marco: true` na posição de "hoje" — um losango vermelho sobre
+    // uma tarefa já CONCLUÍDA no passado. Checar `status === "done"` ANTES da
+    // janela é o fix: sempre o ponto real (`updatedAt`), nunca "hoje".
     const tasks = [
       task({ id: "DONE-NO-CPM", status: "done", predecessorIds: [] }),
       task({ id: "GOAL", predecessorIds: ["DONE-NO-CPM"], estimativaDias: 2, isGoal: true }),
@@ -285,8 +289,30 @@ describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
     const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
     const linha = tarefaPorId(props, "DONE-NO-CPM");
     expect(linha.foraDoCpm).toBe(false);
-    expect(linha.marco).toBe(true);
+    expect(linha.marco).toBe(false);
+    expect(linha.semBarra).toBe(true);
+    expect(linha.pontoConcluidoEm).toBe("2026-07-09"); // updatedAt do helper `task()`
     expect(linha.inicio).toBe(linha.fim);
+    expect(linha.inicio).not.toBe(HOJE);
+    expect(linha.critico).toBe(cpm.critico.has("DONE-NO-CPM"));
+  });
+
+  it("fixture task-setup: done e crítica dentro do CPM → semBarra, sem barra, sem losango, folga real (achado ALTO #3, rodada 3)", () => {
+    const tasks = [
+      task({ id: "task-setup", status: "done", predecessorIds: [] }),
+      task({ id: "GOAL", predecessorIds: ["task-setup"], estimativaDias: 3, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "task-setup");
+    expect(cpm.critico.has("task-setup")).toBe(true); // pré-condição do fixture: é de fato crítica
+    expect(linha.critico).toBe(true);
+    expect(linha.semBarra).toBe(true);
+    expect(linha.marco).toBe(false);
+    expect(linha.foraDoCpm).toBe(false);
+    expect(linha.folga).toBe(0);
+    expect(linha.pontoConcluidoEm).toBe("2026-07-09");
+    expect(linha.inicio).not.toBe(HOJE);
   });
 
   it("dueDate no passado e não done → atrasada=true", () => {

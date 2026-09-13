@@ -244,6 +244,38 @@ function montaTarefa(
     dueDate,
   };
 
+  // P5d (achado ALTO #3 do crítico hostil, rodada 3): `done` é checado ANTES
+  // da janela do CPM, não depois — o bug era exatamente a ordem inversa: uma
+  // tarefa concluída que É ancestral do goal tem `es === ef` (duração zero
+  // por CONSTRUÇÃO do CPM, que conta a partir de "hoje"), e isso virava um
+  // losango desenhado EM CIMA DE HOJE — uma tarefa já feita não é um evento
+  // de hoje, é um evento do passado (`updatedAt`). `done` SEMPRE usa o ponto
+  // real de conclusão, dentro OU fora do CPM; só o que muda é `critico`/
+  // `folga` (refletem o CPM de verdade quando a tarefa é ancestral do goal —
+  // "crítica ou não", o conector que nasce desse ponto precisa saber) e
+  // `foraDoCpm` (espelha se havia janela). Nunca fabrica uma barra a partir
+  // de "hoje" quando nem `updatedAt` é uma data válida.
+  if (t.status === "done") {
+    const ponto = pontoDeConclusao(t);
+    const ancora = ponto ?? hoje;
+    const row: LinhaDoTempoTarefaRow = {
+      ...base,
+      inicio: ancora,
+      fim: ancora,
+      fimComFolga: ancora,
+      critico: janela ? cpm.critico.has(t.id) : false,
+      folga: janela ? janela.folga : null,
+      semDuracao: false,
+      foraDoCpm: !janela,
+      marco: false,
+      datasInconsistentes: false,
+      semBarra: true,
+      pontoConcluidoEm: ponto,
+      atrasada: false,
+    };
+    return { row, es: janela ? janela.es : Number.POSITIVE_INFINITY };
+  }
+
   if (janela) {
     const inicio = somaDias(hoje, janela.es);
     const fim = somaDias(hoje, janela.ef);
@@ -262,6 +294,8 @@ function montaTarefa(
       // com qualquer duração sub-diária (0,5 dia também trunca pro mesmo dia de
       // calendário) — essa comparação foi para `es`/`ef` NUMÉRICOS, antes do
       // truncamento, que é o único jeito de distinguir "zero" de "menos de 1 dia".
+      // `status === "done"` já saiu pelo ramo acima — este `marco` nunca mais
+      // é um `done` disfarçado de losango em cima de hoje.
       marco: janela.es === janela.ef,
       datasInconsistentes: false,
       semBarra: false,
@@ -271,31 +305,11 @@ function montaTarefa(
     return { row, es: janela.es };
   }
 
-  // ── Fora do CPM ────────────────────────────────────────────────────────
-  // `done` NUNCA fabrica uma barra a partir de "hoje" (o bug do crítico:
-  // tarefa concluída desenhada no futuro) — só o ponto real de conclusão
-  // (`updatedAt`), ou nada quando nem essa data é válida.
-  if (t.status === "done") {
-    const ponto = pontoDeConclusao(t);
-    const ancora = ponto ?? hoje;
-    const row: LinhaDoTempoTarefaRow = {
-      ...base,
-      inicio: ancora,
-      fim: ancora,
-      fimComFolga: ancora,
-      critico: false,
-      folga: 0,
-      semDuracao: false,
-      foraDoCpm: true,
-      marco: false,
-      datasInconsistentes: false,
-      semBarra: true,
-      pontoConcluidoEm: ponto,
-      atrasada: false,
-    };
-    return { row, es: Number.POSITIVE_INFINITY };
-  }
-
+  // ── Fora do CPM (nunca `done` — esse ramo já saiu acima) ────────────────
+  // P5d (achado MÉDIO #6, rodada 3): `folga: null` — 0 aqui lia-se como
+  // "sem folga" (== tão urgente quanto o caminho crítico), quando o CPM
+  // simplesmente não calculou folga nenhuma para quem está fora do subgrafo
+  // do goal. `null` é "não calculada", nunca "zero".
   const estimativa = estimativaValida(t);
   const duracao = estimativa ?? DURACAO_PLACEHOLDER_FORA_CPM;
   const inicio = t.iniciadoEm && paraEpoch(t.iniciadoEm) !== null ? paraDataCurta(t.iniciadoEm) : hoje;
@@ -306,7 +320,7 @@ function montaTarefa(
     fim,
     fimComFolga: fim,
     critico: false,
-    folga: 0,
+    folga: null,
     semDuracao: estimativa === null,
     foraDoCpm: true,
     // P5c (achado BAIXO #11, rodada 2): FORA do CPM a duração nunca é zero de

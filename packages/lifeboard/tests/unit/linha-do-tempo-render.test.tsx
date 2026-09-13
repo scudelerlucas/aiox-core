@@ -365,7 +365,18 @@ describe("LinhaDoTempoView — fechado sem merge e legenda (achado ALTO #9)", ()
       grupos: [
         {
           titulo: "Assuntos",
-          linhas: [assunto({ id: "org/repo#5", aberto: false, estado: "fechado", fim: "2026-09-10" })],
+          // `inicio` dentro da janela do "auto" (nunca antes dela) — datas
+          // fora da janela viram chevron (achados ALTO #2/#7, rodada 3),
+          // testado à parte; este teste é sobre COR, não sobre janela.
+          linhas: [
+            assunto({
+              id: "org/repo#5",
+              inicio: "2026-09-08",
+              aberto: false,
+              estado: "fechado",
+              fim: "2026-09-10",
+            }),
+          ],
         },
         { titulo: "Tarefas", linhas: [] },
       ],
@@ -629,7 +640,11 @@ describe("LinhaDoTempoView — sub-dia vira barra curta, não diamante (achado B
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
     expect(html).not.toContain("lb-tl-marco");
-    const idx = html.indexOf("Meio período — folga:");
+    // P5d (rodada 3): o título da barra agora traz as datas em dd/MM antes da
+    // folga (`"<título> — 13/09 → 13/09 (folga: 0 d)"`) — a âncora vira o
+    // prefixo `"Meio período — "` (ainda único: o `aria-label` do rótulo usa
+    // "predecessores:", nunca " — " seguido de data).
+    const idx = html.indexOf("Meio período — 13/09");
     const antes = html.lastIndexOf("style=", idx);
     const style = html.slice(antes, idx);
     const m = style.match(/width:\s*([\d.]+)px/);
@@ -695,7 +710,11 @@ describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTI
   /** Extrai `{x, label}` de cada tick do cabeçalho da escala. */
   function extrairTicks(html: string): { x: number; label: string }[] {
     const inicio = html.indexOf("sticky z-20 flex w-full");
-    const fim = html.indexOf("</div></div></div><div class=\"flex w-full items-stretch\"", inicio);
+    // P5d (rodada 3): a busca não depende mais de um número fixo de `</div>`
+    // antes da linha do corpo — o cabeçalho ganhou wrappers novos (faixa de
+    // mês + rótulo de data em "hoje"), o que muda a profundidade de
+    // aninhamento sem mudar o CONTRATO (a classe única da linha do corpo).
+    const fim = html.indexOf('class="flex w-full items-stretch"', inicio);
     const trecho = html.slice(inicio, fim < 0 ? undefined : fim);
     const out: { x: number; label: string }[] = [];
     const re = /border-l border-navy-(?:600|800) pl-1 text-\[12px\][^"]*" style="left:(\d+(?:\.\d+)?)px">([^<]*)</g;
@@ -762,11 +781,15 @@ describe("LinhaDoTempoView — geometria real, não só classe (achado BAIXO #18
     // de B (2 dias, 2026-09-16→2026-09-18) deve ser MENOR que a de A (3
     // dias) — geometria relativa, não um pixel mágico.
     const larguraDe = (titulo: string): number => {
-      // A barra (não o rótulo) leva `title="<titulo> — folga: N d"` — âncora
-      // única que distingue o `<div>` da barra do `<button>` do rótulo (que
-      // também contém o título, mas nunca o sufixo "— folga:").
-      const idx = html.indexOf(`${titulo} — folga:`);
-      if (idx < 0) throw new Error(`barra não encontrada para "${titulo}" no HTML`);
+      // A barra (não o rótulo) leva `title="<titulo> — dd/MM → dd/MM (folga:
+      // N d)"` (achado MÉDIO #5, rodada 3) — âncora única que distingue o
+      // `<div>` da barra do `<button>` do rótulo (cujo `aria-label` também
+      // começa com `"<titulo> — "`, mas nunca seguido de uma data: sempre
+      // "predecessores:"). O regex exige um dígito logo após o traço.
+      const re = new RegExp(`${titulo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} — \\d`);
+      const m0 = re.exec(html);
+      if (!m0) throw new Error(`barra não encontrada para "${titulo}" no HTML`);
+      const idx = m0.index;
       const antes = html.lastIndexOf("style=", idx);
       const style = html.slice(antes, idx);
       const m = style.match(/width:\s*([\d.]+)px/);
