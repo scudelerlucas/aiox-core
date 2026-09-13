@@ -271,6 +271,7 @@ function montaTarefa(
       datasInconsistentes: false,
       semBarra: true,
       pontoConcluidoEm: ponto,
+      inicioEstimado: false,
       atrasada: false,
     };
     return { row, es: janela ? janela.es : Number.POSITIVE_INFINITY };
@@ -300,6 +301,7 @@ function montaTarefa(
       datasInconsistentes: false,
       semBarra: false,
       pontoConcluidoEm: null,
+      inicioEstimado: false,
       atrasada: estaAtrasada(t, dueDate, hoje),
     };
     return { row, es: janela.es };
@@ -312,7 +314,12 @@ function montaTarefa(
   // do goal. `null` é "não calculada", nunca "zero".
   const estimativa = estimativaValida(t);
   const duracao = estimativa ?? DURACAO_PLACEHOLDER_FORA_CPM;
-  const inicio = t.iniciadoEm && paraEpoch(t.iniciadoEm) !== null ? paraDataCurta(t.iniciadoEm) : hoje;
+  // P5f (achado BAIXO A9, rodada 5): sem `iniciadoEm` válido, o início é
+  // FABRICADO ("hoje") só para a barra ter onde nascer — a tela precisa saber
+  // disso para não desenhar uma barra sólida afirmando uma data que ninguém
+  // informou (o conector já dizia "indefinido"; a barra dizia o contrário).
+  const temInicioReal = Boolean(t.iniciadoEm && paraEpoch(t.iniciadoEm) !== null);
+  const inicio = temInicioReal ? paraDataCurta(t.iniciadoEm as string) : hoje;
   const fim = somaDias(inicio, duracao);
   const row: LinhaDoTempoTarefaRow = {
     ...base,
@@ -336,6 +343,7 @@ function montaTarefa(
     datasInconsistentes: false,
     semBarra: false,
     pontoConcluidoEm: null,
+    inicioEstimado: !temInicioReal,
     atrasada: estaAtrasada(t, dueDate, hoje),
   };
   // Fora do CPM ordena depois de tudo que tem ES real — nunca finge um ES.

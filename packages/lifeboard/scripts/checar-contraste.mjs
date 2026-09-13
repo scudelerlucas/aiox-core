@@ -124,6 +124,15 @@ const PARES = [
   // ── Pares de PIXEL JÁ COMPOSTO (P5c, rodada 2, achado BAIXO #13) ──
   ["hatch-folga-composta", "navy-950", 3, "listra opaca da hachura de folga, já composta com a opacidade — pixel real medido pelo crítico"],
   ["barra-fechada-composta", "navy-950", 3, "barra cinza 'fechado sem merge' a 90% de opacidade, já composta — pixel real medido pelo crítico"],
+  // P5f (rodada 5, achado BAIXO A9): a barra de "início não definido" é
+  // borda TRACEJADA + preenchimento a 30% do mesmo tom do estado. O pixel
+  // composto do preenchimento (0,3×state-open #7FB8FF + 0,7×navy-950) dá
+  // #2A3C57 = 1,80:1 contra o canvas — e isso é PROPOSITAL: o preenchimento
+  // ali é textura ("não confie nesta data"), não é a fronteira do elemento.
+  // Quem carrega o significado, e quem a WCAG 1.4.11 mede, é a BORDA — e ela
+  // é o token cheio, já na régua acima (`state-open`/`state-progress`/
+  // `state-blocked`/`state-done`/`aresta-critico` sobre navy-950, ≥ 3:1).
+  // Registrado aqui para o próximo leitor não "consertar" o 1,80 sem saber.
   // ── Fila de prompts (P7, 13/09/2026, rodada de correção do crítico) ──
   // Achado MÉDIO #12: `bone-500` sobre navy-850 (4,01:1) e navy-900 (4,41:1)
   // — os dois abaixo de 4,5:1. Trocado por `bone-400` nos dois usos

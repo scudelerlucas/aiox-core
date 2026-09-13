@@ -62,6 +62,7 @@ function tarefa(parcial: Partial<LinhaDoTempoTarefaRow> = {}): LinhaDoTempoTaref
     datasInconsistentes: false,
     semBarra: false,
     pontoConcluidoEm: null,
+    inicioEstimado: false,
     atrasada: false,
     dueDate: null,
     ...parcial,
@@ -240,7 +241,11 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
     expect(html).toContain("sem data");
     expect(html).toContain("border-dashed");
-    expect(html).not.toContain("bg-state-open");
+    // P5f (rodada 5): a asserção mira a BARRA (a sequência de classes dela),
+    // não o HTML inteiro — a legenda ganhou uma amostra translúcida
+    // (`bg-state-open/30`) para "início não definido", e o que este teste
+    // precisa provar continua sendo que a BARRA não é sólida.
+    expect(html).not.toContain("rounded-sm bg-state-open");
   });
 
   it("atrasada: contorno vermelho + rótulo 'atrasada' + marcador em dueDate", () => {
@@ -609,7 +614,10 @@ describe("LinhaDoTempoView — marcador de prazo fora da barra vira seta (achado
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
     expect(html).toContain("lb-tl-atraso-seta");
-    expect(html).toContain('title="prazo 25/12"');
+    // P5f (achados MÉDIO A4/A8, rodada 5): ano SEMPRE no tooltip, e o glifo
+    // de prazo é "⚑" — "◀"/"▶" ficaram só para "fora da janela".
+    expect(html).toContain("prazo 25/12/2026 — depois do fim da barra");
+    expect(html).toContain("⚑");
   });
 });
 
@@ -729,7 +737,10 @@ describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTI
     const trecho = html.slice(inicio, fim < 0 ? undefined : fim);
     const out: { x: number; label: string }[] = [];
     const reTick = /border-l border-navy-(?:600|800) pl-1 text-\[12px\][^"]*" style="left:(\d+(?:\.\d+)?)px">([^<]*)</g;
-    const reHoje = /flex h-full items-center pl-1" style="left:(\d+(?:\.\d+)?)px"><span[^>]*lb-tl-hoje-rotulo[^>]*>([^<]*)</g;
+    // P5f (achado ALTO A2, rodada 5): o chip de "hoje" virou UM `<span>`
+    // posicionado direto em `left:x` (o `pl-1` foi para dentro dele) — é o
+    // que faz `chip.left === linhaHoje.left` no pixel. O regex acompanha.
+    const reHoje = /lb-tl-hoje-rotulo[^>]*style="left:(\d+(?:\.\d+)?)px">([^<]*)</g;
     let m: RegExpExecArray | null;
     while ((m = reTick.exec(trecho))) out.push({ x: Number(m[1]), label: m[2] ?? "" });
     while ((m = reHoje.exec(trecho))) out.push({ x: Number(m[1]), label: m[2] ?? "" });
@@ -815,5 +826,115 @@ describe("LinhaDoTempoView — geometria real, não só classe (achado BAIXO #18
     expect(larguraB).toBeGreaterThan(0);
     // 3 dias vs 2 dias — a proporção é constante em qualquer pxPorDia.
     expect(larguraA / larguraB).toBeCloseTo(3 / 2, 1);
+  });
+});
+
+/**
+ * P5f — rodada 5 do crítico hostil. Um `describe` por decisão, com o fato
+ * observável no HTML (o que depende de clique/scroll real é medido no
+ * navegador, por Playwright, e não aqui).
+ */
+describe("LinhaDoTempoView — rodada 5", () => {
+  it("A2: o chip de 'hoje' e a linha dourada nascem no MESMO left (nunca 50px de distância)", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    const chip = /lb-tl-hoje-rotulo[^>]*style="left:(\d+(?:\.\d+)?)px"/.exec(html);
+    const linha = /data-timeline-hoje="true"[^>]*style="left:(\d+(?:\.\d+)?)px"/.exec(html);
+    expect(chip).not.toBeNull();
+    expect(linha).not.toBeNull();
+    expect(Number(chip?.[1])).toBe(Number(linha?.[1]));
+  });
+
+  it("A4: tooltip de barra, de marco e de ponto leva o ANO (dd/MM/aaaa), nunca dd/MM sozinho", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    expect(html).toContain("13/09/2026 → 16/09/2026");
+    // Nenhum `title` de barra com data sem ano (o eixo continua com dd/MM curto).
+    const titulos = [...html.matchAll(/title="([^"]*)"/g)].map((m) => m[1] ?? "");
+    // `(?<![\d/])…(?![\d/])` isola o `dd/MM` SOLTO — sem isto o próprio
+    // "01/09/2026" casaria por dentro ("09/20") e o teste passaria de mentira.
+    const comDataSemAno = titulos.filter((t) => /(?<![\d/])\d{2}\/\d{2}(?![\d/])/.test(t));
+    expect(comDataSemAno).toEqual([]);
+  });
+
+  it("A5: assunto que termina DEPOIS da janela ganha '▶' e a data real no title", () => {
+    const p: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        {
+          titulo: "Assuntos",
+          linhas: [assunto({ id: "org/repo#9", titulo: "PR longo", inicio: "2026-09-10", fim: "2027-03-01", aberto: false })],
+        },
+        { titulo: "Tarefas", linhas: [tarefa({ id: "A", inicio: HOJE, fim: "2026-09-16", fimComFolga: "2026-09-16" })] },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+    expect(html).toContain("▶");
+    expect(html).toContain("PR longo — 10/09/2026 → 01/03/2027 (termina depois da janela)");
+    expect(html).toContain("fora da janela"); // legenda, agora com os dois glifos
+  });
+
+  it("A6/A11: o painel de detalhe existe quando há linha ativa e leva para /tarefa/[id]", () => {
+    // `renderToStaticMarkup` não clica; o que se prova aqui é o CONTRATO do
+    // painel (o clique em si é medido no navegador). Sem linha ativa ele não
+    // aparece — e é isso que o primeiro render mostra.
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    expect(html).not.toContain("lb-tl-detalhe");
+    expect(html).toContain("aria-pressed=\"false\""); // as linhas de tarefa são botões que ativam
+  });
+
+  it("A7: o painel rolável é focável e anunciado (região com rótulo)", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    expect(html).toContain('aria-label="Linha do tempo — use as setas para rolar"');
+    expect(html).toContain('role="region"');
+    expect(html).toContain('tabindex="0"');
+  });
+
+  it("A8: a legenda decodifica o glifo de prazo e o de fora da janela, separados", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    expect(html).toContain("prazo antes do início ou depois do fim");
+    expect(html).toContain("◀ ▶");
+  });
+
+  it("A9: fora do CPM sem início real — barra tracejada translúcida e 'início não definido'", () => {
+    const p: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        {
+          titulo: "Tarefas",
+          linhas: [
+            tarefa({
+              id: "ESTIMADA",
+              titulo: "Tarefa estimada",
+              foraDoCpm: true,
+              inicioEstimado: true,
+              inicio: HOJE,
+              fim: "2026-09-16",
+              fimComFolga: "2026-09-16",
+              folga: null,
+            }),
+          ],
+        },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
+    expect(html).toContain("border-dashed");
+    expect(html).toContain("bg-state-open/30");
+    expect(html).toContain("início não definido — estimativa de 3 dias");
+    expect(html).not.toContain("rounded-sm bg-state-open ");
+  });
+
+  it("A12: a tela tem o botão 'Hoje' (e o atalho declarado no title)", () => {
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
+    expect(html).toContain("lb-tl-btn-hoje");
+    expect(html).toContain("Voltar para hoje (tecla H)");
+    // A3 (mês grudado) NÃO é asserção deste teste: sem DOM, `pxPorDia` cai no
+    // fallback de 16px/dia → faixa "semana", onde o rótulo já diz o mês e o
+    // chip grudado não existe de propósito. O caso que importa (faixa "dia",
+    // rolando) é medido no navegador, com scroll real.
+    expect(html).not.toContain("lb-tl-mes-grudado");
   });
 });

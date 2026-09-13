@@ -6,7 +6,12 @@ import {
   ARESTA_STROKE_CRITICO,
   ARESTA_STROKE_DESTACADA,
 } from "@/components/graph/aresta-svg";
-import { gerarEscalaEixo, TETO_DIAS_ESCALA } from "@/core/timeline/eixo-rotulos";
+import {
+  gerarEscalaEixo,
+  larguraAproximada,
+  rotuloMesAno,
+  TETO_DIAS_ESCALA,
+} from "@/core/timeline/eixo-rotulos";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoProps,
@@ -82,6 +87,8 @@ const AUTO_MARGEM_RESPIRO_PASSADO_DIAS = 2;
 const AUTO_MARGEM_RESPIRO_FUTURO_DIAS = 3;
 /** Piso visual de uma barra de tarefa — achado BAIXO #11 (sub-dia vira barra curta, nunca diamante nem 4px cru). */
 const LARGURA_MINIMA_BARRA = 12;
+/** P5f (achado MÉDIO A7, rodada 5): passo do scroll por tecla (← →) no painel. */
+const PASSO_SCROLL_TECLADO_PX = 80;
 /** Namespaced — mesma disciplina de qualquer outra chave de `localStorage` da casa. */
 const CHAVE_ZOOM = "lifeboard:linha-do-tempo:zoom";
 
@@ -157,6 +164,17 @@ function diaMesCurto(iso: string): string {
   const d = new Date(paraEpoch(iso));
   return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
+/**
+ * P5f (achado MÉDIO A4, rodada 5): TODO tooltip/`aria-label` de barra, ponto,
+ * conector e painel de detalhe usa `dd/MM/aaaa`. `dd/MM` sozinho num quadro
+ * que mostra 400 dias (e um histórico de PRs que cruza a virada do ano) não
+ * identifica a data — "13/09" pode ser de dois anos diferentes na MESMA tela.
+ * O `dd/MM` curto sobrevive só nos RÓTULOS DO EIXO, onde o espaço é físico e
+ * a faixa de mês/ano do cabeçalho dá o contexto que falta.
+ */
+function diaMesAnoCurto(iso: string): string {
+  return `${diaMesCurto(iso)}/${new Date(paraEpoch(iso)).getUTCFullYear()}`;
+}
 // P5e (rodada 4): `mesCurto`/`MESES_PT` saíram daqui — só serviam ao antigo
 // `gerarEscala` local, agora substituído por `gerarEscalaEixo` (`core/timeline/
 // eixo-rotulos.ts`, que já formata os rótulos de mês por conta própria).
@@ -231,9 +249,19 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * painel (sem re-render por pixel: manipulação direta do DOM via ref).
    */
   const headerTicksRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * P5f (achados MÉDIO A3 / BAIXO A12, rodada 5): o `scrollLeft` deixou de
+   * ser só um `transform` no DOM — o cabeçalho agora PRECISA saber onde a
+   * viewport está para (1) grudar o mês corrente na borda esquerda e (2) não
+   * desenhar rótulo cortado pela borda. Segue havendo o `transform` direto
+   * por ref (sem re-render por pixel na faixa inteira); este estado muda no
+   * mesmo evento e re-renderiza só o que depende da posição.
+   */
+  const [scrollLeft, setScrollLeft] = useState(0);
   const sincronizarHeaderComPainel = (scrollLeft: number): void => {
     const el = headerTicksRef.current;
     if (el) el.style.transform = `translateX(${-scrollLeft}px)`;
+    setScrollLeft(scrollLeft);
   };
 
   /**
@@ -245,6 +273,13 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * 1ª medição (SSR, ou nav não encontrada).
    */
   const [navAltura, setNavAltura] = useState<number>(NAV_ALTURA_FALLBACK);
+  /**
+   * "Voltar para hoje" (botão + tecla `H`) precisa da versão ATUAL da função
+   * (que depende de `xHoje`/`pxPorDia`/largura do painel) dentro de um
+   * listener registrado UMA vez no mount — o ref é o que impede o listener de
+   * congelar a versão do primeiro render.
+   */
+  const irParaHojeRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
     const nav = document.querySelector<HTMLElement>('nav[aria-label="Navegação principal"]');
@@ -263,6 +298,18 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     if (typeof window === "undefined") return undefined;
     const aoTeclar = (e: KeyboardEvent): void => {
       if (e.key === "Escape") setAtivoId(null);
+      // Achado BAIXO A12 (rodada 5): "voltar para hoje" pelo teclado, em
+      // qualquer lugar da página — menos dentro de um campo de texto, onde
+      // "h" é uma letra que o operador está digitando, nunca um atalho.
+      const alvo = e.target as HTMLElement | null;
+      const editando =
+        alvo instanceof HTMLInputElement ||
+        alvo instanceof HTMLTextAreaElement ||
+        alvo instanceof HTMLSelectElement ||
+        alvo?.isContentEditable === true;
+      if (!editando && (e.key === "h" || e.key === "H") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        irParaHojeRef.current();
+      }
     };
     window.addEventListener("keydown", aoTeclar);
     return () => window.removeEventListener("keydown", aoTeclar);
@@ -359,6 +406,24 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   );
   /** P5d (achado MÉDIO #5, rodada 3): 2ª faixa (nome do mês) só na densidade "dia". */
   const mostrarLinhaMeses = faixa === "dia";
+  /**
+   * P5f (achado MÉDIO A3, rodada 5): em "Semana" (46px/dia) o mês SUMIA da
+   * tela ao rolar — a faixa de mês rola junto com o conteúdo, e o rótulo de
+   * "set/2026" fica centenas de px atrás da viewport. Este é o mês da posição
+   * ATUAL do scroll, desenhado FORA do conteúdo transladado: gruda na borda
+   * esquerda do cabeçalho e nunca sai. Sempre com ano (é o único rótulo que
+   * ancora a tela inteira — ano errado ali é pior que ano repetido).
+   */
+  const mesGrudado = rotuloMesAno(minIso, pxPorDia > 0 ? scrollLeft / pxPorDia : 0);
+  /**
+   * O mês grudado só existe onde a informação some de verdade: na faixa
+   * "dia", cujos rótulos são números soltos ("13", "14") sem mês nenhum. Nas
+   * faixas "semana" (`dd/MM`) e "mes" (nome do mês) o próprio rótulo já diz o
+   * mês — e um chip opaco na borda esquerda só serviria para tapar o vizinho
+   * (medido: ele escondia o chip de "hoje" quando "hoje" caía nos primeiros
+   * 70px da escala).
+   */
+  const larguraMesGrudado = mostrarLinhaMeses ? larguraAproximada(mesGrudado) : 0;
   const alturaHeaderTotal = HEADER_H + (mostrarLinhaMeses ? HEADER_MES_H : 0);
   const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
   const totalWidth = totalDias * pxPorDia;
@@ -385,6 +450,15 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * da janela" (com as datas reais no `title`) em vez de fingir uma posição.
    */
   const foraDaJanela = (iso: string): boolean => paraEpoch(iso) < paraEpoch(minIso);
+  /**
+   * P5f (achado MÉDIO A5, rodada 5): o clamp da DIREITA era mudo. `xFor`
+   * gruda qualquer data depois de `maxIso` na borda direita — uma barra que
+   * continua além da janela terminava exatamente como uma que termina ali,
+   * e um conector com a ponta lá fora nascia com cara de data conhecida. O
+   * lado direito passa a ter o mesmo tratamento do esquerdo: chevron "▶",
+   * data real no `title`, conector `indefinido`.
+   */
+  const depoisDaJanela = (iso: string): boolean => paraEpoch(iso) > paraEpoch(maxIso);
   /**
    * P5d (achado BAIXO #11, rodada 3): a caixa de aviso ("datas inconsistentes",
    * "data inválida") não tinha limite de largura — a 390px ela encostava na
@@ -431,10 +505,13 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     return alvo;
   })();
 
-  useEffect(() => {
-    const el = painelRef.current;
-    if (!el) return;
-    const largura = el.clientWidth || larguraPainel;
+  /**
+   * Onde o painel precisa estar para "hoje" ficar ancorado a ~40% da largura
+   * visível (achados CRÍTICO #1/#2) — extraído do efeito porque agora tem
+   * DOIS chamadores: o efeito (mount, zoom, resize) e o "voltar para hoje"
+   * do operador (botão + tecla `H`, achado BAIXO A12 da rodada 5).
+   */
+  const scrollLeftDeHoje = (largura: number): number => {
     let novoScrollLeft = Math.max(0, xHoje - largura * ANCORA_HOJE_FRACAO);
     // Achado BAIXO #9 (rodada 3): a âncora de 40% ignorava onde a meta
     // termina — em telas estreitas + zoom denso ("Semana"), a barra do
@@ -448,12 +525,24 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
         novoScrollLeft = Math.min(xHoje, Math.max(0, xFimAlvo - largura + MARGEM_ALVO_PX));
       }
     }
-    el.scrollLeft = novoScrollLeft;
-    sincronizarHeaderComPainel(novoScrollLeft);
-    // Achado BAIXO #9 (rodada 4): reavalia a afordância de scroll toda vez
-    // que o conteúdo muda de tamanho/posição por este efeito (zoom, resize,
-    // troca de janela) — não só quando o operador rola manualmente.
+    return novoScrollLeft;
+  };
+
+  const irParaHoje = (): void => {
+    const el = painelRef.current;
+    if (!el) return;
+    const destino = scrollLeftDeHoje(el.clientWidth || larguraPainel);
+    el.scrollLeft = destino;
+    sincronizarHeaderComPainel(destino);
     atualizarAfordanciaScroll(el);
+  };
+  irParaHojeRef.current = irParaHoje;
+
+  useEffect(() => {
+    irParaHoje();
+    // Achado BAIXO #9 (rodada 4): a afordância de scroll é reavaliada junto
+    // (dentro de `irParaHoje`) toda vez que o conteúdo muda de tamanho ou
+    // posição por este efeito (zoom, resize, troca de janela).
     // `pxPorDia` muda em toda troca de zoom (inclusive "auto" recalculando)
     // — reancorar em "hoje" sempre que a escala muda é o que resolve o
     // "Semana" esvaziando a tela (achado CRÍTICO #2: a âncora era perdida).
@@ -475,19 +564,22 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    */
   const itensForaDaJanela = (() => {
     let n = 0;
+    // P5f (achado MÉDIO A5, rodada 5): conta os DOIS lados — um item que
+    // termina depois da janela ganha "▶" e também não está inteiro na tela.
+    const contaPonta = (iso: string): boolean => foraDaJanela(iso) || depoisDaJanela(iso);
     for (const l of linhas) {
       if (l.tipo !== "linha") continue;
       if (l.linha.kind === "assunto") {
         if (l.linha.dataInvalida || l.linha.datasInconsistentes) continue;
-        if (foraDaJanela(l.linha.inicio)) n += 1;
+        if (contaPonta(l.linha.inicio) || depoisDaJanela(l.linha.fim)) n += 1;
         continue;
       }
       if (l.linha.datasInconsistentes) continue;
       if (l.linha.semBarra) {
-        if (l.linha.pontoConcluidoEm && foraDaJanela(l.linha.pontoConcluidoEm)) n += 1;
+        if (l.linha.pontoConcluidoEm && contaPonta(l.linha.pontoConcluidoEm)) n += 1;
         continue;
       }
-      if (foraDaJanela(l.linha.inicio)) n += 1;
+      if (contaPonta(l.linha.inicio) || depoisDaJanela(l.linha.fim)) n += 1;
     }
     return n;
   })();
@@ -576,7 +668,14 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
       // em silêncio, e sem este check a aresta nascia com o estilo/cor de
       // uma tarefa comum (às vezes até "crítica"), começando exatamente onde
       // o chevron "◀" da barra já avisa "não sei onde isto está de verdade".
-      const janelaIncompleta = foraDaJanela(origem.fim) || foraDaJanela(destino.inicio);
+      // P5f (achado MÉDIO A5, rodada 5): "fora da janela" agora é dos DOIS
+      // lados — antes do início (clamp para x=0) ou depois do fim (clamp para
+      // a borda direita). Nos dois casos o `x` é fabricado pelo clamp.
+      const janelaIncompleta =
+        foraDaJanela(origem.fim) ||
+        foraDaJanela(destino.inicio) ||
+        depoisDaJanela(origem.fim) ||
+        depoisDaJanela(destino.inicio);
       conectores.push({
         chave: `${origem.id}->${destino.id}`,
         origemId: origem.id,
@@ -609,6 +708,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <div
             role="group"
             aria-label="Zoom da escala de dias"
@@ -631,6 +731,21 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             ))}
           </div>
           {/*
+            P5f (achado BAIXO A12, rodada 5): não havia NENHUM caminho de
+            volta depois de rolar a escala — o painel se reancora em "hoje"
+            só quando a escala muda. Botão explícito (e a tecla `H`, mesmo
+            efeito) ao lado do seletor de zoom.
+          */}
+          <button
+            type="button"
+            onClick={irParaHoje}
+            title="Voltar para hoje (tecla H)"
+            className="lb-tl-btn-hoje min-h-[36px] rounded-md border border-navy-700 bg-navy-900 px-3 text-xs font-semibold text-gold-300 hover:border-gold-600"
+          >
+            Hoje
+          </button>
+          </div>
+          {/*
             Achado ALTO #2 (rodada 3): "auto" recorta a janela pelo horizonte
             das TAREFAS — nunca clampa um item mais antigo em silêncio (ele
             ganha o chevron "◀ fora da janela"), mas o aviso aqui diz QUANTOS
@@ -649,6 +764,18 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
       </div>
 
       <Legenda />
+
+      {/*
+        P5f (achados MÉDIO A6 / BAIXO A11, rodada 5): a 390px a coluna de
+        rótulos trunca 11 de 25 nomes em 2 linhas e não havia NENHUM caminho
+        para o texto inteiro — nem para a página da tarefa. Tocar a linha
+        (o mesmo `<button>` que já destacava predecessores/sucessores) abre
+        este painel: nome completo, datas com ano, folga, estado e o link
+        "Abrir tarefa". `Escape` fecha (como já fechava a seleção).
+      */}
+      {linhaAtiva ? (
+        <PainelDetalheTarefa linha={linhaAtiva} onFechar={() => setAtivoId(null)} />
+      ) : null}
 
       {!linhas.some((l) => l.tipo === "linha") ? (
         <div
@@ -692,15 +819,20 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                     className="absolute inset-x-0 top-0 border-b border-navy-800"
                     style={{ height: HEADER_MES_H }}
                   >
-                    {ticksMes.map((t) => (
-                      <div
-                        key={`mes-${t.x}`}
-                        className="absolute top-0 flex h-full items-center border-l border-navy-700 pl-1 text-[12px] font-semibold text-bone-300"
-                        style={{ left: t.x }}
-                      >
-                        {t.label}
-                      </div>
-                    ))}
+                    {ticksMes.map((t) =>
+                      // Achado BAIXO A12 (rodada 5): rótulo cortado pela borda
+                      // esquerda não aparece — ou cabe inteiro na viewport, ou
+                      // quem fala pela borda é o mês grudado.
+                      t.x < scrollLeft + larguraMesGrudado ? null : (
+                        <div
+                          key={`mes-${t.x}`}
+                          className="absolute top-0 flex h-full items-center border-l border-navy-700 pl-1 text-[12px] font-semibold text-bone-300"
+                          style={{ left: t.x }}
+                        >
+                          {t.label}
+                        </div>
+                      ),
+                    )}
                   </div>
                 ) : null}
                 <div
@@ -715,17 +847,25 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                     ESTILO por `tipo`/`forte`; nunca mais decide sozinha se
                     cabe mais um rótulo (isso já veio resolvido).
                   */}
-                  {rotulos.map((t) =>
-                    t.tipo === "hoje" ? (
-                      <div
+                  {rotulos.map((t) => {
+                    // Achado BAIXO A12 (rodada 5): o candidato precisa caber
+                    // INTEIRO na viewport — um rótulo que a borda esquerda
+                    // corta ao meio não informa, só suja. Quando o chip do mês
+                    // está grudado nesta faixa (densidades sem 2ª linha), ele
+                    // também empurra o limite.
+                    if (t.x < scrollLeft) return null;
+                    // Achado ALTO A2 (rodada 5): o chip de "hoje" é ancorado
+                    // no MESMO `left` da linha dourada — o `pl-1` vive DENTRO
+                    // do `<span>` (padding não move a caixa), nunca num
+                    // contêiner que deslocaria a caixa 4px à direita da linha.
+                    return t.tipo === "hoje" ? (
+                      <span
                         key="hoje"
-                        className="absolute top-0 flex h-full items-center pl-1"
+                        className="lb-tl-hoje-rotulo absolute top-0 flex h-full items-center whitespace-nowrap rounded-sm bg-navy-900/80 pl-1 pr-0.5 text-[12px] font-semibold text-gold-300"
                         style={{ left: t.x }}
                       >
-                        <span className="lb-tl-hoje-rotulo whitespace-nowrap rounded-sm bg-navy-900/80 px-0.5 text-[12px] font-semibold text-gold-300">
-                          {t.label}
-                        </span>
-                      </div>
+                        {t.label}
+                      </span>
                     ) : (
                       <div
                         key={`${t.tipo}-${t.x}`}
@@ -738,8 +878,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                       >
                         {t.label}
                       </div>
-                    ),
-                  )}
+                    );
+                  })}
                 </div>
                 {/* Linha vertical de "hoje" — sempre em `xHoje`, a mesma posição do
                     chip acima (`rotulos`, tipo "hoje"); desenhada à parte porque é
@@ -751,6 +891,36 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                   title="Hoje"
                 />
               </div>
+              {/*
+                Achado MÉDIO A3 (rodada 5): o mês grudado vive FORA do
+                conteúdo transladado (`headerTicksRef`) — por isso não rola.
+                Fica na 2ª faixa quando ela existe (densidade "dia"); senão,
+                na faixa principal, onde também é a única pista de mês.
+              */}
+              {mostrarLinhaMeses ? (
+                <span
+                  className="lb-tl-mes-grudado absolute left-0 top-0 z-20 flex items-center bg-navy-900 pl-1 pr-2 text-[12px] font-semibold text-bone-200"
+                  style={{ height: HEADER_MES_H }}
+                >
+                  {mesGrudado}
+                </span>
+              ) : null}
+              {/* Achado BAIXO A12 (rodada 5): o degradê de borda que o CORPO já
+                  tinha passa a existir também no cabeçalho — começa onde o mês
+                  grudado termina, para não apagá-lo. */}
+              {afordanciaScroll.esquerda ? (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 z-10 w-6 bg-gradient-to-r from-navy-900 to-transparent"
+                  style={{ left: larguraMesGrudado }}
+                />
+              ) : null}
+              {afordanciaScroll.direita ? (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-navy-900 to-transparent"
+                />
+              ) : null}
             </div>
           </div>
 
@@ -791,12 +961,39 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             */}
             <div className="relative min-w-0 flex-1">
               {/* Painel da escala — SÓ ele rola na horizontal (o corpo da página nunca rola de lado); o cabeçalho vive fora e se sincroniza por `onScroll`. */}
+              {/*
+                P5f (achado MÉDIO A7, rodada 5): o painel rolava só com mouse
+                ou gesto — quem navega por teclado não tinha COMO chegar ao
+                resto da escala (o scroller não era sequer focável). Agora é
+                uma região focável e anunciada, com as setas rolando, Home/End
+                nas pontas e `H` voltando para hoje.
+              */}
               <div
                 ref={painelRef}
-                className="w-full overflow-x-auto"
+                tabIndex={0}
+                role="region"
+                aria-label="Linha do tempo — use as setas para rolar"
+                className="w-full overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-500"
                 onScroll={(e) => {
                   sincronizarHeaderComPainel(e.currentTarget.scrollLeft);
                   atualizarAfordanciaScroll(e.currentTarget);
+                }}
+                onKeyDown={(e) => {
+                  const el = e.currentTarget;
+                  const irPara = (x: number): void => {
+                    e.preventDefault();
+                    el.scrollLeft = Math.min(Math.max(0, x), el.scrollWidth - el.clientWidth);
+                    sincronizarHeaderComPainel(el.scrollLeft);
+                    atualizarAfordanciaScroll(el);
+                  };
+                  if (e.key === "ArrowRight") irPara(el.scrollLeft + PASSO_SCROLL_TECLADO_PX);
+                  else if (e.key === "ArrowLeft") irPara(el.scrollLeft - PASSO_SCROLL_TECLADO_PX);
+                  else if (e.key === "Home") irPara(0);
+                  else if (e.key === "End") irPara(el.scrollWidth);
+                  else if (e.key === "h" || e.key === "H") {
+                    e.preventDefault();
+                    irParaHoje();
+                  }
                 }}
               >
               <div style={{ width: totalWidth }} className="relative">
@@ -826,6 +1023,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                         top={top}
                         xFor={xFor}
                         foraDaJanela={foraDaJanela}
+                        depoisDaJanela={depoisDaJanela}
+                        larguraTotal={totalWidth}
                         larguraErro={larguraErroMax}
                       />
                     );
@@ -837,6 +1036,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                       top={top}
                       xFor={xFor}
                       foraDaJanela={foraDaJanela}
+                      depoisDaJanela={depoisDaJanela}
+                      larguraTotal={totalWidth}
                       larguraErro={larguraErroMax}
                       ativo={ativoId === l.linha.id}
                       predecessora={predecessorasAtivas.has(l.linha.id)}
@@ -990,12 +1191,16 @@ function BarraAssunto({
   top,
   xFor,
   foraDaJanela,
+  depoisDaJanela,
+  larguraTotal,
   larguraErro,
 }: {
   row: LinhaDoTempoAssuntoRow;
   top: number;
   xFor: (iso: string) => number;
   foraDaJanela: (iso: string) => boolean;
+  depoisDaJanela: (iso: string) => boolean;
+  larguraTotal: number;
   larguraErro: number | undefined;
 }): JSX.Element {
   const cor = corDoAssunto(row);
@@ -1037,6 +1242,7 @@ function BarraAssunto({
   // Achados ALTO #2/#7 (rodada 3): assunto que começa ANTES da janela vigente
   // — nunca mais um coto de 4px grudado em `x=0` sem aviso nenhum. Chevron na
   // borda esquerda, com as datas REAIS no `title` (nunca cortado em silêncio).
+  const periodoAssunto = `${diaMesAnoCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesAnoCurto(row.fim)}`;
   if (foraDaJanela(row.inicio)) {
     return (
       <a
@@ -1047,9 +1253,29 @@ function BarraAssunto({
         aria-hidden="true"
         className={`lb-tl-fora-da-janela absolute flex items-center text-[12px] font-semibold ${cor.texto}`}
         style={{ left: 0, top, height: BAR_H }}
-        title={`${row.titulo} — ${diaMesCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesCurto(row.fim)} (fora da janela)`}
+        title={`${row.titulo} — ${periodoAssunto} (começa antes da janela)`}
       >
         ◀
+      </a>
+    );
+  }
+
+  // P5f (achado MÉDIO A5, rodada 5): o espelho do "◀" — um assunto que só
+  // COMEÇA depois da janela era grudado na borda direita pelo clamp, sem
+  // nenhum aviso de que a barra inteira está lá fora.
+  if (depoisDaJanela(row.inicio)) {
+    return (
+      <a
+        href={row.url}
+        target="_blank"
+        rel="noreferrer"
+        tabIndex={-1}
+        aria-hidden="true"
+        className={`lb-tl-fora-da-janela absolute flex items-center text-[12px] font-semibold ${cor.texto}`}
+        style={{ left: larguraTotal - 10, top, height: BAR_H }}
+        title={`${row.titulo} — ${periodoAssunto} (começa depois da janela)`}
+      >
+        ▶
       </a>
     );
   }
@@ -1066,12 +1292,15 @@ function BarraAssunto({
         aria-hidden="true"
         className={`lb-tl-marco absolute rotate-45 ${cor.barra}`}
         style={{ left: x - 5, top: top + (BAR_H - 10) / 2, width: 10, height: 10 }}
-        title={`${row.titulo} — ${diaMesCurto(row.inicio)} (mesmo dia)`}
+        title={`${row.titulo} — ${diaMesAnoCurto(row.inicio)} (mesmo dia)`}
       />
     );
   }
 
   const largura = Math.max(4, xFor(row.fim) - x);
+  // Achado MÉDIO A5 (rodada 5): a barra continua além da janela — o clamp a
+  // termina na borda direita. O chevron diz isso, e o `title` leva a data real.
+  const terminaForaAssunto = depoisDaJanela(row.fim);
   return (
     <a
       href={row.url}
@@ -1081,10 +1310,19 @@ function BarraAssunto({
       aria-hidden="true"
       className={`absolute rounded-sm ${cor.barra} opacity-90 hover:opacity-100`}
       style={{ left: x, top, width: largura, height: BAR_H }}
-      title={`${row.titulo} — ${diaMesCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesCurto(row.fim)}`}
+      title={`${row.titulo} — ${periodoAssunto}${terminaForaAssunto ? " (termina depois da janela)" : ""}`}
     >
       {cor.riscado ? (
         <span aria-hidden="true" className="absolute inset-x-0 top-1/2 h-px bg-navy-950/70" />
+      ) : null}
+      {terminaForaAssunto ? (
+        <span
+          aria-hidden="true"
+          className={`lb-tl-fora-da-janela absolute top-0 text-[12px] font-semibold leading-4 ${cor.texto}`}
+          style={{ left: largura }}
+        >
+          ▶
+        </span>
       ) : null}
     </a>
   );
@@ -1095,6 +1333,8 @@ function BarraTarefa({
   top,
   xFor,
   foraDaJanela,
+  depoisDaJanela,
+  larguraTotal,
   larguraErro,
   ativo,
   predecessora,
@@ -1105,6 +1345,8 @@ function BarraTarefa({
   top: number;
   xFor: (iso: string) => number;
   foraDaJanela: (iso: string) => boolean;
+  depoisDaJanela: (iso: string) => boolean;
+  larguraTotal: number;
   larguraErro: number | undefined;
   ativo: boolean;
   predecessora: boolean;
@@ -1140,17 +1382,18 @@ function BarraTarefa({
     // Achado ALTO #7 (rodada 3): ponto de conclusão ANTES da janela vigente
     // — antes ficava "colado" em `left: -4` (metade cortada pela borda do
     // painel). Mesmo mecanismo do #2: chevron + data real no `title`.
-    if (foraDaJanela(row.pontoConcluidoEm)) {
+    if (foraDaJanela(row.pontoConcluidoEm) || depoisDaJanela(row.pontoConcluidoEm)) {
+      const antes = foraDaJanela(row.pontoConcluidoEm);
       return (
         <div
           tabIndex={-1}
           aria-hidden="true"
           onClick={onAtivar}
           className="lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold text-state-done"
-          style={{ left: 0, top, height: BAR_H }}
-          title={`${row.titulo} — concluída em ${diaMesCurto(row.pontoConcluidoEm)} (fora da janela)`}
+          style={{ left: antes ? 0 : larguraTotal - 10, top, height: BAR_H }}
+          title={`${row.titulo} — concluída em ${diaMesAnoCurto(row.pontoConcluidoEm)} (${antes ? "antes" : "depois"} da janela)`}
         >
-          ◀
+          {antes ? "◀" : "▶"}
         </div>
       );
     }
@@ -1162,7 +1405,7 @@ function BarraTarefa({
         onClick={onAtivar}
         className="lb-tl-ponto-concluida absolute cursor-pointer rounded-full bg-state-done"
         style={{ left: cx - 4, top: top + (BAR_H - 8) / 2, width: 8, height: 8 }}
-        title={`${row.titulo} — concluída em ${diaMesCurto(row.pontoConcluidoEm)}`}
+        title={`${row.titulo} — concluída em ${diaMesAnoCurto(row.pontoConcluidoEm)}`}
       />
     );
   }
@@ -1170,17 +1413,19 @@ function BarraTarefa({
   // Achados ALTO #2/#7 (rodada 3): tarefa cujo início cai antes da janela
   // vigente — nunca mais um coto grudado em `x=0` sem nenhum aviso. Chevron
   // na borda esquerda, com as datas reais no `title`.
-  if (foraDaJanela(row.inicio)) {
+  const periodoTarefa = `${diaMesAnoCurto(row.inicio)} → ${diaMesAnoCurto(row.fim)}`;
+  if (foraDaJanela(row.inicio) || depoisDaJanela(row.inicio)) {
+    const antes = foraDaJanela(row.inicio);
     return (
       <div
         tabIndex={-1}
         aria-hidden="true"
         onClick={onAtivar}
         className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${row.critico ? "text-aresta-critico" : "text-bone-300"}`}
-        style={{ left: 0, top, height: BAR_H }}
-        title={`${row.titulo} — ${diaMesCurto(row.inicio)} → ${diaMesCurto(row.fim)} (fora da janela)`}
+        style={{ left: antes ? 0 : larguraTotal - 10, top, height: BAR_H }}
+        title={`${row.titulo} — ${periodoTarefa} (${antes ? "começa antes" : "começa depois"} da janela)`}
       >
-        ◀
+        {antes ? "◀" : "▶"}
       </div>
     );
   }
@@ -1198,7 +1443,7 @@ function BarraTarefa({
           ativo ? "ring-2 ring-gold-500" : ""
         }`}
         style={{ left: x - 6, top: top + (BAR_H - 12) / 2, width: 12, height: 12 }}
-        title={`${row.titulo} — marco em ${diaMesCurto(row.inicio)}`}
+        title={`${row.titulo} — marco em ${diaMesAnoCurto(row.inicio)}`}
       />
     );
   }
@@ -1226,8 +1471,29 @@ function BarraTarefa({
         : row.status === "in_progress"
           ? "bg-state-progress"
           : "bg-state-open";
+  /**
+   * P5f (achado BAIXO A9, rodada 5): tarefa FORA do CPM, com estimativa mas
+   * SEM data real de início — a barra sólida afirmava um início que ninguém
+   * informou (e o conector que chega nela já dizia "indefinido": a tela
+   * falava duas coisas diferentes sobre o mesmo dado). Borda tracejada +
+   * preenchimento translúcido no MESMO tom do estado/crítico — continua
+   * dizendo "crítica"/"em andamento", mas sem afirmar a data.
+   */
+  const preenchimentoTranslucido = row.critico
+    ? "border-aresta-critico bg-aresta-critico/30"
+    : row.status === "done"
+      ? "border-state-done bg-state-done/30"
+      : row.status === "blocked"
+        ? "border-state-blocked bg-state-blocked/30"
+        : row.status === "in_progress"
+          ? "border-state-progress bg-state-progress/30"
+          : "border-state-open bg-state-open/30";
   const classesEstado =
-    row.semDuracao && !row.critico ? "border-2 border-dashed border-bone-400 bg-transparent" : preenchimento;
+    row.semDuracao && !row.critico
+      ? "border-2 border-dashed border-bone-400 bg-transparent"
+      : row.inicioEstimado
+        ? `border-2 border-dashed ${preenchimentoTranslucido}`
+        : preenchimento;
   const rotuloLateral = row.atrasada ? "atrasada" : row.semDuracao ? "sem data" : null;
   // Achado MÉDIO #7 (rodada 2): o rótulo lateral ficava em `left-full` (== o
   // início da hachura de folga) e a hachura o cobria. Quando há folga
@@ -1255,8 +1521,16 @@ function BarraTarefa({
   // "0 d" (que se confundia com "tão crítica quanto o caminho do goal") — o
   // tooltip diz explicitamente que não foi calculada.
   const folgaTexto = row.folga === null ? "folga não calculada" : `folga: ${row.folga} d`;
+  // Achado BAIXO A9 (rodada 5): o `title` diz exatamente o que a borda
+  // tracejada significa — "início não definido", com a estimativa em dias.
+  const diasEstimados = Math.max(1, diffDias(row.inicio, row.fim));
   const tituloBarra =
-    `${row.titulo} — ${diaMesCurto(row.inicio)} → ${diaMesCurto(row.fim)} (${folgaTexto})` +
+    `${row.titulo} — ` +
+    (row.inicioEstimado
+      ? `início não definido — estimativa de ${diasEstimados} ${diasEstimados === 1 ? "dia" : "dias"}`
+      : periodoTarefa) +
+    ` (${folgaTexto})` +
+    (depoisDaJanela(row.fim) ? " — termina depois da janela" : "") +
     (rotuloLateral ? ` — ${rotuloLateral}` : "");
 
   return (
@@ -1304,17 +1578,24 @@ function BarraTarefa({
           aria-hidden="true"
           className="lb-tl-atraso absolute -top-1 w-0.5 bg-state-error"
           style={{ left: dueXRelativo!, height: BAR_H + 2 }}
-          title={`prazo ${diaMesCurto(row.dueDate)}`}
+          title={`prazo ${diaMesAnoCurto(row.dueDate)}`}
         />
       ) : null}
+      {/*
+        P5f (achado MÉDIO A8, rodada 5): "◀" tinha DOIS sentidos na mesma
+        tela — "fora da janela" (a barra continua para trás) e "o prazo é
+        antes do início". Um glifo, dois conceitos, nenhuma forma de saber
+        qual. O marcador de prazo vira "⚑" (dos dois lados, com entrada
+        própria na legenda); "◀"/"▶" ficam só para a janela.
+      */}
       {row.atrasada && row.dueDate && !dueDentroDaBarra ? (
         <div
           aria-hidden="true"
           className="lb-tl-atraso-seta absolute top-0 text-[12px] leading-4 text-state-error"
-          style={{ left: dueXRelativo! < 0 ? -8 : largura }}
-          title={`prazo ${diaMesCurto(row.dueDate)}`}
+          style={{ left: dueXRelativo! < 0 ? -10 : largura }}
+          title={`prazo ${diaMesAnoCurto(row.dueDate)} — ${dueXRelativo! < 0 ? "antes do início" : "depois do fim"} da barra`}
         >
-          {dueXRelativo! < 0 ? "◀" : "▶"}
+          ⚑
         </div>
       ) : null}
       {larguraFolga > 0 ? (
@@ -1497,6 +1778,95 @@ function Conector({
   );
 }
 
+/** `open` → "aberta" etc. — a tela nunca mostra o enum cru do banco. */
+const ESTADO_EM_PORTUGUES: Record<LinhaDoTempoTarefaRow["status"], string> = {
+  open: "aberta",
+  in_progress: "em andamento",
+  blocked: "bloqueada",
+  done: "concluída",
+};
+
+/**
+ * P5f (achados MÉDIO A6 / BAIXO A11, rodada 5): o painel de detalhe da linha
+ * tocada. Resolve os dois de uma vez: o nome INTEIRO (a 390px a coluna corta
+ * 11 de 25 títulos em 2 linhas, sem nenhum caminho para o texto) e a ponte da
+ * linha do tempo para a PÁGINA da tarefa (`/tarefa/[id]`), que não existia em
+ * lugar nenhum desta tela.
+ *
+ * `<a>` puro em vez de `next/link`: um clique por sessão não justifica o
+ * router do App Router num componente que os testes renderizam sem contexto.
+ */
+function PainelDetalheTarefa({
+  linha,
+  onFechar,
+}: {
+  linha: LinhaDoTempoTarefaRow;
+  onFechar: () => void;
+}): JSX.Element {
+  const marcas = [
+    linha.critico ? "caminho crítico" : null,
+    linha.atrasada ? "atrasada" : null,
+    linha.semDuracao ? "sem estimativa" : null,
+    linha.inicioEstimado ? "início não definido" : null,
+    linha.foraDoCpm ? "fora do caminho até a meta" : null,
+  ].filter((m): m is string => m !== null);
+  return (
+    <div
+      role="region"
+      aria-label={`Detalhe da tarefa ${linha.titulo}`}
+      className="lb-tl-detalhe mt-3 rounded-lg border border-navy-700 bg-navy-850 px-3 py-2 text-[12px] text-bone-200"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="break-words font-semibold text-bone-50">{linha.titulo}</p>
+        <button
+          type="button"
+          onClick={onFechar}
+          className="min-h-[36px] shrink-0 rounded-md border border-navy-700 px-2 text-bone-300 hover:text-bone-50"
+        >
+          fechar
+        </button>
+      </div>
+      <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-bone-300">
+        <div className="flex gap-1">
+          <dt>Período:</dt>
+          <dd className="text-bone-100">
+            {linha.semBarra
+              ? linha.pontoConcluidoEm
+                ? `concluída em ${diaMesAnoCurto(linha.pontoConcluidoEm)}`
+                : "sem data registrada"
+              : linha.inicioEstimado
+                ? `início não definido — estimativa de ${Math.max(1, diffDias(linha.inicio, linha.fim))} d`
+                : `${diaMesAnoCurto(linha.inicio)} → ${diaMesAnoCurto(linha.fim)}`}
+          </dd>
+        </div>
+        <div className="flex gap-1">
+          <dt>Folga:</dt>
+          <dd className="text-bone-100">
+            {linha.folga === null ? "não calculada" : `${linha.folga} d`}
+          </dd>
+        </div>
+        <div className="flex gap-1">
+          <dt>Estado:</dt>
+          <dd className="text-bone-100">{ESTADO_EM_PORTUGUES[linha.status]}</dd>
+        </div>
+        {linha.dueDate ? (
+          <div className="flex gap-1">
+            <dt>Prazo:</dt>
+            <dd className="text-bone-100">{diaMesAnoCurto(linha.dueDate)}</dd>
+          </div>
+        ) : null}
+      </dl>
+      {marcas.length > 0 ? <p className="mt-1 text-bone-400">{marcas.join(" · ")}</p> : null}
+      <a
+        href={`/tarefa/${encodeURIComponent(linha.id)}`}
+        className="mt-2 inline-flex min-h-[36px] items-center rounded-md border border-navy-700 bg-navy-900 px-3 text-bone-100 hover:border-gold-600"
+      >
+        Abrir tarefa
+      </a>
+    </div>
+  );
+}
+
 /**
  * Amostras (achado ALTO #9): crítico · sucessão · folga · conflito · sem
  * data · marco · hoje · atrasada · fechado sem merge · indefinido — texto
@@ -1579,10 +1949,34 @@ function Legenda(): JSX.Element {
       chave: "fora-da-janela",
       amostra: (
         <span aria-hidden="true" className="text-[12px] font-semibold text-bone-300">
-          ◀
+          ◀ ▶
         </span>
       ),
       label: "fora da janela",
+    },
+    {
+      // Achado MÉDIO A8 (rodada 5): o marcador de prazo saiu do "◀" (que só
+      // quer dizer "fora da janela") e ganhou glifo e entrada próprios — o
+      // mesmo símbolo com dois sentidos era indistinguível na tela.
+      chave: "prazo-fora-da-barra",
+      amostra: (
+        <span aria-hidden="true" className="text-[12px] font-semibold text-state-error">
+          ⚑
+        </span>
+      ),
+      label: "prazo antes do início ou depois do fim",
+    },
+    {
+      // Achado BAIXO A9 (rodada 5): barra tracejada translúcida = a tarefa
+      // tem estimativa, mas a data de início é nossa, não dela.
+      chave: "inicio-nao-definido",
+      amostra: (
+        <span
+          aria-hidden="true"
+          className="h-2 w-5 rounded-sm border-2 border-dashed border-state-open bg-state-open/30"
+        />
+      ),
+      label: "início não definido (só estimativa)",
     },
   ];
   // Achado BAIXO #12 (rodada 2): a legenda inteira era `aria-hidden`, o que

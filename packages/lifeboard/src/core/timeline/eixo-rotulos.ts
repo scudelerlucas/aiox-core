@@ -1,15 +1,20 @@
 /**
- * OS-LIFEBOARD · P5 — rodada 4 (causa raiz nomeada pelo crítico hostil):
- * "o eixo tem dono demais". Antes, `gerarEscala` (em
- * `components/timeline/linha-do-tempo.tsx`) só desconflitava TICKS contra
- * TICKS — o chip de "hoje", o tick da borda esquerda (`x=0`) e a faixa de
- * mês eram desenhados FORA dessa passada, cada um lido pela VIEW
- * separadamente. Cada rodada de correção resolvia uma colisão e criava a
- * próxima (o chip "hoje" atropelando o tick vizinho foi o achado ALTO desta
- * rodada). Esta é a ÚNICA função de posicionamento dos rótulos do eixo:
- * recebe a janela, px/dia e "hoje", e devolve a lista FINAL já sem colisão —
- * a VIEW só renderiza o que ela devolve, nunca decide sozinha se cabe mais um
- * rótulo.
+ * OS-LIFEBOARD · P5 — rodada 5 (causa raiz da rodada 4 MOVIDA, não fechada).
+ *
+ * A rodada 4 criou a função única do eixo, mas ela tinha DUAS passadas: a
+ * primeira desconflitava por prioridade e a segunda (`preencherVaos`) inseria
+ * rótulos de preenchimento comparando só `x₂ − x₁` com um limiar FIXO, sem
+ * olhar a largura do vizinho — desfazendo a régua que a primeira acabara de
+ * garantir (medido: `"19/09/2026"@108` seguido de `"03/10"@189`, 81px onde a
+ * régua exige 97; e `jul/2026 → 19/07` com 21,44px de vão no Trimestre).
+ *
+ * Rodada 5: **um invariante, um portão**. Todo rótulo — o chip de "hoje", a
+ * borda `x=0`, os ticks da faixa, os meses e os preenchimentos — entra na
+ * lista final por UMA única função (`colocar`), que só aceita o candidato
+ * quando a distância para os DOIS vizinhos já aceitos satisfaz
+ * `distanciaMinima(esquerda, direita)` — a MESMA função de largura para
+ * todos. Nada que já entrou é movido ou removido depois. O que não cabe, não
+ * entra (e o vão maior é a informação, não o defeito).
  *
  * PURA — sem `Date.now()` escondido (`hojeIso` entra por parâmetro), nunca
  * lança. Fica FORA de `linha-do-tempo.ts` (que carrega `import "server-only"`)
@@ -21,22 +26,37 @@
 const MS_POR_DIA = 86_400_000;
 /** Teto de dias na escala — rede de segurança contra datas podres/distantes. */
 export const TETO_DIAS_ESCALA = 420;
-/** Nenhum rótulo pode ficar a menos disto do vizinho — achado MÉDIO #4, rodada 3. */
+/** Piso absoluto entre dois rótulos, mesmo os dois curtíssimos ("13" e "14"). */
 export const MINIMO_DIST_ROTULO_PX = 40;
-/** Nenhum tick de data pode ficar mais longe que isto do vizinho (rede de segurança). */
-const LIMIAR_TICK_PX = 160;
+/**
+ * Vão acima do qual a escala tenta um rótulo de preenchimento no meio — o
+ * operador nunca fica sem nenhuma pista de data por mais que isto. NÃO é uma
+ * régua de colisão (essa é `distanciaMinima`): é só o gatilho que GERA o
+ * candidato, que ainda precisa passar pelo mesmo portão de todo mundo.
+ */
+export const LIMIAR_TICK_PX = 160;
 /**
  * Padding lateral aproximado (px) somado à largura estimada de um rótulo.
  * Calibrado por MEDIÇÃO REAL no navegador (Playwright, rodada 4): "04/09"
- * (5 car.) mede 42,78px; "13/09/2026" (10 car., o chip de "hoje" — fundo +
- * `px-0.5`) mede 79,56px. Ajuste linear: ~7,36px/caractere + ~6px fixos. Os
- * valores abaixo arredondam PARA CIMA de propósito (7,5 / 10) — a heurística
- * deve superestimar a largura, nunca subestimar (subestimar é o que deixou o
- * chip de "hoje" sobrepor o tick vizinho na 1ª versão desta função).
+ * (5 car.) mede 42,78px; "13/09/2026" (10 car., o chip de "hoje") mede
+ * 79,56px. Ajuste linear: ~7,36px/caractere + ~6px fixos. Os valores abaixo
+ * arredondam PARA CIMA de propósito (7,5 / 10) — a heurística deve
+ * superestimar a largura, nunca subestimar.
  */
 const PADDING_ROTULO_PX = 10;
-/** Largura aproximada por caractere (px), fonte 12px semibold — heurística calibrada por medição real, não leitura de DOM em tempo real. */
+/** Largura aproximada por caractere (px), fonte 12px semibold. */
 const PX_POR_CARACTERE = 7.5;
+/**
+ * Respiro extra (px) além da largura estimada do rótulo à ESQUERDA — nunca
+ * zero (rótulos colados, sem nenhum ar, ainda leem mal mesmo sem sobrepor).
+ */
+const MARGEM_ENTRE_ROTULOS_PX = 12;
+/**
+ * O chip de "hoje" é o único rótulo com FUNDO OPACO (`bg-navy-900/80`) — a
+ * caixa dele encosta no texto vizinho antes de o texto encostar no texto.
+ * Respiro extra de 4px em qualquer par que envolva o chip, dos dois lados.
+ */
+const RESPIRO_CHIP_PX = 4;
 
 function paraEpoch(iso: string): number {
   const t = Date.parse(`${iso}T00:00:00.000Z`);
@@ -55,7 +75,7 @@ function diaMesCurto(iso: string): string {
   const d = new Date(paraEpoch(iso));
   return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
-/** `dd/MM/aaaa` — usado só no chip de "hoje" (achado BAIXO #7: ano no chip). */
+/** `dd/MM/aaaa` — o chip de "hoje" e o desempate de rótulos repetidos. */
 function diaMesAnoCurto(iso: string): string {
   const d = new Date(paraEpoch(iso));
   return `${diaMesCurto(iso)}/${d.getUTCFullYear()}`;
@@ -78,92 +98,92 @@ export interface RotuloEixo {
 }
 
 export interface EscalaEixo {
-  /** Grades verticais de segunda-feira (fundo do painel) — nunca colidem entre si (só linhas). */
+  /** Grades verticais de segunda-feira (fundo do painel) — só linhas, nunca colidem. */
   guiasSemana: number[];
-  /**
-   * Faixa do MÊS (2ª linha do cabeçalho, só existe visualmente quando
-   * `faixa === "dia"`) — já desconflitada dentro de si mesma.
-   */
+  /** Faixa do MÊS (2ª linha do cabeçalho, só visível quando `faixa === "dia"`). */
   ticksMes: RotuloEixo[];
   /**
-   * Faixa PRINCIPAL — ticks de dia/semana/mês (conforme `faixa`) + o rótulo
-   * de "hoje" + o rótulo da borda esquerda (`x=0`), já unificados e
-   * desconflitados numa ÚNICA lista: nenhum par fica a menos de
-   * `MINIMO_DIST_ROTULO_PX` (ajustado pela largura aproximada do texto).
-   * "hoje" e a borda `x=0` SEMPRE aparecem (mandatórios); "hoje" vence
-   * qualquer vizinho em colisão.
+   * Faixa PRINCIPAL — ticks da faixa + o chip de "hoje" + a borda `x=0`,
+   * TODOS colocados pelo mesmo portão: nenhum par adjacente fica a menos de
+   * `distanciaMinima(anterior, atual)`. "hoje" é o único rótulo que nunca
+   * cede (prioridade máxima) e nunca muda de `x`; a borda `x=0` cede quando
+   * não cabe ao lado dele (aí o próprio "hoje" é a primeira data da tela).
    */
   rotulos: RotuloEixo[];
   faixa: FaixaEixo;
 }
 
-interface CandidatoInterno {
-  x: number;
-  label: string;
-  forte: boolean;
-  tipo: TipoRotulo;
-  /** 0 = descartável em colisão; 1 = forte natural; 2 = borda x=0; 3 = hoje. Maior sempre sobrevive. */
-  prioridade: 0 | 1 | 2 | 3;
+/**
+ * Prioridade de COLOCAÇÃO (quem escolhe o lugar primeiro), nunca de desenho:
+ * 4 = hoje · 3 = borda `x=0` · 2 = mês/ano · 1 = tick da faixa · 0 = preenchimento.
+ */
+type Prioridade = 0 | 1 | 2 | 3 | 4;
+interface Candidato extends RotuloEixo {
+  prioridade: Prioridade;
 }
 
-/** Largura aproximada (px) do rótulo — heurística por contagem de caracteres, não DOM real. */
-function larguraAproximada(label: string): number {
+/** Largura aproximada (px) do rótulo — heurística por caracteres, a MESMA para todos. */
+export function larguraAproximada(label: string): number {
   return label.length * PX_POR_CARACTERE + PADDING_ROTULO_PX;
 }
 
 /**
- * Respiro extra (px) além da largura estimada do rótulo à ESQUERDA — nunca
- * zero (rótulos colados na borda, sem nenhum ar, ainda leem mal mesmo sem
- * sobrepor um pixel).
- */
-const MARGEM_ENTRE_ROTULOS_PX = 12;
-
-/**
- * Espaço mínimo exigido no eixo X entre `anterior` (o candidato à ESQUERDA
- * — `desconflitar` só chama isto em ordem crescente de x) e o próximo.
+ * O ÚNICO invariante do eixo: espaço mínimo, em px, entre um rótulo à
+ * ESQUERDA e o seu vizinho imediato à DIREITA.
  *
- * Achado ALTO (rodada 4) — bug medido no navegador: a 1ª versão usava a
- * MÉDIA das duas larguras (`(larguraA + larguraB) / 2`), um modelo de rótulo
- * CENTRADO. Os rótulos daqui são ANCORADOS PELA ESQUERDA (`style={{left:x}}`,
- * o texto cresce para a DIREITA a partir de x) — o espaço real entre dois é
- * `(x2 − x1) − larguraDoAnterior`, nunca a média. Usar a média SUBESTIMA a
- * exigência sempre que o candidato à esquerda é bem mais largo que o da
- * direita (exatamente o caso do chip "13/09/2026" ao lado de um tick "15" de
- * 2 caracteres): media ≈ 55px, e o "15" sobrevivia a 92px de distância —
- * medido no Playwright: só 8,44px de vão real, abaixo da régua de 40px.
- * Corrigido para depender só da largura do candidato à ESQUERDA + a margem.
- * Rótulos comuns (curtos) continuam batendo no PISO de `MINIMO_DIST_ROTULO_PX`
- * de sempre — só o candidato LARGO (o chip de "hoje") passa a exigir mais.
+ * Os rótulos são ANCORADOS PELA ESQUERDA (`style={{left:x}}`, o texto cresce
+ * para a direita) — o espaço real entre dois é `(x₂ − x₁) − largura(esquerda)`.
+ * Por isso a largura que manda é a do candidato da ESQUERDA; o da direita
+ * entra pelo piso e pelo respiro do chip (o único rótulo com fundo opaco).
+ * Exportada de propósito: o teste afirma o vão contra ESTA função, nunca
+ * contra a constante de piso (achado BAIXO #10 da rodada 4).
  */
-function distanciaMinima(anterior: CandidatoInterno): number {
-  return Math.max(MINIMO_DIST_ROTULO_PX, larguraAproximada(anterior.label) + MARGEM_ENTRE_ROTULOS_PX);
+export function distanciaMinima(
+  esquerda: Pick<RotuloEixo, "label" | "tipo">,
+  direita: Pick<RotuloEixo, "label" | "tipo">,
+): number {
+  const respiro = esquerda.tipo === "hoje" || direita.tipo === "hoje" ? RESPIRO_CHIP_PX : 0;
+  return (
+    Math.max(MINIMO_DIST_ROTULO_PX, larguraAproximada(esquerda.label) + MARGEM_ENTRE_ROTULOS_PX) +
+    respiro
+  );
 }
 
 /**
- * Resolve colisões numa lista de candidatos JÁ ORDENADA por x: em par a
- * menos da distância mínima, a maior `prioridade` sobrevive; em empate, o
- * "forte" vence; em empate total, o mais à esquerda fica (mesma convenção de
- * antes da rodada 4).
+ * O portão único. Mantém a lista ordenada por `x` e só aceita o candidato
+ * quando ele respeita `distanciaMinima` contra os DOIS vizinhos já aceitos.
+ * Nada que já entrou é movido, trocado ou removido — não existe segunda
+ * passada que desfaça esta.
  */
-function desconflitar(candidatos: readonly CandidatoInterno[]): RotuloEixo[] {
-  const escolhidos: CandidatoInterno[] = [];
-  for (const c of candidatos) {
-    const anterior = escolhidos[escolhidos.length - 1];
-    if (anterior && c.x - anterior.x < distanciaMinima(anterior)) {
-      if (c.prioridade > anterior.prioridade || (c.prioridade === anterior.prioridade && c.forte && !anterior.forte)) {
-        escolhidos[escolhidos.length - 1] = c;
-      }
-      continue; // descarta `c` (ou já substituiu `anterior` acima)
-    }
-    escolhidos.push(c);
-  }
-  return escolhidos.map(({ x, label, forte, tipo }) => ({ x, label, forte, tipo }));
+function criarColocador(): {
+  aceitos: Candidato[];
+  colocar: (c: Candidato) => boolean;
+} {
+  const aceitos: Candidato[] = [];
+  return {
+    aceitos,
+    colocar(c: Candidato): boolean {
+      let i = 0;
+      while (i < aceitos.length && aceitos[i]!.x < c.x) i += 1;
+      const esquerda = aceitos[i - 1];
+      const direita = aceitos[i];
+      if (esquerda && c.x - esquerda.x < distanciaMinima(esquerda, c)) return false;
+      if (direita && direita.x - c.x < distanciaMinima(c, direita)) return false;
+      aceitos.splice(i, 0, c);
+      return true;
+    },
+  };
+}
+
+/** `set/2026` — o rótulo do mês do dia `dias` depois de `minIso` (sempre com ano). */
+export function rotuloMesAno(minIso: string, dias: number): string {
+  const iso = somaDiasIso(minIso, Math.max(0, Math.floor(dias)));
+  return `${mesCurto(iso)}/${anoDoIso(iso)}`;
 }
 
 /**
- * ÚNICA função de posicionamento dos rótulos do eixo (achado ALTO, rodada 4:
- * causa raiz "o eixo tem dono demais"). A VIEW só desenha o que esta função
- * devolve — nenhum rótulo nasce fora dela.
+ * ÚNICA função de posicionamento dos rótulos do eixo. A VIEW só desenha o que
+ * ela devolve — nenhum rótulo nasce fora daqui, e nenhum é recolocado depois.
  */
 export function gerarEscalaEixo(params: {
   minIso: string;
@@ -173,18 +193,26 @@ export function gerarEscalaEixo(params: {
 }): EscalaEixo {
   const { minIso, maxIso, pxPorDia, hojeIso } = params;
   const totalDias = Math.min(TETO_DIAS_ESCALA, Math.max(1, diffDias(minIso, maxIso)));
+  const larguraTotal = totalDias * pxPorDia;
   const faixa: FaixaEixo = pxPorDia >= 24 ? "dia" : pxPorDia >= 8 ? "semana" : "mes";
   const guiasSemana: number[] = [];
-  const porX = new Map<number, CandidatoInterno>();
-  const porXMes = new Map<number, CandidatoInterno>();
-  let anoAnteriorMes: number | null = null;
+
+  // ── 1. candidatos ────────────────────────────────────────────────────────
   /**
-   * Achado BAIXO #7 (rodada 4): na faixa "mes" (pxPorDia < 8 — Trimestre e
-   * horizontes largos de "auto"), o rótulo de MÊS É a faixa principal — não
-   * existe uma 2ª linha separada (essa só existe na faixa "dia"). O ano
-   * precisa entrar AQUI também, não só em `porXMes`, senão um horizonte
-   * inteiro na faixa "mes" nunca mostra ano nenhum.
+   * "0 dd/MM repetidos" (não regredir, rodada 3): num horizonte de 364 dias
+   * ou mais o MESMO `dd/MM` cai duas vezes na mesma tela — e aí ele não
+   * identifica data nenhuma. Regra por CONSTRUÇÃO, decidida antes de
+   * qualquer colocação (nunca um desempate depois, que mudaria a largura de
+   * um rótulo já colocado e quebraria a régua contra o vizinho da direita):
+   * horizonte que pode repetir → todo rótulo de data leva o ano.
    */
+  const dataPodeRepetir = totalDias >= 364;
+  const rotuloDeData = (iso: string): string =>
+    dataPodeRepetir ? diaMesAnoCurto(iso) : diaMesCurto(iso);
+
+  const candidatos: Candidato[] = [];
+  const candidatosMes: Candidato[] = [];
+  let anoAnteriorMes: number | null = null;
   let anoAnteriorPrincipal: number | null = null;
 
   for (let d = 0; d <= totalDias; d += 1) {
@@ -196,145 +224,150 @@ export function gerarEscalaEixo(params: {
     if (ehSegunda) guiasSemana.push(x);
 
     if (faixa === "dia") {
-      porX.set(x, { x, label: String(data.getUTCDate()), forte: ehSegunda, tipo: "dia", prioridade: ehSegunda ? 1 : 0 });
+      candidatos.push({
+        x,
+        label: String(data.getUTCDate()),
+        forte: ehSegunda,
+        tipo: "dia",
+        prioridade: ehSegunda ? 2 : 1,
+      });
     } else if (faixa === "semana") {
-      if (ehSegunda) porX.set(x, { x, label: diaMesCurto(iso), forte: ehInicioMes, tipo: "semana", prioridade: 1 });
+      if (ehSegunda) {
+        candidatos.push({
+          x,
+          label: rotuloDeData(iso),
+          forte: ehInicioMes,
+          tipo: "semana",
+          prioridade: ehInicioMes ? 2 : 1,
+        });
+      }
     } else if (ehInicioMes || d === 0) {
       const ano = anoDoIso(iso);
       const primeiraVezNoAno = anoAnteriorPrincipal !== ano;
       anoAnteriorPrincipal = ano;
-      const label = primeiraVezNoAno ? `${mesCurto(iso)}/${ano}` : mesCurto(iso);
-      porX.set(x, { x, label, forte: true, tipo: "mes", prioridade: 1 });
+      candidatos.push({
+        x,
+        label: primeiraVezNoAno ? `${mesCurto(iso)}/${ano}` : mesCurto(iso),
+        forte: true,
+        tipo: "mes",
+        prioridade: 2,
+      });
     }
 
-    // Faixa de MESES (2ª linha do cabeçalho — só existe visualmente na
-    // densidade "dia"): um rótulo por início de mês, mais um no 1º dia
-    // visível (mesmo que não seja dia 1) — nunca começa "no vazio". Achado
-    // BAIXO #7 (rodada 4): o ANO entra no PRIMEIRO rótulo de mês de cada ano
-    // — inclusive na virada (um horizonte que cruza 31/12 ganha o ano de
-    // novo no 1º mês do ano seguinte).
+    // Faixa de MESES (2ª linha do cabeçalho — só na densidade "dia"): um
+    // rótulo por início de mês, mais um no 1º dia visível (nunca começa "no
+    // vazio"). O ANO entra no primeiro rótulo de cada ano (inclusive na virada).
     if (faixa === "dia" && (ehInicioMes || d === 0)) {
       const xMes = ehInicioMes ? x : 0;
       const ano = anoDoIso(iso);
       const primeiraVezNoAno = anoAnteriorMes !== ano;
       anoAnteriorMes = ano;
-      const label = primeiraVezNoAno ? `${mesCurto(iso)}/${ano}` : mesCurto(iso);
-      porXMes.set(xMes, { x: xMes, label, forte: true, tipo: "mes", prioridade: 1 });
-    }
-  }
-
-  // Rede de segurança: pelo menos 1 rótulo por ~160px, mesmo quando a faixa
-  // natural (semana/mês) não cruza nenhum marco dentro da janela visível.
-  // O rótulo de PREENCHIMENTO é SEMPRE `dd/MM` — nunca nome de mês.
-  const largoDemais = pxPorDia <= 0 ? 1 : Math.max(1, Math.floor(LIMIAR_TICK_PX / pxPorDia));
-  const xsOrdenados = [...porX.keys()].sort((a, b) => a - b);
-  const fronteiras = [0, ...xsOrdenados, totalDias * pxPorDia];
-  for (let i = 0; i < fronteiras.length - 1; i += 1) {
-    const inicio = fronteiras[i]!;
-    const fim = fronteiras[i + 1]!;
-    if (fim - inicio <= LIMIAR_TICK_PX) continue;
-    for (let x = inicio + largoDemais * pxPorDia; x < fim; x += largoDemais * pxPorDia) {
-      if (porX.has(x)) continue;
-      const d = Math.round(x / pxPorDia);
-      const iso = somaDiasIso(minIso, d);
-      porX.set(x, { x, label: diaMesCurto(iso), forte: false, tipo: "preenchimento", prioridade: 0 });
-    }
-  }
-
-  // ── mandatórios: borda x=0 e "hoje" ─────────────────────────────────────
-  // Achado MÉDIO #3 (rodada 4): a borda esquerda da escala nunca recebia
-  // data (a rede de preenchimento só cobre a partir de `inicio + largoDemais`,
-  // pulando x=0 quando ele não coincide com um tick natural). Garantido aqui,
-  // SEMPRE — se já existir um tick natural em x=0, ele vira a borda (ganha
-  // prioridade 2, "forte"); senão, nasce um novo.
-  const candidatoNaturalEm0 = porX.get(0);
-  const candidatoBorda: CandidatoInterno = candidatoNaturalEm0
-    ? { ...candidatoNaturalEm0, forte: true, tipo: "borda", prioridade: 2 }
-    : {
-        x: 0,
-        label: faixa === "mes" ? mesCurto(somaDiasIso(minIso, 0)) : diaMesCurto(somaDiasIso(minIso, 0)),
+      candidatosMes.push({
+        x: xMes,
+        label: primeiraVezNoAno ? `${mesCurto(iso)}/${ano}` : mesCurto(iso),
         forte: true,
-        tipo: "borda",
+        tipo: "mes",
         prioridade: 2,
-      };
+      });
+    }
+  }
 
-  // Achado ALTO (rodada 4, causa raiz): "hoje" entra na MESMA passada de
-  // desconflito da faixa principal — nunca mais desenhado por fora dela. Tem
-  // a MAIOR prioridade (vence qualquer vizinho em colisão) e carrega o ANO
-  // (achado BAIXO #7: "13/09/2026", não só "13/09").
-  const xHoje = Math.max(0, Math.min(totalDias * pxPorDia, diffDias(minIso, hojeIso) * pxPorDia));
-  const candidatoHoje: CandidatoInterno = {
+  // Borda `x=0` — a primeira data da tela. Prioridade abaixo só de "hoje":
+  // quando os dois não cabem lado a lado, é ELA que cede (achado ALTO A2 da
+  // rodada 5: antes o chip de "hoje" é que era movido para x=0 e passava a
+  // "dizer" a data da borda, com a linha dourada 50px à direita dele).
+  const bordaNatural = candidatos.find((c) => c.x === 0);
+  candidatos.push({
+    x: 0,
+    label: bordaNatural?.label ?? (faixa === "mes" ? mesCurto(minIso) : rotuloDeData(minIso)),
+    forte: true,
+    tipo: "borda",
+    prioridade: 3,
+  });
+
+  // "hoje": prioridade máxima, escolhe o lugar primeiro e NUNCA muda de `x` —
+  // é a única coisa na tela que a linha dourada vertical também marca, e as
+  // duas têm de ficar no mesmo pixel.
+  const xHoje = Math.max(0, Math.min(larguraTotal, diffDias(minIso, hojeIso) * pxPorDia));
+  candidatos.push({
     x: xHoje,
     label: diaMesAnoCurto(hojeIso),
     forte: true,
     tipo: "hoje",
-    prioridade: 3,
-  };
+    prioridade: 4,
+  });
 
-  // "hoje" e a borda `x=0` são os DOIS mandatórios — nenhum dos dois pode
-  // simplesmente "perder" o outro (a régua de colisão comum favoreceria
-  // sempre "hoje", apagando a borda quando os dois caem perto). Quando
-  // colidem entre si, funde-se num único rótulo em `x=0` com a cara de
-  // "hoje" (mais informativo — leva a data inteira) em vez de desenhar dois
-  // rótulos quase colados (isso violaria a MESMA régua de 40px que a função
-  // existe para garantir). Longe um do outro, os dois convivem — o normal.
-  if (xHoje - candidatoBorda.x < distanciaMinima(candidatoBorda)) {
-    porX.set(0, { ...candidatoHoje, x: 0 });
-  } else {
-    porX.set(0, candidatoBorda);
-    porX.set(xHoje, candidatoHoje);
-  }
+  // ── 2. colocação: UMA passada, um portão ─────────────────────────────────
+  candidatos.sort((a, b) => b.prioridade - a.prioridade || a.x - b.x);
+  const principal = criarColocador();
+  for (const c of candidatos) principal.colocar(c);
 
-  const comMandatorios = [...porX.values()].sort((a, b) => a.x - b.x || a.prioridade - b.prioridade);
-  const desconflitados = desconflitar(comMandatorios);
-  // Achado CRÍTICO #1 (rodada 2, NÃO regredir): nenhum vão > `LIMIAR_TICK_PX`
-  // em lugar nenhum — inclusive o vão que a eviction de "hoje" (prioridade
-  // máxima) pode ter reaberto ao derrubar um tick de preenchimento vizinho.
-  // Por isso este preenchimento roda de novo, agora sobre o resultado JÁ
-  // desconflitado (nunca antes: preencher antes deixaria "hoje" apagar de
-  // novo o preenchimento que acabou de tapar o buraco).
-  const rotulos = preencherVaos(desconflitados, minIso, pxPorDia, totalDias * pxPorDia);
-
-  const ticksMesOrdenados = [...porXMes.values()].sort((a, b) => a.x - b.x);
-  const ticksMes = desconflitar(ticksMesOrdenados);
-
-  return { guiasSemana, ticksMes, rotulos, faixa };
-}
-
-/**
- * Segunda passada, DEPOIS da desconflição por prioridade: preenche qualquer
- * vão residual > `LIMIAR_TICK_PX` entre dois rótulos sobreviventes (ou da
- * borda ao 1º) com rótulos `dd/MM` neutros — nunca reabre uma colisão (o vão
- * já é grande o bastante para caber ticks de preenchimento a ≥ `distancia
- * Minima` de cada vizinho, já que o passo usado é o mesmo `LIMIAR_TICK_PX`).
- */
-function preencherVaos(
-  base: readonly RotuloEixo[],
-  minIso: string,
-  pxPorDia: number,
-  larguraTotal: number,
-): RotuloEixo[] {
-  if (pxPorDia <= 0) return [...base];
-  const resultado: RotuloEixo[] = [];
-  for (let i = 0; i < base.length; i += 1) {
-    const atual = base[i]!;
-    resultado.push(atual);
-    const fimVao = i + 1 < base.length ? base[i + 1]!.x : larguraTotal;
-    const vao = fimVao - atual.x;
-    if (vao <= LIMIAR_TICK_PX) continue;
-    // Distribui N ticks IGUALMENTE dentro do vão (nunca a partir de um passo
-    // fixo ancorado em `atual.x`) — garante por construção que cada sub-vão
-    // resultante fica ≤ `LIMIAR_TICK_PX` e, no mínimo, ~metade disso (bem
-    // acima de `MINIMO_DIST_ROTULO_PX`), mesmo quando o último ficaria colado
-    // no próximo rótulo sobrevivente com um passo fixo.
-    const n = Math.ceil(vao / LIMIAR_TICK_PX) - 1;
-    const passo = vao / (n + 1);
-    for (let k = 1; k <= n; k += 1) {
-      const x = atual.x + passo * k;
-      const d = Math.round(x / pxPorDia);
-      const iso = somaDiasIso(minIso, d);
-      resultado.push({ x, label: diaMesCurto(iso), forte: false, tipo: "preenchimento" });
+  // ── 3. preenchimento: candidatos NOVOS, o MESMO portão ───────────────────
+  // Não é uma segunda passada de posicionamento: nada já aceito é movido nem
+  // removido. Vão > `LIMIAR_TICK_PX` gera candidatos `dd/MM` distribuídos
+  // igualmente dentro dele; cada um ainda precisa caber pela mesma régua. O
+  // que não couber simplesmente não entra — o vão maior é honesto (é o que a
+  // largura dos vizinhos permite), nunca um rótulo sobreposto.
+  if (pxPorDia > 0) {
+    /**
+     * Varre DIA a dia dentro de um vão (o rótulo precisa cair num dia real —
+     * data interpolada seria data inventada) e tenta colocar o primeiro que
+     * fica a pelo menos `espacoDesejado` do último colocado. Recusa do portão
+     * NÃO desiste do vão: tenta o dia seguinte. Devolve quantos entraram.
+     */
+    const varrer = (inicio: number, fim: number, espacoDesejado: number): number => {
+      let ancora = inicio;
+      let entraram = 0;
+      const primeiroDia = Math.ceil(inicio / pxPorDia);
+      const ultimoDia = Math.min(totalDias, Math.floor(fim / pxPorDia));
+      for (let d = primeiroDia; d <= ultimoDia; d += 1) {
+        const x = d * pxPorDia;
+        if (x <= inicio || x >= fim) continue;
+        if (x - ancora < espacoDesejado) continue;
+        const entrou = principal.colocar({
+          x,
+          label: rotuloDeData(somaDiasIso(minIso, d)),
+          forte: false,
+          tipo: "preenchimento",
+          prioridade: 0,
+        });
+        if (entrou) {
+          ancora = x;
+          entraram += 1;
+        }
+      }
+      return entraram;
+    };
+    const vaosAcimaDoLimiar = (): { inicio: number; fim: number }[] => {
+      const out: { inicio: number; fim: number }[] = [];
+      for (let i = 0; i < principal.aceitos.length; i += 1) {
+        const atual = principal.aceitos[i]!;
+        const fim = i + 1 < principal.aceitos.length ? principal.aceitos[i + 1]!.x : larguraTotal;
+        if (fim - atual.x > LIMIAR_TICK_PX) out.push({ inicio: atual.x, fim });
+      }
+      return out;
+    };
+    // 1ª varredura: espaçamento BONITO (o vão dividido em partes iguais).
+    for (const vao of vaosAcimaDoLimiar()) {
+      const largura = vao.fim - vao.inicio;
+      const n = Math.max(1, Math.ceil(largura / LIMIAR_TICK_PX) - 1);
+      varrer(vao.inicio, vao.fim, largura / (n + 1));
     }
+    // 2ª varredura, só no que sobrou grande: espaçamento RELAXADO — vale mais
+    // um rótulo fora do meio do vão do que 180px sem nenhuma pista de data.
+    // Mesmo portão, mesma régua; o que não couber continua não entrando.
+    for (const vao of vaosAcimaDoLimiar()) varrer(vao.inicio, vao.fim, 0);
   }
-  return resultado;
+
+  candidatosMes.sort((a, b) => b.prioridade - a.prioridade || a.x - b.x);
+  const meses = criarColocador();
+  for (const c of candidatosMes) meses.colocar(c);
+
+  const semPrioridade = ({ x, label, forte, tipo }: Candidato): RotuloEixo => ({ x, label, forte, tipo });
+  return {
+    guiasSemana,
+    ticksMes: meses.aceitos.map(semPrioridade),
+    rotulos: principal.aceitos.map(semPrioridade),
+    faixa,
+  };
 }

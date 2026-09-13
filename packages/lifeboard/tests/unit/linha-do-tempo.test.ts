@@ -223,6 +223,24 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
     expect(lateral.semDuracao).toBe(false);
     expect(lateral.inicio).toBe("2026-09-10");
     expect(lateral.fim).toBe("2026-09-15"); // 2026-09-10 + 5 dias
+    // P5f (achado BAIXO A9, rodada 5): com `iniciadoEm` REAL o início não é
+    // estimado — a barra pode ser sólida, ela afirma uma data que existe.
+    expect(lateral.inicioEstimado).toBe(false);
+  });
+
+  it("fora do subgrafo do goal SEM iniciadoEm: início é fabricado — `inicioEstimado` avisa (achado BAIXO A9)", () => {
+    const tasks = [
+      task({ id: "SEM-INICIO", estimativaDias: 4 }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const semInicio = tarefaPorId(props, "SEM-INICIO");
+    expect(semInicio.foraDoCpm).toBe(true);
+    expect(semInicio.semDuracao).toBe(false);
+    // A data existe só para a barra ter onde nascer — a tela precisa dizer isso.
+    expect(semInicio.inicio).toBe(HOJE);
+    expect(semInicio.inicioEstimado).toBe(true);
   });
 });
 

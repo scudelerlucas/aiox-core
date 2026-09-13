@@ -103,6 +103,15 @@ export interface LinhaDoTempoTarefaRow {
   semBarra: boolean;
   /** ISO `AAAA-MM-DD` do ponto "concluída", quando `semBarra` e há data válida (`updatedAt`); `null` = nada a desenhar. */
   pontoConcluidoEm: string | null;
+  /**
+   * P5f (achado BAIXO A9, rodada 5): tarefa FORA do CPM, com estimativa, mas
+   * sem data real de início (`iniciadoEm` ausente) — `inicio` é "hoje"
+   * fabricado só para a barra ter onde nascer. A tela nunca desenha isto como
+   * barra sólida (isso afirmava uma data que ninguém informou): borda
+   * tracejada + preenchimento translúcido, com "início não definido" no
+   * `title` — a mesma coisa que o conector já dizia (`indefinido`).
+   */
+  inicioEstimado: boolean;
   /** `true` quando `dueDate` já passou e a tarefa não está `done`. */
   atrasada: boolean;
   /** ISO `AAAA-MM-DD` de `dueDate`, quando válida; `null` senão. Usado para o marcador de atraso. */
