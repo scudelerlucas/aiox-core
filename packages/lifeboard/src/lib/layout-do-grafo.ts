@@ -253,13 +253,24 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
     const targetX = noDestino.x + nodeW / 2;
     const sourceY = rankDestino > rankOrigem ? noOrigem.y + nodeH : noOrigem.y;
     const targetY = rankDestino < rankOrigem ? noDestino.y + nodeH : noDestino.y;
+    // P4e (achado MÉDIO #5 do crítico hostil ROUND 4): aresta de MESMO rank
+    // não se resolve com desvio LATERAL nenhum — os dois handles estão na
+    // MESMA cota (o topo da fileira) e qualquer rota lateral continuaria
+    // rasante ao topo dos cartões do meio. Ela ganhou rota própria em
+    // `v3-edge.tsx` (`CORREDOR_MESMO_RANK_PX`: sobe 28px, atravessa por cima
+    // da fileira inteira, desce) — por isso aqui a resposta é "sem desvio",
+    // e é uma resposta completa, não uma omissão.
+    if (rankDestino === rankOrigem) return { desviar: false };
     const midY = (sourceY + targetY) / 2;
     const xLo = Math.min(sourceX, targetX);
     const xHi = Math.max(sourceX, targetX);
-    const yVertLo1 = Math.min(sourceY, midY);
-    const yVertHi1 = Math.max(sourceY, midY);
-    const yVertLo2 = Math.min(midY, targetY);
-    const yVertHi2 = Math.max(midY, targetY);
+    // P4e (achado ALTO #3): a janela varrida nos corredores verticais passa a
+    // ser o intervalo INTEIRO [sourceY,targetY], não só a metade até `midY`.
+    // A rota com desvio (`v3-edge.tsx`) desce/sobe na coluna de origem até um
+    // cotovelo que pode ficar do outro lado de `midY`; varrer só até `midY`
+    // deixava de fora cartões que a rota REAL cruzaria.
+    const yLo = Math.min(sourceY, targetY);
+    const yHi = Math.max(sourceY, targetY);
 
     let yTopo = Infinity;
     let yBase = -Infinity;
@@ -270,12 +281,15 @@ export function layoutDoGrafo(params: LayoutDoGrafoParams): ResultadoLayout {
       const nx1 = n.x + nodeW;
       const ny0 = n.y;
       const ny1 = n.y + nodeH;
-      // (a) bloqueia o desce inicial (vertical, em sourceX)?
-      const bloqueiaA = sourceX > nx0 && sourceX < nx1 && ny0 < yVertHi1 && ny1 > yVertLo1;
-      // (b) bloqueia o desce final (vertical, em targetX)?
-      const bloqueiaB = targetX > nx0 && targetX < nx1 && ny0 < yVertHi2 && ny1 > yVertLo2;
-      // (c) bloqueia o atravessamento (horizontal, em midY)?
-      const bloqueiaC = midY > ny0 && midY < ny1 && nx0 < xHi && nx1 > xLo;
+      // (a) bloqueia o trecho vertical na coluna de ORIGEM?
+      const bloqueiaA = sourceX > nx0 && sourceX < nx1 && ny0 < yHi && ny1 > yLo;
+      // (b) bloqueia o trecho vertical na coluna de DESTINO?
+      const bloqueiaB = targetX > nx0 && targetX < nx1 && ny0 < yHi && ny1 > yLo;
+      // (c) bloqueia o atravessamento (horizontal, em midY)? P4e (achado
+      // MÉDIO #5): comparação INCLUSIVA (`>=`/`<=`) — com a estrita, um
+      // `midY` que caísse exatamente no topo de um cartão (`midY === ny0`, o
+      // caso rasante) nunca disparava.
+      const bloqueiaC = midY >= ny0 && midY <= ny1 && nx0 < xHi && nx1 > xLo;
       if (bloqueiaA || bloqueiaB || bloqueiaC) {
         desviar = true;
         yTopo = Math.min(yTopo, ny0);

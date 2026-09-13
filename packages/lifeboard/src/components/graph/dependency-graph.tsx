@@ -75,14 +75,14 @@ const GRAFO_V3_VAZIO: GrafoV3Props = {
 const BG_DOTS = "#13253D"; // navy-800
 
 /**
- * P4b (achado ALTO #6 do crítico hostil): sem piso, `fitView` encolhia até
+ * P4b (achado ALTO #6 do crítico hostil): sem piso, o enquadramento encolhia até
  * caber a largura inteira do grafo — a 390px isso derrubava o zoom a ~0,5 e o
  * texto do nó virava 5–7px de tela. `minZoom: 0.85` faz o canvas SCROLLAR/
  * PANAR em vez de encolher além do legível; `task-node.tsx` (LOD) cobre o
  * caso raro de um grafo tão largo que nem 0,85 caiba, escondendo detalhe
  * secundário abaixo de zoom 0,75 em vez de deixar tudo ilegível.
  */
-const FIT_VIEW_OPTIONS: FitViewOptions = { padding: 0.2, minZoom: 0.85 };
+const OPCOES_DE_ENQUADRAMENTO: FitViewOptions = { padding: 0.2, minZoom: 0.85 };
 
 const NODE_W = 200;
 /**
@@ -205,8 +205,8 @@ function bboxDosNos(nodes: readonly Node[]): { width: number; height: number } |
 }
 
 /**
- * Zoom que o `fitView` da lib escolheria para caber `bbox` num contêiner
- * `largura×altura` com o `padding` de `FIT_VIEW_OPTIONS` (fração do próprio
+ * Zoom que o enquadramento da lib escolheria para caber `bbox` num contêiner
+ * `largura×altura` com o `padding` de `OPCOES_DE_ENQUADRAMENTO` (fração do próprio
  * contêiner) — aproximação da fórmula interna do React Flow, usada só para
  * DECIDIR entre o fit cheio e o fallback (achado ALTO #2), nunca para
  * desenhar nada.
@@ -223,42 +223,57 @@ function zoomNecessarioPara(
   return Math.min(xZoom, yZoom);
 }
 
-function GraphControls({
-  containerRef,
-  fitViewOptionsFallback,
-}: {
-  containerRef: RefObject<HTMLDivElement>;
-  fitViewOptionsFallback: FitViewOptions;
-}): JSX.Element {
-  const { zoomIn, zoomOut, fitView, getNodes } = useReactFlow();
+/**
+ * P4e (achado ALTO #1 do crítico hostil ROUND 4): **a única** implementação de
+ * "ajustar à tela" do grafo. Até a rodada 3 existiam duas — a boa, com cadeia
+ * de fallback, vivia dentro de `GraphControls` (o botão ⤢), e o chip gold
+ * ("N tarefas fora da tela · Ajustar à tela") chamava a API CRUA da lib com as
+ * opções genéricas. Resultado medido no fixture: um clique no chip AUMENTAVA o
+ * número que ele próprio anuncia (6 → 7 a 1280px, 6 → 9 a 390px) e expulsava
+ * `task-setup`/`task-build`/`task-deploy` — o caminho crítico inteiro — da
+ * tela. Era o padrão "corrigir um caminho e deixar o gêmeo": a rodada 3
+ * consertou o botão e deixou o chip.
+ *
+ * Agora existe UMA função, e ela é a única no arquivo que chama a API de
+ * enquadramento da lib:
+ * chip, botão dos controles, enquadramento inicial e reenquadramento (troca de
+ * aba/filtro/resize) passam todos por aqui. A régua: tenta o bbox CHEIO; só
+ * quando ele bateria no piso de zoom (`minZoom`, o que deixaria o texto do
+ * cartão ilegível) cai para o enquadramento estreito — críticos → goal →
+ * maior score → bbox total (ver `opcoesDeEnquadramentoFallback`).
+ */
+function useAjustarATela(
+  containerRef: RefObject<HTMLDivElement>,
+  opcoesCheio: FitViewOptions,
+  opcoesFallback: FitViewOptions,
+): (duracaoMs?: number) => void {
+  const { fitView, getNodes } = useReactFlow();
+  return useCallback(
+    (duracaoMs = 200) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const bbox = bboxDosNos(getNodes());
+      const padding = OPCOES_DE_ENQUADRAMENTO.padding ?? 0.2;
+      const minZoom = OPCOES_DE_ENQUADRAMENTO.minZoom ?? 0.85;
+      const zoomCheio =
+        rect && bbox ? zoomNecessarioPara(bbox, rect.width, rect.height, padding) : Infinity;
+      const opcoes = zoomCheio < minZoom ? opcoesFallback : opcoesCheio;
+      void fitView({ duration: duracaoMs, ...opcoes });
+    },
+    [containerRef, getNodes, fitView, opcoesCheio, opcoesFallback],
+  );
+}
+
+function GraphControls({ ajustar }: { ajustar: (duracaoMs?: number) => void }): JSX.Element {
+  const { zoomIn, zoomOut } = useReactFlow();
   const btn =
     "flex h-8 w-8 items-center justify-center rounded-md border border-navy-600 bg-navy-850 text-bone-300 hover:bg-navy-700 hover:text-bone-100";
-
-  // P4d (achado ALTO #2 do crítico hostil ROUND 3): tenta o fit CHEIO
-  // primeiro; só quando ele bateria no piso de zoom (bbox total não cabe a
-  // 0,85) é que reenquadra num subconjunto (críticos → goal/maior score →
-  // bbox total mesmo, ver `fitViewOptionsFallback`). Antes, este botão SEMPRE
-  // ia para o bbox total e podia jogar o próprio caminho crítico para fora
-  // (6 nós fora virava 7, incluindo task-setup/build/deploy).
-  const ajustarATela = (): void => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    const bbox = bboxDosNos(getNodes());
-    const padding = FIT_VIEW_OPTIONS.padding ?? 0.2;
-    const minZoom = FIT_VIEW_OPTIONS.minZoom ?? 0.85;
-    const zoomCheio = rect && bbox ? zoomNecessarioPara(bbox, rect.width, rect.height, padding) : Infinity;
-    if (zoomCheio < minZoom) {
-      void fitView({ duration: 200, ...fitViewOptionsFallback });
-    } else {
-      void fitView({ duration: 200, ...FIT_VIEW_OPTIONS });
-    }
-  };
 
   return (
     <Panel position="bottom-left" className="flex gap-1">
       <button type="button" className={btn} aria-label="Diminuir zoom" onClick={() => void zoomOut()}>
         <ZoomOut size={16} />
       </button>
-      <button type="button" className={btn} aria-label="Ajustar à tela" onClick={ajustarATela}>
+      <button type="button" className={btn} aria-label="Ajustar à tela" onClick={() => ajustar()}>
         <Maximize2 size={16} />
       </button>
       <button type="button" className={btn} aria-label="Aumentar zoom" onClick={() => void zoomIn()}>
@@ -298,7 +313,7 @@ const TIRA_ARESTAS: { label: string; camada: Exclude<CamadaGrafo, "critico">; cr
  * nenhum até o operador pedir, e a tira de 3 arestas passa a existir também a
  * 390 (ela só não aparecia por causa do `md:flex` que sumiu). `top-left`:
  * fora da área onde o grafo normalmente centraliza o caminho crítico
- * (`fitViewOptionsAuto`, que enquadra os nós críticos com padding — o canto
+ * (`opcoesDeEnquadramentoAuto`, que enquadra os nós críticos com padding — o canto
  * superior esquerdo do pane raramente tem nó ali).
  */
 function GraphLegend({ fecharSinal }: { fecharSinal: number }): JSX.Element {
@@ -370,15 +385,21 @@ function GraphLegend({ fecharSinal }: { fecharSinal: number }): JSX.Element {
 
 /**
  * P4c (achado MÉDIO #8 do crítico hostil ROUND 2): a 390px só 5 de 11 nós
- * ficam visíveis depois do fit do caminho crítico (`fitViewOptionsAuto`
+ * ficam visíveis depois do fit do caminho crítico (`opcoesDeEnquadramentoAuto`
  * restringe o enquadramento automático aos nós críticos — spec §3.3, decisão
  * deliberada) e nada na tela avisava. Conta quantos nós ficam fora do
  * retângulo do pane (em coordenadas de tela, usando a MESMA transformação
  * que o ReactFlow aplica: `screen = node.position * zoom + viewport.{x,y}`)
  * e mostra um chip com o total + atalho pra "ver tudo".
  */
-function ChipForaDaTela({ containerRef }: { containerRef: RefObject<HTMLDivElement> }): JSX.Element | null {
-  const { getNodes, fitView } = useReactFlow();
+function ChipForaDaTela({
+  containerRef,
+  ajustar,
+}: {
+  containerRef: RefObject<HTMLDivElement>;
+  ajustar: (duracaoMs?: number) => void;
+}): JSX.Element | null {
+  const { getNodes } = useReactFlow();
   const { x, y, zoom } = useViewport();
   const [foraDaTela, setForaDaTela] = useState(0);
 
@@ -408,15 +429,16 @@ function ChipForaDaTela({ containerRef }: { containerRef: RefObject<HTMLDivEleme
     <Panel position="top-center">
       <button
         type="button"
-        // P4d (achado ALTO #1 do crítico hostil ROUND 3): faltava
-        // `...FIT_VIEW_OPTIONS` — sem o `minZoom: 0.85`, este clique
-        // encolhia o grafo até caber a largura inteira (zoom medido: 0,30,
-        // cartão 60×33,6px, menor fonte 2,7px). O chip continua verdadeiro
-        // depois do clique porque `foraDaTela` já reage ao viewport (efeito
-        // acima, dependências `[x, y, zoom]`) — se ainda sobrar nó fora
-        // (grafo largo demais mesmo a 0,85), o número mostrado é o REAL, não
-        // uma promessa que o piso de zoom não entrega.
-        onClick={() => void fitView({ duration: 200, ...FIT_VIEW_OPTIONS })}
+        // P4e (achado ALTO #1 do crítico hostil ROUND 4): este clique chama a
+        // MESMA `ajustarATela` do botão ⤢ dos controles (`useAjustarATela`) —
+        // com a cadeia de fallback inteira. Antes chamava a API crua da lib: o
+        // clique subia o próprio número que o chip anuncia (6→7 a 1280, 6→9 a
+        // 390) e jogava setup/build/deploy para fora. O chip continua
+        // verdadeiro depois do clique porque `foraDaTela` reage ao viewport
+        // (efeito acima, dependências `[x, y, zoom]`) — se ainda sobrar nó
+        // fora (grafo largo demais mesmo no piso de zoom), o número mostrado é
+        // o REAL, não uma promessa que o enquadramento não entrega.
+        onClick={() => ajustar()}
         className="flex items-center gap-1.5 rounded-full border border-gold-500/60 bg-navy-850/95 px-3 py-1.5 text-xs font-medium text-gold-300 shadow-panel"
       >
         {foraDaTela} {foraDaTela === 1 ? "tarefa fora" : "tarefas fora"} da tela · Ajustar à tela
@@ -451,34 +473,50 @@ function MedirAlturaReal({ onAltura }: { onAltura: (altura: number) => void }): 
   return null;
 }
 
-/** Reenquadra ao montar e quando o filtro muda (spec §3.3). */
-function FitOnChange({ signature, options }: { signature: string; options: FitViewOptions }): null {
-  const { fitView } = useReactFlow();
-  useEffect(() => {
-    const id = window.setTimeout(() => void fitView({ duration: 200, ...options }), 60);
-    return () => window.clearTimeout(id);
-  }, [signature, options, fitView]);
-  return null;
-}
-
 /**
- * P4b (achado MÉDIO #8 do crítico hostil): a aba "Grafo" no celular monta a
- * `section` com `hidden` (CSS `display:none`) até o operador tocar a aba —
- * o container do ReactFlow existe no DOM mas com 0×0, e nada reenquadra
- * quando ele vira `flex` (não é montagem nova, é só troca de `display`, então
- * o `fitView` do mount inicial já rodou contra 0×0 e nunca mais dispara).
- * `ResizeObserver` no wrapper QUE O PAI CONTROLA (`containerRef`, fora do
- * ReactFlow) pega a mudança de tamanho real e reenquadra — funciona também
- * ao redimensionar a janela ou recolher o painel "Camadas" (#9).
+ * P4e (achado ALTO #1 do crítico hostil ROUND 4): TODO o enquadramento do
+ * grafo mora aqui — o chip gold, o botão ⤢, o fit inicial, o refit ao trocar
+ * de filtro e o refit ao mudar de tamanho (troca de aba no celular, resize da
+ * janela, painel "Camadas" recolhendo). Uma única `ajustarATela`
+ * (`useAjustarATela`), uma única chamada à API da lib no arquivo inteiro: não existe mais
+ * "o caminho bom e o gêmeo esquecido".
+ *
+ * Fit inicial: `useNodesInitialized` em vez do prop homônimo do `<ReactFlow>`
+ * — o prop enquadrava com as opções cruas, sem a cadeia de fallback, e era o
+ * terceiro caminho divergente. Esperar a medição dos nós (ResizeObserver
+ * interno da lib) ainda é mais correto: antes dela o bbox é um palpite.
  */
-function RefitOnResize({
+function EnquadramentoDoGrafo({
   containerRef,
-  options,
+  assinaturaDoFiltro,
+  opcoesCheio,
+  opcoesFallback,
 }: {
   containerRef: RefObject<HTMLDivElement>;
-  options: FitViewOptions;
-}): null {
-  const { fitView } = useReactFlow();
+  assinaturaDoFiltro: string;
+  opcoesCheio: FitViewOptions;
+  opcoesFallback: FitViewOptions;
+}): JSX.Element {
+  const ajustar = useAjustarATela(containerRef, opcoesCheio, opcoesFallback);
+  const nodesInitialized = useNodesInitialized();
+
+  // Fit inicial (assim que os nós têm tamanho medido) + reenquadramento
+  // quando o filtro de fontes muda (spec §3.3).
+  useEffect(() => {
+    if (!nodesInitialized) return;
+    const id = window.setTimeout(() => ajustar(200), 60);
+    return () => window.clearTimeout(id);
+  }, [nodesInitialized, assinaturaDoFiltro, ajustar]);
+
+  /**
+   * P4b (achado MÉDIO #8 do crítico hostil): a aba "Grafo" no celular monta a
+   * `section` com `hidden` (CSS `display:none`) até o operador tocar a aba —
+   * o container do ReactFlow existe no DOM mas com 0×0, e nada reenquadra
+   * quando ele vira `flex` (não é montagem nova, é só troca de `display`).
+   * `ResizeObserver` no wrapper QUE O PAI CONTROLA (`containerRef`, fora do
+   * ReactFlow) pega a mudança de tamanho real e reenquadra — funciona também
+   * ao redimensionar a janela ou recolher o painel "Camadas" (#9).
+   */
   useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -489,17 +527,23 @@ function RefitOnResize({
       if (!entry) return;
       const { width, height } = entry.contentRect;
       // Só reenquadra quando o tamanho muda de verdade (>1px) — sem isto,
-      // qualquer ruído de sub-pixel do próprio `fitView` reentraria em loop.
+      // qualquer ruído de sub-pixel do próprio enquadramento reentraria em loop.
       if (width > 0 && height > 0 && (Math.abs(width - largura) > 1 || Math.abs(height - altura) > 1)) {
         largura = width;
         altura = height;
-        window.requestAnimationFrame(() => void fitView({ duration: 150, ...options }));
+        window.requestAnimationFrame(() => ajustar(150));
       }
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [containerRef, fitView, options]);
-  return null;
+  }, [containerRef, ajustar]);
+
+  return (
+    <>
+      <ChipForaDaTela containerRef={containerRef} ajustar={ajustar} />
+      <GraphControls ajustar={ajustar} />
+    </>
+  );
 }
 
 /** Fallback acessível: lista topológica navegável por teclado (spec §7.2). */
@@ -582,10 +626,10 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
    * P4b — achado descoberto ao verificar o #1 de ponta a ponta: com o layout
    * em rank (1 nó por rank, sem transbordo — a correção do achado CRÍTICO #1)
    * e mais de ~4 tarefas sem predecessor, o rank 0 fica mais largo que o
-   * painel inteiro. Um `fitView` genérico centra na MÉDIA de todos os nós — e
+   * painel inteiro. Um enquadramento genérico centra na MÉDIA de todos os nós — e
    * como o rank 0 é o mais largo, o centro cai longe da coluna 0, deixando o
    * PRÓPRIO caminho crítico (setup→build→deploy) fora da tela ao carregar,
-   * atrás de um pan que ninguém sabe que precisa dar. `fitViewOptions.nodes`
+   * atrás de um pan que ninguém sabe que precisa dar. O campo `nodes` das opções
    * (suportado pelo React Flow) restringe o enquadramento automático aos nós
    * críticos quando existem — o resto do grafo continua alcançável por pan/
    * zoom, mas o que a tela abre mostrando é sempre a cadeia que importa.
@@ -596,13 +640,13 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
    * caminho crítico para fora (6 nós fora virava 7, incluindo task-setup/
    * build/deploy — regressão em relação ao estado inicial, que já mostrava a
    * cadeia). Agora o botão tenta o bbox cheio primeiro e só cai no
-   * enquadramento estreito (`fitViewOptionsFallback`, abaixo) quando o cheio
+   * enquadramento estreito (`opcoesDeEnquadramentoFallback`, abaixo) quando o cheio
    * bateria no piso — nunca troca a cadeia crítica visível por uma tela mais
    * "completa" porém ilegível.
    */
-  const fitViewOptionsAuto = useMemo<FitViewOptions>(() => {
-    if (grafoV3.critico.length === 0) return FIT_VIEW_OPTIONS;
-    return { ...FIT_VIEW_OPTIONS, padding: 0.3, nodes: grafoV3.critico.map((id) => ({ id })) };
+  const opcoesDeEnquadramentoAuto = useMemo<FitViewOptions>(() => {
+    if (grafoV3.critico.length === 0) return OPCOES_DE_ENQUADRAMENTO;
+    return { ...OPCOES_DE_ENQUADRAMENTO, padding: 0.3, nodes: grafoV3.critico.map((id) => ({ id })) };
   }, [grafoV3.critico]);
   /**
    * P4d (achado ALTO #2): a cadeia de fallback do botão manual quando o bbox
@@ -611,12 +655,12 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
    * assimetria; só então (nada disso existe) aceita o bbox total mesmo,
    * apoiado no piso de zoom para continuar legível.
    */
-  const fitViewOptionsFallback = useMemo<FitViewOptions>(() => {
+  const opcoesDeEnquadramentoFallback = useMemo<FitViewOptions>(() => {
     if (grafoV3.critico.length > 0) {
-      return { ...FIT_VIEW_OPTIONS, padding: 0.3, nodes: grafoV3.critico.map((id) => ({ id })) };
+      return { ...OPCOES_DE_ENQUADRAMENTO, padding: 0.3, nodes: grafoV3.critico.map((id) => ({ id })) };
     }
     if (grafoV3.goalId) {
-      return { ...FIT_VIEW_OPTIONS, padding: 0.3, nodes: [{ id: grafoV3.goalId }] };
+      return { ...OPCOES_DE_ENQUADRAMENTO, padding: 0.3, nodes: [{ id: grafoV3.goalId }] };
     }
     const comScore = Object.entries(grafoV3.scores).filter(
       (par): par is [string, NonNullable<(typeof grafoV3.scores)[string]>] => par[1] != null,
@@ -624,9 +668,9 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     if (comScore.length > 0) {
       const maiorValor = Math.max(...comScore.map(([, s]) => s.valor));
       const topIds = comScore.filter(([, s]) => s.valor === maiorValor).map(([id]) => id);
-      return { ...FIT_VIEW_OPTIONS, padding: 0.3, nodes: topIds.map((id) => ({ id })) };
+      return { ...OPCOES_DE_ENQUADRAMENTO, padding: 0.3, nodes: topIds.map((id) => ({ id })) };
     }
-    return FIT_VIEW_OPTIONS;
+    return OPCOES_DE_ENQUADRAMENTO;
   }, [grafoV3.critico, grafoV3.goalId, grafoV3.scores]);
   const criticoSet = useMemo(() => new Set(grafoV3.critico), [grafoV3.critico]);
   const semDuracaoSet = useMemo(() => new Set(grafoV3.semDuracao), [grafoV3.semDuracao]);
@@ -827,6 +871,15 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
         targetHandle,
         type: "v3",
         focusable: false,
+        // P4e (achado ALTO #4 do crítico hostil ROUND 4): a aresta de
+        // obsolescência sobe para uma camada ACIMA dos nós. O React Flow
+        // agrupa arestas por `zIndex` em `<svg>`s próprios (`groupEdgesByZLevel`)
+        // e o `<div class="react-flow__nodes">` fica no nível 0 — sem isto, o
+        // ❌ dependia SÓ do recuo para não ficar atrás do cartão de destino, e
+        // bastava o recuo apontar para o lado errado (era o bug) para o glifo
+        // desaparecer em silêncio. Cinto E suspensório: direção correta do
+        // recuo + camada por cima.
+        zIndex: camadaBaseDeAresta(aresta) === "obsolescencia" ? 5 : undefined,
         style: { opacity: dimmed ? 0.15 : 1 },
         data: {
           id: aresta.id,
@@ -902,18 +955,22 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             elementsSelectable
             minZoom={0.3}
             maxZoom={1.8}
-            fitView
-            fitViewOptions={fitViewOptionsAuto}
+            // P4e (achado ALTO #1): sem o prop de enquadramento automático da lib — o
+            // enquadramento inicial passa pela MESMA `ajustarATela` de todos
+            // os outros (`EnquadramentoDoGrafo`, abaixo). O prop era o
+            // terceiro caminho: enquadrava com as opções cruas, sem fallback.
             proOptions={{ hideAttribution: true }}
             onNodeClick={(_, node) => handleSelect(node.id)}
             onPaneClick={handlePaneClick}
           >
             <Background color={BG_DOTS} gap={22} size={1} />
-            <FitOnChange signature={filterSignature} options={fitViewOptionsAuto} />
-            <RefitOnResize containerRef={containerRef} options={fitViewOptionsAuto} />
             <MedirAlturaReal onAltura={aoMedirAltura} />
-            <ChipForaDaTela containerRef={containerRef} />
-            <GraphControls containerRef={containerRef} fitViewOptionsFallback={fitViewOptionsFallback} />
+            <EnquadramentoDoGrafo
+              containerRef={containerRef}
+              assinaturaDoFiltro={filterSignature}
+              opcoesCheio={opcoesDeEnquadramentoAuto}
+              opcoesFallback={opcoesDeEnquadramentoFallback}
+            />
             <Panel position="top-left">
               <GraphLegend fecharSinal={fecharPaineisSinal} />
             </Panel>

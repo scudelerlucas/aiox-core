@@ -157,17 +157,36 @@ function GlifoFim({
       // piso da `escala` (`Math.max(1, 1/zoom)`) mal ajuda perto de zoom 1.
       // 6,5 (13px de lado) garante ≥12px de tela JÁ na base, sem depender do
       // zoom cair o bastante para a escala compensar.
+      //
+      // P4e (achado ALTO #4 do crítico hostil ROUND 4): o ❌ ganha um alvo
+      // RETANGULAR transparente do mesmo tamanho, com `pointer-events`
+      // religado (o `<svg class="react-flow__edges">` desliga em todos os
+      // descendentes). Sem ele, `document.elementsFromPoint` no centro do
+      // glifo devolvia o CARTÃO de baixo mesmo com o glifo pintado por cima —
+      // nenhuma ferramenta conseguia distinguir "está atrás do cartão" de
+      // "está na frente mas não é clicável". Agora a pilha em qualquer ponto
+      // do glifo começa pelo próprio glifo, e o `zIndex` da aresta de
+      // obsolescência (`dependency-graph.tsx`) garante que a PINTURA também.
       const meiaLargura = 6.5;
       return (
-        <path
-          className="lb-edge-glifo lb-edge-marca-obsolescencia"
-          d={`M${x - meiaLargura},${y - meiaLargura} L${x + meiaLargura},${y + meiaLargura} M${x - meiaLargura},${y + meiaLargura} L${x + meiaLargura},${y - meiaLargura}`}
-          stroke={cor}
-          strokeWidth={2}
-          strokeLinecap="round"
-          fill="none"
-          transform={transform}
-        />
+        <g className="lb-edge-glifo-grupo" transform={transform} style={{ pointerEvents: "auto" }}>
+          <rect
+            className="lb-edge-glifo-alvo"
+            x={x - meiaLargura}
+            y={y - meiaLargura}
+            width={meiaLargura * 2}
+            height={meiaLargura * 2}
+            fill="transparent"
+          />
+          <path
+            className="lb-edge-glifo lb-edge-marca-obsolescencia"
+            d={`M${x - meiaLargura},${y - meiaLargura} L${x + meiaLargura},${y + meiaLargura} M${x - meiaLargura},${y + meiaLargura} L${x + meiaLargura},${y - meiaLargura}`}
+            stroke={cor}
+            strokeWidth={2}
+            strokeLinecap="round"
+            fill="none"
+          />
+        </g>
       );
     }
     default:

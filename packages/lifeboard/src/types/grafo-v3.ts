@@ -27,8 +27,17 @@ import type { TaskEdge } from "@/types/canonical";
  * STRING LITERAL no código-fonte, então um template `h-[${token}px]` nunca
  * seria compilado). `tests/unit/altura-do-cartao.test.ts` prova que os três
  * consumidores leem o mesmo valor.
+ *
+ * P4e (achado ALTO #2 do crítico hostil ROUND 4): o rodapé passou a ter DUAS
+ * linhas fixas (linha 1 `S xx · folga: N d` + badge `A xx`; linha 2 o chip de
+ * status com rótulo inteiro) — em UMA linha só, o `shrink-0` da folga empurrava
+ * o badge e o chip para FORA da caixa e o `overflow-hidden` do cartão cortava
+ * em silêncio ("A 18" renderizava "A 1": número plausível e FALSO). 144 é a
+ * altura que a 2ª linha pede, medida no navegador (conteúdo real ≈ 137px:
+ * 16 de padding + 20 do cabeçalho + 34 da nota + 67 do rodapé de 2 linhas).
+ * Continua sendo o ÚNICO número — layout e cartão seguem o token.
  */
-export const ALTURA_DO_CARTAO = 112;
+export const ALTURA_DO_CARTAO = 144;
 
 export interface GrafoV3Props {
   /** Arestas declaradas v3 (predecessor · correlação · sinergia · obsolescência). */

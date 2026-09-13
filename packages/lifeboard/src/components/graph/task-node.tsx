@@ -257,65 +257,63 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         <span className="min-h-0 flex-1" aria-hidden="true" />
       )}
 
-      {/* P4c (achado CRÍTICO #1a): rodapé em UMA linha só — nunca quebra.
-          `min-w-0 truncate` no lado esquerdo deixa "S 60 · folga: 2 d"
-          cortar com reticências em vez de empurrar pro fim da linha; "fora
-          do caminho da meta" (frase mais longa do card) virou ícone com
-          `title`/`aria-label` em vez de texto por extenso. */}
-      <div className="mt-2 flex shrink-0 items-center justify-between gap-1 border-t border-navy-700 pt-1.5">
-        {/* P4d (achado ALTO #3 do crítico hostil ROUND 3): a 1ª tentativa deu
-            `flex-1` (== `flex: 1 1 0%`) pra folga — e isso foi o CONTRÁRIO do
-            que parece: `flex-basis: 0%` faz o item começar do ZERO (o desenho
-            de "cresce pra preencher sobra", não de "mantém o conteúdo"); sem
-            espaço sobrando (o caso real, sempre sob aperto), ele nunca sai do
-            zero, e TODA a redistribuição de encolhimento cai no irmão de
-            `flex-basis: auto` (o lado direito) — medido depois do "fix":
-            `clientWidth` continuava 0. `shrink-0` é o oposto certo: a folga
-            NUNCA encolhe por causa do irmão (mantém sempre o tamanho do seu
-            próprio conteúdo); `truncate` fica só como cinto-e-suspensório
-            para o caso patológico em que nem isso basta (card mais estreito
-            que a própria folga). O lado direito (badge A + chip de status,
-            abaixo) é quem cede espaço primeiro. */}
-        <span className="flex shrink-0 items-center gap-1.5 truncate font-mono text-sm text-bone-200">
-          {!detalheReduzido ? <>S {score}</> : null}
-          {data.janela ? (
-            // P4b (achado MÉDIO #10): "folga: 2 d" ao lado de "estimativa
-            // faltando" afirmava precisão que a duração-placeholder não tem —
-            // o "~" avisa que o número é estimado, não medido.
-            <span className="truncate text-bone-400">
-              · folga: {data.semDuracao ? "~" : ""}
-              {data.janela.folga} d
-            </span>
-          ) : data.temMeta ? (
-            // P4b (achado MÉDIO #11): sem isto, um nó fora do caminho até a
-            // meta não mostrava folga NEM explicava por quê — parecia bug.
-            // P4c (achado CRÍTICO #1a): ícone em vez de frase — a frase
-            // sozinha já era a maior causa de quebra de linha do rodapé.
-            <span
-              title="fora do caminho da meta"
-              aria-label="fora do caminho da meta"
-              className="inline-flex shrink-0 items-center text-bone-500"
-            >
-              <CircleSlash2 size={13} aria-hidden="true" />
-            </span>
-          ) : null}
-        </span>
-        {/* P4d (achado ALTO #3): `shrink-0` virou `min-w-0 shrink` — este lado
-            CEDE antes do da folga. O badge A fica `shrink-0` (curto, "A 6",
-            nunca precisa cortar); o `StatusChip` ganha `truncate` própria
-            (ver `status-chip.tsx`) — ele que absorve o aperto quando o rótulo
-            ("em progresso" etc.) não cabe, nunca o span da folga. */}
-        <span className="flex min-w-0 shrink items-center gap-1">
+      {/* P4e (achado ALTO #2 do crítico hostil ROUND 4): rodapé em DUAS
+          linhas fixas. Em uma linha só, os três itens (folga · badge A · chip
+          de status) não cabiam nos 174px de conteúdo do cartão — e a rodada 3
+          "resolveu" com `shrink-0` na folga, o que empurrou badge e chip para
+          FORA da caixa, onde o `overflow-hidden` do cartão os cortou em
+          silêncio: "A 18" renderizava "A 1" (número plausível e FALSO) e o
+          status da META sumia inteiro. Agora:
+            • linha 1 — `S xx · folga: N d` à esquerda (é ELA que trunca com
+              reticências quando falta largura) + badge `A xx` à direita
+              (`shrink-0` + `whitespace-nowrap`: nunca corta, nunca mente);
+            • linha 2 — o chip de status com o rótulo INTEIRO (ponto + texto).
+          Nenhum `overflow-hidden` horizontal aqui: o único corte possível é o
+          `truncate` da folga, que é explícito e visível (reticências).
+          `ALTURA_DO_CARTAO` (token único) já contém a 2ª linha. */}
+      <div className="mt-2 flex shrink-0 flex-col gap-1 border-t border-navy-700 pt-1.5">
+        <div className="flex items-center justify-between gap-1">
+          <span className="flex min-w-0 items-center gap-1.5 font-mono text-sm text-bone-200">
+            {!detalheReduzido ? <span className="shrink-0">S {score}</span> : null}
+            {data.janela ? (
+              // P4b (achado MÉDIO #10): "folga: 2 d" ao lado de "estimativa
+              // faltando" afirmava precisão que a duração-placeholder não tem —
+              // o "~" avisa que o número é estimado, não medido.
+              <span
+                // Este é o ÚNICO texto do rodapé que pode cortar (o badge A e
+                // o chip de status nunca). Quando corta, o número continua
+                // alcançável no `title` — cortar não pode virar "o dado não
+                // existe", que foi o defeito da rodada anterior.
+                title={`folga: ${data.semDuracao ? "~" : ""}${data.janela.folga} dias`}
+                className="truncate text-bone-400"
+              >
+                · folga: {data.semDuracao ? "~" : ""}
+                {data.janela.folga} d
+              </span>
+            ) : data.temMeta ? (
+              // P4b (achado MÉDIO #11): sem isto, um nó fora do caminho até a
+              // meta não mostrava folga NEM explicava por quê — parecia bug.
+              // P4c (achado CRÍTICO #1a): ícone em vez de frase — a frase
+              // sozinha já era a maior causa de quebra de linha do rodapé.
+              <span
+                title="fora do caminho da meta"
+                aria-label="fora do caminho da meta"
+                className="inline-flex shrink-0 items-center text-bone-500"
+              >
+                <CircleSlash2 size={13} aria-hidden="true" />
+              </span>
+            ) : null}
+          </span>
           {!detalheReduzido && data.score ? (
             <span
               title={data.score.porque}
-              className="inline-flex shrink-0 items-center rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1 py-0.5 font-mono text-xs text-fonte-notes"
+              className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1 py-0.5 font-mono text-xs text-fonte-notes"
             >
               A {data.score.valor}
             </span>
           ) : null}
-          <StatusChip status={task.status} className="min-w-0 shrink" />
-        </span>
+        </div>
+        <StatusChip status={task.status} className="self-start" />
       </div>
 
       <Handle

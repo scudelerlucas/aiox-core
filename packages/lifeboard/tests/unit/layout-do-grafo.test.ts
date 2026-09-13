@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { layoutDoGrafo } from "@/lib/layout-do-grafo";
+import { ALTURA_DO_CARTAO } from "@/types/grafo-v3";
 
 /**
  * OS-LIFEBOARD · P4b — fixture do achado CRÍTICO do crítico hostil: o layout
@@ -95,7 +96,7 @@ describe("layoutDoGrafo — rank por caminho mais longo + coluna estável", () =
       criticoIds: ["setup", "build", "deploy"],
     }).nodes.get("build")!;
     expect(reviewDeploy?.desvioYInicio).toBeLessThanOrEqual(build.y);
-    expect(reviewDeploy?.desvioYFim).toBeGreaterThanOrEqual(build.y + 112);
+    expect(reviewDeploy?.desvioYFim).toBeGreaterThanOrEqual(build.y + ALTURA_DO_CARTAO);
   });
 
   it("aresta adjacente (rank a rank+1) nunca pula — desviar sempre false, sem faixa de desvio", () => {
@@ -109,7 +110,7 @@ describe("layoutDoGrafo — rank por caminho mais longo + coluna estável", () =
 
   it("nenhum nó ocupa o corredor vertical de uma aresta SEM desvio, usando nodeW/nodeH do próprio layout (achado CRÍTICO #1)", () => {
     const nodeW = 200;
-    const nodeH = 112;
+    const nodeH = ALTURA_DO_CARTAO;
     const gapX = 56;
     const gapY = 84;
     const { nodes, edges } = layoutDoGrafo({
@@ -164,7 +165,7 @@ describe("layoutDoGrafo — rank por caminho mais longo + coluna estável", () =
     // prova que já existia para o pulo "pra frente" (review→deploy), agora
     // também para o pulo "pra trás".
     expect(voltando?.desvioYInicio).toBeLessThanOrEqual(r1.y);
-    expect(voltando?.desvioYFim).toBeGreaterThanOrEqual(r1.y + 112);
+    expect(voltando?.desvioYFim).toBeGreaterThanOrEqual(r1.y + ALTURA_DO_CARTAO);
   });
 
   it("aresta de MESMO rank (ex. sinergia entre dois nós do rank 0) nunca aciona desvio — rota direta, nunca degenerada (achado MÉDIO #5)", () => {

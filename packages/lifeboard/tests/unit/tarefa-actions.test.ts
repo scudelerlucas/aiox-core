@@ -555,7 +555,9 @@ describe("tarefa/actions — mutar(): operação desconhecida (achado BAIXO #6, 
 
     expect(r).toEqual({ erro: "Operação desconhecida." });
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    expect(consoleErrorSpy.mock.calls[0]?.[0]).toContain("operacao-que-nao-existe");
+    // O valor vai como argumento próprio do console.error (CodeQL js/tainted-format-string), não na format string.
+    expect(consoleErrorSpy.mock.calls[0]?.join(" ")).toContain("operacao-que-nao-existe");
+    expect(consoleErrorSpy.mock.calls[0]?.[0]).not.toContain("operacao-que-nao-existe");
     expect(mutateLifeboard).not.toHaveBeenCalled();
     for (const fn of Object.values(fixtureStore)) {
       expect(fn as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();

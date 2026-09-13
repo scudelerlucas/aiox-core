@@ -1,5 +1,5 @@
 "use client";
-import { useViewport, type EdgeProps } from "reactflow";
+import { Position, useViewport, type EdgeProps } from "reactflow";
 
 import { ArestaSvgGroup, type ArestaSvgSpec } from "@/components/graph/aresta-svg";
 
@@ -63,6 +63,20 @@ const RECUO_GLIFO_OBSOLESCENCIA_PX = 16;
  * direção o path chega.
  */
 
+/**
+ * P4e (achado MÉDIO #5 do crítico hostil ROUND 4): aresta de MESMO rank sai e
+ * entra pelo handle Top — `sourceY === targetY`, a cota do topo da fileira. O
+ * path de 3 segmentos degenerava numa RETA horizontal a 2,5px acima do topo
+ * dos cartões alheios da mesma fileira (e `calcularDesvio` nunca disparava,
+ * porque a comparação `midY > ny0` era estrita e `midY` valia exatamente
+ * `ny0`). Agora a aresta de mesmo rank SEMPRE sobe por um corredor próprio,
+ * com dois cotovelos: `M sx,sy L sx,sy−C L tx,sy−C L tx,ty`. 28px (≥ 24, a
+ * régua do achado) deixam ≥ 8px de folga para qualquer cartão da própria
+ * fileira e ainda ≥ 32px para a fileira de cima (o menor `gapY` aceito pelo
+ * layout é 60).
+ */
+const CORREDOR_MESMO_RANK_PX = 28;
+
 interface PontoPath {
   x: number;
   y: number;
@@ -102,25 +116,39 @@ export function caminhoOrtogonal(
   desvioYFim: number | undefined,
 ): CaminhoOrtogonal {
   const pontosBrutos: PontoPath[] = [{ x: sourceX, y: sourceY }];
+  const mesmoRank = Math.abs(sourceY - targetY) < 0.01;
 
-  if (desvioPx && desvioYInicio !== undefined && desvioYFim !== undefined) {
+  if (mesmoRank) {
+    // P4e (achado MÉDIO #5): corredor próprio ACIMA da fileira — ver
+    // `CORREDOR_MESMO_RANK_PX`. Os dois handles são Top, então "para cima" é
+    // sempre para FORA dos dois cartões, em qualquer fileira.
+    const yCorredor = sourceY - CORREDOR_MESMO_RANK_PX;
+    pontosBrutos.push({ x: sourceX, y: yCorredor });
+    pontosBrutos.push({ x: targetX, y: yCorredor });
+    pontosBrutos.push({ x: targetX, y: targetY });
+  } else if (desvioPx && desvioYInicio !== undefined && desvioYFim !== undefined) {
     const xDesvio = sourceX + desvioPx;
-    // P4d (achado MÉDIO #5 do crítico hostil ROUND 3): a versão anterior
-    // fazia `Math.max(sourceY, Math.min(desvioYInicio, targetY))` — um clamp
-    // que SÓ fazia sentido quando `sourceY <= targetY` sempre (a única
-    // direção que existia até a rodada 2). Com os 3 pares de handle por rank
-    // relativo (`layout-do-grafo.ts`), a janela de desvio pode legitimamente
-    // ficar FORA do intervalo [sourceY,targetY] (o corredor "mesmo rank" fica
-    // acima dos dois) — o clamp colapsava essa janela a um ponto, a causa
-    // exata do "desvio degenerado" medido pelo crítico. `layout-do-grafo.ts`
-    // já entrega `desvioYInicio`/`desvioYFim` corretos (e nunca colapsados —
-    // ver o cinto-e-suspensório lá); aqui só ordena defensivamente.
-    const yInicio = Math.min(desvioYInicio, desvioYFim);
-    const yFim = Math.max(desvioYInicio, desvioYFim);
-    pontosBrutos.push({ x: sourceX, y: yInicio });
-    pontosBrutos.push({ x: xDesvio, y: yInicio });
-    pontosBrutos.push({ x: xDesvio, y: yFim });
-    pontosBrutos.push({ x: targetX, y: yFim });
+    // P4e (achado ALTO #3 do crítico hostil ROUND 4): a janela do desvio era
+    // ordenada por VALOR (`Math.min`/`Math.max`), não pela ORDEM DE PERCURSO.
+    // Com `sourceY > targetY` (aresta "para trás": obsolescência/sinergia que
+    // apontam para um rank menor) o primeiro canto era o do DESTINO, e o
+    // primeiro segmento atravessava o vão inteiro — passando por dentro do
+    // cartão intermediário (medido no caso `r2→r0` contornando `r1`:
+    // `M100,392 L100,154 …`, 222px de penetração em `r1`).
+    // A ordem certa é sempre a do percurso: origem → canto PERTO DA ORIGEM →
+    // corredor lateral → canto PERTO DO DESTINO → destino. `yPerto`/`yLonge`
+    // são as duas bordas da mesma janela, escolhidas por proximidade e não
+    // por magnitude — descendo ou subindo, o primeiro cotovelo é sempre o que
+    // encosta no lado de onde o traço saiu.
+    const yA = Math.min(desvioYInicio, desvioYFim);
+    const yB = Math.max(desvioYInicio, desvioYFim);
+    const subindo = targetY < sourceY;
+    const yPerto = subindo ? yB : yA;
+    const yLonge = subindo ? yA : yB;
+    pontosBrutos.push({ x: sourceX, y: yPerto });
+    pontosBrutos.push({ x: xDesvio, y: yPerto });
+    pontosBrutos.push({ x: xDesvio, y: yLonge });
+    pontosBrutos.push({ x: targetX, y: yLonge });
     pontosBrutos.push({ x: targetX, y: targetY });
   } else {
     const midY = (sourceY + targetY) / 2;
@@ -178,7 +206,7 @@ export function caminhoOrtogonal(
 }
 
 export function V3Edge(props: EdgeProps<V3EdgeData>): JSX.Element | null {
-  const { sourceX, sourceY, targetX, targetY, data } = props;
+  const { sourceX, sourceY, targetX, targetY, targetPosition, data } = props;
   // Zoom REAL do canvas (achado ALTO #3/#4): a 0,43–0,51 (medido pelo
   // crítico), um offset/tamanho fixo em unidades de mundo encolhe junto e
   // vira mancha ilegível. Dividir pelo zoom mantém a separação/tamanho
@@ -206,12 +234,26 @@ export function V3Edge(props: EdgeProps<V3EdgeData>): JSX.Element | null {
 
   // P4c (achado ALTO #5): só o ❌ de obsolescência recua — os outros glifos
   // (seta/círculo/losango) continuam ancorados no handle, como sempre.
-  // Sempre `-Y` a partir do handle Top (nunca ao longo do path — ver o
-  // comentário de `RECUO_GLIFO_OBSOLESCENCIA_PX` acima) — `Position.Top`
-  // garante que o card do destino só existe em `+Y` a partir daqui.
+  //
+  // P4e (achado ALTO #4 do crítico hostil ROUND 4): o recuo era SEMPRE `-Y`,
+  // apoiado na premissa "a aresta entra pelo handle Top". Desde a rodada 3 os
+  // handles são escolhidos por rank relativo (`handlesDaConexao`), e uma
+  // aresta "para trás" — a obsolescência real do fixture,
+  // `task-build`(rank 1) → `task-archive`(rank 0) — entra por `target-bottom`.
+  // Ali o cartão do destino se estende para CIMA (−Y), então `targetY − recuo`
+  // punha o ❌ exatamente ATRÁS do cartão. A regra honesta é a direção de
+  // CHEGADA, que o próprio ReactFlow informa em `targetPosition`:
+  // entrada por Top → o cartão está em +Y, recua −Y; entrada por Bottom → o
+  // cartão está em −Y, recua +Y. O `zIndex` da aresta de obsolescência
+  // (`dependency-graph.tsx`) põe o glifo numa camada ACIMA dos nós, para o
+  // caso de o recuo não bastar.
   const recuoPx = RECUO_GLIFO_OBSOLESCENCIA_PX / zoomSeguro;
+  const entraPorBaixo = targetPosition === Position.Bottom;
   const glifoEndX = targetX;
-  const glifoEndY = data.camada === "obsolescencia" ? targetY - recuoPx : targetY;
+  const glifoEndY =
+    data.camada === "obsolescencia"
+      ? targetY + (entraPorBaixo ? recuoPx : -recuoPx)
+      : targetY;
 
   return (
     <ArestaSvgGroup
