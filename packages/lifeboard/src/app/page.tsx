@@ -26,20 +26,6 @@ import type { TodayResponse } from "@/types/dashboard";
 // Lê o estado do dia por request (fixture ou Supabase live); sem prerender estático.
 export const dynamic = "force-dynamic";
 
-/** Estilo comum dos dois links do cabeçalho (Assuntos · Sair). */
-const ESTILO_LINK_CABECALHO = {
-  fontSize: 12,
-  color: "#8593A8",
-  textDecoration: "none",
-  background: "#0F1E33",
-  border: "1px solid #1E3350",
-  borderRadius: 8,
-  padding: "6px 11px",
-  display: "inline-flex",
-  alignItems: "center",
-  minHeight: 28,
-} as const;
-
 export default async function Page(): Promise<JSX.Element> {
   // Origem (fixture | Supabase live) decidida pelo factory via LIFEBOARD_DATA_MODE.
   // Tudo o que pode falhar por causa externa fica dentro do try: a RPC pode
@@ -73,31 +59,12 @@ export default async function Page(): Promise<JSX.Element> {
   const sourceStatuses = computeSourceStatuses(sources, syncLogs, tasks);
 
   return (
-    <>
-      {/* Cabeçalho no FLUXO (não fixo): link sobreposto cobria os avisos da
-          página. Mesmo estilo dos dois links, lado a lado, alinhados à direita. */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 8,
-          padding: "12px 14px 0",
-        }}
-      >
-        <Link href="/frentes" prefetch={false} style={ESTILO_LINK_CABECALHO}>
-          Assuntos
-        </Link>
-        <a href="/auth/signout" style={ESTILO_LINK_CABECALHO}>
-          Sair
-        </a>
-      </div>
-      <DashboardClient
-        tasks={tasks}
-        sources={sources}
-        sourceStatuses={sourceStatuses}
-        initialToday={initialToday}
-      />
-    </>
+    <DashboardClient
+      tasks={tasks}
+      sources={sources}
+      sourceStatuses={sourceStatuses}
+      initialToday={initialToday}
+    />
   );
 }
 

@@ -49,6 +49,8 @@ const NODE_W = 200;
 const NODE_H = 96;
 const GAP_X = 56;
 const GAP_Y = 84;
+/** Máximo de nós por linha antes de transbordar para a sub-linha seguinte. */
+const COLS_MAX = 4;
 
 const nodeTypes: NodeTypes = { task: TaskNode };
 
@@ -266,12 +268,37 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
   );
 
   const nodes = useMemo<Node<TaskNodeData>[]>(() => {
-    // Distribui por coluna dentro de cada camada de profundidade.
-    const perDepth = new Map<number, number>();
+    /*
+     * Layout (v2, 13/09/2026): cada camada de profundidade quebra em no máximo
+     * COLS_MAX colunas e transborda para sub-linhas DENTRO da própria camada.
+     *
+     * Antes, uma camada com 7 tarefas virava uma fita de 1792 px de largura por
+     * 540 px de altura — proporção de 3,3:1. O `fitView` então encolhia tudo
+     * para caber na largura, deixando os nós ilegíveis e um mar preto vertical
+     * ocupando metade do painel (visível na medição de antes). Quebrando em
+     * grade, a forma fica perto do quadrado e o mesmo `fitView` aproxima.
+     */
+    const porCamada = new Map<number, number>();
+    for (const task of tasks) {
+      const d = depths.get(task.id) ?? 0;
+      porCamada.set(d, (porCamada.get(d) ?? 0) + 1);
+    }
+    /** Topo (em y) de cada camada, já contando as sub-linhas das anteriores. */
+    const topoDaCamada = new Map<number, number>();
+    let acumulado = 0;
+    for (const d of [...porCamada.keys()].sort((a, b) => a - b)) {
+      topoDaCamada.set(d, acumulado);
+      const subLinhas = Math.ceil((porCamada.get(d) ?? 1) / COLS_MAX);
+      acumulado += subLinhas * (NODE_H + GAP_Y);
+    }
+
+    const indiceNaCamada = new Map<number, number>();
     return tasks.map((task) => {
       const d = depths.get(task.id) ?? 0;
-      const col = perDepth.get(d) ?? 0;
-      perDepth.set(d, col + 1);
+      const i = indiceNaCamada.get(d) ?? 0;
+      indiceNaCamada.set(d, i + 1);
+      const col = i % COLS_MAX;
+      const subLinha = Math.floor(i / COLS_MAX);
 
       const src = sourceById.get(task.sourceId);
       const kind: SourceKind = src?.kind ?? "calendar";
@@ -282,7 +309,10 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
       return {
         id: task.id,
         type: "task",
-        position: { x: col * (NODE_W + GAP_X), y: d * (NODE_H + GAP_Y) },
+        position: {
+          x: col * (NODE_W + GAP_X),
+          y: (topoDaCamada.get(d) ?? 0) + subLinha * (NODE_H + GAP_Y),
+        },
         draggable: false,
         selected: selectedTaskId === task.id,
         data: {
