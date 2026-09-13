@@ -10,10 +10,35 @@
 
 import type { ConsumoConta, ItemFilaPrompt } from "@/core/prompts/tipos";
 
+/**
+ * `reservadoUsd` espelha o que está `na_fila`/`pega` nos itens abaixo (custo
+ * estimado por complexidade: baixa 5 · media 15 · alta 50 · maxima 120 —
+ * `CUSTO_ESTIMADO_POR_COMPLEXIDADE`): lucasscudeler tem o item-3 (baixa,
+ * na_fila) = 5; lsgpandora tem o item-2 (media, pega) = 15; almapetra não
+ * tem nenhum em aberto = 0. `medidoAteEm` é a hora da fixture "agora".
+ */
 export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
-  { conta: "lucasscudeler@gmail.com", tetoUsd: 150, consumoHojeUsd: 42.1 }, // ok (28%)
-  { conta: "lsgpandora@gmail.com", tetoUsd: 150, consumoHojeUsd: 98.5 }, // warn (66%)
-  { conta: "almapetra.ltda@gmail.com", tetoUsd: 150, consumoHojeUsd: 150 }, // crit — teto atingido
+  {
+    conta: "lucasscudeler@gmail.com",
+    tetoUsd: 150,
+    consumoHojeUsd: 42.1,
+    reservadoUsd: 5,
+    medidoAteEm: "2026-09-13T11:30:00.000Z",
+  }, // ok (31,4%)
+  {
+    conta: "lsgpandora@gmail.com",
+    tetoUsd: 150,
+    consumoHojeUsd: 98.5,
+    reservadoUsd: 15,
+    medidoAteEm: "2026-09-13T10:40:00.000Z",
+  }, // warn (75,7%)
+  {
+    conta: "almapetra.ltda@gmail.com",
+    tetoUsd: 150,
+    consumoHojeUsd: 150,
+    reservadoUsd: 0,
+    medidoAteEm: "2026-09-12T23:00:00.000Z",
+  }, // crit — teto atingido
 ];
 
 export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
@@ -22,6 +47,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     conta: "lucasscudeler@gmail.com",
     prompt: "Auditar o PR #716 do painel de assuntos e apontar riscos de RLS.",
     complexidade: "alta",
+    custoEstimadoUsd: 50,
     modeloSugerido: "Opus",
     estado: "concluida",
     custoUsd: 3.42,
@@ -38,6 +64,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     conta: "lsgpandora@gmail.com",
     prompt: "Escrever o roteiro do reel de terça sobre ferida de abandono.",
     complexidade: "media",
+    custoEstimadoUsd: 15,
     modeloSugerido: "Sonnet",
     estado: "pega",
     custoUsd: null,
@@ -54,6 +81,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     conta: "lucasscudeler@gmail.com",
     prompt: "Listar os PRs abertos há mais de 5 dias no repo vsl-mastery.",
     complexidade: "baixa",
+    custoEstimadoUsd: 5,
     modeloSugerido: "Haiku",
     estado: "na_fila",
     custoUsd: null,
@@ -70,6 +98,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     conta: "almapetra.ltda@gmail.com",
     prompt: "Redesenhar o score de assimetria com o átomo de opcionalidade.",
     complexidade: "maxima",
+    custoEstimadoUsd: 120,
     modeloSugerido: "Fable",
     estado: "falhou",
     custoUsd: 8.9,
@@ -86,6 +115,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     conta: "lsgpandora@gmail.com",
     prompt: "Gerar 10 variações de headline para a página do quiz.",
     complexidade: "baixa",
+    custoEstimadoUsd: 5,
     modeloSugerido: "Haiku",
     estado: "cancelada",
     custoUsd: null,

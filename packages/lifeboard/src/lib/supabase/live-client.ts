@@ -223,9 +223,28 @@ export async function mutateLifeboard(
 // ── P7 (13/09/2026) — fila de prompts entre as 3 contas (mapa !4z R1/R2/R6) ──
 //
 // Mesmo padrão secret-gated de `loadLifeboardState`/`mutateLifeboard`, contra
-// as RPCs de `supabase/migrations/0007_lifeboard_v3_fila_prompts.sql`. A
-// leitura é `cache()`-memoizada por request (mesma razão de `loadLifeboardState`:
-// a página e qualquer revalidação dentro do mesmo render batem 1 vez só).
+// as RPCs de `supabase/migrations/0007_lifeboard_v3_fila_prompts.sql` +
+// `0009_lifeboard_v3_fila_ajustes.sql`. A leitura é `cache()`-memoizada por
+// request (mesma razão de `loadLifeboardState`: a página e qualquer
+// revalidação dentro do mesmo render batem 1 vez só).
+//
+// Achado MÉDIO #10 do crítico hostil (rodada de correção, 13/09/2026): antes,
+// qualquer erro Postgres — inclusive "violates foreign key constraint…" cru
+// — virava `error.message` direto na tela (via `enfileirarPrompt`/
+// `cancelarPromptFila`, que só faziam `error instanceof Error ? error.message
+// : …`). `RpcError` carrega o `code` (SQLSTATE) junto da mensagem; só quando
+// o code é `23514` (check_violation — nossas PRÓPRIAS mensagens em
+// português, do trigger ou da validação da RPC) o texto atravessa. Qualquer
+// outro código vira a frase genérica (mesmas constantes de `mutateLifeboard`,
+// reuso — não uma cópia nova).
+
+class RpcError extends Error {
+  readonly code: string | undefined;
+  constructor(message: string, code: string | undefined) {
+    super(message);
+    this.code = code;
+  }
+}
 
 async function chamarRpc(nome: string, corpo: Record<string, unknown>): Promise<unknown> {
   const url = `${env.SUPABASE_URL}/rest/v1/rpc/${nome}`;
@@ -239,15 +258,33 @@ async function chamarRpc(nome: string, corpo: Record<string, unknown>): Promise<
     body: JSON.stringify(corpo),
     cache: "no-store",
   });
-  const body = await response.json().catch(() => null);
+  const body = (await response.json().catch(() => null)) as
+    | { message?: unknown; code?: unknown }
+    | null;
   if (!response.ok) {
+    console.error(`[lifeboard/live] ${nome} falhou:`, response.status, body);
     const message =
       body && typeof body === "object" && "message" in body
-        ? String((body as { message?: unknown }).message)
+        ? String(body.message)
         : `${nome} respondeu ${response.status}.`;
-    throw new Error(message);
+    const code = body && typeof body === "object" && typeof body.code === "string" ? body.code : undefined;
+    throw new RpcError(message, code);
   }
   return body;
+}
+
+/** Traduz um `RpcError` para a mensagem que pode chegar à tela (achado MÉDIO #10). */
+function traduzirErroFila(error: unknown): string {
+  if (error instanceof RpcError) {
+    if (error.code === CODIGO_PAINEL_NAO_CONFIGURADO) {
+      return "O painel não está configurado — avise o Lucas.";
+    }
+    if (error.code && CODIGOS_MENSAGEM_SEGURA.has(error.code)) {
+      return error.message;
+    }
+    return MENSAGEM_GENERICA;
+  }
+  return "Não consegui falar com o banco agora.";
 }
 
 function asFilaPromptsState(raw: unknown): FilaPromptsState {
@@ -294,7 +331,7 @@ export async function enfileirarPrompt(payload: {
     }
     return { ok: true, id: body.id, conta: body.conta, motivo: body.motivo };
   } catch (error) {
-    return { erro: error instanceof Error ? error.message : "Não consegui falar com o banco agora." };
+    return { erro: traduzirErroFila(error) };
   }
 }
 
@@ -310,6 +347,6 @@ export async function cancelarPromptFila(id: string): Promise<MutateFilaResult> 
     }
     return { ok: true };
   } catch (error) {
-    return { erro: error instanceof Error ? error.message : "Não consegui falar com o banco agora." };
+    return { erro: traduzirErroFila(error) };
   }
 }

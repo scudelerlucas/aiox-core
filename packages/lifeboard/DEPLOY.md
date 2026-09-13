@@ -127,7 +127,7 @@ os passos abaixo.
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
 
-## Fila de prompts entre as 3 contas (P7, 13/09/2026)
+## Fila de prompts entre as 3 contas (P7, 13/09/2026 — corrigida 13/09/2026 após REPROVAÇÃO do crítico hostil)
 
 Pedido do operador: "poder promptar soluções pelo painel na conta que tem mais tokens
 disponíveis para a complexidade da tarefa". Arquitetura decidida pelo mapa `!4z` do hub
@@ -137,41 +137,56 @@ de uma conta Max não é mensurável por nenhuma API (R1) — o roteador usa o I
 isso o modelo é **PULL**: o painel só escreve na fila; a Routine diária de cada conta é
 quem pega o que é dela.
 
-- **Migration:** `supabase/migrations/0007_lifeboard_v3_fila_prompts.sql` — tabelas
-  `painel_fila_prompts` e `painel_teto_diario` (seed: as 3 contas a US$150/dia, a régua
-  da casa `teto-de-gasto-diario`), view `painel_consumo_por_conta_dia` (proxy medido a
-  partir de `painel_frentes_sessoes`), e 5 RPCs `SECURITY DEFINER` guardadas pelo MESMO
-  segredo de `lifeboard_load`/`lifeboard_mutate` (`private.lifeboard_config.load_secret`
-  — nada de segredo novo):
-  - `fila_prompts_enfileirar(p_secret, p_payload)` — cria o item; sem `conta` no payload,
-    escolhe automaticamente a de menor consumo hoje entre as que não bateram o teto
-    (empate → `lucasscudeler@gmail.com`).
-  - `fila_prompts_pegar(p_secret, p_conta)` — a Routine da conta chama isto; pega o item
-    `na_fila` mais antigo DAQUELA conta, atomicamente (`FOR UPDATE SKIP LOCKED`).
-  - `fila_prompts_fechar(p_secret, p_id, p_estado, p_custo_usd, p_sessao_url, p_resultado)`
-    — a Routine chama ao terminar, com o custo real (do Stop hook) e a URL da sessão.
-  - `fila_prompts_cancelar(p_secret, p_id)` — só cancela item ainda `na_fila`.
-  - `fila_prompts_listar(p_secret)` — o painel lê a fila inteira + consumo/teto das 3
-    contas numa chamada só.
-- **O teto vive no banco, não em hook:** `painel_teto_diario.teto_usd` (default US$150,
-  editável por conta com um `UPDATE`). Um trigger `BEFORE INSERT` em `painel_fila_prompts`
-  recusa o item com a mensagem `fila: conta <e-mail> ja gastou US$ <x> hoje (teto US$ <y>)`
-  quando o consumo do dia da conta já bateu o teto — enforcement no Postgres porque hooks
-  de repositório não disparam em sessão remota (achado 11/09,
-  `Lucas-Contexto-Geral/docs/audit/ACHADO-hooks-nao-disparam-em-sessao-remota-2026-09-11.md`).
-- **RLS de leitura:** reusa a MESMA allowlist de `painel_frentes_*` — tabela
+- **Migrations:** `0007_lifeboard_v3_fila_prompts.sql` (tabelas
+  `painel_fila_prompts`/`painel_teto_diario`, seed US$150/dia por conta — régua da casa
+  `teto-de-gasto-diario`) + `0009_lifeboard_v3_fila_ajustes.sql` (correção do crítico
+  hostil, 16 achados — trigger com reserva, worker sem segredo de app, fuso do operador,
+  RLS fechada, etc. — ver o cabeçalho do arquivo para a lista inteira).
+- **`painel_custo_estimado(complexidade, usd)`** — 1 fonte para o custo estimado por
+  complexidade (baixa 5 · media 15 · alta 50 · maxima 120), lida pelo trigger E espelhada
+  em `CUSTO_ESTIMADO_POR_COMPLEXIDADE` (`src/core/prompts/tipos.ts`). Cada item da fila
+  grava `custo_estimado_usd` — SEMPRE recalculado pelo trigger a partir de
+  `complexidade`, nunca aceito de fora.
+- **Reserva de teto (achado CRÍTICO #1):** o trigger `BEFORE INSERT` em
+  `painel_fila_prompts` recusa quando `medido_hoje + reservado (na_fila+pega) + este item
+  >= teto` — antes só olhava o medido, e 5 prompts Fable cabiam a US$149,99/150 porque
+  nada somava o que já estava na fila. `painel_fila_reservado(conta)` faz essa soma.
+- **RPCs secret-gated (painel apenas):** `fila_prompts_enfileirar(p_secret, p_payload)` —
+  cria o item; sem `conta` no payload, roteia pela conta com mais HEADROOM (não só menor
+  consumo — uma conta quase no teto não cabe pra uma tarefa Fable mesmo com "espaço"
+  nominal). `fila_prompts_cancelar(p_secret, p_id)` — só cancela `na_fila`.
+  `fila_prompts_listar(p_secret)` — fila inteira + consumo/teto/reservado/`medidoAteEm`
+  das 3 contas numa chamada só. Guardadas pelo MESMO segredo de
+  `lifeboard_load`/`lifeboard_mutate` (`private.lifeboard_config.load_secret`).
+- **O WORKER (Routine de cada conta) NUNCA usa o segredo do painel (achado CRÍTICO #4,
+  DECISÃO do operador):** `fila_prompts_pegar_interno(p_conta)` e
+  `fila_prompts_fechar_interno(p_id, p_conta, p_estado, p_custo_usd, p_sessao_url,
+  p_resultado)` são `SECURITY DEFINER` com `revoke all from public/anon/authenticated` —
+  só quem é dono/`postgres` executa, que é exatamente o papel do MCP Supabase da PRÓPRIA
+  conta do operador (`mcp__Supabase__execute_sql`), sem nenhum segredo em trânsito.
+  `fechar_interno` amarra chamador↔conta (`estado='pega' and conta=p_conta`) — uma conta
+  não fecha o item de outra. As RPCs antigas `fila_prompts_pegar`/`fila_prompts_fechar`
+  (secret-gated) foram REMOVIDAS em 0009 — o worker novo é só as `_interno`. O texto
+  exato que a Routine de cada conta roda (SQL do `execute_sql` + o passo de
+  `create_session` no modelo sugerido) está em
+  `Lucas-Contexto-Geral/docs/ops/PROMPT-ROUTINE-publicar-sessoes-outras-contas-2026-09-12.md`
+  §"Fila de prompts (P7)". Isto exige edição manual do operador nas 3 contas (a API de
+  Routines não deixa uma sessão editar a Routine de outra conta).
+- **Fuso do operador (achado ALTO #6):** `painel_dia_operador()` (America/Sao_Paulo)
+  substitui `current_date`/UTC cru em toda contagem de "hoje" — view, função de consumo,
+  trigger.
+- **RLS fechada (achado ALTO #5):** `painel_consumo_por_conta_dia` ganhou
+  `security_invoker = on` + `revoke select … from anon, authenticated` (antes vazava 60
+  linhas pra `anon` enquanto a tabela-base devolvia 0); `painel_fila_consumo_hoje` não é
+  mais chamável direto por `anon`/`authenticated` (só pelas RPCs secret-gated).
+- **RLS de leitura do painel:** reusa a MESMA allowlist de `painel_frentes_*` — tabela
   `painel_frentes_leitores` + função `painel_frentes_leitor_autorizado()` (migration do
   hub, `20260912a_painel_frentes_tres_contas.sql`, já aplicada no mesmo projeto Supabase).
-  Este arquivo/migration NÃO redefine essa função, só a consome.
-- **O lado da Routine (worker):** cada conta chama `fila_prompts_pegar`/`fila_prompts_
-  fechar` a partir do PRÓPRIO prompt de Routine — as 5 linhas a acrescentar estão em
-  `Lucas-Contexto-Geral/docs/ops/PROMPT-ROUTINE-publicar-sessoes-outras-contas-2026-09-12.md`
-  §"Fila de prompts (P7, 13/09/2026)". Isto exige edição manual do operador nas 3 contas
-  (a API de Routines não deixa uma sessão editar a Routine de outra conta).
-- **Página:** `/prompts` — 3 cartões de conta (consumo hoje vs teto, cor ok/warn/crit
-  reusando os tokens de estado já existentes — nenhum par novo de contraste) + formulário
-  "Novo prompt" (complexidade → modelo sugerido ao vivo, conta opcional, tarefa opcional
-  para linkar) + tabela da fila com cancelar. Modo fixture: store em memória
+- **Página:** `/prompts` — 3 cartões de conta (medido + reservado vs teto, "medido até
+  <última sync>", headroom livre em US$, cor ok/warn/crit) + formulário "Novo prompt"
+  (complexidade → modelo sugerido ao vivo, conta opcional com aviso "no teto — vai
+  recusar" quando sem espaço, tarefa opcional para linkar) + tabela da fila com prompt
+  truncado/expansível e cancelar. Modo fixture: store em memória
   (`src/lib/repositories/prompts-fila.fixture-store.ts`), mesmo padrão de
   `tasks.fixture-store.ts` (P6).
 

@@ -12,6 +12,12 @@
  * O roteamento automático (quando o formulário não escolhe conta) chama a
  * MESMA função pura de produção (`escolherConta`, `@/core/prompts/
  * roteador.ts`) — o fixture não reimplementa a regra, só o estado.
+ *
+ * Achado CRÍTICO #1 do crítico hostil (rodada de correção, 13/09/2026): o
+ * fixture agora mantém `reservadoUsd` por conta (soma do `custoEstimadoUsd`
+ * de tudo que está `na_fila`/`pega`) e recusa enfileirar (manual OU
+ * automático) quando o HEADROOM (teto − medido − reservado) não cobre o
+ * custo estimado da complexidade — mesma régua do trigger em SQL.
  */
 
 import { escolherConta } from "@/core/prompts/roteador";
@@ -21,7 +27,12 @@ import type {
   ConsumoConta,
   ItemFilaPrompt,
 } from "@/core/prompts/tipos";
-import { CONTAS, contaValida, modeloParaComplexidade } from "@/core/prompts/tipos";
+import {
+  CONTAS,
+  contaValida,
+  custoEstimadoParaComplexidade,
+  modeloParaComplexidade,
+} from "@/core/prompts/tipos";
 import { FIXTURE_CONSUMO, FIXTURE_FILA } from "@/lib/repositories/prompts-fila.fixture";
 
 export type ResultadoFilaFixture =
@@ -76,6 +87,14 @@ function novoId(): string {
   return `fila-fixture-novo-${estado.contador}`;
 }
 
+/** Soma `estimado` no `reservadoUsd` da conta (negativo para tirar da reserva ao cancelar/fechar). */
+function ajustarReservado(conta: Conta, delta: number): void {
+  const estado = loja();
+  const atual = estado.consumo.get(conta);
+  if (!atual) return;
+  estado.consumo.set(conta, { ...atual, reservadoUsd: Math.max(0, atual.reservadoUsd + delta) });
+}
+
 export interface EnfileirarFixtureInput {
   prompt: string;
   complexidade: Complexidade;
@@ -91,6 +110,8 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
   if (prompt.length === 0) return { erro: "O prompt não pode ficar vazio." };
   if (prompt.length > 20000) return { erro: "O prompt passou de 20000 caracteres." };
 
+  const custoEstimado = custoEstimadoParaComplexidade(input.complexidade);
+
   let conta: Conta;
   let motivo: string;
 
@@ -101,9 +122,15 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     conta = input.conta;
     motivo = "conta escolhida manualmente no formulário";
     const c = estado.consumo.get(conta) as ConsumoConta;
-    if (c.consumoHojeUsd >= c.tetoUsd) {
+    const headroom = c.tetoUsd - c.consumoHojeUsd - c.reservadoUsd;
+    // Achado CRÍTICO #1: mesma régua do trigger — medido + reservado + este
+    // item não pode bater o teto, não só "já bateu antes de somar nada".
+    if (headroom < custoEstimado) {
       return {
-        erro: `fila: conta ${conta} ja gastou US$ ${c.consumoHojeUsd.toFixed(2)} hoje (teto US$ ${c.tetoUsd.toFixed(2)})`,
+        erro:
+          `fila: conta ${conta} ficaria em US$ ${(c.consumoHojeUsd + c.reservadoUsd + custoEstimado).toFixed(2)} hoje ` +
+          `(medido US$ ${c.consumoHojeUsd.toFixed(2)} + reservado US$ ${c.reservadoUsd.toFixed(2)} + este item US$ ${custoEstimado.toFixed(2)}) ` +
+          `— teto US$ ${c.tetoUsd.toFixed(2)}`,
       };
     }
   } else {
@@ -113,9 +140,12 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     const tetos = Object.fromEntries(
       CONTAS.map((k) => [k, (estado.consumo.get(k) as ConsumoConta).tetoUsd]),
     ) as Record<Conta, number>;
-    const escolha = escolherConta(consumos, tetos, input.complexidade);
+    const reservados = Object.fromEntries(
+      CONTAS.map((k) => [k, (estado.consumo.get(k) as ConsumoConta).reservadoUsd]),
+    ) as Record<Conta, number>;
+    const escolha = escolherConta(consumos, tetos, input.complexidade, reservados);
     if (escolha.conta === null) {
-      return { erro: "fila: as 3 contas ja bateram o teto diario hoje" };
+      return { erro: `fila: ${escolha.motivo}` };
     }
     conta = escolha.conta;
     motivo = `roteamento automatico: ${escolha.motivo}`;
@@ -127,6 +157,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     conta,
     prompt,
     complexidade: input.complexidade,
+    custoEstimadoUsd: custoEstimado,
     modeloSugerido: modeloParaComplexidade(input.complexidade),
     estado: "na_fila",
     custoUsd: null,
@@ -138,6 +169,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     criadoPor: input.criadoPor ?? null,
     taskId: input.taskId ?? null,
   });
+  ajustarReservado(conta, custoEstimado);
 
   return { ok: true, id, conta, motivo };
 }
@@ -152,5 +184,7 @@ export function cancelarFixture(id: string): ResultadoFilaFixture {
     };
   }
   estado.fila.set(id, { ...item, estado: "cancelada" });
+  // Sai da reserva — o item cancelado não vai mais gastar nada.
+  ajustarReservado(item.conta, -item.custoEstimadoUsd);
   return { ok: true };
 }

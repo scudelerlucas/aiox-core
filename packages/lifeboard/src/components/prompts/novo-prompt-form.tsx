@@ -30,6 +30,14 @@ export interface NovoPromptFormProps {
   motivoAuto: string;
   contaAuto: string | null;
   tarefas: readonly TarefaParaLink[];
+  /**
+   * Achado MÉDIO #13 (crítico hostil, rodada de correção 13/09/2026): nem a
+   * conta escolhida à mão nem o roteamento automático têm headroom para a
+   * complexidade atual — o banco vai recusar o insert (mesma régua do
+   * trigger). O botão desabilita e mostra o motivo em vez de deixar o
+   * operador descobrir só depois de enviar.
+   */
+  semEspaco?: boolean;
 }
 
 /**
@@ -47,6 +55,7 @@ export function NovoPromptForm({
   motivoAuto,
   contaAuto,
   tarefas,
+  semEspaco,
 }: NovoPromptFormProps): JSX.Element {
   const [prompt, setPrompt] = useState("");
   const { estado, pendente, disparar } = useAcaoPrompt(novoPromptAction, () => setPrompt(""));
@@ -77,7 +86,7 @@ export function NovoPromptForm({
         placeholder="Descreva a tarefa a ser executada na conta escolhida…"
         rows={4}
         maxLength={20000}
-        className="mt-2 w-full rounded-md border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-bone-100 placeholder:text-bone-500 focus:border-gold-500 focus:outline-none"
+        className="mt-2 w-full rounded-md border border-navy-700 bg-navy-900 px-3 py-2 text-sm text-bone-100 placeholder:text-bone-400 focus:border-gold-500 focus:outline-none"
       />
 
       <div className="mt-3 flex flex-wrap items-start gap-x-6 gap-y-3">
@@ -153,15 +162,24 @@ export function NovoPromptForm({
           {estado.motivo ? ` — ${estado.motivo}` : ""}.
         </p>
       ) : null}
+      {/* Achado MÉDIO #13: sem headroom (conta escolhida à mão ou automática
+          no teto) — dizer isto ANTES do envio, não deixar o banco recusar em
+          silêncio depois de um round-trip. */}
+      {semEspaco ? (
+        <p role="alert" className="mt-2 text-xs font-medium text-state-blocked">
+          Sem espaço hoje para esta complexidade — o envio será recusado. Escolha outra conta,
+          outra complexidade, ou espere o consumo do dia baixar.
+        </p>
+      ) : null}
 
       <button
         type="submit"
-        disabled={pendente || prompt.trim().length === 0}
+        disabled={pendente || prompt.trim().length === 0 || semEspaco === true}
         className="mt-4 min-h-[40px] rounded-md border border-gold-500 bg-navy-800 px-4 text-sm font-semibold text-gold-300 transition duration-150 ease-almapetra hover:bg-navy-700 disabled:opacity-50"
       >
         {pendente ? "enviando…" : "Enviar para a fila"}
       </button>
-      <p className="mt-1.5 text-[11px] text-bone-500">
+      <p className="mt-1.5 text-[11px] text-bone-400">
         Complexidades: {ROTULO_COMPLEXIDADE.baixa}=Haiku · {ROTULO_COMPLEXIDADE.media}=Sonnet ·{" "}
         {ROTULO_COMPLEXIDADE.alta}=Opus · {ROTULO_COMPLEXIDADE.maxima}=Fable.
       </p>

@@ -14,6 +14,13 @@ vi.mock("@/lib/repositories/prompts-fila.fixture-store", () => ({
   cancelarFixture: vi.fn(() => ({ ok: true }) as const),
 }));
 
+// Achado MÉDIO #14: `emailDaSessao()` (em actions.ts) chama isto — mockado
+// para não depender de `next/headers` fora de um request real do Next.
+const getUserMock = vi.fn(async () => ({ data: { user: { email: "lucasscudeler@gmail.com" } } }));
+vi.mock("@/lib/supabase/user-server", () => ({
+  createSupabaseUserClient: vi.fn(async () => ({ auth: { getUser: getUserMock } })),
+}));
+
 import { cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/prompts-fila.fixture-store";
 import { cancelarPromptAction, novoPromptAction } from "@/app/prompts/actions";
@@ -41,6 +48,7 @@ function nenhumaChamadaFoiFeita(): void {
 describe("prompts/actions — validação", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { email: "lucasscudeler@gmail.com" } } });
   });
 
   it("novoPromptAction: prompt vazio", async () => {
@@ -67,14 +75,52 @@ describe("prompts/actions — validação", () => {
   it("novoPromptAction: válido chama enfileirarFixture em modo fixture (default)", async () => {
     const r = await novoPromptAction({}, form({ prompt: "algo válido", complexidade: "media" }));
     expect(r).toEqual({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
+    // Achado MÉDIO #14: criadoPor vem da sessão (mockada acima), nunca de um
+    // campo do formulário — o form não manda "criado_por".
     expect(fixtureStore.enfileirarFixture).toHaveBeenCalledWith({
       prompt: "algo válido",
       complexidade: "media",
       conta: null,
-      criadoPor: null,
+      criadoPor: "lucasscudeler@gmail.com",
       taskId: null,
     });
     expect(enfileirarPrompt).not.toHaveBeenCalled();
+  });
+
+  it("novoPromptAction: sem sessão (getUser falha) grava criadoPor null, sem quebrar a ação", async () => {
+    getUserMock.mockRejectedValueOnce(new Error("sem cookie de sessão"));
+    const r = await novoPromptAction({}, form({ prompt: "algo válido", complexidade: "baixa" }));
+    expect(r).toEqual({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
+    expect(fixtureStore.enfileirarFixture).toHaveBeenCalledWith({
+      prompt: "algo válido",
+      complexidade: "baixa",
+      conta: null,
+      criadoPor: null,
+      taskId: null,
+    });
+  });
+
+  it("novoPromptAction: LIFEBOARD_DATA_MODE=live chama enfileirarPrompt com o payload snake_case certo", async () => {
+    const modoOriginal = process.env.LIFEBOARD_DATA_MODE;
+    process.env.LIFEBOARD_DATA_MODE = "live";
+    try {
+      const r = await novoPromptAction(
+        {},
+        form({ prompt: "prompt live", complexidade: "alta", conta: "lsgpandora@gmail.com" }),
+      );
+      expect(r).toEqual({ ok: true, id: "fila-x", conta: undefined, motivo: undefined });
+      expect(enfileirarPrompt).toHaveBeenCalledWith({
+        prompt: "prompt live",
+        complexidade: "alta",
+        conta: "lsgpandora@gmail.com",
+        criado_por: "lucasscudeler@gmail.com",
+        task_id: null,
+      });
+      expect(fixtureStore.enfileirarFixture).not.toHaveBeenCalled();
+    } finally {
+      if (modoOriginal === undefined) delete process.env.LIFEBOARD_DATA_MODE;
+      else process.env.LIFEBOARD_DATA_MODE = modoOriginal;
+    }
   });
 
   it("cancelarPromptAction: sem id", async () => {

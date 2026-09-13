@@ -60,6 +60,27 @@ export function modeloParaComplexidade(complexidade: Complexidade): ModeloSugeri
   return MODELO_POR_COMPLEXIDADE[complexidade];
 }
 
+/**
+ * Achado CRÍTICO #1 do crítico hostil (rodada de correção, 13/09/2026):
+ * mapa complexidade → custo ESTIMADO em US$, idêntico à seed de
+ * `public.painel_custo_estimado` (`supabase/migrations/
+ * 0009_lifeboard_v3_fila_ajustes.sql`). Mesma disciplina de
+ * `MODELO_POR_COMPLEXIDADE` × `model-routing.md`: duas implementações porque
+ * rodam em runtimes diferentes — o banco decide de verdade (o trigger SEMPRE
+ * recalcula do lado do SQL, nenhum caller pode forjar o valor); esta tabela é
+ * só o que a TELA usa para mostrar o headroom ANTES de enviar.
+ */
+export const CUSTO_ESTIMADO_POR_COMPLEXIDADE: Record<Complexidade, number> = {
+  baixa: 5,
+  media: 15,
+  alta: 50,
+  maxima: 120,
+};
+
+export function custoEstimadoParaComplexidade(complexidade: Complexidade): number {
+  return CUSTO_ESTIMADO_POR_COMPLEXIDADE[complexidade];
+}
+
 export const ESTADOS_FILA = ["na_fila", "pega", "concluida", "falhou", "cancelada"] as const;
 export type EstadoFila = (typeof ESTADOS_FILA)[number];
 
@@ -71,6 +92,8 @@ export interface ItemFilaPrompt {
   modeloSugerido: ModeloSugerido;
   estado: EstadoFila;
   custoUsd: number | null;
+  /** Achado CRÍTICO #1: custo estimado gravado no item — sempre recalculado pelo trigger, nunca aceito de fora. */
+  custoEstimadoUsd: number;
   criadoEm: string;
   pegoEm: string | null;
   concluidoEm: string | null;
@@ -83,7 +106,12 @@ export interface ItemFilaPrompt {
 export interface ConsumoConta {
   conta: Conta;
   tetoUsd: number;
+  /** Gasto MEDIDO do dia (sem estimativa) — sessões publicadas + itens concluídos hoje. */
   consumoHojeUsd: number;
+  /** Achado CRÍTICO #1/#2: soma do custo estimado de tudo que está `na_fila` ou `pega` para esta conta. */
+  reservadoUsd: number;
+  /** Achado ALTO #7: instante da última sincronização medida (ISO) — null se nenhuma sessão foi publicada hoje ainda. */
+  medidoAteEm: string | null;
 }
 
 export interface FilaPromptsState {
@@ -94,14 +122,32 @@ export interface FilaPromptsState {
 /** Faixa de cor da barra de progresso (régua declarada no pedido do P7). */
 export type FaixaConsumo = "ok" | "warn" | "crit";
 
-export function faixaConsumo(consumoHojeUsd: number, tetoUsd: number): FaixaConsumo {
+/**
+ * Achado ALTO #7: a faixa e o "atingido" agora olham medido + reservado — um
+ * item Fable na_fila que empurraria a conta para o teto já pinta a barra
+ * como crítica, mesmo antes de qualquer sessão real gastar 1 centavo.
+ */
+export function faixaConsumo(
+  consumoHojeUsd: number,
+  reservadoUsd: number,
+  tetoUsd: number,
+): FaixaConsumo {
   if (tetoUsd <= 0) return "crit";
-  const razao = consumoHojeUsd / tetoUsd;
+  const razao = (consumoHojeUsd + reservadoUsd) / tetoUsd;
   if (razao >= 0.9) return "crit";
   if (razao >= 0.6) return "warn";
   return "ok";
 }
 
-export function tetoAtingido(consumoHojeUsd: number, tetoUsd: number): boolean {
-  return consumoHojeUsd >= tetoUsd;
+export function tetoAtingido(
+  consumoHojeUsd: number,
+  reservadoUsd: number,
+  tetoUsd: number,
+): boolean {
+  return consumoHojeUsd + reservadoUsd >= tetoUsd;
+}
+
+/** Headroom (US$) ainda livre hoje para esta conta, podendo ficar negativo. */
+export function headroomUsd(consumo: ConsumoConta): number {
+  return consumo.tetoUsd - consumo.consumoHojeUsd - consumo.reservadoUsd;
 }

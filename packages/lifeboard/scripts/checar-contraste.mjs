@@ -124,6 +124,16 @@ const PARES = [
   // ── Pares de PIXEL JÁ COMPOSTO (P5c, rodada 2, achado BAIXO #13) ──
   ["hatch-folga-composta", "navy-950", 3, "listra opaca da hachura de folga, já composta com a opacidade — pixel real medido pelo crítico"],
   ["barra-fechada-composta", "navy-950", 3, "barra cinza 'fechado sem merge' a 90% de opacidade, já composta — pixel real medido pelo crítico"],
+  // ── Fila de prompts (P7, 13/09/2026, rodada de correção do crítico) ──
+  // Achado MÉDIO #12: `bone-500` sobre navy-850 (4,01:1) e navy-900 (4,41:1)
+  // — os dois abaixo de 4,5:1. Trocado por `bone-400` nos dois usos
+  // (placeholder do textarea e legenda de complexidades do formulário).
+  ["bone-400", "navy-900", 4.5, "placeholder do textarea de novo prompt (P7, corrigido de bone-500 4,41:1)"],
+  ["bone-400", "navy-850", 4.5, "legenda de complexidades no rodapé do formulário (P7, corrigido de bone-500 4,01:1)"],
+  // Achado BAIXO #16: o trilho da barra de progresso do cartão de conta era
+  // `navy-800` sobre `navy-850` (1,14:1 — invisível). `navy-600` mede 4,01:1
+  // sobre o mesmo cartão (o mínimo aqui é 3:1, decorativo/UI, não texto).
+  ["navy-600", "navy-850", 3, "trilho da barra de progresso do cartão de conta (P7 #16, era navy-800 1,14:1)"],
 ];
 
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */

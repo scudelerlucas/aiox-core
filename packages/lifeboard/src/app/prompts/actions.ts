@@ -19,6 +19,7 @@ import {
   enfileirarFixture,
 } from "@/lib/repositories/prompts-fila.fixture-store";
 import { cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
+import { createSupabaseUserClient } from "@/lib/supabase/user-server";
 
 export type EstadoAcaoPrompt = {
   erro?: string;
@@ -40,6 +41,27 @@ function textoOu(form: FormData, campo: string): string {
 function textoOuNulo(form: FormData, campo: string): string | null {
   const v = textoOu(form, campo).trim();
   return v.length > 0 ? v : null;
+}
+
+/**
+ * Achado MÉDIO #14 (crítico hostil, rodada de correção 13/09/2026):
+ * `criado_por` nunca era gravado (o formulário não tem — nem deveria ter —
+ * um campo para o operador se identificar; era só um parâmetro morto). Lido
+ * do lado do SERVIDOR, na sessão logada — mesmo utilitário que `/frentes`
+ * usa (`createSupabaseUserClient`, cookies da sessão Google do middleware).
+ * Sem sessão (modo fixture local, ou um soluço de rede lendo o cookie):
+ * `null` — nunca falha a ação por causa disto.
+ */
+async function emailDaSessao(): Promise<string | null> {
+  try {
+    const supabase = await createSupabaseUserClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return user?.email ?? null;
+  } catch {
+    return null;
+  }
 }
 
 type ResultadoMutar =
@@ -86,7 +108,6 @@ export async function novoPromptAction(
   const prompt = textoOu(form, "prompt");
   const complexidade = textoOu(form, "complexidade");
   const conta = textoOuNulo(form, "conta");
-  const criadoPor = textoOuNulo(form, "criado_por");
   const taskId = textoOuNulo(form, "task_id");
 
   if (prompt.trim().length === 0) {
@@ -98,6 +119,10 @@ export async function novoPromptAction(
   if (!complexidadeValida(complexidade)) {
     return { erro: "complexidade precisa ser uma de: baixa, média, alta, máxima." };
   }
+
+  // Achado MÉDIO #14: `criado_por` vem da sessão (server-side), nunca de um
+  // campo do formulário — o operador não digita quem ele é.
+  const criadoPor = await emailDaSessao();
 
   const r = await mutarEnfileirar({
     prompt: prompt.trim(),
