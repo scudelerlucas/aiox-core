@@ -23,6 +23,8 @@ interface TaskInput {
   iniciadoEm?: string | null;
   isGoal?: boolean;
   sourceId?: string;
+  /** P5b (achado ALTO #4): para os testes de `atrasada`/marcador em `dueDate`. */
+  dueDate?: string | null;
 }
 
 function task(input: TaskInput): Task {
@@ -32,7 +34,7 @@ function task(input: TaskInput): Task {
     projectId: "p",
     title: input.id,
     notes: null,
-    dueDate: null,
+    dueDate: input.dueDate ?? null,
     status: input.status ?? "open",
     priorityHierarq: hierarq,
     predecessorIds: input.predecessorIds ?? [],
@@ -221,6 +223,170 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
     expect(lateral.semDuracao).toBe(false);
     expect(lateral.inicio).toBe("2026-09-10");
     expect(lateral.fim).toBe("2026-09-15"); // 2026-09-10 + 5 dias
+  });
+});
+
+describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro (achado ALTO #4)", () => {
+  it("done sem iniciadoEm: vira ponto em updatedAt (semBarra), nunca hoje→hoje+1", () => {
+    const tasks = [
+      task({ id: "DONE-SOLTA", status: "done" }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "DONE-SOLTA");
+    expect(linha.foraDoCpm).toBe(true);
+    expect(linha.semBarra).toBe(true);
+    expect(linha.pontoConcluidoEm).toBe("2026-07-09"); // updatedAt do helper `task()`
+    expect(linha.inicio).toBe("2026-07-09");
+    expect(linha.fim).toBe("2026-07-09");
+  });
+
+  it("aberta fora do CPM com estimativa < 1 dia (0,5): vira marco, nunca a barra de 4px (regressão real do fixture)", () => {
+    const tasks = [
+      task({ id: "MEIO-DIA", estimativaDias: 0.5 }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "MEIO-DIA");
+    expect(linha.foraDoCpm).toBe(true);
+    expect(linha.inicio).toBe(linha.fim);
+    expect(linha.marco).toBe(true);
+    expect(linha.semDuracao).toBe(false); // tem estimativa VÁLIDA — só é curta demais para virar um dia inteiro
+  });
+
+  it("aberta fora do CPM sem estimativa: continua semDuracao=true (a view desenha tracejado)", () => {
+    const tasks = [
+      task({ id: "SOLTA-SEM-ESTIMATIVA", iniciadoEm: "2026-09-10T00:00:00.000Z" }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "SOLTA-SEM-ESTIMATIVA");
+    expect(linha.semDuracao).toBe(true);
+    expect(linha.foraDoCpm).toBe(true);
+    expect(linha.marco).toBe(false);
+    expect(linha.semBarra).toBe(false);
+  });
+});
+
+describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
+  it("done DENTRO do CPM tem duração zero por construção → marco=true", () => {
+    const tasks = [
+      task({ id: "DONE-NO-CPM", status: "done", predecessorIds: [] }),
+      task({ id: "GOAL", predecessorIds: ["DONE-NO-CPM"], estimativaDias: 2, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "DONE-NO-CPM");
+    expect(linha.foraDoCpm).toBe(false);
+    expect(linha.marco).toBe(true);
+    expect(linha.inicio).toBe(linha.fim);
+  });
+
+  it("dueDate no passado e não done → atrasada=true", () => {
+    const tasks = [
+      task({ id: "ATRASADA", dueDate: "2026-09-01" }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "ATRASADA");
+    expect(linha.atrasada).toBe(true);
+    expect(linha.dueDate).toBe("2026-09-01");
+  });
+
+  it("dueDate no passado MAS done → atrasada=false (já entregou)", () => {
+    const tasks = [
+      task({ id: "ENTREGUE-TARDE", status: "done", dueDate: "2026-09-01" }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "ENTREGUE-TARDE");
+    expect(linha.atrasada).toBe(false);
+  });
+
+  it("dueDate podre ('abc'): nunca lança, dueDate cai para null, atrasada=false", () => {
+    const tasks = [
+      task({ id: "DUE-PODRE", dueDate: "abc" }),
+      task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    expect(() => montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE)).not.toThrow();
+    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const linha = tarefaPorId(props, "DUE-PODRE");
+    expect(linha.dueDate).toBeNull();
+    expect(linha.atrasada).toBe(false);
+  });
+});
+
+describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes e marco (achados MÉDIO #13 / ALTO #8)", () => {
+  it("criado_em podre ('abc') nunca vira 'hoje' silencioso — dataInvalida=true, sem crash", () => {
+    const prs: Pr[] = [
+      pr({
+        repo: "org/podre",
+        numero: 9,
+        titulo: "fix: data podre",
+        estado: "mergeado",
+        criado_em: "abc",
+        mergeado_em: "2026-09-05T00:00:00.000Z",
+      }),
+    ];
+    const cpm = caminhoCritico([], []);
+    expect(() => montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE)).not.toThrow();
+    const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+    const linha = props.grupos.find((g) => g.titulo === "Assuntos")?.linhas[0];
+    expect(linha?.kind).toBe("assunto");
+    if (linha?.kind === "assunto") {
+      expect(linha.dataInvalida).toBe(true);
+      expect(linha.inicio).toBe(HOJE);
+      expect(linha.fim).toBe(HOJE);
+    }
+  });
+
+  it("mergeado_em < criado_em (intervalo negativo) → datasInconsistentes=true, nunca Math.max(4, negativo)", () => {
+    const prs: Pr[] = [
+      pr({
+        repo: "org/invertido",
+        numero: 10,
+        titulo: "fix: mergeado antes de criado",
+        estado: "mergeado",
+        criado_em: "2026-09-10T00:00:00.000Z",
+        mergeado_em: "2026-09-05T00:00:00.000Z",
+      }),
+    ];
+    const cpm = caminhoCritico([], []);
+    const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+    const linha = props.grupos.find((g) => g.titulo === "Assuntos")?.linhas[0];
+    expect(linha?.kind).toBe("assunto");
+    if (linha?.kind === "assunto") {
+      expect(linha.datasInconsistentes).toBe(true);
+      expect(linha.marco).toBe(false);
+    }
+  });
+
+  it("PR do mesmo dia (criado_em === mergeado_em) → marco=true", () => {
+    const prs: Pr[] = [
+      pr({
+        repo: "org/mesmodia",
+        numero: 11,
+        titulo: "fix: entrou no mesmo dia",
+        estado: "mergeado",
+        criado_em: "2026-09-05T08:00:00.000Z",
+        mergeado_em: "2026-09-05T18:00:00.000Z",
+      }),
+    ];
+    const cpm = caminhoCritico([], []);
+    const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+    const linha = props.grupos.find((g) => g.titulo === "Assuntos")?.linhas[0];
+    expect(linha?.kind).toBe("assunto");
+    if (linha?.kind === "assunto") {
+      expect(linha.marco).toBe(true);
+      expect(linha.datasInconsistentes).toBe(false);
+      expect(linha.dataInvalida).toBe(false);
+    }
   });
 });
 

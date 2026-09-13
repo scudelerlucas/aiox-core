@@ -31,6 +31,21 @@ export interface LinhaDoTempoAssuntoRow {
   aberto: boolean;
   estado: EstadoPr;
   url: string;
+  /**
+   * P5b (achado MÉDIO #13): `criado_em`/`mergeado_em`/`fechado_em`/`atualizado_em`
+   * que não parseiam como data (`"abc"` vindo torto do banco) — nunca vira
+   * silenciosamente "hoje". `inicio`/`fim` caem para `hoje` só para o tipo não
+   * quebrar; a tela nunca desenha barra, só o aviso "data inválida".
+   */
+  dataInvalida: boolean;
+  /**
+   * P5b (achado ALTO #8): `fim < inicio` de verdade (`mergeado_em < criado_em`)
+   * — nunca vira `Math.max(4, negativo)` fingindo uma barra de 4px. Row
+   * marcada, sem barra.
+   */
+  datasInconsistentes: boolean;
+  /** P5b (achado ALTO #8): `inicio === fim` (PR do mesmo dia) — losango, nunca 4px. */
+  marco: boolean;
 }
 
 /** Uma linha do grupo "Tarefas" — uma `Task`, com a janela do CPM quando houver. */
@@ -69,6 +84,24 @@ export interface LinhaDoTempoTarefaRow {
    * (ou hoje) + `estimativaDias`, sem `es/ef/ls/lf`.
    */
   foraDoCpm: boolean;
+  /**
+   * P5b (achado ALTO #4/#8) — flags que MUDAM o desenho, não só o `title`:
+   * `marco` (duração zero → losango), `semBarra` (tarefa `done` fora do CPM
+   * sem `iniciadoEm`/data nenhuma → nada ou um ponto em `pontoConcluidoEm`),
+   * `datasInconsistentes` (fim < início → erro, sem barra), `atrasada`
+   * (`dueDate` no passado e não `done` → contorno vermelho + marcador em
+   * `dueDate`). Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md` §7–§8.
+   */
+  marco: boolean;
+  datasInconsistentes: boolean;
+  /** `true` quando a tarefa é `done`, fora do CPM: nunca ganha barra fabricada — só o ponto (ou nada). */
+  semBarra: boolean;
+  /** ISO `AAAA-MM-DD` do ponto "concluída", quando `semBarra` e há data válida (`updatedAt`); `null` = nada a desenhar. */
+  pontoConcluidoEm: string | null;
+  /** `true` quando `dueDate` já passou e a tarefa não está `done`. */
+  atrasada: boolean;
+  /** ISO `AAAA-MM-DD` de `dueDate`, quando válida; `null` senão. Usado para o marcador de atraso. */
+  dueDate: string | null;
 }
 
 export type LinhaDoTempoRow = LinhaDoTempoAssuntoRow | LinhaDoTempoTarefaRow;

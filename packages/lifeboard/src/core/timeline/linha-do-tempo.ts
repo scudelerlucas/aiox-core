@@ -96,20 +96,48 @@ function tituloDoAssunto(pr: Pr): string {
   return limpo.length > 0 ? limpo : pr.titulo || `${pr.repo}#${pr.numero}`;
 }
 
+/**
+ * P5b (achados MÉDIO #13 + ALTO #8): valida `inicio`/`fim` do assunto ANTES
+ * de virar string curta — nunca deixa `Date.parse` de uma string podre
+ * ("abc") virar silenciosamente "hoje" na tela, e nunca deixa um intervalo
+ * negativo (`mergeado_em < criado_em`) virar uma barra de 4px fingindo
+ * duração positiva. `aberto` sempre fecha em `hoje` (época válida por
+ * construção — nunca cai no ramo de data inválida).
+ */
 function montaAssunto(pr: Pr, hoje: string): LinhaDoTempoAssuntoRow {
-  const inicioIso = pr.criado_em ?? pr.atualizado_em;
+  const inicioIsoBruto = pr.criado_em ?? pr.atualizado_em;
   const aberto = pr.estado === "aberto";
-  const fimIso = pr.mergeado_em ?? (aberto ? hoje : pr.fechado_em ?? pr.atualizado_em);
+  const fimIsoBruto = pr.mergeado_em ?? (aberto ? hoje : pr.fechado_em ?? pr.atualizado_em);
+
+  const inicioEpoch = paraEpoch(inicioIsoBruto);
+  const fimEpoch = paraEpoch(fimIsoBruto);
+  const dataInvalida = inicioEpoch === null || fimEpoch === null;
+
+  const inicio = dataInvalida ? hoje : paraDataCurta(inicioIsoBruto);
+  const fim = dataInvalida ? hoje : paraDataCurta(fimIsoBruto);
+  // Comparação por DIA de calendário (`inicio`/`fim` já truncados), não pelo
+  // instante exato — um PR criado 08h e mergeado 18h do MESMO dia é "marco"
+  // (mesmo dia), não duas datas diferentes por causa da hora.
+  const inicioDiaEpoch = paraEpoch(inicio);
+  const fimDiaEpoch = paraEpoch(fim);
+  const datasInconsistentes =
+    !dataInvalida && inicioDiaEpoch !== null && fimDiaEpoch !== null && fimDiaEpoch < inicioDiaEpoch;
+  const marco =
+    !dataInvalida && !datasInconsistentes && fimDiaEpoch !== null && fimDiaEpoch === inicioDiaEpoch;
+
   return {
     kind: "assunto",
     id: `${pr.repo}#${pr.numero}`,
     titulo: tituloDoAssunto(pr),
     repo: pr.repo,
-    inicio: paraDataCurta(inicioIso),
-    fim: paraDataCurta(fimIso),
+    inicio,
+    fim,
     aberto,
     estado: pr.estado,
     url: pr.url,
+    dataInvalida,
+    datasInconsistentes,
+    marco,
   };
 }
 
@@ -133,6 +161,29 @@ interface TarefaOrdenavel {
   es: number;
 }
 
+/** ISO curto de `t.dueDate`, só quando parseia; `null` senão (nunca lança). */
+function dueDateValida(t: Task): string | null {
+  return t.dueDate && paraEpoch(t.dueDate) !== null ? paraDataCurta(t.dueDate) : null;
+}
+
+/**
+ * P5b (achado ALTO #4): `dueDate` no passado e a tarefa não está `done` — a
+ * mesma régua vale dentro OU fora do CPM (o CPM não sabe de `dueDate`, só de
+ * `es/ef` a partir de "hoje"; atraso é um fato do calendário, independente).
+ */
+function estaAtrasada(t: Task, dueDateCurta: string | null, hoje: string): boolean {
+  if (t.status === "done" || dueDateCurta === null) return false;
+  const dueEpoch = paraEpoch(dueDateCurta);
+  const hojeEpoch = paraEpoch(hoje);
+  if (dueEpoch === null || hojeEpoch === null) return false;
+  return dueEpoch < hojeEpoch;
+}
+
+/** ISO curto de `t.updatedAt`, quando parseia — o "ponto de conclusão" de uma `done` fora do CPM. */
+function pontoDeConclusao(t: Task): string | null {
+  return paraEpoch(t.updatedAt) !== null ? paraDataCurta(t.updatedAt) : null;
+}
+
 function montaTarefa(
   t: Task,
   cpm: ResultadoCPM,
@@ -147,47 +198,90 @@ function montaTarefa(
   const scoreValor = scores?.get(t.id);
   const janela = cpm.janelas.get(t.id);
   const fonteKind = fontePorTask.get(t.id) ?? "notes";
+  const dueDate = dueDateValida(t);
 
-  if (janela) {
-    const row: LinhaDoTempoTarefaRow = {
-      kind: "tarefa",
-      id: t.id,
-      titulo: t.title,
-      inicio: somaDias(hoje, janela.es),
-      fim: somaDias(hoje, janela.ef),
-      fimComFolga: somaDias(hoje, janela.lf),
-      critico: cpm.critico.has(t.id),
-      folga: janela.folga,
-      semDuracao: cpm.semDuracao.includes(t.id),
-      predecessores: preds,
-      sucessores: sucs,
-      ...(typeof scoreValor === "number" ? { score: scoreValor } : {}),
-      fonteKind,
-      status: t.status,
-      foraDoCpm: false,
-    };
-    return { row, es: janela.es };
-  }
-
-  const duracao = estimativaValida(t) ?? DURACAO_PLACEHOLDER_FORA_CPM;
-  const inicio = t.iniciadoEm ? paraDataCurta(t.iniciadoEm) : hoje;
-  const fim = somaDias(inicio, duracao);
-  const row: LinhaDoTempoTarefaRow = {
-    kind: "tarefa",
+  const base = {
+    kind: "tarefa" as const,
     id: t.id,
     titulo: t.title,
-    inicio,
-    fim,
-    fimComFolga: fim,
-    critico: false,
-    folga: 0,
-    semDuracao: estimativaValida(t) === null,
     predecessores: preds,
     sucessores: sucs,
     ...(typeof scoreValor === "number" ? { score: scoreValor } : {}),
     fonteKind,
     status: t.status,
+    dueDate,
+  };
+
+  if (janela) {
+    const inicio = somaDias(hoje, janela.es);
+    const fim = somaDias(hoje, janela.ef);
+    const row: LinhaDoTempoTarefaRow = {
+      ...base,
+      inicio,
+      fim,
+      fimComFolga: somaDias(hoje, janela.lf),
+      critico: cpm.critico.has(t.id),
+      folga: janela.folga,
+      semDuracao: cpm.semDuracao.includes(t.id),
+      foraDoCpm: false,
+      // Duração zero (`done` no CPM tem duração 0 por construção — regra do
+      // CPM em tipos-v3.ts): losango, nunca a barra de 4px (achado ALTO #8).
+      marco: inicio === fim,
+      datasInconsistentes: false,
+      semBarra: false,
+      pontoConcluidoEm: null,
+      atrasada: estaAtrasada(t, dueDate, hoje),
+    };
+    return { row, es: janela.es };
+  }
+
+  // ── Fora do CPM ────────────────────────────────────────────────────────
+  // `done` NUNCA fabrica uma barra a partir de "hoje" (o bug do crítico:
+  // tarefa concluída desenhada no futuro) — só o ponto real de conclusão
+  // (`updatedAt`), ou nada quando nem essa data é válida.
+  if (t.status === "done") {
+    const ponto = pontoDeConclusao(t);
+    const ancora = ponto ?? hoje;
+    const row: LinhaDoTempoTarefaRow = {
+      ...base,
+      inicio: ancora,
+      fim: ancora,
+      fimComFolga: ancora,
+      critico: false,
+      folga: 0,
+      semDuracao: false,
+      foraDoCpm: true,
+      marco: false,
+      datasInconsistentes: false,
+      semBarra: true,
+      pontoConcluidoEm: ponto,
+      atrasada: false,
+    };
+    return { row, es: Number.POSITIVE_INFINITY };
+  }
+
+  const estimativa = estimativaValida(t);
+  const duracao = estimativa ?? DURACAO_PLACEHOLDER_FORA_CPM;
+  const inicio = t.iniciadoEm && paraEpoch(t.iniciadoEm) !== null ? paraDataCurta(t.iniciadoEm) : hoje;
+  const fim = somaDias(inicio, duracao);
+  const row: LinhaDoTempoTarefaRow = {
+    ...base,
+    inicio,
+    fim,
+    fimComFolga: fim,
+    critico: false,
+    folga: 0,
+    semDuracao: estimativa === null,
     foraDoCpm: true,
+    // Achado ALTO #8, reencontrado no fixture real: `estimativaDias` < 1 dia
+    // (ex.: 0,5) soma menos de 24h — `somaDias` trunca pro MESMO dia de
+    // calendário, e a barra ficava de 4px sem nunca virar marco. Mesma
+    // comparação por dia-de-calendário do ramo do CPM: nunca hardcoded false.
+    marco: inicio === fim,
+    datasInconsistentes: false,
+    semBarra: false,
+    pontoConcluidoEm: null,
+    atrasada: estaAtrasada(t, dueDate, hoje),
   };
   // Fora do CPM ordena depois de tudo que tem ES real — nunca finge um ES.
   return { row, es: Number.POSITIVE_INFINITY };

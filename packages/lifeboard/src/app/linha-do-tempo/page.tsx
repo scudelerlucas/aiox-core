@@ -5,6 +5,7 @@ import { scoreAssimetriaLote } from "@/core/prioritize/assimetria";
 import { montarLinhaDoTempo } from "@/core/timeline/linha-do-tempo";
 import { getFrentesRepository } from "@/lib/frentes/repository";
 import type { Pr } from "@/lib/frentes/types";
+import { hojeNoFusoDoOperador } from "@/lib/fuso";
 import {
   getSourcesRepository,
   getTasksRepository,
@@ -73,7 +74,11 @@ function montarProps(
   const scores = new Map<string, number | null | undefined>(
     [...scoresBrutos].map(([id, score]) => [id, score?.valor]),
   );
-  const hoje = new Date().toISOString().slice(0, 10);
+  // P5b (achado ALTO #10): "hoje" em UTC adianta o dia para o operador
+  // (America/Sao_Paulo) entre 21h00 e 23h59 — a linha do Gantt caía um dia à
+  // frente do calendário real dele. `hojeNoFusoDoOperador` (`@/lib/fuso`)
+  // corrige com o fuso certo; teste fixo em `tests/unit/fuso.test.ts`.
+  const hoje = hojeNoFusoDoOperador();
   return montarLinhaDoTempo(tasks, edges, prs, sources, cpm, hoje, scores);
 }
 
