@@ -139,3 +139,52 @@ export const loadLifeboardState = cache(async (): Promise<LifeboardState> => {
       .filter((n): n is TaskNote => n !== null),
   };
 });
+
+// ── P6 (13/09/2026) — escrita: RPC secret-gated `lifeboard_mutate` ──────────
+//
+// Mesmo segredo, mesmo padrão de chamada da leitura — a diferença é que aqui
+// `p_op` escolhe a operação e `p_payload` carrega os campos dela (contrato
+// exato em `supabase/migrations/0006_lifeboard_v3_escrita.sql`). Nunca lança:
+// falha de rede, HTTP não-2xx (o corpo do erro do Postgres/PostgREST já vem
+// em português — a RPC valida e traduz) ou corpo sem `ok: true` viram
+// `{ erro }`; quem chama (`src/app/tarefa/actions.ts`) decide o que mostrar.
+export type MutateLifeboardResult = { ok: true; id?: string } | { erro: string };
+
+export async function mutateLifeboard(
+  op: string,
+  payload: Record<string, unknown>,
+): Promise<MutateLifeboardResult> {
+  const url = `${env.SUPABASE_URL}/rest/v1/rpc/lifeboard_mutate`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        apikey: env.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_secret: env.LIFEBOARD_LOAD_SECRET, p_op: op, p_payload: payload }),
+      cache: "no-store",
+    });
+  } catch (error) {
+    return {
+      erro: `Não consegui falar com o banco agora: ${
+        error instanceof Error ? error.message : "erro desconhecido"
+      }.`,
+    };
+  }
+
+  const body = (await response.json().catch(() => null)) as
+    | { ok?: boolean; id?: string; message?: string }
+    | null;
+
+  if (!response.ok) {
+    return { erro: body?.message ?? `lifeboard_mutate respondeu ${response.status}.` };
+  }
+  if (!body || body.ok !== true) {
+    return { erro: "A operação não confirmou sucesso — tente de novo." };
+  }
+  return { ok: true, id: body.id };
+}

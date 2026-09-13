@@ -80,7 +80,7 @@ function makeTask(
   };
 }
 
-const FIXTURE_TASKS: readonly Task[] = [
+export const FIXTURE_TASKS: readonly Task[] = [
   // ── Cadeia principal: setup → build → deploy ──────────────────────────────
   makeTask("task-setup", { s1: 4, s2: 4, s3: 4 }, {
     title: "Configurar ambiente",
@@ -158,6 +158,19 @@ const FIXTURE_TASKS: readonly Task[] = [
     sourceId: sourceIdFor("drive"),
     updatedAt: "2026-07-07T09:00:00.000Z",
   }),
+
+  // ── P6 (13/09/2026) — subtarefa de demonstração da página da tarefa ───────
+  // Filha de task-build, SEM predecessor/successor: fica fora dos ancestrais
+  // do goal (task-deploy), então não entra no caminho crítico nem muda
+  // `duracaoTotal` (continua 4 — prova em caminho-critico.test.ts). Tem
+  // `estimativaDias` própria só para não aparecer em `semDuracao` à toa.
+  makeTask("task-build-sub1", { s1: 1, s2: 1, s3: 1 }, {
+    title: "Revisar testes do motor HIERARQ",
+    parentId: "task-build",
+    sourceId: sourceIdFor("notes"),
+    estimativaDias: 0.5,
+    assimetria: { opcionalidade: 1, esforco: 1, custo: 1 },
+  }),
 ];
 
 /**
@@ -165,7 +178,7 @@ const FIXTURE_TASKS: readonly Task[] = [
  * as quatro camadas. A cadeia setup → build → deploy continua vindo dos arrays
  * (`predecessorIds`); aqui só o que os arrays não sabem dizer.
  */
-const FIXTURE_EDGES: readonly TaskEdge[] = [
+export const FIXTURE_EDGES: readonly TaskEdge[] = [
   {
     id: "edge-review-antes-do-deploy",
     origem: "task-review",
@@ -204,7 +217,7 @@ const FIXTURE_EDGES: readonly TaskEdge[] = [
   },
 ];
 
-const FIXTURE_NOTES: readonly TaskNote[] = [
+export const FIXTURE_NOTES: readonly TaskNote[] = [
   {
     id: "note-build-1",
     taskId: "task-build",
@@ -225,6 +238,15 @@ const FIXTURE_NOTES: readonly TaskNote[] = [
     texto: "Goal do ciclo: subir até sexta.",
     autor: "Lucas",
     createdAt: "2026-07-09T12:00:00.000Z",
+  },
+  // P6 (13/09/2026) — 3ª nota de task-build, para a página da tarefa ter mais
+  // de uma nota de origens diferentes na tela de demonstração.
+  {
+    id: "note-build-3",
+    taskId: "task-build",
+    texto: "Página da tarefa (P6) testada contra este fixture.",
+    autor: "Claude",
+    createdAt: "2026-07-09T12:30:00.000Z",
   },
 ];
 

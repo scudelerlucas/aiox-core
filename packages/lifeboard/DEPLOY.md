@@ -98,6 +98,21 @@ os passos abaixo.
   segredo server-only; a chave anon/publishable é pública por design e só o
   necessário vai ao browser (nenhum segredo de leitura, nenhum motor HIERARQ —
   `import 'server-only'`, kill-switch nº 3).
+- **Escrita (P6, 13/09/2026):** a página `/tarefa/[id]` (notas, subtarefas, meta/goal,
+  átomos declarados, duração e as 4 relações) grava por UMA RPC
+  `SECURITY DEFINER`, `lifeboard_mutate(p_secret, p_op, p_payload)`
+  (`supabase/migrations/0006_lifeboard_v3_escrita.sql`), guardada pelo MESMO
+  segredo de `lifeboard_load` (`private.lifeboard_config.load_secret`) — não há
+  sessão Supabase por usuário para escrita, só o login Google do middleware.
+  `p_op` escolhe a operação (`nota_add`, `nota_del`, `subtarefa_add`, `parent_set`,
+  `goal_set`, `atomos_set`, `estimativa_set`, `status_set`, `aresta_add`,
+  `aresta_del`); toda validação de forma é feita na função, em português, e as
+  regras de negócio que já têm guarda no banco (ciclo de precedência, ciclo de
+  hierarquia, domínio de `assimetria`, unicidade de aresta) não são duplicadas —
+  a operação roda e a exceção do gatilho/CHECK é traduzida. `src/app/tarefa/
+  actions.ts` chama essa RPC em modo live; em modo fixture (sem banco), as
+  mesmas ações mutam um store em memória (`src/lib/repositories/
+  tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
 
 ## Rollback
 
