@@ -1,11 +1,31 @@
 # OS-LIFEBOARD — Deploy (Vercel + Supabase + Login Google)
 
+> ## ⚠️ LEIA ANTES DE SEGUIR QUALQUER PASSO (14/09/2026)
+>
+> **Este documento citava um projeto Supabase que NÃO EXISTE MAIS**
+> (`hciiilopyivjaekaxfqp`). Conferido em 14/09/2026: não aparece nem no Supabase
+> nem na Vercel. Onde esse ref aparecia, agora está `<PROJECT-REF>`.
+>
+> **NUNCA confie no ref escrito aqui.** A fonte da verdade é a Vercel:
+> `vercel.com` → projeto `aiox-core-lifeboard` → Settings → Environment
+> Variables → Production → `NEXT_PUBLIC_SUPABASE_URL`.
+>
+> **O que deu errado, para não repetir:** em 14/09/2026 essa variável na Vercel
+> apontava para `ofskmjpzlgzmnivmkyop` — que é o projeto Supabase de OUTRO
+> sistema (RAG/embeddings: `aiox_tnf_pgvector`, `os_corpus_rag`,
+> `aiox_canon_viral_forja`, migrations de maio e julho/2026). Nenhuma migration
+> do LifeBoard jamais rodou lá. Como o app estava em
+> `LIFEBOARD_DATA_MODE != live`, ele nunca leu esse banco e nada quebrou na
+> tela — o desalinhamento ficou invisível por semanas.
+>
+> **Antes de aplicar migration em qualquer projeto**, rode
+> `supabase/aplicar/PASSO-0b-historico.sql` nele. Se o histórico tiver nomes de
+> outro sistema, é o projeto ERRADO — aplicar o LifeBoard ali despejaria ~40
+> tabelas e funções dentro do banco de outra aplicação viva.
+
 Estado atual: **schema aplicado no Supabase real, 18 tarefas reais do Calendar já
 ingeridas, código live + login Google testado (54/54, build verde) e pushed.**
 Falta só o deploy na Vercel + habilitar o provider Google no Supabase.
-
-Já no ar (público, só métricas agregadas — sem conteúdo privado):
-**https://hciiilopyivjaekaxfqp.supabase.co/functions/v1/lifeboard**
 
 O dashboard COMPLETO (conteúdo das tarefas, protegido por login Google) sobe com
 os passos abaixo.
@@ -18,7 +38,7 @@ os passos abaixo.
 2. **Create Credentials → OAuth client ID → Web application**
 3. Em **Authorized redirect URIs**, adicione:
    ```
-   https://hciiilopyivjaekaxfqp.supabase.co/auth/v1/callback
+   https://<PROJECT-REF>.supabase.co/auth/v1/callback
    ```
 4. Copie o **Client ID** e o **Client Secret**.
 
@@ -41,7 +61,7 @@ os passos abaixo.
    | Nome | Valor |
    |------|-------|
    | `LIFEBOARD_DATA_MODE` | `live` |
-   | `NEXT_PUBLIC_SUPABASE_URL` | `https://hciiilopyivjaekaxfqp.supabase.co` |
+   | `NEXT_PUBLIC_SUPABASE_URL` | `https://<PROJECT-REF>.supabase.co` |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | chave anon/publishable do projeto |
    | `LIFEBOARD_LOAD_SECRET` | segredo da RPC `lifeboard_load` |
    | `LIFEBOARD_ALLOWED_EMAILS` | `lucas.scudeler@pandoratreinamentos.com.br,lucasscudeler@gmail.com` (opcional — já é o default) |
@@ -126,6 +146,34 @@ os passos abaixo.
   actions.ts` chama essa RPC em modo live; em modo fixture (sem banco), as
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
+
+## Banco NOVO do zero — a sequência inteira (14/09/2026)
+
+Os scripts prontos vivem em `supabase/aplicar/`. Todos os `PASSO-0*` são **só
+leitura** e não escrevem nada.
+
+| # | Script | O que faz |
+|---|--------|-----------|
+| 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`. Se aparecerem nomes de outro sistema, PARE: é o projeto errado. |
+| 0 | `PASSO-0-diagnostico.sql` | Diz quais das 21 migrations já estão aplicadas. Em banco novo: 15/15 `FALTA`. |
+| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0021`, depois o `alter ... teto_usd set default 500`. |
+| 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
+| — | `tests/fila_prompts.test.sql` | A guarda comportamental: 59 blocos. |
+
+**Dependência externa, obrigatória antes da 0007:** as tabelas `painel_frentes_*`
+e a função `painel_frentes_leitor_autorizado()` **não são criadas por nenhuma
+migration deste repositório** — vêm de
+`Lucas-Contexto-Geral/supabase/migrations/20260912a_painel_frentes_tres_contas.sql`.
+O `PASSO-2` já embute esse arquivo no começo, mas se você aplicar as migrations
+uma a uma, aplique a do hub primeiro.
+
+**Depois de aplicar, o banco está pronto mas VAZIO** — e o app continua sem ler
+dele até `LIFEBOARD_DATA_MODE` virar `live` na Vercel. São duas decisões
+separadas de propósito: "o banco está certo" (provável pelos 59 blocos) e "o app
+mostra isso pros usuários" (sua, no seu tempo).
+
+Ainda falta, num banco novo: o `insert` do `load_secret` (item 5 do Passo 3
+acima) e os tetos das 3 contas em `painel_teto_diario`.
 
 ## Fila de prompts entre as 3 contas (P7 · rodada 6, 13/09/2026)
 
