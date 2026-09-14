@@ -74,10 +74,17 @@ When an agent is active:
 ## Development Methodology
 
 ### Story-Driven Development
-1. **Work from stories** - All development starts with a story in `docs/stories/`
-2. **Update progress** - Mark checkboxes as tasks complete: [ ] → [x]
-3. **Track changes** - Maintain the File List section in the story
-4. **Follow criteria** - Implement exactly what the acceptance criteria specify
+1. **Understand the requested scope** - implement only what was asked
+2. **Work from a story when one exists** - follow its acceptance criteria, mark
+   checkboxes as tasks complete ([ ] → [x]), and keep the File List section updated
+3. **Follow criteria** - when acceptance criteria exist, implement exactly what
+   they specify
+
+> Story is not a prerequisite for all work. Decision of the operator of the
+> Synkra AIOX repo, 14/09/2026: no PR in that project's own history has ever
+> used `docs/stories/`, and the CI gate meant to check it passes green without
+> one — see `AGENTS.md` there for the full reasoning. This template mirrors
+> that decision so new installs don't ship the unenforced rule.
 
 ### Code Standards
 - Write clean, self-documenting code

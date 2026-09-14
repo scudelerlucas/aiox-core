@@ -22,7 +22,7 @@ When an agent mode is active:
 ## Development Methodology
 
 ### Story-Driven Development
-1. **Work from stories** - All development starts with a story in `docs/stories/`
+1. **Work from a story when one exists** - not a prerequisite for all work (see AGENTS.md decision, 14/09/2026: no PR in this project's own repo has ever used docs/stories/)
 2. **Update progress** - Mark checkboxes as tasks complete: [ ] → [x]
 3. **Track changes** - Maintain the File List section in the story
 4. **Follow criteria** - Implement exactly what the acceptance criteria specify
