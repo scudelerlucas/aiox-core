@@ -2,7 +2,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { ARESTA_STROKE_CRITICO } from "@/components/graph/aresta-svg";
-import { LinhaDoTempoView, PainelDetalheTarefa } from "@/components/timeline/linha-do-tempo";
+import {
+  LinhaDoTempoView,
+  PainelDetalheAssunto,
+  PainelDetalheTarefa,
+} from "@/components/timeline/linha-do-tempo";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoProps,
@@ -129,9 +133,24 @@ describe("LinhaDoTempoView — render", () => {
     expect(html).toContain("lb-tl-slack");
   });
 
-  it("assunto aberto vira link para a URL da mudança", () => {
+  /**
+   * Rodada 7 (achado MÉDIO #7): a linha do ASSUNTO deixou de ser um `<a>` que
+   * só levava para fora — virou o mesmo `<button>` das tarefas, que abre o
+   * painel de detalhe. A URL da mudança continua sendo um caminho de primeira
+   * classe: é a AÇÃO do painel ("Abrir no GitHub"), com o nome inteiro do
+   * assunto ao lado — a 390px o nome trunca em 2 linhas e o `title` não existe
+   * no toque, que era o defeito medido.
+   */
+  it("assunto abre o painel de detalhe, e a URL da mudança é a ação de lá", () => {
     const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
-    expect(html).toContain("https://github.com/org/repo/pull/1");
+    expect(html).toContain('aria-haspopup="dialog"');
+    expect(html).toContain('aria-label="Um assunto aberto — assunto em org/repo"');
+    const painel = renderToStaticMarkup(
+      <PainelDetalheAssunto linha={assunto()} onFechar={() => {}} />,
+    );
+    expect(painel).toContain("https://github.com/org/repo/pull/1");
+    expect(painel).toContain("Abrir no GitHub");
+    expect(painel).toContain('role="dialog"');
   });
 
   it("nunca lança com grupos vazios (sem tarefas nem assuntos)", () => {
@@ -935,11 +954,11 @@ describe("LinhaDoTempoView — rodada 5", () => {
     const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
     expect(html).toContain("lb-tl-btn-hoje");
     expect(html).toContain("Voltar para hoje (tecla H)");
-    // A3 (mês grudado) NÃO é asserção deste teste: sem DOM, `pxPorDia` cai no
-    // fallback de 16px/dia → faixa "semana", onde o rótulo já diz o mês e o
-    // chip grudado não existe de propósito. O caso que importa (faixa "dia",
-    // rolando) é medido no navegador, com scroll real.
-    expect(html).not.toContain("lb-tl-mes-grudado");
+    // Rodada 7 (decisão D4): o chip grudado existe em TODA densidade agora —
+    // antes ele só nascia acima de 24px/dia e, no celular (6px/dia no "auto"),
+    // a tela ficava sem faixa de cima e sem mês nenhum. Aqui, no fallback de
+    // 16px/dia (faixa "semana"), ele já tem de estar lá.
+    expect(html).toContain("lb-tl-mes-grudado");
   });
 });
 
@@ -992,7 +1011,7 @@ describe("LinhaDoTempoView — rodada 6", () => {
   it("A3: barra cortada pelo teto ganha '▶' NO CORPO (não só na legenda), ponta reta e as duas datas no title", () => {
     const html = renderToStaticMarkup(<LinhaDoTempoView {...propsHorizonteCortado()} />);
     // O corpo da tela, sem a legenda — é lá que o crítico contou 1 só "▶".
-    const corpo = html.slice(html.indexOf('class="mt-6 flex w-full flex-col"'));
+    const corpo = html.slice(html.indexOf('class="mt-6 flex w-full flex-col md:flex-row'));
     const chevronsNoCorpo = (corpo.match(/▶/g) ?? []).length;
     expect(chevronsNoCorpo).toBeGreaterThanOrEqual(1);
     // O "▶" mora DENTRO da barra (fora dela esticava o scrollWidth — A6).
@@ -1005,10 +1024,18 @@ describe("LinhaDoTempoView — rodada 6", () => {
     expect(titulo).toContain("depois do fim da janela (");
   });
 
-  it("A3: o aviso conta o item cortado e nomeia o último dia desenhado", () => {
+  /**
+   * Rodada 7 (achado MÉDIO #6): quando quem corta é o TETO de dias, o aviso
+   * muda de frase — nomeia o teto, conta os itens e NÃO sugere zoom nenhum
+   * (o crítico mediu que seguir o conselho antigo piorava: em "Mês" o fim
+   * recuava de 29/10/2027 para 09/01/2027 e a contagem subia de 5 para 6).
+   */
+  it("A3 + D4/D6: com o teto mordendo, o aviso nomeia os 420 dias e não sugere zoom", () => {
     const html = renderToStaticMarkup(<LinhaDoTempoView {...propsHorizonteCortado()} />);
-    expect(html).toContain("fora da janela desenhada (até");
-    expect(/(\d+) item começa/.exec(html)?.[1]).toBe("1");
+    expect(html).toContain("A janela desenhada é de 420 dias (até");
+    expect(html).toContain("em qualquer zoom");
+    expect(html).not.toContain("Mês/Trimestre mostra o histórico");
+    expect(/(\d+) item fica fora/.exec(html)?.[1]).toBe("1");
   });
 
   it("A2: o painel de detalhe é um diálogo FIXO (folha inferior no celular, lateral em ≥768px)", () => {
@@ -1022,15 +1049,27 @@ describe("LinhaDoTempoView — rodada 6", () => {
     expect(idTitulo).toBeTruthy();
     expect(html).toContain(`id="${idTitulo}"`);
     expect(html).toContain('tabindex="-1"');
-    // Fora do fluxo: `fixed` não empurra a página (o `scrollY` não muda ao abrir).
+    // Abaixo de 768px continua a FOLHA INFERIOR fora do fluxo (`fixed`).
     expect(html).toContain("fixed");
     expect(html).not.toContain("mt-3 rounded-lg");
-    // Folha inferior abaixo de 768px; painel de 360px à direita a partir daí.
     expect(html).toContain("bottom-0");
     expect(html).toContain("max-h-[60vh]");
     expect(html).toContain("overflow-y-auto");
-    expect(html).toContain("md:w-[360px]");
-    expect(html).toContain("md:left-auto");
+    /*
+      Rodada 7 (decisão D2): a partir de 768px ele deixa de SOBREPOR e passa a
+      COMPRIMIR — `md:static` (coluna de verdade dentro do `md:flex-row` da
+      tela), 300px de largura (o conteúdo real cabe; 360 era folga) e
+      `md:z-auto`, para nunca mais disputar camada com o cabeçalho sticky
+      (`z-20`), que era o que cortava "13/09/202" a 768px.
+    */
+    expect(html).toContain("md:sticky");
+    expect(html).toContain("md:self-start");
+    expect(html).toContain("md:z-auto");
+    // ≤ 300px: 240 entre 768 e 1023 (onde cada pixel do gráfico conta), 300 a
+    // partir de `lg`. Nunca mais os 360 que tapavam 70% do scroller a 768.
+    expect(html).toContain("md:w-[240px]");
+    expect(html).toContain("lg:w-[300px]");
+    expect(html).not.toContain("md:w-[360px]");
   });
 
   it("A4: o chip de zoom mantém o nome acessível 'Auto' mesmo quando o rótulo visível avisa que não cabe", () => {

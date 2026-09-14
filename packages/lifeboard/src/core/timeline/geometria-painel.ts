@@ -59,3 +59,30 @@ export function posicaoDoBadge(x: number, larguraBadge: number, totalWidth: numb
   if (!Number.isFinite(x)) return 0;
   return Math.min(Math.max(x, 0), limite);
 }
+
+/**
+ * Rodada 7 (mesmo pecado do achado MÉDIO #6, um aviso ao lado): o aviso de
+ * overflow terminava SEMPRE em *"Use ← → ou escolha Trimestre"*. Medido a
+ * 390px com janela de 900 dias: em "Auto" o conteúdo tem 2520px (11,6 telas) e
+ * em "Trimestre" tem exatamente os MESMOS 2520px — porque "auto" já está no
+ * piso de 6px/dia, que é a densidade do Trimestre. O conselho não encurta
+ * nada; manda o operador trocar de zoom para chegar ao mesmo lugar.
+ *
+ * Aqui a frase só sugere Trimestre quando ele de fato deixaria o conteúdo mais
+ * curto (densidade menor que a atual). Pura e testada, como o resto.
+ */
+export function avisoDeOverflow(params: {
+  /** Telas de rolagem, já formatado com vírgula (`"11,6"`). */
+  telas: string;
+  /** `pxPorDia` que a tela está usando agora. */
+  pxPorDiaAtual: number;
+  /** `pxPorDia` do zoom Trimestre — o mais largo dos fixos. */
+  pxPorDiaTrimestre: number;
+}): string {
+  const { telas, pxPorDiaAtual, pxPorDiaTrimestre } = params;
+  const trimestreAjuda = pxPorDiaTrimestre < pxPorDiaAtual;
+  return (
+    `A janela é maior que a tela: ${telas} telas de rolagem. ` +
+    (trimestreAjuda ? "Use ← → ou escolha Trimestre." : "Use ← → para percorrer.")
+  );
+}
