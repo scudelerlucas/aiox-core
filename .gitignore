@@ -384,3 +384,6 @@ build/
 .aiox-core/local/
 .claude/settings.local.json
 .aiox/install-log.txt
+
+# script gerado para colagem única, não versionado (vira cópia velha das migrations)
+packages/lifeboard/supabase/aplicar/PASSO-2-aplicar.sql
