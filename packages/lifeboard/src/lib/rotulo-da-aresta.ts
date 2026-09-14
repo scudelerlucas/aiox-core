@@ -82,6 +82,23 @@ function colidem(a: Retangulo, b: Retangulo): boolean {
 }
 
 /**
+ * P4h (achado BAIXO #6 do crítico hostil ROUND 8): a 200 nós o crítico mediu 3
+ * rótulos de sinergia POR CIMA de cartões (em 11 e 40 eram 0) — o teste de
+ * colisão é exato, então o que passou raspando passou. Uma FOLGA em px de
+ * mundo transforma "não encosta" em "não chega perto": o rótulo precisa de ar
+ * em volta, senão o texto encosta na borda do cartão e vira ruído.
+ */
+export const FOLGA_DO_ROTULO_MUNDO = 4;
+
+function inflado(r: Retangulo, folga: number): Retangulo {
+  return { x0: r.x0 - folga, y0: r.y0 - folga, x1: r.x1 + folga, y1: r.y1 + folga };
+}
+
+function contido(a: Retangulo, b: Retangulo): boolean {
+  return a.x0 >= b.x0 && a.y0 >= b.y0 && a.x1 <= b.x1 && a.y1 <= b.y1;
+}
+
+/**
  * Decide o ponto de cada rótulo. Ordem determinística (por id) — o mesmo grafo
  * produz sempre a mesma colocação. `null` = não há lugar livre; quem desenha
  * NÃO desenha o texto (e mantém o valor no rótulo acessível).
@@ -89,21 +106,43 @@ function colidem(a: Retangulo, b: Retangulo): boolean {
 export function colocarRotulos(
   pedidos: readonly PedidoDeRotulo[],
   cartoes: readonly Retangulo[],
+  opcoes: {
+    /**
+     * O retângulo do MUNDO que está na tela agora. Candidatos dentro dele são
+     * tentados primeiro — achado BAIXO #6: a 200 nós, 17 de 17 rótulos caíam
+     * fora do painel (em 11 e 40, 0 de 0). Não é filtro: se nenhum candidato
+     * visível servir, a ordem antiga continua valendo.
+     */
+    regiaoVisivel?: Retangulo;
+    /** Ar mínimo em volta do rótulo, em px de mundo. */
+    folga?: number;
+  } = {},
 ): Map<string, Ponto | null> {
+  const folga = opcoes.folga ?? FOLGA_DO_ROTULO_MUNDO;
   const saida = new Map<string, Ponto | null>();
   const ocupadas: Retangulo[] = [];
   const ordenados = [...pedidos].sort((a, b) => a.id.localeCompare(b.id));
   for (const pedido of ordenados) {
     let escolhido: Ponto | null = null;
-    for (const fracao of FRACOES_CANDIDATAS) {
-      const ponto = pontoNaFracao(pedido.pontos, fracao);
-      const caixa = caixaDoRotulo(ponto, pedido.largura, pedido.altura);
-      if (cartoes.some((c) => colidem(caixa, c))) continue;
-      if (ocupadas.some((o) => colidem(caixa, o))) continue;
-      escolhido = ponto;
-      ocupadas.push(caixa);
-      break;
+    let caixaEscolhida: Retangulo | null = null;
+    // Duas passadas: a 1ª só aceita o que está na tela; a 2ª aceita qualquer
+    // lugar livre (é a regra antiga, intacta, quando não há região).
+    const passadas = opcoes.regiaoVisivel ? [opcoes.regiaoVisivel, undefined] : [undefined];
+    for (const regiao of passadas) {
+      for (const fracao of FRACOES_CANDIDATAS) {
+        const ponto = pontoNaFracao(pedido.pontos, fracao);
+        const caixa = caixaDoRotulo(ponto, pedido.largura, pedido.altura);
+        const comFolga = inflado(caixa, folga);
+        if (regiao && !contido(caixa, regiao)) continue;
+        if (cartoes.some((c) => colidem(comFolga, c))) continue;
+        if (ocupadas.some((o) => colidem(comFolga, o))) continue;
+        escolhido = ponto;
+        caixaEscolhida = caixa;
+        break;
+      }
+      if (escolhido) break;
     }
+    if (caixaEscolhida) ocupadas.push(caixaEscolhida);
     saida.set(pedido.id, escolhido);
   }
   return saida;

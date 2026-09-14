@@ -4,6 +4,7 @@ import {
   caixaDoRotulo,
   caixaEstimadaDoTexto,
   colocarRotulos,
+  FOLGA_DO_ROTULO_MUNDO,
   pontoNaFracao,
   type PedidoDeRotulo,
   type Retangulo,
@@ -123,5 +124,83 @@ describe("pontoNaFracao / caixaEstimadaDoTexto — a geometria que o colocador u
   it("rota degenerada não quebra", () => {
     expect(pontoNaFracao([], 0.5)).toEqual({ x: 0, y: 0 });
     expect(pontoNaFracao([{ x: 5, y: 5 }], 0.5)).toEqual({ x: 5, y: 5 });
+  });
+});
+
+/**
+ * P4h — achado BAIXO #6 do crítico hostil ROUND 8: a 200 nós o crítico mediu 3
+ * rótulos de sinergia POR CIMA de cartões e 17 de 17 FORA do painel (em 11 e
+ * em 40 era 0/0/0 e 100% dentro). Duas causas distintas, duas curas:
+ *
+ *  • o teste de colisão era exato — o que passava raspando passava. Agora o
+ *    rótulo precisa de FOLGA em volta.
+ *  • o colocador não sabia que pedaço do mundo estava na tela. Agora ele tenta
+ *    primeiro os candidatos VISÍVEIS, e só depois o resto (nunca é filtro: um
+ *    rótulo fora da tela ainda é melhor que nenhum quando não há alternativa).
+ */
+describe("P4h — folga e região visível (achado BAIXO #6)", () => {
+  const pedido = (id: string, pontos: { x: number; y: number }[]): PedidoDeRotulo => ({
+    id,
+    pontos,
+    largura: 20,
+    altura: 12,
+  });
+
+  it("rótulo que apenas ENCOSTA num cartão é recusado pela folga", () => {
+    const caminho = [
+      { x: 0, y: 0 },
+      { x: 200, y: 0 },
+    ];
+    const meio = pontoNaFracao(caminho, 0.5);
+    const caixa = caixaDoRotulo(meio, 20, 12);
+    // Um cartão colado na borda de baixo do rótulo: sem folga passava.
+    const encostado: Retangulo = {
+      x0: caixa.x0,
+      x1: caixa.x1,
+      y0: caixa.y1 + FOLGA_DO_ROTULO_MUNDO / 2,
+      y1: caixa.y1 + 100,
+    };
+    const semFolga = colocarRotulos([pedido("a", caminho)], [encostado], { folga: 0 });
+    const comFolga = colocarRotulos([pedido("a", caminho)], [encostado]);
+    expect(semFolga.get("a")).toEqual(meio);
+    expect(comFolga.get("a")).not.toEqual(meio);
+  });
+
+  it("com região visível, o rótulo vai para um candidato DENTRO da tela", () => {
+    // Caminho longo: o meio (fração 0,5) cai fora do painel; um candidato
+    // mais perto da ponta cai dentro.
+    const caminho = [
+      { x: 0, y: 0 },
+      { x: 4000, y: 0 },
+    ];
+    const regiaoVisivel: Retangulo = { x0: 0, y0: -50, x1: 1200, y1: 50 };
+    const semRegiao = colocarRotulos([pedido("a", caminho)], []);
+    const comRegiao = colocarRotulos([pedido("a", caminho)], [], { regiaoVisivel });
+    expect(semRegiao.get("a")!.x).toBeGreaterThan(regiaoVisivel.x1);
+    expect(comRegiao.get("a")!.x).toBeLessThanOrEqual(regiaoVisivel.x1);
+    expect(comRegiao.get("a")!.x).toBeGreaterThanOrEqual(regiaoVisivel.x0);
+  });
+
+  it("a região é PREFERÊNCIA, não filtro: sem candidato visível, o rótulo ainda sai", () => {
+    const caminho = [
+      { x: 5000, y: 5000 },
+      { x: 6000, y: 5000 },
+    ];
+    const regiaoVisivel: Retangulo = { x0: 0, y0: 0, x1: 800, y1: 600 };
+    const saida = colocarRotulos([pedido("a", caminho)], [], { regiaoVisivel });
+    expect(saida.get("a")).not.toBeNull();
+  });
+
+  it("dois rótulos no mesmo lugar continuam sem se sobrepor, agora com folga entre eles", () => {
+    const caminho = [
+      { x: 0, y: 0 },
+      { x: 400, y: 0 },
+    ];
+    const saida = colocarRotulos([pedido("a", caminho), pedido("b", caminho)], []);
+    const a = saida.get("a")!;
+    const b = saida.get("b")!;
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(Math.abs(a.x - b.x)).toBeGreaterThanOrEqual(20 + FOLGA_DO_ROTULO_MUNDO);
   });
 });

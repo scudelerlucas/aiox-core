@@ -223,7 +223,7 @@ export function LayerTogglePanel({ ativas, alternar, fecharSinal }: LayerToggleP
   }, [expandido, mobile]);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         ref={pillRef}
         type="button"

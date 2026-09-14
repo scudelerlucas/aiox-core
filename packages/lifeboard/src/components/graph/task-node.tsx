@@ -4,7 +4,7 @@ import { useContext } from "react";
 import { Handle, Position, useViewport, type NodeProps } from "reactflow";
 
 import { GraphSelectionContext } from "@/components/graph/selection-context";
-import { tipografiaDoCartao } from "@/components/graph/tipografia-do-cartao";
+import { tipografiaDoCartao, tituloSeraCortado } from "@/components/graph/tipografia-do-cartao";
 import { SourceIcon } from "@/components/ui/source-icon";
 import { corDaFonte } from "@/lib/cor-da-fonte";
 import { configDoEstado, StatusChip } from "@/components/ui/status-chip";
@@ -156,6 +156,22 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
 
   const tituloComum = `text-bone-100 ${isDone ? "text-bone-400 line-through" : ""}`;
 
+  /**
+   * P4h (achado MÉDIO #5): o caminho SEM MOUSE até o nome inteiro. O `title`
+   * do SVG/HTML só existe para quem tem ponteiro; quem navega por teclado (Tab
+   * até o cartão, Espaço para marcar) recebia "Revisar o …" e nada mais.
+   * Quando o cartão está SELECIONADO **e** o nome de fato não coube, um painel
+   * abaixo do cartão mostra o título inteiro, quebrando linha. Sem seleção, ou
+   * com nome curto, nada aparece — o ruído seria pior que o corte.
+   */
+  const nomeCortado = tituloSeraCortado(task.title, {
+    modo: tipo.modo,
+    tituloPx: tipo.tituloPx,
+    dadoPx: tipo.dadoPx,
+    temMeta: task.isGoal,
+  });
+  const mostrarNomeInteiro = isSelected && nomeCortado;
+
   return (
     <div
       role="button"
@@ -185,7 +201,12 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         // ÚNICA fonte, lida também por `layout-do-grafo.ts` (passo de linha) e
         // `dependency-graph.tsx` (enquadramento). `overflow-hidden` é cinto de segurança do
         // CARTÃO (não do rodapé: nenhum span de dado do rodapé corta — D4).
-        "relative flex w-[200px] flex-col overflow-hidden rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
+        // `overflow-hidden` é cinto do CARTÃO, mas ele também cortaria o
+        // painel de nome inteiro (achado MÉDIO #5) — por isso ele só vale
+        // enquanto o painel não está aberto.
+        mostrarNomeInteiro
+          ? "relative flex w-[200px] flex-col rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra"
+          : "relative flex w-[200px] flex-col overflow-hidden rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
         borderClass,
         fundoDoEstado(task.status),
         isBlockedByPred ? "border-dashed opacity-55" : "",
@@ -208,6 +229,20 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
         aria-hidden="true"
         className={`absolute inset-y-0 left-0 w-1 ${cor.faixa}`}
       />
+
+      {/* P4h (achado MÉDIO #5): o nome inteiro, sem mouse. `aria-hidden`
+          porque o `aria-label` do cartão já começa pelo título completo — quem
+          ouve a tela receberia o nome duas vezes. */}
+      {mostrarNomeInteiro ? (
+        <span
+          aria-hidden="true"
+          data-nome-inteiro={task.title}
+          className="absolute left-0 top-full z-50 mt-1 w-[200px] whitespace-normal break-words rounded-md border border-gold-500/60 bg-navy-950/95 px-2 py-1 font-medium text-bone-100 shadow-panel"
+          style={{ fontSize: tipo.tituloPx, lineHeight: 1.3 }}
+        >
+          {task.title}
+        </span>
+      ) : null}
 
       {/* Quatro handles: a escolha de QUAL par usar por aresta é de
           `geometria-da-aresta.ts` (`handlesDaConexao`, pela LINHA relativa) e

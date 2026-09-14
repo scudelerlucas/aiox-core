@@ -72,3 +72,52 @@ export function tipografiaDoCartao(zoom: number): TipografiaDoCartao {
     tituloPx: Math.max(BASE_TITULO_PX, piso),
   };
 }
+
+/**
+ * P4h (achado MÉDIO #5 do crítico hostil ROUND 8): quantos caracteres do
+ * título cabem no cartão, por estimativa — e se o título vai ser CORTADO.
+ *
+ * O que ele mediu: a 390px os 40 cartões mostravam ~11 caracteres — "Revisar o
+ * …", "Gravar a …", "Publicar a…", "Fechar co…", doze cartões impossíveis de
+ * distinguir; a 1280 com 11 tarefas, ~18 caracteres, e a META do CPM aparecia
+ * como "META Deplo…". O `title` do SVG só chega ao MOUSE.
+ *
+ * Corrigido o #1, o zoom volta a ser um caminho de leitura. O que sobra — e é
+ * isto que esta função serve — é o caminho SEM MOUSE: `task-node.tsx` mostra o
+ * nome inteiro num painel quando o cartão está SELECIONADO (Tab até o cartão,
+ * Espaço para marcar), e só quando o nome de fato não coube.
+ *
+ * Não existe medição de fonte fora do navegador: 0,5 em por caractere é a
+ * régua conservadora da fonte do cartão (a mesma família de estimativa de
+ * `caixaEstimadaDoTexto`, que usa 0,62 para dígitos, mais largos que a média).
+ */
+export const LARGURA_UTIL_DO_TITULO_PX = 174;
+const EM_POR_CARACTERE = 0.5;
+
+export function caracteresQueCabemNoTitulo(params: {
+  modo: "cartao" | "mapa";
+  tituloPx: number;
+  dadoPx: number;
+  /** O cartão da META gasta largura com o selo na MESMA linha, no modo mapa. */
+  temMeta?: boolean;
+}): number {
+  let largura = LARGURA_UTIL_DO_TITULO_PX;
+  if (params.modo === "mapa") {
+    // ponto de estado (0,7 em) + o gap de 8px que o separa do título.
+    largura -= Math.round(params.dadoPx * 0.7) + 8;
+    if (params.temMeta) largura -= Math.round(params.dadoPx * 4.2) + 8;
+  }
+  return Math.max(0, Math.floor(largura / (params.tituloPx * EM_POR_CARACTERE)));
+}
+
+/** `true` quando o título não cabe inteiro no cartão e vai ser truncado. */
+export function tituloSeraCortado(titulo: string, params: {
+  modo: "cartao" | "mapa";
+  tituloPx: number;
+  dadoPx: number;
+  temMeta?: boolean;
+}): boolean {
+  // No modo cartão a META usa 2 linhas (`line-clamp-2`) — o dobro do espaço.
+  const linhas = params.modo === "cartao" && params.temMeta ? 2 : 1;
+  return titulo.length > caracteresQueCabemNoTitulo(params) * linhas;
+}

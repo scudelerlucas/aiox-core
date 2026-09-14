@@ -39,11 +39,16 @@ import {
   caixaDosCartoes,
   cartoesForaDaTela,
   enquadramentoComModo,
-  type Caixa,
+  enquadramentoDoAlvo,
   type CartaoNaTela,
   type EnquadramentoComModo,
   type Pane,
 } from "@/lib/enquadramento";
+import {
+  CLASSES_DA_BARRA_DO_GRAFO,
+  CLASSES_DO_CHIP_FORA_DA_TELA,
+} from "@/lib/altura-do-canvas";
+import { useReenquadramentoAutomatico } from "@/components/graph/reenquadramento-automatico";
 import { handlesDaConexao, zIndexDaAresta } from "@/lib/geometria-da-aresta";
 import { layoutDoGrafo, type Ponto } from "@/lib/layout-do-grafo";
 import { caixaEstimadaDoTexto, colocarRotulos, type Retangulo } from "@/lib/rotulo-da-aresta";
@@ -118,7 +123,7 @@ const PADDING_DO_ENQUADRAMENTO_PX = 24;
 const ZOOM_MAXIMO_DO_CRITICO = 1.2;
 const ZOOM_MAXIMO_DO_TUDO = 1;
 /** Teto do canvas (o mesmo `maxZoom` do `<ReactFlow>`). */
-const ZOOM_MAXIMO_DO_CANVAS = 1.8;
+export const ZOOM_MAXIMO_DO_CANVAS = 1.8;
 
 /** O que o operador escolheu enquadrar — lembrado entre refluxos (achado MÉDIO #10). */
 export type AlvoDoEnquadramento = "critico" | "tudo";
@@ -141,7 +146,7 @@ export function maxColunasParaLargura(larguraDoPane: number): number {
   return 3;
 }
 
-const NODE_W = 200;
+export const NODE_W = 200;
 /**
  * P4d (achado MÉDIO #6 do crítico hostil ROUND 3): `ALTURA_DO_CARTAO`
  * (`@/types/grafo-v3`) é o ÚNICO número — antes este arquivo, `layout-do-
@@ -150,10 +155,10 @@ const NODE_W = 200;
  * do mesmo jeito porque nada comparava um contra o outro).
  */
 const NODE_H = ALTURA_DO_CARTAO;
-const GAP_X = 56;
-const GAP_Y = 84;
+export const GAP_X = 56;
+export const GAP_Y = 84;
 /** Piso de `gapY` (item 1b da spec) — mesmo valor que `layout-do-grafo.ts` já impõe internamente. */
-const GAP_Y_MINIMO = 60;
+export const GAP_Y_MINIMO = 60;
 
 const nodeTypes: NodeTypes = { task: TaskNode };
 const edgeTypes: EdgeTypes = { v3: V3Edge };
@@ -229,30 +234,38 @@ function computeDepths(
  */
 function useEnquadramentos({
   paneRef,
-  caixaParaAltura,
+  cartoesParaAltura,
+  criticoSet,
   alturaDeCartao,
   alturaDeMapa,
   aoEnquadrar,
 }: {
   paneRef: RefObject<HTMLDivElement>;
-  caixaParaAltura: (altura: number, alvo: AlvoDoEnquadramento) => Caixa;
+  cartoesParaAltura: (altura: number, alvo: AlvoDoEnquadramento) => CartaoNaTela[];
+  criticoSet: ReadonlySet<string>;
   alturaDeCartao: number;
   alturaDeMapa: number;
   aoEnquadrar: (alvo: AlvoDoEnquadramento, previsao: EnquadramentoComModo) => void;
 }): (alvo: AlvoDoEnquadramento, duracaoMs?: number) => void {
-  const { setViewport } = useReactFlow();
+  const { setViewport, getViewport } = useReactFlow();
   return useCallback(
     (alvo: AlvoDoEnquadramento, duracaoMs = 200) => {
       const el = paneRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return;
-      const previsao = enquadramentoComModo({
-        caixaParaAltura: (altura) => caixaParaAltura(altura, alvo),
+      // P4h (achado ALTO #2): quando a caixa não cabe inteira, o pan MAXIMIZA
+      // cartões inteiros em vez de centrar — e o viewport vivo entra como
+      // candidato, para o botão nunca entregar menos do que já estava na tela.
+      const previsao = enquadramentoDoAlvo({
+        cartoesParaAltura: (altura) => cartoesParaAltura(altura, alvo),
         pane: { largura: r.width, altura: r.height },
         opcoes: opcoesDoAlvo(alvo),
         alturaCartao: alturaDeCartao,
         alturaMapa: alturaDeMapa,
+        criticoIds: criticoSet,
+        prioridade: alvo === "critico" ? "criticos" : "inteiros",
+        viewportAtual: getViewport(),
       });
       aoEnquadrar(alvo, previsao);
       void setViewport(
@@ -260,7 +273,16 @@ function useEnquadramentos({
         { duration: duracaoMs },
       );
     },
-    [paneRef, caixaParaAltura, alturaDeCartao, alturaDeMapa, aoEnquadrar, setViewport],
+    [
+      paneRef,
+      cartoesParaAltura,
+      criticoSet,
+      alturaDeCartao,
+      alturaDeMapa,
+      aoEnquadrar,
+      setViewport,
+      getViewport,
+    ],
   );
 }
 
@@ -295,7 +317,9 @@ function ControlesDoGrafo({
     "flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/95 px-3 text-xs font-medium text-bone-200 hover:bg-navy-700 hover:text-bone-100";
 
   return (
-    <div className="flex items-center gap-1.5">
+    /* `shrink-0`: a barra virou uma linha só de altura fixa (achado BAIXO #7)
+       — quem cede largura é o chip, nunca um controle de 44px. */
+    <div className="flex shrink-0 items-center gap-1.5">
       <button type="button" className={icone} aria-label="Diminuir zoom" onClick={() => void zoomOut()}>
         <ZoomOut size={16} />
       </button>
@@ -385,7 +409,7 @@ function GraphLegend({ fecharSinal }: { fecharSinal: number }): JSX.Element {
   useFecharPopover(expandido, containerRef, fechar);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         ref={pillRef}
         type="button"
@@ -513,10 +537,11 @@ function ChipForaDaTela({
       data-chip-fora-da-tela={conta.fora}
       onClick={() => enquadrar("tudo")}
       title={texto}
-      // Uma LINHA só: a 390px a mensagem inteira quebrava em três e a barra
-      // comia 200px de canvas. O texto recortado mantém o número na frente (é
-      // ele que importa) e o resto continua no `title`.
-      className="flex min-h-[44px] max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full border border-gold-500/60 bg-navy-850/95 px-3 text-xs font-medium text-gold-300 shadow-panel"
+      // Uma LINHA só, e com base 0 (`CLASSES_DO_CHIP_FORA_DA_TELA`): a 390px
+      // a mensagem quebrava em três, e mesmo numa linha o chip ainda empurrava
+      // a barra para baixo. O texto recortado mantém o número na frente (é ele
+      // que importa) e o resto continua no `title`.
+      className={CLASSES_DO_CHIP_FORA_DA_TELA}
     >
       <span className="truncate">{texto}</span>
     </button>
@@ -573,7 +598,8 @@ function BarraDoGrafo({
   onAltura,
   onZoom,
   camadas,
-  caixaParaAltura,
+  cartoesParaAltura,
+  criticoSet,
   alturaDeCartao,
   alturaDeMapa,
   alvo,
@@ -591,7 +617,8 @@ function BarraDoGrafo({
   onAltura: (altura: number) => void;
   onZoom: (zoom: number) => void;
   camadas: UseCamadasDoGrafo;
-  caixaParaAltura: (altura: number, alvo: AlvoDoEnquadramento) => Caixa;
+  cartoesParaAltura: (altura: number, alvo: AlvoDoEnquadramento) => CartaoNaTela[];
+  criticoSet: ReadonlySet<string>;
   alturaDeCartao: number;
   alturaDeMapa: number;
   alvo: AlvoDoEnquadramento;
@@ -603,7 +630,8 @@ function BarraDoGrafo({
   const { ativas: camadasAtivas, alternar: alternarCamada } = camadas;
   const enquadrar = useEnquadramentos({
     paneRef,
-    caixaParaAltura,
+    cartoesParaAltura,
+    criticoSet,
     alturaDeCartao,
     alturaDeMapa,
     aoEnquadrar,
@@ -616,28 +644,34 @@ function BarraDoGrafo({
    * pane mudam (o tamanho muda o número de colunas — D2).
    *
    * P4g (achado MÉDIO #10): o alvo reenquadrado é o que o OPERADOR escolheu
-   * por último, lido de um ref para não realimentar o efeito. Na rodada 6,
-   * redimensionar de 1280 para 390 com "Ver tudo" aplicado voltava para
-   * "Caminho crítico" — quem tinha 30 cartões inteiros ficava com 3.
+   * por último — lido na hora de aplicar, nunca como gatilho.
+   *
+   * P4h (achado CRÍTICO #1 da rodada 8): a lista de dependências deste efeito
+   * tinha `enquadrar` dentro, e a identidade de `enquadrar` muda a cada troca
+   * de MODO do cartão. Resultado medido: todo zoom do operador que cruzava
+   * 0,85 era desfeito em menos de 400ms (6 cliques, 6 vezes, em 1280 e 1440) e
+   * o modo CARTÃO não existia no produto. A lista agora é uma função pura
+   * (`dependenciasDoReenquadramento`) e o gesto do operador é soberano.
    */
-  const alvoRef = useRef(alvo);
-  alvoRef.current = alvo;
-  useEffect(() => {
-    if (!nodesInitialized) return;
-    const id = window.setTimeout(() => enquadrar(alvoRef.current, 200), 60);
-    return () => window.clearTimeout(id);
-  }, [nodesInitialized, assinaturaDoFiltro, larguraDoPane, alturaDoPane, enquadrar]);
+  useReenquadramentoAutomatico({
+    nodesInitialized,
+    assinaturaDoFiltro,
+    larguraDoPane,
+    alturaDoPane,
+    enquadrar,
+    alvo,
+  });
 
   return (
     <>
       <MedirAlturaReal onAltura={onAltura} />
       <ObservadorDeZoom onZoom={onZoom} />
-      {/* Uma fila só, que quebra sozinha: agrupar em duas colunas com
-          `justify-between` fazia o grupo da direita descer INTEIRO quando o
-          chip não cabia — três linhas de barra a 390px (157px de canvas
-          comidos). Plana, os seis controles cabem numa linha a 390 e só o chip
-          desce. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-navy-700 bg-navy-900/60 px-2 py-1.5">
+      {/* Uma fila só, de altura FIXA (`ALTURA_DA_BARRA_DO_GRAFO_PX`). Antes
+          ela quebrava sozinha, e o chip descendo para a 2ª linha engordava a
+          barra em 50px — o chip encolhia o canvas que ele mede (achado BAIXO
+          #7: `pane=541` com chip, `591` sem). Agora os seis controles ficam
+          fixos e só o chip cede largura (`basis-0` + `truncate`). */}
+      <div className={CLASSES_DA_BARRA_DO_GRAFO}>
         <GraphLegend fecharSinal={fecharPaineisSinal} />
         <LayerTogglePanel
           ativas={camadasAtivas}
@@ -793,9 +827,20 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
   /** Alvo escolhido pelo operador + se a última tentativa coube (achados #10 e D1/D2). */
   const [alvoDoEnquadramento, setAlvoDoEnquadramento] = useState<AlvoDoEnquadramento>("critico");
   const [cabeInteiro, setCabeInteiro] = useState(true);
+  /**
+   * P4h (achado BAIXO #6): o último enquadramento APLICADO, guardado só para o
+   * colocador de rótulos saber que pedaço do mundo está na tela. Nunca
+   * realimenta o reenquadramento — é estado de leitura, não gatilho.
+   */
+  const [ultimoEnquadramento, setUltimoEnquadramento] = useState<{
+    x: number;
+    y: number;
+    zoom: number;
+  } | null>(null);
   const aoEnquadrar = useCallback((alvo: AlvoDoEnquadramento, previsao: EnquadramentoComModo) => {
     setAlvoDoEnquadramento(alvo);
     setCabeInteiro(previsao.cabeInteiro);
+    setUltimoEnquadramento({ x: previsao.x, y: previsao.y, zoom: previsao.zoom });
   }, []);
 
   const criticoSet = useMemo(() => new Set(grafoV3.critico), [grafoV3.critico]);
@@ -929,44 +974,35 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
   );
 
   /**
-   * A caixa (px de mundo) do alvo pedido, PARA UMA ALTURA DE CARTÃO — é o que
+   * Os cartões (px de mundo) do alvo pedido, PARA UMA ALTURA DE CARTÃO — é o que
    * `enquadramentoComModo` precisa para resolver o ponto fixo "altura → caixa
    * → zoom → modo → altura". Reusa o layout vivo quando a altura é a atual;
    * só recalcula quando o enquadramento pergunta pelo outro modo (um clique,
    * nunca um frame de render).
    */
-  const caixaParaAltura = useCallback(
-    (altura: number, alvo: AlvoDoEnquadramento): Caixa => {
+  const cartoesParaAltura = useCallback(
+    (altura: number, alvo: AlvoDoEnquadramento): CartaoNaTela[] => {
       const daAltura =
         Math.abs(altura - nodeHEfetivo) < 0.5
           ? layout
           : layoutDoGrafo({ ...paramsDoLayout, nodeH: altura });
       const querCritico = alvo === "critico" && criticoSet.size > 0;
       const nos = [...daAltura.nodes.values()].filter((n) => !querCritico || criticoSet.has(n.id));
-      return caixaDosCartoes(
-        (nos.length > 0 ? nos : [...daAltura.nodes.values()]).map((n) => ({
-          id: n.id,
-          x: n.x,
-          y: n.y,
-          largura: NODE_W,
-          altura,
-        })),
-      );
+      return (nos.length > 0 ? nos : [...daAltura.nodes.values()]).map((n) => ({
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        largura: NODE_W,
+        altura,
+      }));
     },
     [layout, paramsDoLayout, nodeHEfetivo, criticoSet],
   );
 
   /** Os cartões em px de mundo — a MESMA fonte que desenha os nós. */
   const cartoes = useMemo<CartaoNaTela[]>(
-    () =>
-      [...layout.nodes.values()].map((n) => ({
-        id: n.id,
-        x: n.x,
-        y: n.y,
-        largura: NODE_W,
-        altura: nodeHEfetivo,
-      })),
-    [layout, nodeHEfetivo],
+    () => cartoesParaAltura(nodeHEfetivo, "tudo"),
+    [cartoesParaAltura, nodeHEfetivo],
   );
 
   /**
@@ -976,14 +1012,14 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
    */
   const rotuloDoVerTudo = useMemo(() => {
     const previsao = enquadramentoComModo({
-      caixaParaAltura: (altura) => caixaParaAltura(altura, "tudo"),
+      caixaParaAltura: (altura) => caixaDosCartoes(cartoesParaAltura(altura, "tudo")),
       pane,
       opcoes: opcoesDoAlvo("tudo"),
       alturaCartao: alturaDoModo("cartao"),
       alturaMapa: alturaDoModo("mapa"),
     });
     return previsao.cabeInteiro ? "Ver tudo" : "Ver o máximo possível";
-  }, [caixaParaAltura, pane, alturaDoModo]);
+  }, [cartoesParaAltura, pane, alturaDoModo]);
 
   const nodes = useMemo<Node<TaskNodeData>[]>(() => {
     return tasks.map((task) => {
@@ -1074,8 +1110,30 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
       x1: n.x + NODE_W,
       y1: n.y + nodeHEfetivo,
     }));
-    return colocarRotulos(pedidos, cartoes);
-  }, [arestasVisuais, camadasAtivas, rotaPorAresta, layout, nodeHEfetivo, fonteDoRotuloPx]);
+    // O pedaço do MUNDO que está na tela depois do último enquadramento —
+    // candidatos ali dentro vêm primeiro (achado BAIXO #6: 17/17 rótulos fora
+    // do painel a 200 nós).
+    const v = ultimoEnquadramento;
+    const regiaoVisivel: Retangulo | undefined =
+      v && v.zoom > 0
+        ? {
+            x0: -v.x / v.zoom,
+            y0: -v.y / v.zoom,
+            x1: (pane.largura - v.x) / v.zoom,
+            y1: (pane.altura - v.y) / v.zoom,
+          }
+        : undefined;
+    return colocarRotulos(pedidos, cartoes, { regiaoVisivel });
+  }, [
+    arestasVisuais,
+    camadasAtivas,
+    rotaPorAresta,
+    layout,
+    nodeHEfetivo,
+    fonteDoRotuloPx,
+    ultimoEnquadramento,
+    pane,
+  ]);
 
   const edges = useMemo<Edge<V3EdgeData>[]>(() => {
     const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
@@ -1186,7 +1244,8 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             onAltura={aoMedirAltura}
             onZoom={aoMudarZoom}
             camadas={camadas}
-            caixaParaAltura={caixaParaAltura}
+            cartoesParaAltura={cartoesParaAltura}
+            criticoSet={criticoSet}
             alturaDeCartao={alturaDoModo("cartao")}
             alturaDeMapa={alturaDoModo("mapa")}
             alvo={alvoDoEnquadramento}

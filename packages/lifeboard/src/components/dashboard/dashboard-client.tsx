@@ -21,6 +21,11 @@ import { SourceFilter, type SourceFilterOption } from "@/components/dashboard/so
 import { StaleSourceFlag } from "@/components/dashboard/stale-source-flag";
 import { TodayList, type TodayListItem } from "@/components/dashboard/today-list";
 import { Providers } from "@/components/providers";
+import {
+  CLASSES_DA_FAIXA_DE_BAIXO,
+  CLASSES_DA_SECAO_DO_GRAFO,
+  estiloDasAlturasDoCorpo,
+} from "@/lib/altura-do-canvas";
 import { passaNoFiltro } from "@/lib/filtro-de-fontes";
 import { useTodayQuery } from "@/hooks/use-today-query";
 import { useSourceFilter } from "@/stores/source-filter";
@@ -108,7 +113,16 @@ function DashboardInner({
     aba === alvo ? "flex" : "hidden lg:flex";
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-navy-950 text-bone-100">
+    /* P4h (achado MÉDIO #4): a partir de 1024px a PÁGINA rola. Era a única
+       forma de o canvas do desktop não ficar proporcionalmente MENOR que o do
+       tablet (medido: 354px a 1280 contra 534px a 768, com o tablet mostrando
+       12 cartões a mais em 200 nós) sem espremer "Hoje" contra o rodapé. O
+       grafo fica com a dobra; "Hoje" e "Fontes" ficam a um rolar — que é o que
+       o comentário do corpo já prometia. Números: `@/lib/altura-do-canvas`. */
+    <div
+      style={estiloDasAlturasDoCorpo()}
+      className="flex h-[100dvh] flex-col overflow-hidden bg-navy-950 text-bone-100 lg:h-auto lg:min-h-[100dvh] lg:overflow-y-auto"
+    >
       {/* ── CABEÇALHO ──────────────────────────────────────────────────── */}
       <header className="flex shrink-0 items-center gap-3 border-b border-navy-700 bg-navy-900 px-3 py-2.5 sm:px-4">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -261,10 +275,10 @@ function DashboardInner({
           1920 não é um grafo: é uma promessa. "Hoje" continua sendo a resposta
           da tela, e continua a um rolar de distância — mas quem precisa do
           grafo precisa dele inteiro. */}
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-none">
         <section
           aria-label="Grafo de dependências"
-          className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900 lg:min-h-[26rem]`}
+          className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900 ${CLASSES_DA_SECAO_DO_GRAFO}`}
         >
           <div className="flex min-h-[44px] shrink-0 items-center justify-between gap-2 border-b border-navy-700 px-3">
             <span className="text-sm font-semibold text-bone-300">
@@ -302,7 +316,7 @@ function DashboardInner({
         <div
           className={`flex min-h-0 ${
             aba === "grafo" ? "" : "flex-1"
-          } lg:h-[38%] lg:flex-none lg:border-t lg:border-navy-700`}
+          } ${CLASSES_DA_FAIXA_DE_BAIXO}`}
         >
           <aside
             className={`${visivel("fontes")} min-h-0 w-full shrink-0 flex-col overflow-y-auto border-navy-700 bg-navy-900 lg:w-60 lg:border-r xl:w-64`}

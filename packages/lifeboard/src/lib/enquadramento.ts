@@ -194,3 +194,231 @@ export function enquadramentoComModo(params: {
   });
   return { ...abaixoDoCorte, modo: "mapa" };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P4h (achado ALTO #2 do crítico hostil ROUND 7): no PISO do zoom, CENTRAR
+// mostra MENOS do que já estava na tela.
+//
+// O que ele mediu, com o MESMO zoom antes e depois (0,500) — só o pan mudou:
+// 40@390 caiu de 27/40 (4/4 críticos) para 24/40 (3/4); 200@1280 de 26 para
+// 20 e de 2 para 1 crítico; 200@1440 de 26 para 20. O chip era honesto ("24 de
+// 40 na tela"); o BOTÃO não.
+//
+// A causa é de uma linha: `enquadramentoPara` põe o CENTRO da caixa no centro
+// do pane. Quando a caixa é MAIOR que o pane isso corta as DUAS pontas —
+// encostar numa borda deixaria mais cartões INTEIROS. Centrar só é ótimo
+// quando cabe (e aí o pan nem importa).
+//
+// Decisão fixa da rodada 8: no piso de zoom o enquadramento **maximiza
+// cartões inteiros visíveis**, com desempate pelo caminho crítico, e nunca
+// entrega menos do que o estado que ele substitui (o pan atual entra como
+// candidato).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Quantos cartões cabem INTEIROS, e quantos deles são do caminho crítico. */
+export interface PlacarDeCartoes {
+  inteiros: number;
+  criticos: number;
+}
+
+export function placarDeCartoes(
+  cartoes: readonly CartaoNaTela[],
+  viewport: Viewport,
+  pane: Pane,
+  criticoIds: ReadonlySet<string> = new Set(),
+  tolerancia: number = TOLERANCIA_DE_CONTENCAO_PX,
+): PlacarDeCartoes {
+  const fora = new Set(cartoesForaDaTela(cartoes, viewport, pane, tolerancia));
+  let inteiros = 0;
+  let criticos = 0;
+  for (const c of cartoes) {
+    if (fora.has(c.id)) continue;
+    inteiros += 1;
+    if (criticoIds.has(c.id)) criticos += 1;
+  }
+  return { inteiros, criticos };
+}
+
+/** Qual placar vale mais, dado o que o operador pediu. */
+export type PrioridadeDoPan = "inteiros" | "criticos";
+
+function melhorQue(a: PlacarDeCartoes, b: PlacarDeCartoes, prioridade: PrioridadeDoPan): boolean {
+  if (prioridade === "criticos") {
+    if (a.criticos !== b.criticos) return a.criticos > b.criticos;
+    return a.inteiros > b.inteiros;
+  }
+  if (a.inteiros !== b.inteiros) return a.inteiros > b.inteiros;
+  return a.criticos > b.criticos;
+}
+
+/**
+ * Candidatos de deslocamento num eixo: os pontos em que ALGUMA ponta de cartão
+ * encosta numa borda do pane. O conjunto de cartões contidos é constante por
+ * pedaço em `x` (e em `y`), e todo pedaço termina exatamente num desses
+ * pontos — então o ótimo está sempre aqui dentro. Varrer o contínuo não
+ * acharia nada melhor.
+ */
+function candidatosDoEixo(
+  inicios: readonly number[],
+  tamanhos: readonly number[],
+  zoom: number,
+  medidaDoPane: number,
+): number[] {
+  const vistos = new Set<number>();
+  const saida: number[] = [];
+  const guardar = (v: number): void => {
+    const chave = Math.round(v * 1000) / 1000;
+    if (vistos.has(chave)) return;
+    vistos.add(chave);
+    saida.push(chave);
+  };
+  for (let i = 0; i < inicios.length; i++) {
+    guardar(-inicios[i]! * zoom);
+    guardar(medidaDoPane - (inicios[i]! + tamanhos[i]!) * zoom);
+  }
+  return saida;
+}
+
+/** Bitset simples (Uint32Array) — a interseção de dois eixos é um `and`. */
+function mascaraDoEixo(
+  candidato: number,
+  inicios: readonly number[],
+  tamanhos: readonly number[],
+  zoom: number,
+  medidaDoPane: number,
+  tolerancia: number,
+  palavras: number,
+): Uint32Array {
+  const m = new Uint32Array(palavras);
+  for (let i = 0; i < inicios.length; i++) {
+    const a = inicios[i]! * zoom + candidato;
+    const b = a + tamanhos[i]! * zoom;
+    if (a >= -tolerancia && b <= medidaDoPane + tolerancia) {
+      m[i >>> 5]! |= 1 << (i & 31);
+    }
+  }
+  return m;
+}
+
+function contarBits(x: number): number {
+  let v = x - ((x >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (v * 0x01010101) >>> 24;
+}
+
+/**
+ * O pan `(x, y)` que deixa o MAIOR número de cartões inteiros na tela, no zoom
+ * dado. Desempate: mais nós do caminho crítico (ou o contrário, quando o alvo
+ * é o próprio caminho crítico). `panAtual`, quando vem, entra como candidato —
+ * é o que garante que o botão nunca PIORE o que já estava na tela.
+ */
+export function panQueMaximizaCartoesInteiros(params: {
+  cartoes: readonly CartaoNaTela[];
+  zoom: number;
+  pane: Pane;
+  criticoIds?: ReadonlySet<string>;
+  prioridade?: PrioridadeDoPan;
+  panAtual?: { x: number; y: number };
+  tolerancia?: number;
+}): { x: number; y: number; placar: PlacarDeCartoes } {
+  const { cartoes, zoom, pane } = params;
+  const criticoIds = params.criticoIds ?? new Set<string>();
+  const prioridade = params.prioridade ?? "inteiros";
+  const tolerancia = params.tolerancia ?? TOLERANCIA_DE_CONTENCAO_PX;
+  const n = cartoes.length;
+  if (n === 0) return { x: 0, y: 0, placar: { inteiros: 0, criticos: 0 } };
+
+  const palavras = Math.ceil(n / 32);
+  const xs = cartoes.map((c) => c.x);
+  const ws = cartoes.map((c) => c.largura);
+  const ys = cartoes.map((c) => c.y);
+  const hs = cartoes.map((c) => c.altura);
+  const critMask = new Uint32Array(palavras);
+  for (let i = 0; i < n; i++) {
+    if (criticoIds.has(cartoes[i]!.id)) critMask[i >>> 5]! |= 1 << (i & 31);
+  }
+
+  const candX = candidatosDoEixo(xs, ws, zoom, pane.largura);
+  const candY = candidatosDoEixo(ys, hs, zoom, pane.altura);
+  if (params.panAtual) {
+    candX.push(params.panAtual.x);
+    candY.push(params.panAtual.y);
+  }
+
+  const masksX = candX.map((c) => mascaraDoEixo(c, xs, ws, zoom, pane.largura, tolerancia, palavras));
+  const masksY = candY.map((c) => mascaraDoEixo(c, ys, hs, zoom, pane.altura, tolerancia, palavras));
+
+  let melhorX = candX[0] ?? 0;
+  let melhorY = candY[0] ?? 0;
+  let melhorPlacar: PlacarDeCartoes = { inteiros: -1, criticos: -1 };
+  for (let i = 0; i < candX.length; i++) {
+    const mx = masksX[i]!;
+    for (let j = 0; j < candY.length; j++) {
+      const my = masksY[j]!;
+      let inteiros = 0;
+      let criticos = 0;
+      for (let p = 0; p < palavras; p++) {
+        const bits = mx[p]! & my[p]!;
+        if (bits === 0) continue;
+        inteiros += contarBits(bits);
+        criticos += contarBits(bits & critMask[p]!);
+      }
+      const placar = { inteiros, criticos };
+      if (melhorQue(placar, melhorPlacar, prioridade)) {
+        melhorPlacar = placar;
+        melhorX = candX[i]!;
+        melhorY = candY[j]!;
+      }
+    }
+  }
+  return { x: melhorX, y: melhorY, placar: melhorPlacar };
+}
+
+/**
+ * O enquadramento que o BOTÃO aplica: `enquadramentoComModo` decide zoom e
+ * modo (o ponto fixo altura→caixa→zoom→modo), e quando a caixa NÃO cabe
+ * inteira o pan deixa de centrar e passa a MAXIMIZAR cartões inteiros.
+ *
+ * Quando cabe inteiro, centrar é o ótimo (todos os cartões estão na tela em
+ * qualquer pan válido) e nada muda — os testes de D1/D2 da rodada 6 continuam
+ * valendo letra por letra.
+ */
+export function enquadramentoDoAlvo(params: {
+  cartoesParaAltura: (altura: number) => CartaoNaTela[];
+  pane: Pane;
+  opcoes: OpcoesDeEnquadramento;
+  alturaCartao: number;
+  alturaMapa: number;
+  criticoIds?: ReadonlySet<string>;
+  prioridade?: PrioridadeDoPan;
+  /** Viewport vivo. Só é usado quando o zoom não muda — aí o pan atual é candidato. */
+  viewportAtual?: Viewport;
+  zoomDoModoMapa?: number;
+}): EnquadramentoComModo {
+  const base = enquadramentoComModo({
+    caixaParaAltura: (altura) => caixaDosCartoes(params.cartoesParaAltura(altura)),
+    pane: params.pane,
+    opcoes: params.opcoes,
+    alturaCartao: params.alturaCartao,
+    alturaMapa: params.alturaMapa,
+    zoomDoModoMapa: params.zoomDoModoMapa,
+  });
+  if (base.cabeInteiro) return base;
+
+  const cartoes = params.cartoesParaAltura(
+    base.modo === "mapa" ? params.alturaMapa : params.alturaCartao,
+  );
+  const mesmoZoom =
+    params.viewportAtual !== undefined &&
+    Math.abs(params.viewportAtual.zoom - base.zoom) < 1e-6;
+  const { x, y } = panQueMaximizaCartoesInteiros({
+    cartoes,
+    zoom: base.zoom,
+    pane: params.pane,
+    criticoIds: params.criticoIds,
+    prioridade: params.prioridade,
+    panAtual: mesmoZoom ? { x: params.viewportAtual!.x, y: params.viewportAtual!.y } : undefined,
+  });
+  return { ...base, x, y };
+}
