@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { budgetMs } = require('../helpers/timing-budget');
 
 // =============================================================================
 // Extract the private method without loading full pipeline dependencies.
@@ -510,8 +511,8 @@ describe('UAP Session Bridge — Timing Budget', () => {
     callBridge(ctx, 'dev', 'full', metrics);
     const elapsed = Date.now() - start;
 
-    expect(elapsed).toBeLessThanOrEqual(20);
-    expect(metrics.loaders.synapseSession.duration).toBeLessThanOrEqual(20);
+    expect(elapsed).toBeLessThanOrEqual(budgetMs(20));
+    expect(metrics.loaders.synapseSession.duration).toBeLessThanOrEqual(budgetMs(20));
   });
 
   test('completes within 20ms on skip path', () => {
@@ -522,8 +523,8 @@ describe('UAP Session Bridge — Timing Budget', () => {
     callBridge(ctx, 'dev', 'full', metrics);
     const elapsed = Date.now() - start;
 
-    expect(elapsed).toBeLessThanOrEqual(20);
-    expect(metrics.loaders.synapseSession.duration).toBeLessThanOrEqual(20);
+    expect(elapsed).toBeLessThanOrEqual(budgetMs(20));
+    expect(metrics.loaders.synapseSession.duration).toBeLessThanOrEqual(budgetMs(20));
   });
 
   test('skip path is faster than write path', () => {

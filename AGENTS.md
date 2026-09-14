@@ -14,10 +14,27 @@ Siga `.aiox-core/constitution.md` como fonte de verdade:
 
 ## Workflow Obrigatorio
 
-1. Inicie por uma story em `docs/stories/`
-2. Implemente apenas o que os acceptance criteria pedem
-3. Atualize checklist (`[ ]` -> `[x]`) e file list
-4. Execute quality gates antes de concluir
+1. Entenda o escopo pedido e implemente apenas ele
+2. Quando houver uma story associada, siga os acceptance criteria dela e mantenha checklist (`[ ]` -> `[x]`) e file list atualizados
+3. Execute quality gates antes de concluir
+
+> **Sobre story obrigatoria (decisao do operador, 14/09/2026).** O passo 1 exigia
+> "inicie por uma story em `docs/stories/`". A exigencia foi retirada porque o
+> repositorio nao a pratica: `docs/stories/` nao existe, nenhuma story existe no
+> caminho exigido, e os PRs #15 a #21 foram todos mergeados sem. O gate
+> `Story Checkbox Validation` do CI tambem passa verde sem story, entao a regra
+> nao era conferida por mecanismo nenhum — era honra, e ninguem a cumpria.
+>
+> Uma regra que nenhum PR cumpre e nenhum gate confere nao protege nada: ela so
+> gera achado de revisao em todo PR e ensina a ignorar o documento. Story
+> continua sendo bem-vinda quando existir, e o passo 2 diz o que fazer nesse
+> caso.
+>
+> **A Constitution (`.aiox-core/constitution.md`, Artigo III) continua exigindo
+> story como MUST.** Ela e L1 (framework core, nao modificavel por PR), entao a
+> contradicao entre os dois documentos e real e consciente. Para resolver de
+> vez, ou o Artigo III muda pelo caminho proprio dele, ou `docs/stories/` passa
+> a existir com template e gate que confira.
 
 ## Quality Gates
 

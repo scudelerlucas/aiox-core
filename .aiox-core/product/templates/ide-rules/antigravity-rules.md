@@ -10,7 +10,7 @@ You are working with Synkra AIOX, an AI-Orchestrated System for Full Stack Devel
 - Follow agent-specific workflows and patterns
 
 ### Story-Driven Development
-1. **Always work from a story file** in docs/stories/
+1. **Work from a story file when one exists**, in docs/stories/ — not a prerequisite for all work (see AGENTS.md decision, 14/09/2026: no PR in this project's own repo has ever used docs/stories/)
 2. **Update story checkboxes** as you complete tasks: [ ] → [x]
 3. **Maintain the File List** section with all created/modified files
 4. **Follow acceptance criteria** exactly as written

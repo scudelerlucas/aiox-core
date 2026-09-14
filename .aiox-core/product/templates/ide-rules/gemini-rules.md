@@ -7,7 +7,7 @@ Este arquivo define as instrucoes do projeto para Gemini CLI neste repositorio.
 
 1. Siga a Constitution em `.aiox-core/constitution.md`
 2. Priorize `CLI First -> Observability Second -> UI Third`
-3. Trabalhe por stories em `docs/stories/`
+3. Trabalhe por stories em `docs/stories/` quando houver uma (nao e pre-requisito — decisao do operador, 14/09/2026, ver AGENTS.md)
 4. Nao invente requisitos fora dos artefatos existentes
 <!-- AIOX-MANAGED-END: core -->
 
