@@ -2780,3 +2780,159 @@ begin
   end if;
   raise exception 'FALHA: T51 D43 barreira=% tabelas com gatilho diferido=% (%)', v_flag, v_n, coalesce(v_tabelas, '(nenhuma)');
 end $$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- RODADA 10 · T52–T55 — os quatro P1 que esta suíte NÃO via
+-- ═════════════════════════════════════════════════════════════════════════════
+-- Medido em 14/09: com a 0019 defeituosa reposta no lugar da 0020, esta suíte
+-- passava 51/51. Ela é a guarda COMPORTAMENTAL do banco e era CEGA para os
+-- quatro P1 que CodeRabbit e Codex acharam — inclusive para o livro-razão
+-- dobrando dinheiro sob concorrência. Os quatro blocos abaixo fecham isso.
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T52 · D42 — painel_caixa_lancar TOMA a trava da entidade
+-- O P1 que os dois revisores acharam separados: o comentário da 0019 dizia
+-- "serializa dois lançamentos da mesma entidade" e não havia lock nenhum; duas
+-- transações liam o mesmo líquido e as duas lançavam o valor inteiro (medido
+-- fora desta suíte, com duas conexões: US$ 200 em 2 linhas em vez de 100 em 1).
+-- Concorrência real precisa de duas conexões, e esta suíte roda numa só. O que
+-- se prova aqui é o MECANISMO, e de forma comportamental, não por ortografia:
+-- depois da chamada, a transação tem de estar SEGURANDO um advisory lock a
+-- mais. Tirar a linha do lock da função derruba este bloco.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T52-entidade-de-prova';
+  v_antes integer;
+  v_depois integer;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  select count(*) into v_antes
+    from pg_locks where locktype = 'advisory' and pid = pg_backend_pid();
+
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 100, 'medido');
+
+  select count(*) into v_depois
+    from pg_locks where locktype = 'advisory' and pid = pg_backend_pid();
+
+  if v_depois = v_antes + 1 then
+    raise exception 'RESULTADO: ok — T52 D42 a entidade é travada antes da leitura do líquido (advisory locks % -> %)',
+      v_antes, v_depois;
+  end if;
+  raise exception 'FALHA: T52 D42 painel_caixa_lancar NÃO tomou a trava da entidade: advisory locks antes=% depois=% (esperado depois=antes+1)',
+    v_antes, v_depois;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T53 · D43 — medir o MESMO valor que a estimativa ainda grava a medição
+-- Item cancelado lança ESTIMATIVA de 80 na entidade; o worker volta e relata
+-- MEDIDO 80 — mesmo número. A 0019 saía pela porta curta (`v_liquido = v_alvo`)
+-- sem gravar nada, então `medido_em` nunca existia e a conta lia como NUNCA
+-- MEDIDA. Com `exigir_medicao_recente` ligada, isso barra todo pull futuro.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T53-entidade-de-prova';
+  v_medidos integer;
+  v_liquido numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 80, 'estimativa');
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 80, 'medido', null, null, now());
+
+  select count(*) into v_medidos
+    from public.painel_caixa_lancamentos
+   where entidade_id = v_ent and origem = 'medido' and medido_em is not null;
+  select coalesce(sum(valor_usd), 0) into v_liquido
+    from public.painel_caixa_lancamentos where entidade_id = v_ent;
+
+  if v_medidos = 1 and v_liquido = 80 then
+    raise exception 'RESULTADO: ok — T53 D43 medição de mesmo valor grava proveniência: linhas medidas=% líquido=%',
+      v_medidos, v_liquido;
+  end if;
+  raise exception 'FALHA: T53 D43 esperado 1 linha medida com medido_em e líquido 80, obteve medidas=% líquido=%',
+    v_medidos, v_liquido;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T54 · D44 — a parcela ESTIMADA desconta os estornos
+-- Estimativa de 120 corrigida para 50 medidos deixa três linhas: +120
+-- estimativa, -120 estorno, +50 medido. Filtrar só `origem = 'estimativa'`
+-- ignorava a segunda, e o cartão dizia "US$ 120 disso é estimativa" num dia
+-- cujo total é 50.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T54-entidade-de-prova';
+  v_estimada numeric;
+  v_itens integer;
+  v_total numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 120, 'estimativa');
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 50, 'medido', null, null, now());
+
+  v_estimada := public.painel_fila_estimativa_usd(v_conta);
+  v_itens    := public.painel_fila_estimativa_itens(v_conta);
+  v_total    := public.painel_caixa_do_dia(v_conta, public.painel_dia_operador());
+
+  if v_estimada = 0 and v_itens = 0 and v_total = 50 then
+    raise exception 'RESULTADO: ok — T54 D44 estimativa corrigida sai da parcela: estimada=% itens=% total do dia=%',
+      v_estimada, v_itens, v_total;
+  end if;
+  raise exception 'FALHA: T54 D44 esperado estimada=0 itens=0 total=50, obteve estimada=% itens=% total=%',
+    v_estimada, v_itens, v_total;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T55 · D45 — o que o OPERADOR digitou não é medição
+-- A abertura da 0019 rotulava `medido` (com `medido_em`) todo custo digitado à
+-- mão, e isso SOLTA a trava de medição recente de uma conta que nunca teve
+-- sessão medida. A regra, na porta: origem `operador` não carimba `medido_em`,
+-- e `painel_fila_medido_ate` não a conta como medição.
+--
+-- HONESTIDADE SOBRE O QUE ESTE BLOCO NÃO PROVA. Medido: ele passa TAMBÉM com a
+-- 0019 defeituosa reposta — ao contrário de T52/T53/T54, que caem. Não é um
+-- descuido: o defeito do D45 morava na QUERY DE ABERTURA da migration, não em
+-- `painel_caixa_lancar`, e query de migration não é chamável daqui. O que este
+-- bloco guarda é a INVARIANTE (origem operador nunca vira medição pela porta),
+-- que é o que impede o defeito de voltar por um caminho novo.
+-- A guarda de regressão da abertura em si é a §5 da 0020, que aborta a
+-- migration se sobrar linha de abertura rotulada `medido` com `custo_origem =
+-- 'operador'` — e essa foi provada por mutação (neutralizando o UPDATE da §4,
+-- a §5 aborta).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T55-entidade-de-prova';
+  v_medido_em timestamptz;
+  v_medido_ate timestamptz;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 42, 'operador', null, null, now());
+
+  select medido_em into v_medido_em
+    from public.painel_caixa_lancamentos where entidade_id = v_ent;
+  v_medido_ate := public.painel_fila_medido_ate(v_conta);
+
+  if v_medido_em is null and v_medido_ate is null then
+    raise exception 'RESULTADO: ok — T55 D45 custo digitado pelo operador não vira medição: medido_em=% medido_ate=%',
+      coalesce(v_medido_em::text, 'null'), coalesce(v_medido_ate::text, 'null');
+  end if;
+  raise exception 'FALHA: T55 D45 o custo do operador virou medição: medido_em=% medido_ate=% (esperado os dois nulos)',
+    coalesce(v_medido_em::text, 'null'), coalesce(v_medido_ate::text, 'null');
+end $$;
