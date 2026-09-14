@@ -102,7 +102,10 @@ function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
 }
 
 // ═══════════════════════════════════════════════════════════════ nota_add ═
-async function notaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+async function notaAdd(
+  campos: CamposDeEscrita,
+  permiteDataOriginal: boolean,
+): Promise<EstadoAcaoTarefa> {
   const taskId = textoOu(campos, "task_id");
   const texto = textoOu(campos, "texto");
   const autor = textoOuNulo(campos, "autor");
@@ -117,11 +120,18 @@ async function notaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
     return { erro: `O nome do autor não pode passar de ${AUTOR_MAXIMO} caracteres.` };
   }
 
-  // [MÉDIO #4, rodada 7] só o DESFAZER manda `criado_em`; uma nota nova não
-  // manda nada e o banco usa `now()`, como sempre.
+  // [MÉDIO #4, rodada 7 + P2 do Codex, rodada 10] só o DESFAZER manda
+  // `criado_em`. Na rodada 7 isso era CONVENÇÃO — `nota_criar` e
+  // `nota_desfazer` caem no mesmo handler, e ele aceitava a data em qualquer
+  // um dos dois. O selo do pedido é só do compilador: um cliente autenticado
+  // monta o objeto na mão e retrodata uma nota NOVA, com a tela omitindo o
+  // campo. Agora quem decide é a OPERAÇÃO, não a presença do campo.
   const criadoEmBruto = textoOuNulo(campos, "criado_em");
   let criadoEm: string | null = null;
   if (criadoEmBruto !== null) {
+    if (!permiteDataOriginal) {
+      return { erro: "Uma nota nova não escolhe a própria data." };
+    }
     const v = dataOriginalValidaOuErro(criadoEmBruto);
     if ("erro" in v) return { erro: v.erro };
     criadoEm = v.iso;
@@ -274,7 +284,10 @@ async function statusSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
 }
 
 // ══════════════════════════════════════════════════════════════ aresta_add ═
-async function arestaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+async function arestaAdd(
+  campos: CamposDeEscrita,
+  permiteDataOriginal: boolean,
+): Promise<EstadoAcaoTarefa> {
   const origem = textoOu(campos, "origem");
   const destino = textoOu(campos, "destino");
   const tipo = textoOu(campos, "tipo") as EdgeTipo;
@@ -299,10 +312,15 @@ async function arestaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
     return { erro: `A nota da relação não pode passar de ${ARESTA_NOTA_MAX} caracteres.` };
   }
 
-  // [MÉDIO #4, rodada 7] mesma régua da nota — só o desfazer preenche.
+  // [MÉDIO #4, rodada 7 + P2 do Codex, rodada 10] mesma régua da nota, e pelo
+  // mesmo motivo: `relacao_criar` e `relacao_desfazer_exclusao` compartilham
+  // este handler, então a presença do campo não pode ser o critério.
   const criadoEmBruto = textoOuNulo(campos, "criado_em");
   let criadoEm: string | null = null;
   if (criadoEmBruto !== null) {
+    if (!permiteDataOriginal) {
+      return { erro: "Uma relação nova não escolhe a própria data." };
+    }
     const v = dataOriginalValidaOuErro(criadoEmBruto);
     if ("erro" in v) return { erro: v.erro };
     criadoEm = v.iso;
@@ -372,16 +390,20 @@ export async function escreverTarefaAction(
       : {};
 
   switch (op) {
+    // A DATA ORIGINAL só viaja no desfazer, e quem diz isso é a operação —
+    // nunca a presença do campo (P2 do Codex, rodada 10).
     case "nota_criar":
+      return notaAdd(campos, false);
     case "nota_desfazer":
-      return notaAdd(campos);
+      return notaAdd(campos, true);
     case "nota_excluir":
       return notaDel(campos);
     case "subtarefa_criar":
       return subtarefaAdd(campos);
     case "relacao_criar":
+      return arestaAdd(campos, false);
     case "relacao_desfazer_exclusao":
-      return arestaAdd(campos);
+      return arestaAdd(campos, true);
     case "relacao_excluir":
     case "relacao_desfazer_criacao":
       return arestaDel(campos);

@@ -596,3 +596,78 @@ describe("tarefa/actions — mutar(): operação desconhecida (achado BAIXO #6, 
     consoleErrorSpy.mockRestore();
   });
 });
+
+/**
+ * [P2 do Codex, rodada 10] A DATA ORIGINAL é privilégio do DESFAZER.
+ *
+ * `nota_criar` e `nota_desfazer` caem no MESMO handler; idem `relacao_criar` e
+ * `relacao_desfazer_exclusao`. Até a rodada 9 o handler aceitava `criado_em`
+ * vindo em qualquer um dos dois, e a regra "só o desfazer manda a data" era
+ * uma CONVENÇÃO escrita em comentário.
+ *
+ * O selo do `PedidoDeEscrita` é um `unique symbol` — some na compilação. Do
+ * outro lado da rede o pedido é um objeto comum, então um cliente autenticado
+ * monta `{ op: "nota_criar", campos: { criado_em: "2020-01-01..." } }` na mão
+ * e RETRODATA uma nota nova, com a tela nunca tendo mostrado o campo. O
+ * estrago é na ordem cronológica: a nota nasce no passado, no meio do
+ * histórico de outra época.
+ *
+ * Agora quem decide é a OPERAÇÃO. Estes 4 testes são a guarda.
+ */
+describe("tarefa/actions — `criado_em` só no desfazer (P2 do Codex, rodada 10)", () => {
+  const modoOriginal = process.env.LIFEBOARD_DATA_MODE;
+  const DATA = "2020-01-01T12:00:00.000Z";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.LIFEBOARD_DATA_MODE = "live";
+    vi.mocked(mutateLifeboard).mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    if (modoOriginal === undefined) delete process.env.LIFEBOARD_DATA_MODE;
+    else process.env.LIFEBOARD_DATA_MODE = modoOriginal;
+  });
+
+  it("RECUSA `criado_em` numa nota NOVA — e não grava nada", async () => {
+    const r = await porOp("nota_criar")(
+      {},
+      form({ task_id: "task-build", texto: "nota forjada", criado_em: DATA }),
+    );
+    expect(r).toEqual({ erro: "Uma nota nova não escolhe a própria data." });
+    expect(mutateLifeboard).not.toHaveBeenCalled();
+  });
+
+  it("ACEITA `criado_em` no desfazer da nota — a data original volta", async () => {
+    const r = await porOp("nota_desfazer")(
+      {},
+      form({ task_id: "task-build", texto: "nota restaurada", criado_em: DATA }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith(
+      "nota_add",
+      expect.objectContaining({ criado_em: DATA }),
+    );
+  });
+
+  it("RECUSA `criado_em` numa relação NOVA — e não grava nada", async () => {
+    const r = await porOp("relacao_criar")(
+      {},
+      form({ origem: "a", destino: "b", tipo: "predecessor", criado_em: DATA }),
+    );
+    expect(r).toEqual({ erro: "Uma relação nova não escolhe a própria data." });
+    expect(mutateLifeboard).not.toHaveBeenCalled();
+  });
+
+  it("ACEITA `criado_em` no desfazer da exclusão da relação", async () => {
+    const r = await porOp("relacao_desfazer_exclusao")(
+      {},
+      form({ origem: "a", destino: "b", tipo: "predecessor", criado_em: DATA }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith(
+      "aresta_add",
+      expect.objectContaining({ criado_em: DATA }),
+    );
+  });
+});
