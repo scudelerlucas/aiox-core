@@ -223,6 +223,11 @@ describe("ALTO #1 — a escrita só existe através da porta (arquitetura, não 
       }
     }
     expect(semTipos).not.toMatch(/export\s+default/);
+    // [Achado CodeRabbit, trivial] `export *` não nomeia nada, então as duas
+    // varreduras acima (declaração e `export { }`) não o veem: um
+    // `export * from "./despachante"` republicaria `mutar` como endpoint sem
+    // que `exportadas` mudasse de tamanho.
+    expect(semTipos).not.toMatch(/export\s*\*/);
     expect(exportadas.filter((n) => n.length > 0).sort()).toEqual(["escreverTarefaAction"]);
 
     // E o despachante, do outro lado da fronteira, não pode ganhar o selo:
