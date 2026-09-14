@@ -194,8 +194,42 @@ describe("ALTO #1 — a escrita só existe através da porta (arquitetura, não 
     // Nenhuma das dez operações continua exportada: não há o que pôr num
     // `<form action={...}>` nem o que importar num handler de rota.
     expect(src).not.toMatch(/export async function \w+Action\(\s*_estado[^)]*form: FormData/);
-    const exportadas = [...src.matchAll(/export\s+async\s+function\s+(\w+)/g)].map((m) => m[1]);
-    expect(exportadas.sort()).toEqual(["escreverTarefaAction", "mutar"]);
+    // [Achado MAIOR, CodeRabbit] Este arquivo é `"use server"`: TODA função
+    // exportada dele vira uma Server Action pública, com endpoint próprio,
+    // chamável pela rede por qualquer cliente autenticado. `mutar` estava
+    // exportada aqui "só para teste" e era, na prática, uma porta dos fundos
+    // para as 10 operações — sem PedidoDeEscrita, sem porta, sem anúncio.
+    // Agora ela mora em `app/tarefa/despachante.ts`, que NÃO é `"use server"`.
+    //
+    // Esta asserção é a guarda: UMA export só. Qualquer export novo aqui é um
+    // endpoint novo exposto na internet, e derruba este teste.
+    expect(src.startsWith('"use server"')).toBe(true);
+
+    // A guarda conta TODA forma de export de VALOR, não só `export async
+    // function` — medido: com só aquela forma, um `export { mutar } from
+    // "./despachante"` reabria o endpoint com os 81 testes deste arquivo
+    // verdes. Tipos saem antes: `export type` é apagado na compilação e não
+    // vira endpoint.
+    const semTipos = src.replace(/export\s+type\s*\{[^}]*\}[^;]*;/g, "");
+    const exportadas: string[] = [];
+    for (const m of semTipos.matchAll(/export\s+(?:async\s+)?(?:function|const|let|var|class)\s+(\w+)/g)) {
+      exportadas.push(m[1] ?? "");
+    }
+    for (const m of semTipos.matchAll(/export\s*\{([^}]*)\}/g)) {
+      for (const parte of (m[1] ?? "").split(",")) {
+        const cru = parte.trim();
+        if (cru.length === 0 || cru.startsWith("type ")) continue;
+        exportadas.push((cru.split(/\s+as\s+/).pop() ?? "").trim());
+      }
+    }
+    expect(semTipos).not.toMatch(/export\s+default/);
+    expect(exportadas.filter((n) => n.length > 0).sort()).toEqual(["escreverTarefaAction"]);
+
+    // E o despachante, do outro lado da fronteira, não pode ganhar o selo:
+    // um `"use server"` aqui republicaria `mutar` como endpoint.
+    const despachante = codigoDoArquivo("app/tarefa/despachante.ts");
+    expect(despachante).not.toContain('"use server"');
+    expect(despachante).toMatch(/export async function mutar\(/);
   });
 
   it("PRONTO QUANDO: a conversão do selo existe em UM arquivo só — a porta", () => {
@@ -235,7 +269,9 @@ describe("ALTO #1 — a segunda rede: quem toca a superfície de escrita (src/ i
     expect(intrusos, `arquivos escrevendo fora da porta:\n${intrusos.join("\n")}`).toEqual([]);
     // E cada portador justifica a sua presença em uma linha.
     for (const p of PORTADORES) expect(p.motivo.length, p.arquivo).toBeGreaterThan(30);
-    expect(PORTADORES).toHaveLength(2);
+    // 3 desde a rodada 10: o despachante virou arquivo próprio para sair da
+    // fronteira `"use server"` (achado MAIOR do CodeRabbit).
+    expect(PORTADORES).toHaveLength(3);
     console.log("Superfície de escrita vigiada:");
     for (const [modulo, nomes] of Object.entries(SUPERFICIE_DE_ESCRITA)) {
       console.log("  -", modulo, "→", nomes.join(", "));

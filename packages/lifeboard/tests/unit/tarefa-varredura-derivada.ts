@@ -209,7 +209,12 @@ export function varrer(): SitioDeEscrita[] {
  * componente. A lista é curta de propósito: ela é a fronteira.
  */
 export const SUPERFICIE_DE_ESCRITA: Readonly<Record<string, readonly string[]>> = {
-  "@/app/tarefa/actions": ["escreverTarefaAction", "mutar"],
+  // [Achado MAIOR, CodeRabbit] `mutar` saiu daqui: `actions.ts` é `"use server"`
+  // e todo export dele vira Server Action pública. Agora mora no despachante,
+  // que não é `"use server"` — continua sendo superfície de escrita, mas não é
+  // mais um endpoint na internet.
+  "@/app/tarefa/actions": ["escreverTarefaAction"],
+  "@/app/tarefa/despachante": ["mutar"],
   "@/lib/supabase/live-client": ["mutateLifeboard"],
   "@/lib/repositories/tasks.fixture-store": [
     "notaAddFixture",
@@ -234,7 +239,12 @@ export const PORTADORES: readonly { arquivo: string; motivo: string }[] = [
   {
     arquivo: "app/tarefa/actions.ts",
     motivo:
-      "é o lado servidor da porta: valida em português e despacha para a RPC live ou para o store do fixture. Não tem componente, nem foco a entregar, nem região viva.",
+      "é o lado servidor da porta: valida em português e chama o despachante. Não tem componente, nem foco a entregar, nem região viva. Exporta APENAS escreverTarefaAction — é `\"use server\"`, então todo export seria um endpoint público.",
+  },
+  {
+    arquivo: "app/tarefa/despachante.ts",
+    motivo:
+      "é o despachante live × fixture, fora da fronteira `\"use server\"` de propósito: exportado de actions.ts ele era uma Server Action pública que pulava a porta inteira (achado MAIOR do CodeRabbit).",
   },
   {
     arquivo: "components/task/porta-de-escrita.ts",

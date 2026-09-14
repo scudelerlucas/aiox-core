@@ -447,13 +447,26 @@ select
   public.painel_dia_operador(f.concluido_em),
   f.conta,
   f.custo_usd,
-  case when f.custo_e_estimativa then 'estimativa' else 'medido' end,
+  -- D45 (rodada 10, P1 do Codex): a 0018 criou `custo_origem` justamente para
+  -- separar `operador` de `medido`, e esta abertura ignorava a coluna —
+  -- rotulava como MEDIÇÃO todo custo que o operador tinha digitado à mão, com
+  -- `medido_em` preenchido. Isso solta a trava `exigir_medicao_recente` de uma
+  -- conta que nunca teve sessão medida. Quem já abriu o livro é reparado pela
+  -- §4 da 0020; daqui para a frente nasce certo.
+  case
+    when f.custo_origem = 'operador' then 'operador'
+    when f.custo_e_estimativa then 'estimativa'
+    else 'medido'
+  end,
   true,
   case when f.session_id is not null then 'sessao' else 'item' end,
   coalesce(f.session_id, f.id::text),
   f.id,
   f.session_id,
-  case when f.custo_e_estimativa then null else f.concluido_em end,
+  case
+    when f.custo_origem = 'operador' or f.custo_e_estimativa then null
+    else f.concluido_em
+  end,
   'abertura da rodada 9 — mesmo dia que painel_fila_itens_do_dia já atribuía'
 from public.painel_fila_prompts f
 left join lateral (

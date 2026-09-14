@@ -9,13 +9,18 @@
  *  2. valida em português, com a MESMA régua do banco (`atomosDeclaradosValidos`,
  *     `pesoValido`, `FAIXAS_ESFORCO_CUSTO`) — pega o erro ANTES de gastar uma
  *     chamada de rede, mas nunca reimplementa o que o CHECK/gatilho já garante;
- *  3. despacha para o modo certo — RPC live (`mutateLifeboard`) ou o store em
- *     memória do fixture (`tasks.fixture-store`) — e nunca lança: sempre
+ *  3. despacha por `mutar` (`@/app/tarefa/despachante`) e nunca lança: sempre
  *     devolve `{ erro }` ou `{ ok: true, id? }`, o par que `useFormState` espera;
  *  4. em sucesso, revalida as 3 rotas que podem ter mudado.
  *
- * Nenhuma ação chama a RPC em modo fixture, e nenhuma toca o store em modo
- * live — `env.LIFEBOARD_DATA_MODE` decide uma vez, no topo de `mutar()`.
+ * [Achado MAIOR, CodeRabbit + rodada 10] Este módulo é `"use server"`, então
+ * TUDO que ele exporta vira uma Server Action pública, chamável pela rede por
+ * qualquer cliente autenticado. Por isso o despachante `mutar` foi movido para
+ * `@/app/tarefa/despachante`, que não é `"use server"`: exportado daqui, ele
+ * era uma porta dos fundos que pulava a porta de escrita inteira.
+ *
+ * **A regra que fica: este arquivo exporta APENAS `escreverTarefaAction`.**
+ * Qualquer export novo aqui é um endpoint novo na internet — pense duas vezes.
  */
 
 import { revalidatePath } from "next/cache";
@@ -27,21 +32,8 @@ import {
   type PedidoDeEscrita,
 } from "@/app/tarefa/pedido";
 
-import { env } from "@/config/env";
+import { mutar } from "@/app/tarefa/despachante";
 import { dataOriginalValidaOuErro } from "@/lib/fuso";
-import { mutateLifeboard } from "@/lib/supabase/live-client";
-import {
-  arestaAddFixture,
-  arestaDelFixture,
-  atomosSetFixture,
-  estimativaSetFixture,
-  goalSetFixture,
-  notaAddFixture,
-  notaDelFixture,
-  parentSetFixture,
-  statusSetFixture,
-  subtarefaAddFixture,
-} from "@/lib/repositories/tasks.fixture-store";
 import {
   atomosDeclaradosValidos,
   AUTOR_MAXIMO,
@@ -49,7 +41,7 @@ import {
   pesoValido,
   TITULO_MAXIMO,
 } from "@/core/prioritize/tipos-v3";
-import type { AssimetriaDeclarada, EdgeTipo, TaskStatus } from "@/types/canonical";
+import type { EdgeTipo, TaskStatus } from "@/types/canonical";
 
 export type { EstadoAcaoTarefa } from "@/app/tarefa/pedido";
 
@@ -107,73 +99,6 @@ function textoOu(campos: CamposDeEscrita, campo: string): string {
 function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
   const v = textoOu(campos, campo).trim();
   return v.length > 0 ? v : null;
-}
-
-/** Dispatcher único: live chama a RPC secret-gated; fixture, o store em memória. */
-type ResultadoMutar = { ok: true; id?: string } | { erro: string };
-
-/**
- * Exportado só para teste (achado BAIXO #6, rodada 4): nenhuma action pública
- * chama `mutar` com um `op` fora da lista abaixo — o ramo `default` do
- * `switch` é morto em produção por construção, e só é alcançável chamando
- * `mutar` diretamente com um valor inválido. Sem export, esse ramo nunca
- * ganhava teste (o crítico apontou isso: "Operação desconhecida." sem
- * cobertura).
- */
-export async function mutar(op: string, payload: Record<string, unknown>): Promise<ResultadoMutar> {
-  if (env.LIFEBOARD_DATA_MODE === "live") {
-    return mutateLifeboard(op, payload);
-  }
-  switch (op) {
-    case "nota_add":
-      return notaAddFixture(
-        payload.task_id as string,
-        payload.texto as string,
-        (payload.autor as string | null) ?? null,
-        (payload.criado_em as string | null) ?? null,
-      );
-    case "nota_del":
-      return notaDelFixture(payload.id as string);
-    case "subtarefa_add":
-      return subtarefaAddFixture(
-        payload.parent_id as string,
-        payload.title as string,
-        (payload.estimativa_dias as number | null) ?? null,
-      );
-    case "parent_set":
-      return parentSetFixture(payload.task_id as string, (payload.parent_id as string | null) ?? null);
-    case "goal_set":
-      return goalSetFixture(payload.task_id as string, payload.is_goal as boolean);
-    case "atomos_set":
-      return atomosSetFixture(
-        payload.task_id as string,
-        (payload.assimetria as AssimetriaDeclarada | null) ?? null,
-      );
-    case "estimativa_set":
-      return estimativaSetFixture(
-        payload.task_id as string,
-        (payload.estimativa_dias as number | null) ?? null,
-      );
-    case "status_set":
-      return statusSetFixture(payload.task_id as string, payload.status as TaskStatus);
-    case "aresta_add":
-      return arestaAddFixture(
-        payload.origem as string,
-        payload.destino as string,
-        payload.tipo as EdgeTipo,
-        (payload.peso as number | undefined) ?? 1,
-        (payload.nota as string | null) ?? null,
-        (payload.criado_em as string | null) ?? null,
-      );
-    case "aresta_del":
-      return arestaDelFixture(payload.id as string);
-    default:
-      // [BAIXO #5, rodada 3] a mensagem não ecoa mais `op` (valor recebido,
-      // não confiável) — texto fixo em português; o valor real ainda vai
-      // para o log do servidor, nunca para a tela.
-      console.error("[tarefa/actions] operação desconhecida no dispatcher fixture:", op);
-      return { erro: "Operação desconhecida." };
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════ nota_add ═

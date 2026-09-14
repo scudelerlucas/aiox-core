@@ -25,7 +25,8 @@ import { revalidatePath } from "next/cache";
 
 import { mutateLifeboard } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/tasks.fixture-store";
-import { escreverTarefaAction, mutar } from "@/app/tarefa/actions";
+import { escreverTarefaAction } from "@/app/tarefa/actions";
+import { mutar } from "@/app/tarefa/despachante";
 import type {
   EstadoAcaoTarefa,
   OperacaoDeEscrita,

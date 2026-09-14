@@ -148,8 +148,14 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
   **`0016_lifeboard_v3_consumo_por_entidade.sql`** (a rodada 7, D31–D32 — aditiva e
   re-aplicável; a única remoção é a assinatura de 13 argumentos de
   `painel_fila_motivo_do_pull`, trocada pela de 15, pelo mesmo motivo de ambiguidade) →
+  `0017_lifeboard_v3_restaurar_nota_e_aresta.sql` (o contrato de restauração da data original
+  no desfazer — estava FALTANDO nesta sequência, achado do CodeRabbit; quem seguisse a lista
+  subia a aplicação sem ele) →
   `0018_lifeboard_v3_caixa_auditavel.sql` (a rodada 8, D33–D35 + `custo_origem`) →
-  **`0019_lifeboard_v3_livro_razao.sql`** (a rodada 9 — o caixa vira LIVRO-RAZÃO).
+  **`0019_lifeboard_v3_livro_razao.sql`** (a rodada 9 — o caixa vira LIVRO-RAZÃO) →
+  **`0020_lifeboard_v3_livro_razao_concorrencia.sql`** (a rodada 10, D42–D45 — os quatro P1
+  que CodeRabbit e Codex acharam na 0019; **obrigatória para quem já aplicou a 0019**, porque
+  a trava de concorrência do livro e o reparo de proveniência da abertura moram aqui).
 
 ### O caixa é um livro-razão (migration 0019, rodada 9)
 
