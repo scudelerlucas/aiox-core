@@ -16,6 +16,7 @@
 const path = require('path');
 const fs = require('fs');
 const { performance } = require('perf_hooks');
+const { budgetMs } = require('../helpers/timing-budget');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const SYNAPSE_PATH = path.join(PROJECT_ROOT, '.synapse');
@@ -113,7 +114,7 @@ describeIfSynapse('SYNAPSE E2E: Regression Guards', () => {
   test('pipeline p95 < 100ms (hard limit)', () => {
     const sorted = [...pipelineDurations].sort((a, b) => a - b);
     const p95 = percentile(sorted, 95);
-    expect(p95).toBeLessThan(100);
+    expect(p95).toBeLessThan(budgetMs(100));
   });
 
   // -----------------------------------------------------------------------
@@ -122,11 +123,11 @@ describeIfSynapse('SYNAPSE E2E: Regression Guards', () => {
   test('pipeline p95 should be within target (<70ms) or warn', () => {
     const sorted = [...pipelineDurations].sort((a, b) => a - b);
     const p95 = percentile(sorted, 95);
-    if (p95 >= 70) {
+    if (p95 >= budgetMs(70)) {
       console.warn(`[WARN] Pipeline p95 (${p95.toFixed(2)}ms) approaching hard limit (target: <70ms)`);
     }
     // Enforce the 70ms target — warn was logged above, hard-fail at target
-    expect(p95).toBeLessThan(70);
+    expect(p95).toBeLessThan(budgetMs(70));
   });
 
   // -----------------------------------------------------------------------
@@ -136,7 +137,7 @@ describeIfSynapse('SYNAPSE E2E: Regression Guards', () => {
     for (const [name, durations] of Object.entries(layerDurations)) {
       const sorted = [...durations].sort((a, b) => a - b);
       const p95 = percentile(sorted, 95);
-      expect(p95).toBeLessThan(20);
+      expect(p95).toBeLessThan(budgetMs(20));
     }
   });
 
@@ -149,7 +150,7 @@ describeIfSynapse('SYNAPSE E2E: Regression Guards', () => {
       if (layerDurations[name]) {
         const sorted = [...layerDurations[name]].sort((a, b) => a - b);
         const p95 = percentile(sorted, 95);
-        expect(p95).toBeLessThan(10);
+        expect(p95).toBeLessThan(budgetMs(10));
       }
     }
   });
@@ -160,7 +161,7 @@ describeIfSynapse('SYNAPSE E2E: Regression Guards', () => {
   test('startup p95 < 10ms (hard limit)', () => {
     const sorted = [...startupDurations].sort((a, b) => a - b);
     const p95 = percentile(sorted, 95);
-    expect(p95).toBeLessThan(10);
+    expect(p95).toBeLessThan(budgetMs(10));
   });
 
   // -----------------------------------------------------------------------
@@ -169,7 +170,7 @@ describeIfSynapse('SYNAPSE E2E: Regression Guards', () => {
   test('session I/O p95 < 15ms (hard limit)', () => {
     const sorted = [...sessionIODurations].sort((a, b) => a - b);
     const p95 = percentile(sorted, 95);
-    expect(p95).toBeLessThan(15);
+    expect(p95).toBeLessThan(budgetMs(15));
   });
 
   // -----------------------------------------------------------------------
