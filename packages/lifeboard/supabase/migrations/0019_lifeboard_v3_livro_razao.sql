@@ -439,6 +439,19 @@ where s.conta is not null
   and s.custo_usd is not null
   and s.custo_usd <> 0
   and coalesce(s.atualizado_em, s.criado_em, s.publicado_em) is not null
+  -- D49 (rodada 11): ABRIR SÓ QUEM NUNCA FOI LANÇADO, e não só "quem não tem
+  -- linha de abertura". O `on conflict ... where abertura` abaixo só protege a
+  -- entidade que JÁ TEM linha `abertura = true`. Uma sessão que chegou DEPOIS
+  -- da abertura é lançada pelo gatilho `painel_frentes_sessoes_lancar` com
+  -- `abertura = false` — não colide com nada, e reaplicar esta migration
+  -- lançava o custo dela UMA SEGUNDA VEZ.
+  -- MEDIDO num Postgres 16 local: sessão com linha de abertura fica em 200 ao
+  -- reaplicar (pulada); sessão pós-abertura ia de 70 para 140 — o dia dobrava.
+  -- Na abertura original isto é um no-op (nenhuma entidade tinha lançamento),
+  -- então a semântica de quem já abriu o livro não muda.
+  and not exists (
+        select 1 from public.painel_caixa_lancamentos l
+         where l.entidade_tipo = 'sessao' and l.entidade_id = s.sessao_id)
 on conflict (entidade_tipo, entidade_id) where abertura do nothing;
 
 insert into public.painel_caixa_lancamentos
@@ -486,6 +499,12 @@ where f.custo_usd is not null
     f.estado in ('concluida', 'falhou')
     or (f.estado = 'cancelada' and (f.worker_id is not null or f.ultimo_worker_id is not null or f.tentativas > 0))
   )
+  -- D49 (rodada 11): mesma lei do insert de sessões acima — abrir só a entidade
+  -- que ainda não tem lançamento NENHUM, na entidade canônica de D39.
+  and not exists (
+        select 1 from public.painel_caixa_lancamentos l
+         where l.entidade_tipo = case when f.session_id is not null then 'sessao' else 'item' end
+           and l.entidade_id   = coalesce(f.session_id, f.id::text))
 on conflict (entidade_tipo, entidade_id) where abertura do nothing;
 
 -- ── 8 · CONFERÊNCIA: nenhum dia já reportado mudou de valor ─────────────────

@@ -3052,3 +3052,51 @@ begin
   raise exception 'FALHA: T58 D44b esperado estimada=0 itens=0 (nunca negativo), obteve estimada=% itens=%',
     v_estimada, v_itens;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T59 · D49 — nenhuma entidade ganha linha de ABERTURA depois de já ter sido
+-- lançada (detector de dobra de dinheiro por reaplicação da 0019)
+--
+-- [Rodada 11] A idempotência do §7 da 0019 é a chave `abertura = true`. Sessão
+-- que chega DEPOIS da abertura é lançada pelo gatilho
+-- `painel_frentes_sessoes_lancar` com `abertura = false` — não colide com nada.
+-- MEDIDO num Postgres 16 local, antes do conserto: reaplicar a 0019 levava uma
+-- sessão pós-abertura de US$ 70 para US$ 140. O dia dobrava, em silêncio.
+-- Agravante: o D48 (rodada 10, deste mesmo PR) tirou o freio — antes a 0019
+-- ABORTAVA no §8 ao ser reaplicada sobre livro corrigido; depois dele ela
+-- completa, e completava dobrando.
+--
+-- O QUE ESTE BLOCO É, HONESTAMENTE: um detector de ESTADO, não um teste do
+-- código da migration (query de migration não é chamável daqui — mesma
+-- limitação declarada em T55). Ele varre o livro inteiro e acusa a assinatura
+-- do dano: uma linha de abertura criada DEPOIS de um lançamento não-abertura
+-- da mesma entidade. Num livro são isso é impossível por construção, porque a
+-- abertura é sempre o primeiro lançamento de cada entidade.
+-- Vale contra o banco REAL: se a 0019 já tiver sido reaplicada em produção
+-- depois de sessões novas terem chegado, este bloco acusa aqui.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_suspeitas integer;
+  v_exemplo   text;
+begin
+  select count(*), min(x.entidade_id)
+    into v_suspeitas, v_exemplo
+    from (
+      select ab.entidade_id
+        from public.painel_caixa_lancamentos ab
+       where ab.abertura
+         and exists (
+               select 1 from public.painel_caixa_lancamentos an
+                where an.entidade_tipo = ab.entidade_tipo
+                  and an.entidade_id   = ab.entidade_id
+                  and not an.abertura
+                  and an.criado_em < ab.criado_em)
+    ) x;
+
+  if v_suspeitas = 0 then
+    raise exception 'RESULTADO: ok — T59 D49 nenhuma entidade ganhou abertura depois de já ter sido lançada (livro sem assinatura de dobra)';
+  end if;
+  raise exception 'FALHA: T59 D49 % entidade(s) com linha de abertura POSTERIOR a um lançamento comum (ex.: %) — assinatura de 0019 reaplicada sobre sessões pós-abertura, dinheiro possivelmente dobrado',
+    v_suspeitas, v_exemplo;
+end $$;
