@@ -4,16 +4,28 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  ARQUIVO_DA_PORTA,
+  arquivosDoSrc,
+  arquivosUseServer,
   arquivosVarridos,
-  EXCECOES,
-  importamAction,
-  PASTAS_VARRIDAS,
-  quantosHooks,
+  camposDeErro,
   codigo as codigoDoArquivo,
+  convertemOSelo,
+  handlerDaConfirmacaoExecutada,
+  importacoes,
+  opDoBloco,
+  PASTAS_VARRIDAS,
+  portasDeclaradas,
+  PORTADORES,
+  quantasPortas,
+  rotasDeFuga,
+  SUPERFICIE_DE_ESCRITA,
+  tocamAEscrita,
   varrer,
 } from "./tarefa-varredura-derivada";
 
 import {
+  ANUNCIO_DE_CONFIRMACAO,
   ANUNCIO_DE_SUCESSO,
   concluirEscrita,
   decidirEscrita,
@@ -23,45 +35,30 @@ import {
   mensagemDeRecusa,
   OPERACOES_DE_ESCRITA,
   recusarEscrita,
+  saidaPorConfirmacao,
+  transicaoDeConfirmacao,
   type OperacaoDeEscrita,
 } from "@/components/task/escrita";
 
 /**
- * OS-LIFEBOARD · P6 — VARREDURA das escritas da página da tarefa.
+ * OS-LIFEBOARD · P6 — A PORTA DE ESCRITA É O TRANSPORTE (rodada 9, ALTO #1).
  *
- * Nasce do veredito da rodada 6 do crítico hostil: *"consertou os 5 caminhos
- * que mediu e deixou os 3 gêmeos"*. A rodada 5 tratou 5 operações; as 3
- * CRIAÇÕES (nota, subtarefa, relação) continuaram jogando o foco no `<body>`
- * — por um segundo caminho (`disabled` por VALIDADE + o `aoSucesso` que
- * esvazia o campo) que a amostra não cobria.
+ * A rodada 8 tentou garantir a porta por varredura léxica. O crítico passou
+ * 7 de 12 formas de escrita pela peneira — a decisiva (M8) citava a porta no
+ * handler e despachava cru: 1126/1126 verdes, varredura verde, e a duração
+ * apagada no servidor em silêncio.
  *
- * [ALTO #1, rodada 7] A rodada 6 escreveu isto aqui e ficou satisfeita — mas
- * a varredura NÃO VARRIA: ela comparava duas listas escritas à mão
- * (`OPERACOES` abaixo × `OPERACOES_DE_ESCRITA` do código), e nenhuma das duas
- * derivava do fonte. O crítico provou: acrescentou em `duracao-form.tsx` um
- * botão "Zerar duração" com `useAcaoTarefa(estimativaSetAction)` +
- * `disparar(form)` cru, sem `decidirEscrita` nem `concluirEscrita`, e
- * 989/989 testes passaram (tsc 0, eslint 0, build 0) enquanto em runtime o
- * campo era apagado no servidor, em silêncio, com a tela mostrando o valor
- * velho.
+ * Agora a garantia é arquitetônica, e este arquivo julga as DUAS redes:
  *
- * Agora a varredura DERIVA: `tarefa-varredura-derivada.ts` lê
- * `src/components/task/**` e `src/app/tarefa/**`, acha TODO sítio de escrita
- * (o que `useAcaoTarefa` devolve, as chamadas desse despacho, e quem importa
- * `*Action`) e exige que cada um esteja dentro de um handler com
- * `decidirEscrita` + `recusarEscrita("op")`, com `concluirEscrita("op")` no
- * mesmo arquivo. `OPERACOES_DE_ESCRITA` deixou de ser fonte: é CONFERIDA
- * contra o conjunto derivado, nos dois sentidos — acrescentar à constante sem
- * fiar também falha.
+ *  1ª rede (arquitetura) — `escreverTarefaAction` só aceita `PedidoDeEscrita`;
+ *      o selo é um `unique symbol` ambiente e não exportado; a fábrica é
+ *      privada da porta; a porta não devolve despacho cru.
+ *  2ª rede (esta varredura) — lê o `src/` INTEIRO (`app/api/**` incluído) e
+ *      confere quem toca a superfície de escrita, quem declara `"use server"`,
+ *      quem converte o selo, e se toda porta declarada tem `op` e alvo.
  *
  * Ambiente: sem DOM. O repositório não tem jsdom nem `@testing-library`, e
- * `npm install` está proibido nesta rodada (regra de isolamento) — então o
- * `document` é um objeto falso injetado, e o `document.activeElement` de
- * verdade é medido no NAVEGADOR, com Playwright, para as mesmas 14 operações
- * desta lista.
- *
- * Reverter para ver falhar: em `notas-painel.tsx`, apagar a linha
- * `concluirEscrita("nota_criar", …)` — o teste de fiação quebra na hora.
+ * `npm install` está proibido — então o `document` é um objeto falso injetado.
  */
 
 interface CasoDeEscrita {
@@ -161,21 +158,6 @@ const OPERACOES: readonly CasoDeEscrita[] = [
   },
 ];
 
-function fonte(arquivo: string): string {
-  return readFileSync(fileURLToPath(new URL(`../../src/${arquivo}`, import.meta.url)), "utf8");
-}
-
-/**
- * O CÓDIGO, sem os comentários — estes arquivos explicam por escrito o
- * `disabled` que causou o achado, e a explicação não pode fazer o teste
- * confundir a história com o código vivo.
- */
-function codigo(arquivo: string): string {
-  return fonte(arquivo)
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-}
-
 /** Um elemento falso: `focavel: false` imita um nó que saiu da árvore. */
 function elementoFalso(nome: string, focavel: boolean, doc: { activeElement: unknown }) {
   const el = {
@@ -189,86 +171,352 @@ function elementoFalso(nome: string, focavel: boolean, doc: { activeElement: unk
 
 const BODY = { nome: "<body>", focus: (): void => undefined };
 
-describe("a varredura DERIVA do código — não compara duas listas escritas à mão (ALTO #1)", () => {
-  const sitios = varrer();
-
-  it("PRONTO QUANDO: todo sítio de escrita do fonte está fiado — nenhum órfão", () => {
-    // A prova de que isto morde: reproduzir a mutação (c) do crítico (um
-    // botão novo com `useAcaoTarefa(...)` + `disparar(form)` cru) põe o sítio
-    // NOVO nesta lista, com arquivo e linha, e o teste fica vermelho.
-    const orfaos = sitios
-      .filter((s) => s.op === null || !s.temDecidir || !s.temConcluir)
-      .map(
-        (s) =>
-          `${s.arquivo}:${String(s.linha)} — ${s.despacho}(…) ` +
-          `[op=${s.op ?? "NENHUMA"} decidirEscrita=${String(s.temDecidir)} concluirEscrita=${String(s.temConcluir)}]`,
-      );
-    expect(orfaos, `sítios de escrita sem porta única:\n${orfaos.join("\n")}`).toEqual([]);
+// ═══════════════════════════════════ 1ª rede — a porta É o transporte ═
+describe("ALTO #1 — a escrita só existe através da porta (arquitetura, não grep)", () => {
+  it("PRONTO QUANDO: o selo do pedido é um `unique symbol` ambiente e NÃO exportado", () => {
+    // É isto que faz `escreverTarefaAction(estado, form)` não compilar: nenhum
+    // outro módulo consegue nomear a chave, então nenhum outro consegue
+    // produzir um objeto que satisfaça `PedidoDeEscrita`.
+    const src = readFileSync(
+      fileURLToPath(new URL("../../src/app/tarefa/pedido.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(src).toContain("declare const seloDaPorta: unique symbol;");
+    expect(src).not.toContain("export declare const seloDaPorta");
+    expect(src).not.toMatch(/export\s+\{[^}]*seloDaPorta/);
+    expect(src).toContain("readonly [seloDaPorta]: true;");
   });
 
-  it("PRONTO QUANDO: todo `useAcaoTarefa(` do fonte tem pelo menos um despacho fiado", () => {
-    // Ligar a ação e nunca chamá-la é código morto; ligar e chamar por fora
-    // do handler é o achado do crítico. Os dois aparecem aqui.
-    const porArquivo = new Map<string, number>();
-    for (const s of sitios) porArquivo.set(s.arquivo, (porArquivo.get(s.arquivo) ?? 0) + 1);
-    const faltando: string[] = [];
-    for (const arquivo of arquivosVarridos()) {
-      if (EXCECOES.some((e) => e.arquivo === arquivo)) continue;
-      const hooks = quantosHooks(codigoDoArquivo(arquivo));
-      if (hooks === 0) continue;
-      const fiados = porArquivo.get(arquivo) ?? 0;
-      if (fiados < hooks) faltando.push(`${arquivo}: ${String(hooks)} hooks × ${String(fiados)} despachos fiados`);
+  it("PRONTO QUANDO: a Server Action de escrita aceita PEDIDO, nunca FormData (forma M6)", () => {
+    const src = codigoDoArquivo("app/tarefa/actions.ts");
+    expect(src).toMatch(/export async function escreverTarefaAction\(/);
+    expect(src).toContain("pedido: PedidoDeEscrita,");
+    // Nenhuma das dez operações continua exportada: não há o que pôr num
+    // `<form action={...}>` nem o que importar num handler de rota.
+    expect(src).not.toMatch(/export async function \w+Action\(\s*_estado[^)]*form: FormData/);
+    const exportadas = [...src.matchAll(/export\s+async\s+function\s+(\w+)/g)].map((m) => m[1]);
+    expect(exportadas.sort()).toEqual(["escreverTarefaAction", "mutar"]);
+  });
+
+  it("PRONTO QUANDO: a conversão do selo existe em UM arquivo só — a porta", () => {
+    expect(convertemOSelo()).toEqual(["components/task/porta-de-escrita.ts"]);
+  });
+
+  it("PRONTO QUANDO: a porta não devolve despacho cru (era o que a forma M8 usava)", () => {
+    const src = codigoDoArquivo("components/task/porta-de-escrita.ts");
+    // O que ela devolve, por extenso — e `disparar` não está aqui.
+    expect(src).toContain("export interface PortaDeEscrita {");
+    expect(src).not.toContain("disparar");
+    // `useAcaoTarefa` (o hook que devolvia `disparar`) deixou de existir.
+    const miolo = codigoDoArquivo("components/task/usar-acao-tarefa.ts");
+    expect(miolo).not.toContain("export function useAcaoTarefa");
+    expect(miolo).not.toContain("useTransition");
+  });
+
+  it("PRONTO QUANDO: só a porta importa `escreverTarefaAction`, no src/ inteiro", () => {
+    const importadores = arquivosDoSrc().filter((a) =>
+      importacoes(codigoDoArquivo(a)).some(
+        (i) => i.modulo === "@/app/tarefa/actions" && i.nomes.includes("escreverTarefaAction"),
+      ),
+    );
+    expect(importadores).toEqual(["components/task/porta-de-escrita.ts"]);
+  });
+});
+
+// ═════════════════════════════════════ 2ª rede — a varredura derivada ═
+describe("ALTO #1 — a segunda rede: quem toca a superfície de escrita (src/ inteiro)", () => {
+  it("PRONTO QUANDO: a superfície de escrita só é tocada pelos PORTADORES declarados", () => {
+    // [buraco 4] `app/api/**` entra aqui: uma rota nova que importe qualquer
+    // mutador (forma M5) aparece nesta lista, com o nome do arquivo.
+    const permitidos = new Set(PORTADORES.map((p) => p.arquivo));
+    const intrusos = tocamAEscrita()
+      .filter((t) => !permitidos.has(t.arquivo))
+      .map((t) => `${t.arquivo} → ${t.modulo} { ${t.nomes.join(", ")} }`);
+    expect(intrusos, `arquivos escrevendo fora da porta:\n${intrusos.join("\n")}`).toEqual([]);
+    // E cada portador justifica a sua presença em uma linha.
+    for (const p of PORTADORES) expect(p.motivo.length, p.arquivo).toBeGreaterThan(30);
+    expect(PORTADORES).toHaveLength(2);
+    console.log("Superfície de escrita vigiada:");
+    for (const [modulo, nomes] of Object.entries(SUPERFICIE_DE_ESCRITA)) {
+      console.log("  -", modulo, "→", nomes.join(", "));
     }
-    expect(faltando, faltando.join("\n")).toEqual([]);
+    console.log("Arquivos do src/ varridos:", String(arquivosDoSrc().length));
+    console.log("Arquivos da página da tarefa:", String(arquivosVarridos().length));
+    console.log("Pastas da página:", PASTAS_VARRIDAS.join(", "));
   });
 
-  it("PRONTO QUANDO: nenhum `*Action` é chamado fora de `useAcaoTarefa(`", () => {
-    const soltas: string[] = [];
-    for (const { arquivo, acoes } of importamAction()) {
-      const src = codigoDoArquivo(arquivo);
-      for (const acao of acoes) {
-        const usos = [...src.matchAll(new RegExp(`\\b${acao}\\b`, "g"))];
-        // 1 uso é o próprio import; os demais têm de estar logo depois de
-        // `useAcaoTarefa(` — chamar a Server Action na mão pula a porta toda.
-        const dentroDoHook = (src.match(new RegExp(`useAcaoTarefa\\(\\s*${acao}\\b`, "g")) ?? []).length;
-        if (usos.length - 1 !== dentroDoHook) {
-          soltas.push(`${arquivo}: ${acao} aparece ${String(usos.length - 1)}× fora do import, ${String(dentroDoHook)}× em useAcaoTarefa(`);
+  it("PRONTO QUANDO: nenhuma Server Action nova nasce fora dos dois arquivos conhecidos", () => {
+    // Forma M6 na sua versão ambiciosa: um `"use server"` novo em qualquer
+    // canto do src/ criaria um transporte paralelo.
+    expect(arquivosUseServer().sort()).toEqual([
+      "app/prompts/actions.ts",
+      "app/tarefa/actions.ts",
+    ]);
+  });
+
+  it("PRONTO QUANDO: a página da tarefa não tem rota de fuga (fetch, form action)", () => {
+    const fugas = rotasDeFuga().map((f) => `${f.arquivo}:${String(f.linha)} — ${f.trecho}`);
+    expect(fugas, fugas.join("\n")).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: todo sítio de escrita sai de uma porta declarada, com `op`", () => {
+    const sitios = varrer();
+    const orfaos = sitios
+      .filter((s) => s.receptor === "" || s.op === null)
+      .map((s) => `${s.arquivo}:${String(s.linha)} — ${s.receptor || "(sem receptor)"}.escrever(…)`);
+    expect(orfaos, `sítios sem porta:\n${orfaos.join("\n")}`).toEqual([]);
+    expect(sitios.length).toBeGreaterThanOrEqual(14);
+  });
+
+  it("PRONTO QUANDO: toda porta declarada é usada, e declara alvo de foco", () => {
+    const sitios = varrer();
+    const problemas: string[] = [];
+    for (const arquivo of arquivosVarridos()) {
+      if (arquivo === ARQUIVO_DA_PORTA) continue; // é a definição, não um uso
+      const portas = portasDeclaradas(arquivo);
+      expect(portas.length, arquivo).toBe(quantasPortas(codigoDoArquivo(arquivo)));
+      for (const p of portas) {
+        if (p.op === null) problemas.push(`${arquivo}:${String(p.linha)} — porta sem op`);
+        if (!p.temAlvo) problemas.push(`${arquivo}:${String(p.linha)} — porta sem alvo de foco`);
+        if (!sitios.some((s) => s.arquivo === arquivo && s.receptor === p.nome)) {
+          problemas.push(`${arquivo}:${String(p.linha)} — porta ${p.nome} nunca escreve`);
         }
       }
     }
-    expect(soltas, soltas.join("\n")).toEqual([]);
+    expect(problemas, problemas.join("\n")).toEqual([]);
+  });
+
+  it("[buraco 1] a `op` de um sítio sai do BLOCO da porta, nunca do arquivo inteiro", () => {
+    // A regressão que isto impede: `temConcluir` da rodada 8 era
+    // `new RegExp(...).test(src)` — bastava o ARQUIVO concluir aquela op em
+    // qualquer lugar. Aqui, um bloco sem `op:` devolve `null` mesmo com a op
+    // escrita logo ao lado.
+    expect(opDoBloco('{ op: "duracao", alvo: () => null }')).toBe("duracao");
+    expect(opDoBloco("{ alvo: () => null }")).toBeNull();
+    const scanner = readFileSync(
+      fileURLToPath(new URL("./tarefa-varredura-derivada.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(scanner).not.toMatch(/\.test\(src\)/);
+  });
+
+  it("[buraco 2] todos os `import {}` do mesmo módulo são lidos, não só o 1º (forma M2b)", () => {
+    const dois = [
+      'import { a } from "@/app/tarefa/actions";',
+      'import { escreverTarefaAction } from "@/app/tarefa/actions";',
+    ].join("\n");
+    const lidas = importacoes(dois).filter((i) => i.modulo === "@/app/tarefa/actions");
+    expect(lidas).toHaveLength(2);
+    expect(lidas[1]?.nomes).toEqual(["escreverTarefaAction"]);
+  });
+
+  it("[buraco 3] nome que não termina em `Action` é lido igual, e `import * as` também", () => {
+    const src = [
+      'import { zerarDuracaoDireto } from "@/app/tarefa/actions";',
+      'import * as Acoes from "@/lib/supabase/live-client";',
+    ].join("\n");
+    const lidas = importacoes(src);
+    expect(lidas[0]?.nomes).toEqual(["zerarDuracaoDireto"]);
+    expect(lidas[1]?.nomes).toEqual(["*"]);
   });
 
   it("PRONTO QUANDO: OPERACOES_DE_ESCRITA é CONFERIDA contra o derivado, nos dois sentidos", () => {
-    const derivadas = [...new Set(sitios.map((s) => s.op).filter((o): o is string => o !== null))].sort();
+    const derivadas = [
+      ...new Set(
+        arquivosVarridos()
+          .flatMap((a) => portasDeclaradas(a))
+          .map((p) => p.op)
+          .filter((o): o is string => o !== null),
+      ),
+    ].sort();
     const declaradas: string[] = [...OPERACOES_DE_ESCRITA].sort();
-    // Sentido 1 — operação no código e fora da constante.
     expect(derivadas.filter((o) => !declaradas.includes(o))).toEqual([]);
-    // Sentido 2 — operação na constante sem nenhum sítio que a execute.
     expect(declaradas.filter((o) => !derivadas.includes(o))).toEqual([]);
     expect(derivadas).toHaveLength(14);
-  });
-
-  it("as exceções da varredura são explícitas, com motivo — e ficam impressas", () => {
-    console.log("Exceções da varredura (arquivo → motivo):");
-    for (const e of EXCECOES) console.log("  -", e.arquivo, "→", e.motivo);
-    console.log("Pastas varridas:", PASTAS_VARRIDAS.join(", "));
-    console.log("Arquivos varridos:", String(arquivosVarridos().length));
-    console.log("Sítios de escrita derivados do fonte:", String(sitios.length));
-    for (const e of EXCECOES) expect(e.motivo.length).toBeGreaterThan(30);
-    // A lista de exceções não pode crescer sem alguém reparar.
-    expect(EXCECOES).toHaveLength(3);
   });
 
   it("a lista humana deste arquivo bate com a derivada (documentação, não fonte)", () => {
     expect(OPERACOES.map((c) => c.op).sort()).toEqual([...OPERACOES_DE_ESCRITA].sort());
     expect(OPERACOES).toHaveLength(14);
+    // E cada operação é aberta no arquivo que a lista humana diz.
+    for (const caso of OPERACOES) {
+      const portas = portasDeclaradas(caso.arquivo);
+      expect(
+        portas.some((p) => p.op === caso.op),
+        `${caso.arquivo} deveria abrir a porta ${caso.op}`,
+      ).toBe(true);
+    }
   });
 
   it("toda operação da lista tem um anúncio em português, não vazio", () => {
     for (const { op } of OPERACOES) {
       expect(ANUNCIO_DE_SUCESSO[op].length, op).toBeGreaterThan(3);
       expect(ANUNCIO_DE_SUCESSO[op].endsWith("."), op).toBe(true);
+    }
+  });
+});
+
+// ══════════════════════════════ ALTO #2 — nenhum CampoErro nasce cru ═
+describe("ALTO #2 — os 10 sítios passam pela porta, e o 11º não nasce cru", () => {
+  it("PRONTO QUANDO: nenhum arquivo da página cita `estado.erro`", () => {
+    // A porta não expõe `estado`: `erroDoCampo` já vem resolvido (a recusa
+    // nova vence o erro velho). Citar `estado.erro` deixou de ser possível.
+    const cruus = arquivosVarridos()
+      // `escrita.ts` é onde `useCampoDeErro` LÊ o estado da ação — é a
+      // definição da regra, não um formulário mostrando erro velho.
+      .filter((a) => a !== "components/task/escrita.ts")
+      .map((a) => [a, codigoDoArquivo(a)] as const)
+      .filter(([, src]) => /\bestado\.erro\b/.test(src))
+      .map(([a]) => a);
+    expect(cruus).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: todo `<CampoErro>` da página é alimentado por uma porta — lista DERIVADA", () => {
+    const campos = camposDeErro();
+    // A lista não é escrita à mão: ela sai do fonte. Era assim que a rodada 8
+    // consertava 4 sítios e deixava 6 — a lista dos 4 era humana.
+    const errados = campos
+      .filter((c) => !/^[A-Za-z_$][\w$]*\.erroDoCampo(\s*\?\?\s*[A-Za-z_$][\w$]*\.erroDoCampo)*$/.test(c.expressao))
+      .map((c) => `${c.arquivo}:${String(c.linha)} — mensagem={${c.expressao}}`);
+    expect(errados, `<CampoErro> fora da porta:\n${errados.join("\n")}`).toEqual([]);
+    // Os 10 sítios do achado, e os que já existiam, todos contados.
+    expect(campos.length).toBeGreaterThanOrEqual(10);
+    console.log("Sítios de <CampoErro> derivados do fonte:", String(campos.length));
+    for (const c of campos) console.log(`  - ${c.arquivo}:${String(c.linha)} → ${c.expressao}`);
+  });
+
+  it("PRONTO QUANDO: a porta resolve o campo por `useCampoDeErro`, num lugar só", () => {
+    const usam = arquivosDoSrc().filter((a) => /\buseCampoDeErro\s*\(/.test(codigoDoArquivo(a)));
+    expect(usam.sort()).toEqual([
+      "components/task/escrita.ts",
+      "components/task/porta-de-escrita.ts",
+    ]);
+  });
+});
+
+// ═══════════════════════════ MÉDIO #3 — a região viva não mente no clique ═
+describe("MÉDIO #3 — a saída por CONFIRMAÇÃO não anuncia cancelamento", () => {
+  for (const op of ["nota_excluir", "relacao_excluir"] as const) {
+    it(`PRONTO QUANDO: ${op} — o 2º clique (o que APAGA) sai em silêncio`, () => {
+      const t = saidaPorConfirmacao(op, "linha-1");
+      expect(t.confirmandoId).toBeNull();
+      expect(t.anuncio).toBeNull();
+      // …e o cancelamento de verdade continua falando.
+      const c = transicaoDeConfirmacao(op, "linha-1", null);
+      expect(c.anuncio).toBe(ANUNCIO_DE_CONFIRMACAO[op].saiu);
+    });
+
+    it(`${op}: entrar numa linha enquanto outra confirmava diz as duas coisas`, () => {
+      const t = transicaoDeConfirmacao(op, "linha-1", "linha-2");
+      expect(t.confirmandoId).toBe("linha-2");
+      expect(t.anuncio).toBe(
+        `${ANUNCIO_DE_CONFIRMACAO[op].saiu} ${ANUNCIO_DE_CONFIRMACAO[op].entrou}`,
+      );
+    });
+  }
+
+  it("PRONTO QUANDO: os painéis usam TRÊS portas distintas — pedir, cancelar, executar", () => {
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      for (const nome of [
+        "aoPedirConfirmacao",
+        "aoCancelarConfirmacao",
+        "aoConfirmarExecutado",
+      ]) {
+        expect(src, `${arquivo} — ${nome}`).toContain(nome);
+      }
+      // A porta única da rodada 8 (`aoConfirmar(id | null)`) não volta.
+      expect(src, arquivo).not.toMatch(/aoConfirmar\(null\)/);
+      expect(src, arquivo).not.toMatch(/aoConfirmar:\s/);
+    }
+  });
+
+  it("PRONTO QUANDO: o handler do 2º clique sai da confirmação EM SILÊNCIO", () => {
+    // Derivado: o nome do handler sai do JSX (`aoConfirmarExecutado={X}`), e
+    // o corpo dele é lido do fonte. A mutação que reintroduz o defeito —
+    // trocar `saidaPorConfirmacao` por `transicaoDeConfirmacao(..., null)` e
+    // anunciar — cai exatamente aqui.
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const h = handlerDaConfirmacaoExecutada(arquivo);
+      expect(h, `${arquivo}: nenhum handler ligado em aoConfirmarExecutado`).not.toBeNull();
+      if (h === null) continue;
+      expect(h.corpo, `${arquivo} — ${h.nome}`).toContain("saidaPorConfirmacao(");
+      // Nada é dito neste caminho: quem fala é o sucesso da exclusão.
+      expect(h.corpo, `${arquivo} — ${h.nome}`).not.toContain("mostrar(");
+      expect(h.corpo, `${arquivo} — ${h.nome}`).not.toContain("anunciar(");
+      expect(h.corpo, `${arquivo} — ${h.nome}`).not.toContain("t.anuncio");
+      expect(h.corpo, `${arquivo} — ${h.nome}`).not.toContain("transicaoDeConfirmacao(");
+    }
+  });
+
+  it("PRONTO QUANDO: o bloco que DESPACHA a exclusão não chama o cancelamento", () => {
+    // Derivado: o handler `excluir()` de cada linha é lido do fonte, e a
+    // ordem lá dentro é `aoConfirmarExecutado()` → `escrever(`. A rodada 8
+    // tinha `aoConfirmar(null)` nessa mesma posição.
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      const i = src.indexOf("function excluir(): void {");
+      expect(i, arquivo).toBeGreaterThan(0);
+      const bloco = src.slice(i, src.indexOf("\n  }", i));
+      expect(bloco, arquivo).toContain("aoConfirmarExecutado()");
+      const posExec = bloco.indexOf("aoConfirmarExecutado()");
+      const posEscrever = bloco.indexOf(".escrever(", posExec);
+      expect(posEscrever, arquivo).toBeGreaterThan(posExec);
+      // Entre a saída da confirmação e o despacho não entra cancelamento.
+      expect(bloco.slice(posExec, posEscrever)).not.toContain("aoCancelarConfirmacao");
+    }
+  });
+});
+
+// ═════════════════════════════════ BAIXO #6/#7 — as regiões vivas ═
+describe("BAIXO #6 e #7 — o 'Desfazer' nunca fica sozinho, nem colado na confirmação", () => {
+  it("PRONTO QUANDO: texto e botão do desfazer saem do MESMO valor (tipo, não disciplina)", () => {
+    for (const [arquivo, tipo] of [
+      ["components/task/notas-painel.tsx", "JanelaDeDesfazerNota"],
+      ["components/task/relacoes-painel.tsx", "JanelaDeDesfazerAresta"],
+      ["components/task/relacoes-painel.tsx", "JanelaDeDesfazerCriacao"],
+    ] as const) {
+      const src = codigoDoArquivo(arquivo);
+      const i = src.indexOf(`interface ${tipo} {`);
+      expect(i, `${arquivo} — ${tipo}`).toBeGreaterThan(0);
+      const bloco = src.slice(i, src.indexOf("\n}", i));
+      expect(bloco, tipo).toContain("texto: string;");
+    }
+  });
+
+  it("PRONTO QUANDO: o desfazer que FALHA não apaga a região do desfazer (BAIXO #6)", () => {
+    // Era o `limpar()` do `aoFalha` que deixava o `<p role=status>` com o
+    // conteúdo `"Desfazer"` — só o botão, sem frase.
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      expect(src, arquivo).toContain("textoDeFalha:");
+      expect(src, arquivo).not.toMatch(/aoFalha:[\s\S]{0,200}limparAnuncio\(\)/);
+    }
+  });
+
+  it("PRONTO QUANDO: a confirmação e o desfazer moram em regiões vivas DIFERENTES (BAIXO #7)", () => {
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      // As transições de confirmação vão para a região de ANÚNCIOS…
+      expect(src, arquivo).toMatch(/regiaoDeAnuncios\.mostrar\(t\.anuncio\)/);
+      // …e o botão Desfazer mora num `<p role="status">` próprio, cujo
+      // conteúdo é o `texto` da janela, nunca a mensagem geral.
+      expect(src, arquivo).toContain("{`${desfazer.texto} `}");
     }
   });
 });
@@ -295,8 +543,7 @@ describe("depois do sucesso, o foco NUNCA fica no <body> — as 14 operações",
       concluirEscrita(caso.op, alvo, alternativa, () => undefined, undefined, doc);
       if (caso.alternativa === null) {
         // Sem plano B: o foco fica ONDE ESTAVA. Isso só é seguro porque
-        // nenhum controle desta página vira `disabled` (ver o teste de
-        // fiação abaixo) — se virasse, "onde estava" seria o `<body>`.
+        // nenhum controle desta página vira `disabled`.
         expect(doc.activeElement).toBe(BODY);
       } else {
         expect(doc.activeElement).not.toBe(BODY);
@@ -308,34 +555,31 @@ describe("depois do sucesso, o foco NUNCA fica no <body> — as 14 operações",
 
 describe("fiação: cada operação está de fato ligada no componente que a executa", () => {
   for (const caso of OPERACOES) {
-    it(`PRONTO QUANDO: ${caso.arquivo} chama concluirEscrita e recusarEscrita para "${caso.op}"`, () => {
-      const src = fonte(caso.arquivo);
-      // O sucesso entrega o foco e anuncia…
-      expect(new RegExp(`concluirEscrita\\(\\s*"${caso.op}"`).test(src), caso.op).toBe(true);
-      // …e a recusa (gravação em curso, inválido, nada mudou) fala.
-      expect(new RegExp(`recusarEscrita\\(\\s*"${caso.op}"`).test(src), caso.op).toBe(true);
-      expect(src, caso.op).toContain("decidirEscrita({");
+    it(`PRONTO QUANDO: ${caso.arquivo} abre a porta "${caso.op}" e escreve por ela`, () => {
+      const porta = portasDeclaradas(caso.arquivo).find((p) => p.op === caso.op);
+      expect(porta, caso.op).toBeDefined();
+      expect(porta?.temAlvo, caso.op).toBe(true);
+      const sitios = varrer().filter(
+        (s) => s.arquivo === caso.arquivo && s.op === caso.op,
+      );
+      expect(sitios.length, `${caso.op} nunca escreve`).toBeGreaterThan(0);
     });
   }
 
   it("PRONTO QUANDO: o segmentado não engole mais o clique durante a gravação (BAIXO #4)", () => {
-    // Até a rodada 5, `aoClicar` tinha `if (desabilitado) return;` — a recusa
-    // funcionava e era MUDA. Agora o clique chega ao handler de quem usa, que
-    // recusa por `decidirEscrita` e diz "Aguarde…" na região viva.
-    const src = codigo("components/task/controle-segmentado.tsx");
+    const src = codigoDoArquivo("components/task/controle-segmentado.tsx");
     expect(src).not.toContain("if (desabilitado) return");
     expect(src).toContain("aoMudar(valor)");
   });
 
   it("PRONTO QUANDO: nenhum componente da página usa o atributo `disabled` (ALTO #1)", () => {
     // É ESTE atributo que faz o navegador tirar o foco do elemento — inclusive
-    // quando ele vira `disabled` NO INSTANTE DO SUCESSO, que é como as 3
-    // criações mandavam o foco para o `<body>` mesmo depois da rodada 5.
+    // quando ele vira `disabled` NO INSTANTE DO SUCESSO.
     const arquivos = [...new Set(OPERACOES.map((c) => c.arquivo))].concat([
       "components/task/controle-segmentado.tsx",
     ]);
     for (const arquivo of arquivos) {
-      const semAria = codigo(arquivo).replace(/aria-disabled/g, "");
+      const semAria = codigoDoArquivo(arquivo).replace(/aria-disabled/g, "");
       expect(semAria.includes("disabled="), arquivo).toBe(false);
     }
   });
@@ -353,8 +597,6 @@ describe("decidirEscrita — a porta única de toda escrita", () => {
   it("PRONTO QUANDO: valor igual ao confirmado não grava (MÉDIO #3 — 6 Enters, 6 POSTs)", () => {
     expect(decidirEscrita({ pendente: false, mudou: false })).toBe("sem_mudanca");
     expect(decidirEscrita({ pendente: false, mudou: true })).toBe("gravar");
-    // Seleção (status/mãe/meta): recusa silenciosa — o valor pedido já está na
-    // tela. Botão de salvar (duração/átomos): a região viva responde.
     expect(mensagemDeRecusa("status", "sem_mudanca")).toBeNull();
     expect(mensagemDeRecusa("mae", "sem_mudanca")).toBeNull();
     expect(mensagemDeRecusa("meta", "sem_mudanca")).toBeNull();
@@ -368,6 +610,10 @@ describe("decidirEscrita — a porta única de toda escrita", () => {
       expect(MENSAGEM_INVALIDO[op], op).toBeDefined();
       expect(mensagemDeRecusa(op, "invalido"), op).toBe(MENSAGEM_INVALIDO[op]);
     }
+    // As exclusões usam `valido: false` como "ainda não é hora de gravar" —
+    // recusa silenciosa por desenho (o 1º clique só pede confirmação).
+    expect(mensagemDeRecusa("nota_excluir", "invalido")).toBeNull();
+    expect(mensagemDeRecusa("relacao_excluir", "invalido")).toBeNull();
   });
 
   it("a ordem das recusas: gravação em curso vence validade, que vence 'nada mudou'", () => {
@@ -395,11 +641,6 @@ describe("decidirEscrita — a porta única de toda escrita", () => {
 
 describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4, rodada 7)", () => {
   it("PRONTO QUANDO: a migration 0017 aceita `criado_em` em nota_add e aresta_add", () => {
-    // A rodada 6 escreveu aqui um teste que EXIGIA `not.toContain("criado_em")`
-    // — um teste que quebra no dia em que alguém conserta o defeito. Este
-    // exige o CAMINHO: `criado_em` opcional, `coalesce(v_criado_em, now())`
-    // no insert (payload sem data continua se comportando como antes) e a
-    // régua de data em português.
     const migration = readFileSync(
       fileURLToPath(
         new URL(
@@ -440,7 +681,7 @@ describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4,
       "components/task/relacoes-painel.tsx",
     ]) {
       const src = codigoDoArquivo(arquivo);
-      expect(src, arquivo).toContain('form.set("criado_em", excluida.criadoEm)');
+      expect(src, arquivo).toMatch(/criado_em: janela\?\.\w+\.criadoEm \?\? ""/);
     }
   });
 });

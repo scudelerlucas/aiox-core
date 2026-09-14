@@ -3,17 +3,10 @@
 import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 
-import { subtarefaAddAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import {
-  concluirEscrita,
-  decidirEscrita,
-  MENSAGEM_INVALIDO,
-  recusarEscrita,
-  useCampoDeErro,
-} from "@/components/task/escrita";
-import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
-import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import { MENSAGEM_INVALIDO } from "@/components/task/escrita";
+import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
+import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { Task } from "@/types/canonical";
 
@@ -63,37 +56,24 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
   // [MÉDIO #2, rodada 6] "Subtarefa criada." — este formulário não tinha
   // nenhuma região viva; para quem não enxerga a lista crescer, adicionar uma
   // subtarefa era mudo.
-  const { mensagem, mostrar } = useMensagemSucesso();
-  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(subtarefaAddAction, () => {
-    setTitle("");
-    setEstimativa("");
-    // [ALTO #1, rodada 6] o campo que ficou vazio recebe o foco — antes, o
-    // botão virava `disabled` (título vazio) no instante do sucesso e o
-    // navegador jogava o foco no `<body>`.
-    concluirEscrita("subtarefa_criar", tituloRef.current, null, (t) => mostrar(t));
+  // [ALTO #1, rodada 9] uma porta, e nada mais: sem despacho cru a obter, e
+  // com o foco entregue ao campo que acabou de esvaziar (era ele que o
+  // `disabled` por validade mandava para o `<body>`).
+  const porta = usarPortaDeEscrita({
+    op: "subtarefa_criar",
+    alvo: () => tituloRef.current,
+    aoSucesso: () => {
+      setTitle("");
+      setEstimativa("");
+    },
   });
-  // [ALTO #2, rodada 7] o erro velho do servidor não engole mais a recusa nova.
-  const campo = useCampoDeErro(estado);
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    const decisao = decidirEscrita({
-      pendente: pendente || emVooAgora(),
-      valido: title.trim().length > 0,
-    });
-    if (decisao !== "gravar") {
-      recusarEscrita("subtarefa_criar", decisao, {
-        anunciar: (t) => mostrar(t),
-        alertar: campo.avisar,
-      });
-      return;
-    }
-    campo.aoMudarCampo();
-    const form = new FormData();
-    form.set("parent_id", parentId);
-    form.set("title", title);
-    form.set("estimativa_dias", estimativa);
-    disparar(form);
+    porta.escrever(
+      { parent_id: parentId, title, estimativa_dias: estimativa },
+      { valido: title.trim().length > 0 },
+    );
   }
 
   const semTitulo = title.trim().length === 0;
@@ -109,7 +89,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
-            campo.aoMudarCampo();
+            porta.aoMudarCampo();
           }}
           placeholder="ex.: Escrever os testes de borda"
           className="min-h-[44px] rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
@@ -135,12 +115,10 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
         // validade ele anunciava "indisponível" e a tecnologia assistiva
         // recusava o clique que mouse e teclado faziam. A exigência é o texto
         // abaixo, ligado por `aria-describedby`.
-        aria-busy={pendente ? true : undefined}
-        aria-disabled={pendente ? true : undefined}
+        aria-busy={porta.pendente ? true : undefined}
+        aria-disabled={porta.pendente ? true : undefined}
         aria-describedby={semTitulo ? "dica-nova-subtarefa" : undefined}
-        className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${
-          pendente ? "opacity-50" : ""
-        }`}
+        className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${porta.pendente ? "opacity-50" : ""}`}
       >
         Adicionar subtarefa
       </button>
@@ -149,8 +127,8 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           {MENSAGEM_INVALIDO.subtarefa_criar}
         </p>
       ) : null}
-      <CampoErro mensagem={campo.mensagem} />
-      <MensagemSucesso mensagem={mensagem} />
+      <CampoErro mensagem={porta.erroDoCampo} />
+      <MensagemSucesso mensagem={porta.mensagem} />
     </form>
   );
 }

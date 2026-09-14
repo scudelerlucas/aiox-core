@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   arestaAddFixture,
+  arestaDelFixture,
   definirPredecessorIdsFixture,
+  listarEdgesFixture,
+  listarNotesFixture,
   parentSetFixture,
   resetarFixtureStore,
 } from "@/lib/repositories/tasks.fixture-store";
@@ -93,5 +96,92 @@ describe("resetarFixtureStore — devolve o store ao estado seed", () => {
     // o estado voltou ao seed, não acumulou a mutação anterior.
     const depois = arestaAddFixture("task-docs", "task-standup", "correlacao", 1, null);
     expect(depois).toEqual({ ok: true, id: expect.any(String) as unknown as string });
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * MÉDIO #4 (rodada 9) — O DESFAZER DE RELAÇÃO NÃO DEVOLVIA A POSIÇÃO NO MODO
+ * EM QUE O APP RODA E É TESTADO.
+ *
+ * `listarEdgesFixture()` devolvia a ordem de inserção do `Map`; o gêmeo
+ * `listarNotesFixture()` já ordenava. Medido pelo crítico: excluir a 1ª
+ * relação e desfazer a devolvia à posição 2. Em modo live funcionaria
+ * (`lifeboard_load` faz `order by e.created_at`, migration 0008), mas NADA no
+ * repositório provava isso — o único teste da alegação era um `toContain`
+ * sobre a string da migration, nunca uma execução.
+ *
+ * E o cenário do construtor passava porque o fixture tinha UMA relação saindo:
+ * a ordem DENTRO do grupo nunca era exercida. A semente do store ganhou mais
+ * duas, e é essa lista de três que estes testes movimentam.
+ */
+describe("MÉDIO #4 — a ordem das relações no fixture é a do banco vivo", () => {
+  beforeEach(resetarFixtureStore);
+
+  /** O grupo "saindo" de `task-build`, na ordem em que a página o mostra. */
+  function saindoDeBuild(): string[] {
+    return listarEdgesFixture()
+      .filter((e) => e.origem === "task-build")
+      .map((e) => e.id);
+  }
+
+  it("PRONTO QUANDO: o grupo tem ≥ 2 relações — a ordem dentro dele é exercida de verdade", () => {
+    expect(saindoDeBuild().length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("PRONTO QUANDO: a lista sai por `created_at` crescente, como `order by e.created_at`", () => {
+    const datas = listarEdgesFixture().map((e) => e.createdAt);
+    expect([...datas].sort()).toEqual(datas);
+  });
+
+  it("PRONTO QUANDO: excluir a 1ª do grupo e DESFAZER a devolve à 1ª posição", () => {
+    const antes = saindoDeBuild();
+    const primeira = listarEdgesFixture().find((e) => e.id === antes[0]);
+    expect(primeira).toBeDefined();
+    if (!primeira) return;
+
+    expect(arestaDelFixture(primeira.id)).toEqual({ ok: true });
+    expect(saindoDeBuild()).toEqual(antes.slice(1));
+
+    // O desfazer manda a data ORIGINAL junto (migration 0017 + o parâmetro
+    // `criadoEm` do fixture) — é ela que devolve a posição.
+    const r = arestaAddFixture(
+      primeira.origem,
+      primeira.destino,
+      primeira.tipo,
+      primeira.peso,
+      primeira.nota,
+      primeira.createdAt,
+    );
+    expect("ok" in r).toBe(true);
+
+    const depois = saindoDeBuild();
+    expect(depois).toHaveLength(antes.length);
+    // A relação restaurada volta para o ÍNDICE 0 — era aqui que ela ia parar
+    // no índice 1 (a medição do crítico: "voltou à posição 2, não à 1").
+    const restaurada = listarEdgesFixture().find(
+      (e) =>
+        e.origem === primeira.origem &&
+        e.destino === primeira.destino &&
+        e.tipo === primeira.tipo,
+    );
+    expect(restaurada?.createdAt).toBe(primeira.createdAt);
+    expect(depois.indexOf(restaurada?.id ?? "")).toBe(0);
+    // E a ordem relativa das outras duas não mudou.
+    expect(depois.slice(1)).toEqual(antes.slice(1));
+  });
+
+  it("sem `criadoEm`, a relação nova entra no FIM do grupo — o comportamento normal", () => {
+    const antes = saindoDeBuild();
+    const r = arestaAddFixture("task-build", "task-chat-followup", "correlacao", 1, null);
+    expect("ok" in r).toBe(true);
+    const depois = saindoDeBuild();
+    expect(depois.slice(0, antes.length)).toEqual(antes);
+    expect(depois).toHaveLength(antes.length + 1);
+  });
+
+  it("as notas seguem `order by n.created_at desc` — o gêmeo que já estava certo", () => {
+    const datas = listarNotesFixture().map((n) => n.createdAt);
+    expect([...datas].sort().reverse()).toEqual(datas);
   });
 });

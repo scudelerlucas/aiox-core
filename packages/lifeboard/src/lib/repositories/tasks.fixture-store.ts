@@ -62,10 +62,44 @@ function clonarTask(t: Task): Task {
   };
 }
 
+/**
+ * [MÉDIO #4, rodada 9] Relações a mais, SÓ na semente do store da página da
+ * tarefa — `tasks.fixture.ts` (compartilhado com dashboard, grafo e linha do
+ * tempo) fica intocado.
+ *
+ * Por que elas existem: o cenário do construtor passava porque `task-build`
+ * tinha UMA relação saindo — a ordem DENTRO do grupo nunca era exercida, e o
+ * defeito (o desfazer devolvendo a relação ao fim da lista em vez da posição
+ * original) não tinha como aparecer. Agora o grupo "saindo" de `task-build`
+ * tem TRÊS, com `createdAt` distintos e crescentes.
+ */
+const EDGES_EXTRA_SEMENTE: readonly TaskEdge[] = [
+  {
+    id: "edge-build-antes-do-standup",
+    origem: "task-build",
+    destino: "task-standup",
+    tipo: "predecessor",
+    peso: 1,
+    nota: "O motor precisa estar de pé antes de a daily virar acompanhamento.",
+    createdAt: "2026-07-09T10:04:00.000Z",
+  },
+  {
+    id: "edge-build-sinergia-review",
+    origem: "task-build",
+    destino: "task-review",
+    tipo: "sinergia",
+    peso: 0.5,
+    nota: "Com o motor pronto, revisar o PR do time custa menos.",
+    createdAt: "2026-07-09T10:05:00.000Z",
+  },
+];
+
 function estadoNovo(): EstadoFixture {
   return {
     tasks: new Map(FIXTURE_TASKS.map((t) => [t.id, clonarTask(t)] as const)),
-    edges: new Map(FIXTURE_EDGES.map((e) => [e.id, { ...e }] as const)),
+    edges: new Map(
+      [...FIXTURE_EDGES, ...EDGES_EXTRA_SEMENTE].map((e) => [e.id, { ...e }] as const),
+    ),
     notes: new Map(FIXTURE_NOTES.map((n) => [n.id, { ...n }] as const)),
     contador: 0,
   };
@@ -111,14 +145,30 @@ export function listarTasksFixture(): Task[] {
   return [...loja().tasks.values()].map(clonarTask);
 }
 
+/**
+ * [MÉDIO #4, rodada 9] ORDENADO COMO O BANCO VIVO.
+ *
+ * Devolvia a ordem de inserção do `Map` — e por isso o "Desfazer" de uma
+ * relação excluída a recolocava NO FIM da lista, não na posição de onde ela
+ * saiu, exatamente no modo em que o app roda e é testado. O gêmeo
+ * `listarNotesFixture` já tinha sido tratado na rodada 7; este não.
+ *
+ * A régua é a do `lifeboard_load` (migration 0008, `order by e.created_at`):
+ * crescente, do mais antigo para o mais novo. Desempate pelo `id` para a
+ * ordem ser TOTAL — duas relações com o mesmo instante não podem trocar de
+ * lugar entre duas leituras.
+ */
 export function listarEdgesFixture(): TaskEdge[] {
-  return [...loja().edges.values()].map((e) => ({ ...e }));
+  return [...loja().edges.values()]
+    .map((e) => ({ ...e }))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
+/** Mesma régua do banco vivo: `order by n.created_at desc` (migration 0008). */
 export function listarNotesFixture(): TaskNote[] {
   return [...loja().notes.values()]
     .map((n) => ({ ...n }))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
 }
 
 function novoId(prefixo: string): string {

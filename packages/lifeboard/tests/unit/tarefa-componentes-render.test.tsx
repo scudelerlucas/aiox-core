@@ -194,8 +194,11 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
       />,
     );
     const r = regioesStatus(html);
-    expect(r.total).toBe(2); // a do painel ("Excluída.") e a do formulário ("Relação criada.")
-    expect(r.vazias).toBe(2);
+    // [BAIXO #7, rodada 9] QUATRO: cada metade (painel e formulário) tem a sua
+    // região de DESFAZER e a sua região de ANÚNCIOS, separadas — era a fusão
+    // das duas que fazia o pedido de confirmação ser lido colado ao "Desfazer".
+    expect(r.total).toBe(4);
+    expect(r.vazias).toBe(4);
     expect(html).toContain('aria-atomic="true"');
   });
 
@@ -326,9 +329,10 @@ describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2
     expect(html).not.toContain('aria-disabled="true"');
     expect(html).toContain('aria-describedby="dica-nova-nota"');
     expect(html).toContain(MENSAGEM_INVALIDO.nota_criar);
-    // Duas regiões vivas: a do formulário ("Nota salva.", achado MÉDIO #2 da
-    // rodada 6) e a do painel ("Excluída. Desfazer").
-    expect(regioesStatus(html)).toEqual({ total: 2, vazias: 2 });
+    // [BAIXO #7, rodada 9] TRÊS regiões vivas: a do formulário ("Nota salva."),
+    // a do DESFAZER do painel ("Excluída. Desfazer") e a de ANÚNCIOS do painel
+    // (confirmações, recusas, "Nota restaurada.") — as duas últimas eram uma só.
+    expect(regioesStatus(html)).toEqual({ total: 3, vazias: 3 });
     expect(html).toContain("Nova nota");
   });
 });
@@ -337,25 +341,34 @@ describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2
  * ═══════════════════════════════════════════════════════════════════════════
  * RODADA 7 — o que o crítico mediu e reprovou.
  */
-describe("ALTO #2 — os 4 formulários passaram a decidir o campo por `useCampoDeErro`", () => {
-  it("PRONTO QUANDO: nenhum deles ainda escreve `estado.erro ?? aviso`", () => {
-    // Era esta expressão, nos 4 arquivos, que fazia o erro velho do servidor
-    // sobreviver à recusa nova: `estado.erro` só morre quando a ação SEGUINTE
-    // resolve, e `aoDigitar` limpava `aviso`, não `estado.erro`.
+describe("ALTO #2 — os 10 sítios decidem o campo pela PORTA (rodada 9)", () => {
+  it("PRONTO QUANDO: nenhum arquivo da página mostra `estado.erro` cru", () => {
+    // Rodada 7: a expressão `estado.erro ?? aviso` nos 4 formulários de
+    // criação. Rodada 8: consertou os 4 e deixou 6 gêmeos com `estado.erro`
+    // puro. Rodada 9: a porta não expõe `estado` — não há o que mostrar cru.
+    // A lista dos sítios é DERIVADA do fonte, em
+    // `tarefa-escritas-varredura.test.ts` ("o 11º não nasce cru").
     for (const arquivo of [
       "components/task/notas-painel.tsx",
       "components/task/subtarefas-painel.tsx",
       "components/task/relacoes-painel.tsx",
       "components/task/atomos-form.tsx",
+      "components/task/duracao-form.tsx",
+      "components/task/mae-form.tsx",
+      "components/task/meta-form.tsx",
+      "components/task/status-form.tsx",
     ]) {
       const src = codigoDoArquivo(arquivo);
-      expect(src, arquivo).not.toContain("estado.erro ?? aviso");
-      expect(src, arquivo).toContain("useCampoDeErro(estado)");
-      expect(src, arquivo).toContain("<CampoErro mensagem={campo.mensagem} />");
-      // E toda mudança de campo descarta os dois.
-      expect(src, arquivo).toContain("campo.aoMudarCampo()");
-      // A recusa local entra pelo `alertar`, que também aposenta o erro velho.
-      expect(src, arquivo).toContain("alertar: campo.avisar");
+      expect(src, arquivo).not.toContain("estado.erro");
+      expect(src, arquivo).toContain("usarPortaDeEscrita({");
+      expect(src, arquivo).toContain(".erroDoCampo");
+      // Onde existe campo LIVRE (o operador digita sem enviar), mexer nele
+      // descarta o erro velho — a 2ª lei de `mensagemDoCampo`. Nos controles
+      // de SELEÇÃO (mãe, meta, status) mexer JÁ é escrever, e a porta descarta
+      // sozinha antes de despachar.
+      if (/<(input|textarea)\b/.test(src)) {
+        expect(src, arquivo).toContain(".aoMudarCampo()");
+      }
     }
   });
 });

@@ -2,17 +2,10 @@
 
 import { useRef, useState } from "react";
 
-import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import {
-  concluirEscrita,
-  decidirEscrita,
-  recusarEscrita,
-  useCampoDeErro,
-} from "@/components/task/escrita";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
-import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
-import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
+import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 import type { MotivoSemScore } from "@/core/prioritize/assimetria-motivo";
 import type { HerancaResultado, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada } from "@/types/canonical";
@@ -100,9 +93,6 @@ export function AtomosForm({
   const [esforco, setEsforco] = useState<number | null>(assimetriaAtual?.esforco ?? null);
   const [custo, setCusto] = useState<number | null>(assimetriaAtual?.custo ?? null);
   const todosEscolhidos = opcionalidade !== null && esforco !== null && custo !== null;
-  // Distingue, no callback de sucesso ÚNICO do hook, se o disparo em curso
-  // era "salvar" ou "limpar" — os dois usam a mesma `disparar()`.
-  const ultimaAcaoRef = useRef<"salvar" | "limpar" | null>(null);
   /**
    * [MÉDIO #2, rodada 5] "Limpar átomos" SOME no sucesso (só existe quando
    * `assimetriaAtual !== null`) — e o foco caía no `<body>`. O grupo
@@ -118,9 +108,36 @@ export function AtomosForm({
    * no que veio do servidor; `null` = nada declarado.
    */
   const confirmadoRef = useRef<string>(chaveDoTrio(assimetriaAtual));
-  const { mensagem, mostrar } = useMensagemSucesso();
-  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(atomosSetAction, () => {
-    if (ultimaAcaoRef.current === "limpar") {
+  /** O trio submetido — lido no `aoSucesso`, depois do `await`. */
+  const trioRef = useRef<string>(confirmadoRef.current);
+
+  /**
+   * [ALTO #1, rodada 9] DUAS portas, uma por operação — e nenhuma delas
+   * devolve despacho cru. Antes era um hook só, com um `ultimaAcaoRef` para
+   * adivinhar no sucesso qual das duas escritas tinha acontecido; agora a
+   * `op` viaja com o pedido e o servidor sabe qual é.
+   */
+  const portaSalvar = usarPortaDeEscrita({
+    op: "atomos_salvar",
+    alvo: () => botaoSalvarRef.current,
+    aoSucesso: () => {
+      confirmadoRef.current = trioRef.current;
+    },
+  });
+
+  const portaLimpar = usarPortaDeEscrita({
+    op: "atomos_limpar",
+    // "Limpar átomos" SOME no sucesso: o foco vai para o 1º botão do grupo
+    // Opcionalidade (de onde a declaração recomeça) e, se ele já não estiver
+    // lá, para "Salvar átomos" — nunca para o `<body>`.
+    alvo: () => grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"),
+    alternativa: () => botaoSalvarRef.current,
+    regiao: {
+      mensagem: portaSalvar.mensagem,
+      mostrar: (t, o) => { portaSalvar.anunciar(t, o); },
+      limpar: () => { portaSalvar.limparAnuncio(); },
+    },
+    aoSucesso: () => {
       // [MÉDIO #2] devolve os 3 grupos ao estado SEM seleção — sem isto, o
       // `useState` local (só lido no mount) continuava mostrando os últimos
       // valores escolhidos mesmo depois do servidor apagar `assimetria`.
@@ -128,69 +145,32 @@ export function AtomosForm({
       setEsforco(null);
       setCusto(null);
       confirmadoRef.current = chaveDoTrio(null);
-      // "Limpar átomos" SOME no sucesso: o foco vai para o 1º botão do grupo
-      // Opcionalidade (de onde a declaração recomeça) e, se ele já não estiver
-      // lá, para "Salvar átomos" — nunca para o `<body>`.
-      concluirEscrita(
-        "atomos_limpar",
-        grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"),
-        botaoSalvarRef.current,
-        (t) => mostrar(t),
-      );
-    } else {
-      confirmadoRef.current = trioRef.current;
-      concluirEscrita("atomos_salvar", botaoSalvarRef.current, null, (t) => mostrar(t));
-    }
+    },
   });
-  // [ALTO #2, rodada 7] a recusa local vence o erro velho do servidor, e
-  // mexer nos átomos descarta os dois.
-  const campo = useCampoDeErro(estado);
-  /** O trio submetido — lido no `aoSucesso`, depois do `await`. */
-  const trioRef = useRef<string>(confirmadoRef.current);
+
+  const pendente = portaSalvar.pendente || portaLimpar.pendente;
+
+  function aoMudarCampo(): void {
+    portaSalvar.aoMudarCampo();
+    portaLimpar.aoMudarCampo();
+  }
 
   function salvar(): void {
-    const trio = chaveDoTrio(
-      todosEscolhidos ? { opcionalidade, esforco, custo } : null,
-    );
-    const decisao = decidirEscrita({
-      pendente: pendente || emVooAgora(),
-      valido: todosEscolhidos,
-      mudou: trio !== confirmadoRef.current,
-    });
-    if (decisao !== "gravar") {
-      // [ALTO #1, rodada 6] era um botão `disabled` que não explicava nada; o
-      // texto de ajuda embaixo continua, e agora a recusa também fala.
-      recusarEscrita("atomos_salvar", decisao, {
-        anunciar: (t) => mostrar(t),
-        alertar: campo.avisar,
-      });
-      return;
-    }
-    campo.aoMudarCampo();
+    const trio = chaveDoTrio(todosEscolhidos ? { opcionalidade, esforco, custo } : null);
     trioRef.current = trio;
-    ultimaAcaoRef.current = "salvar";
-    const form = new FormData();
-    form.set("task_id", taskId);
-    form.set("opcionalidade", String(opcionalidade));
-    form.set("esforco", String(esforco));
-    form.set("custo", String(custo));
-    disparar(form);
+    portaSalvar.escrever(
+      {
+        task_id: taskId,
+        opcionalidade: String(opcionalidade),
+        esforco: String(esforco),
+        custo: String(custo),
+      },
+      { valido: todosEscolhidos, mudou: trio !== confirmadoRef.current },
+    );
   }
 
   function limpar(): void {
-    const decisao = decidirEscrita({ pendente: pendente || emVooAgora() });
-    if (decisao !== "gravar") {
-      recusarEscrita("atomos_limpar", decisao, {
-        anunciar: (t) => mostrar(t),
-        alertar: campo.avisar,
-      });
-      return;
-    }
-    ultimaAcaoRef.current = "limpar";
-    const form = new FormData();
-    form.set("task_id", taskId);
-    form.set("limpar", "true");
-    disparar(form);
+    portaLimpar.escrever({ task_id: taskId });
   }
 
   return (
@@ -203,7 +183,7 @@ export function AtomosForm({
           valorAtual={opcionalidade}
           aoMudar={(v) => {
             setOpcionalidade(v);
-            campo.aoMudarCampo();
+            aoMudarCampo();
           }}
           desabilitado={pendente}
         />
@@ -216,7 +196,7 @@ export function AtomosForm({
           valorAtual={esforco}
           aoMudar={(v) => {
             setEsforco(v);
-            campo.aoMudarCampo();
+            aoMudarCampo();
           }}
           desabilitado={pendente}
         />
@@ -229,7 +209,7 @@ export function AtomosForm({
           valorAtual={custo}
           aoMudar={(v) => {
             setCusto(v);
-            campo.aoMudarCampo();
+            aoMudarCampo();
           }}
           desabilitado={pendente}
         />
@@ -285,8 +265,8 @@ export function AtomosForm({
           Escolha os três para calcular o score.
         </p>
       ) : null}
-      <CampoErro mensagem={campo.mensagem} />
-      <MensagemSucesso mensagem={mensagem} />
+      <CampoErro mensagem={portaSalvar.erroDoCampo ?? portaLimpar.erroDoCampo} />
+      <MensagemSucesso mensagem={portaSalvar.mensagem} />
 
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">
         {score ? (

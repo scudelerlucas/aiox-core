@@ -20,6 +20,13 @@
 
 import { revalidatePath } from "next/cache";
 
+import {
+  ehOperacaoDeEscrita,
+  type CamposDeEscrita,
+  type EstadoAcaoTarefa,
+  type PedidoDeEscrita,
+} from "@/app/tarefa/pedido";
+
 import { env } from "@/config/env";
 import { dataOriginalValidaOuErro } from "@/lib/fuso";
 import { mutateLifeboard } from "@/lib/supabase/live-client";
@@ -44,7 +51,7 @@ import {
 } from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada, EdgeTipo, TaskStatus } from "@/types/canonical";
 
-export type EstadoAcaoTarefa = { erro?: string; ok?: true; id?: string };
+export type { EstadoAcaoTarefa } from "@/app/tarefa/pedido";
 
 const TIPOS_DE_ARESTA: readonly EdgeTipo[] = [
   "predecessor",
@@ -92,13 +99,13 @@ function revalidar(taskId: string): void {
   revalidatePath("/linha-do-tempo");
 }
 
-function textoOu(form: FormData, campo: string): string {
-  const v = form.get(campo);
+function textoOu(campos: CamposDeEscrita, campo: string): string {
+  const v = campos[campo];
   return typeof v === "string" ? v : "";
 }
 
-function textoOuNulo(form: FormData, campo: string): string | null {
-  const v = textoOu(form, campo).trim();
+function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
+  const v = textoOu(campos, campo).trim();
   return v.length > 0 ? v : null;
 }
 
@@ -170,13 +177,10 @@ export async function mutar(op: string, payload: Record<string, unknown>): Promi
 }
 
 // ═══════════════════════════════════════════════════════════════ nota_add ═
-export async function notaAddAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const texto = textoOu(form, "texto");
-  const autor = textoOuNulo(form, "autor");
+async function notaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const texto = textoOu(campos, "texto");
+  const autor = textoOuNulo(campos, "autor");
 
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (texto.trim().length === 0) return { erro: "Escreva algo antes de salvar a nota." };
@@ -190,7 +194,7 @@ export async function notaAddAction(
 
   // [MÉDIO #4, rodada 7] só o DESFAZER manda `criado_em`; uma nota nova não
   // manda nada e o banco usa `now()`, como sempre.
-  const criadoEmBruto = textoOuNulo(form, "criado_em");
+  const criadoEmBruto = textoOuNulo(campos, "criado_em");
   let criadoEm: string | null = null;
   if (criadoEmBruto !== null) {
     const v = dataOriginalValidaOuErro(criadoEmBruto);
@@ -205,12 +209,9 @@ export async function notaAddAction(
 }
 
 // ═══════════════════════════════════════════════════════════════ nota_del ═
-export async function notaDelAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const id = textoOu(form, "id");
-  const taskId = textoOu(form, "task_id");
+async function notaDel(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const id = textoOu(campos, "id");
+  const taskId = textoOu(campos, "task_id");
   if (id.length === 0) return { erro: "Nota não identificada." };
 
   const r = await mutar("nota_del", { id });
@@ -220,13 +221,10 @@ export async function notaDelAction(
 }
 
 // ═══════════════════════════════════════════════════════════ subtarefa_add ═
-export async function subtarefaAddAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const parentId = textoOu(form, "parent_id");
-  const title = textoOu(form, "title");
-  const estimativaBruta = textoOu(form, "estimativa_dias").trim();
+async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const parentId = textoOu(campos, "parent_id");
+  const title = textoOu(campos, "title");
+  const estimativaBruta = textoOu(campos, "estimativa_dias").trim();
 
   if (parentId.length === 0) return { erro: "Tarefa mãe não identificada." };
   if (title.trim().length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
@@ -254,12 +252,9 @@ export async function subtarefaAddAction(
 }
 
 // ═══════════════════════════════════════════════════════════════ parent_set ═
-export async function parentSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const parentId = textoOuNulo(form, "parent_id");
+async function parentSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const parentId = textoOuNulo(campos, "parent_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (parentId === taskId) return { erro: "Uma tarefa não pode ser mãe de si mesma." };
 
@@ -270,12 +265,9 @@ export async function parentSetAction(
 }
 
 // ═════════════════════════════════════════════════════════════════ goal_set ═
-export async function goalSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const isGoal = textoOu(form, "is_goal") === "true";
+async function goalSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const isGoal = textoOu(campos, "is_goal") === "true";
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
   const r = await mutar("goal_set", { task_id: taskId, is_goal: isGoal });
@@ -285,14 +277,10 @@ export async function goalSetAction(
 }
 
 // ══════════════════════════════════════════════════════════════ atomos_set ═
-export async function atomosSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
+async function atomosSet(campos: CamposDeEscrita, limpar: boolean): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
-  const limpar = textoOu(form, "limpar") === "true";
   if (limpar) {
     const r = await mutar("atomos_set", { task_id: taskId, assimetria: null });
     if ("erro" in r) return { erro: r.erro };
@@ -300,9 +288,9 @@ export async function atomosSetAction(
     return { ok: true };
   }
 
-  const opcionalidade = Number(textoOu(form, "opcionalidade"));
-  const esforco = Number(textoOu(form, "esforco"));
-  const custo = Number(textoOu(form, "custo"));
+  const opcionalidade = Number(textoOu(campos, "opcionalidade"));
+  const esforco = Number(textoOu(campos, "esforco"));
+  const custo = Number(textoOu(campos, "custo"));
   const candidato = { opcionalidade, esforco, custo };
   if (!atomosDeclaradosValidos(candidato)) {
     return {
@@ -325,14 +313,11 @@ export async function atomosSetAction(
 }
 
 // ══════════════════════════════════════════════════════════ estimativa_set ═
-export async function estimativaSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
+async function estimativaSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
-  const bruta = textoOu(form, "estimativa_dias").trim();
+  const bruta = textoOu(campos, "estimativa_dias").trim();
   let estimativaDias: number | null = null;
   if (bruta.length > 0) {
     const n = Number(bruta);
@@ -349,12 +334,9 @@ export async function estimativaSetAction(
 }
 
 // ══════════════════════════════════════════════════════════════ status_set ═
-export async function statusSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const status = textoOu(form, "status");
+async function statusSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const status = textoOu(campos, "status");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (!STATUS_VALIDOS.includes(status as TaskStatus)) {
     return { erro: "status precisa ser um de: aberta, em progresso, bloqueada, concluída." };
@@ -367,15 +349,12 @@ export async function statusSetAction(
 }
 
 // ══════════════════════════════════════════════════════════════ aresta_add ═
-export async function arestaAddAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const origem = textoOu(form, "origem");
-  const destino = textoOu(form, "destino");
-  const tipo = textoOu(form, "tipo") as EdgeTipo;
-  const nota = textoOuNulo(form, "nota");
-  const pesoBruto = textoOu(form, "peso").trim();
+async function arestaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const origem = textoOu(campos, "origem");
+  const destino = textoOu(campos, "destino");
+  const tipo = textoOu(campos, "tipo") as EdgeTipo;
+  const nota = textoOuNulo(campos, "nota");
+  const pesoBruto = textoOu(campos, "peso").trim();
 
   if (origem.length === 0 || destino.length === 0) {
     return { erro: "Escolha a tarefa de destino da relação." };
@@ -396,7 +375,7 @@ export async function arestaAddAction(
   }
 
   // [MÉDIO #4, rodada 7] mesma régua da nota — só o desfazer preenche.
-  const criadoEmBruto = textoOuNulo(form, "criado_em");
+  const criadoEmBruto = textoOuNulo(campos, "criado_em");
   let criadoEm: string | null = null;
   if (criadoEmBruto !== null) {
     const v = dataOriginalValidaOuErro(criadoEmBruto);
@@ -419,16 +398,79 @@ export async function arestaAddAction(
 }
 
 // ══════════════════════════════════════════════════════════════ aresta_del ═
-export async function arestaDelAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const id = textoOu(form, "id");
-  const taskId = textoOu(form, "task_id");
+async function arestaDel(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const id = textoOu(campos, "id");
+  const taskId = textoOu(campos, "task_id");
   if (id.length === 0) return { erro: "Aresta não identificada." };
 
   const r = await mutar("aresta_del", { id });
   if ("erro" in r) return { erro: r.erro };
   if (taskId.length > 0) revalidar(taskId);
   return { ok: true };
+}
+
+// ══════════════════════════════════════════════════════ a PORTA do servidor ═
+/**
+ * [ALTO #1, rodada 9] A ÚNICA função de escrita que o cliente consegue
+ * chamar. As dez funções acima deixaram de ser exportadas: quem quiser
+ * gravar tem de trazer um `PedidoDeEscrita`, e um `PedidoDeEscrita` só
+ * nasce dentro de `porta-de-escrita.ts` (o selo é um `unique symbol`
+ * ambiente e não exportado — ver `pedido.ts`).
+ *
+ * Consequências que a rodada 8 não tinha:
+ *  - `<form action={zerarDuracaoDireto}>` (forma M6) entrega um `FormData`;
+ *    `FormData` não é `PedidoDeEscrita` → não compila;
+ *  - um 2º hook despachando cru (forma M8) não tem o que despachar: a porta
+ *    não devolve `disparar`, e a ação não aceita nada além do pedido selado;
+ *  - a `op` viaja DENTRO do pedido, então o servidor sabe qual escrita está
+ *    executando — não é mais uma string que um handler de cliente "declara".
+ *
+ * Nunca lança: devolve `{ erro }` em português ou `{ ok: true, id? }`.
+ */
+export async function escreverTarefaAction(
+  _estado: EstadoAcaoTarefa,
+  pedido: PedidoDeEscrita,
+): Promise<EstadoAcaoTarefa> {
+  // O pedido cruza a fronteira serializado: o selo é só do compilador, e o
+  // servidor nunca confia no formato de nada que chega do cliente.
+  const op: unknown = (pedido as { op?: unknown } | null)?.op;
+  const brutos: unknown = (pedido as { campos?: unknown } | null)?.campos;
+  if (!ehOperacaoDeEscrita(op)) return { erro: "Operação desconhecida." };
+  const campos: CamposDeEscrita =
+    typeof brutos === "object" && brutos !== null
+      ? Object.fromEntries(
+          Object.entries(brutos as Record<string, unknown>).map(([k, v]) => [
+            k,
+            typeof v === "string" ? v : "",
+          ]),
+        )
+      : {};
+
+  switch (op) {
+    case "nota_criar":
+    case "nota_desfazer":
+      return notaAdd(campos);
+    case "nota_excluir":
+      return notaDel(campos);
+    case "subtarefa_criar":
+      return subtarefaAdd(campos);
+    case "relacao_criar":
+    case "relacao_desfazer_exclusao":
+      return arestaAdd(campos);
+    case "relacao_excluir":
+    case "relacao_desfazer_criacao":
+      return arestaDel(campos);
+    case "status":
+      return statusSet(campos);
+    case "mae":
+      return parentSet(campos);
+    case "meta":
+      return goalSet(campos);
+    case "duracao":
+      return estimativaSet(campos);
+    case "atomos_salvar":
+      return atomosSet(campos, false);
+    case "atomos_limpar":
+      return atomosSet(campos, true);
+  }
 }

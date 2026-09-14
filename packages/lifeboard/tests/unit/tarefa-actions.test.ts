@@ -25,19 +25,42 @@ import { revalidatePath } from "next/cache";
 
 import { mutateLifeboard } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/tasks.fixture-store";
-import {
-  arestaAddAction,
-  arestaDelAction,
-  atomosSetAction,
-  estimativaSetAction,
-  goalSetAction,
-  mutar,
-  notaAddAction,
-  notaDelAction,
-  parentSetAction,
-  statusSetAction,
-  subtarefaAddAction,
-} from "@/app/tarefa/actions";
+import { escreverTarefaAction, mutar } from "@/app/tarefa/actions";
+import type {
+  EstadoAcaoTarefa,
+  OperacaoDeEscrita,
+  PedidoDeEscrita,
+} from "@/app/tarefa/pedido";
+
+/**
+ * [ALTO #1, rodada 9] As dez actions por operação deixaram de ser exportadas:
+ * o servidor desta página tem UMA porta, `escreverTarefaAction`, e ela só
+ * aceita um `PedidoDeEscrita` (selo `unique symbol` não exportado —
+ * `pedido.ts`). Um componente não consegue montar esse objeto; um TESTE
+ * consegue, com a conversão abaixo, e é isso que mantém a bateria de
+ * validação desta rodada apontando exatamente para os mesmos ramos.
+ *
+ * Os dez nomes viram apelidos locais com a `op` correspondente — o corpo dos
+ * testes abaixo não mudou uma linha.
+ */
+function porOp(op: OperacaoDeEscrita) {
+  return async (estado: EstadoAcaoTarefa, f: FormData): Promise<EstadoAcaoTarefa> => {
+    const campos: Record<string, string> = {};
+    for (const [k, v] of f.entries()) if (typeof v === "string") campos[k] = v;
+    return escreverTarefaAction(estado, { op, campos } as unknown as PedidoDeEscrita);
+  };
+}
+
+const notaAddAction = porOp("nota_criar");
+const notaDelAction = porOp("nota_excluir");
+const subtarefaAddAction = porOp("subtarefa_criar");
+const parentSetAction = porOp("mae");
+const goalSetAction = porOp("meta");
+const atomosSetAction = porOp("atomos_salvar");
+const estimativaSetAction = porOp("duracao");
+const statusSetAction = porOp("status");
+const arestaAddAction = porOp("relacao_criar");
+const arestaDelAction = porOp("relacao_excluir");
 
 /**
  * OS-LIFEBOARD · P6 — os ramos de VALIDAÇÃO das server actions da tarefa

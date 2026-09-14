@@ -2,7 +2,11 @@
 
 import { useRef, useState } from "react";
 
-import type { EstadoAcaoTarefa } from "@/app/tarefa/actions";
+import {
+  OPERACOES_DE_ESCRITA,
+  type EstadoAcaoTarefa,
+  type OperacaoDeEscrita,
+} from "@/app/tarefa/pedido";
 import {
   documentoAtual,
   focarComAlternativa,
@@ -30,39 +34,8 @@ import {
  * que não entre nesta lista falha o teste; operação da lista cujo componente
  * não chame as duas funções também.
  */
-export type OperacaoDeEscrita =
-  | "nota_criar"
-  | "nota_excluir"
-  | "nota_desfazer"
-  | "subtarefa_criar"
-  | "relacao_criar"
-  | "relacao_excluir"
-  | "relacao_desfazer_criacao"
-  | "relacao_desfazer_exclusao"
-  | "status"
-  | "mae"
-  | "meta"
-  | "duracao"
-  | "atomos_salvar"
-  | "atomos_limpar";
-
-/** As 14 escritas da página, por extenso — nenhuma amostra. */
-export const OPERACOES_DE_ESCRITA: readonly OperacaoDeEscrita[] = [
-  "nota_criar",
-  "nota_excluir",
-  "nota_desfazer",
-  "subtarefa_criar",
-  "relacao_criar",
-  "relacao_excluir",
-  "relacao_desfazer_criacao",
-  "relacao_desfazer_exclusao",
-  "status",
-  "mae",
-  "meta",
-  "duracao",
-  "atomos_salvar",
-  "atomos_limpar",
-];
+export { OPERACOES_DE_ESCRITA };
+export type { OperacaoDeEscrita };
 
 /**
  * [MÉDIO #2, rodada 6] O que a região viva (`role="status"`) recebe quando a
@@ -174,19 +147,51 @@ export const MENSAGEM_SEM_MUDANCA: Partial<Record<OperacaoDeEscrita, string>> = 
  * voltando sozinho a "excluir" em 3061 ms com ZERO anúncios, e um 2º Enter
  * depois da janela apenas re-armando, também em silêncio.
  */
+export type MotivoDaSaida = "cancelou" | "confirmou";
+
+export interface TransicaoDeConfirmacao {
+  confirmandoId: string | null;
+  anuncio: string | null;
+}
+
 export function transicaoDeConfirmacao(
   op: "nota_excluir" | "relacao_excluir",
   atual: string | null,
   proximo: string | null,
-): { confirmandoId: string | null; anuncio: string | null } {
+  /**
+   * [MÉDIO #3, rodada 9] POR QUE a confirmação saiu. `"cancelou"` é o
+   * caminho que DESISTE (Escape, foco fora, outra linha) e é o único que
+   * pode dizer "Exclusão cancelada". `"confirmou"` é o 2º clique — o que
+   * APAGA: a saída é real, mas a frase de cancelamento ali é falsa, e ficava
+   * 1.240 ms sozinha na região viva antes de "Excluída." chegar (medido pelo
+   * crítico com 1,2 s de latência de RPC).
+   */
+  motivo: MotivoDaSaida = "cancelou",
+): TransicaoDeConfirmacao {
   if (atual === proximo) return { confirmandoId: atual, anuncio: null };
   const partes: string[] = [];
-  if (atual !== null) partes.push(ANUNCIO_DE_CONFIRMACAO[op].saiu);
+  if (atual !== null && motivo === "cancelou") partes.push(ANUNCIO_DE_CONFIRMACAO[op].saiu);
   if (proximo !== null) partes.push(ANUNCIO_DE_CONFIRMACAO[op].entrou);
   // UMA frase, não duas: dois `mostrar()` no mesmo manipulador viram um só
   // render (React agrupa), e a primeira frase nunca chegaria ao DOM — a
-  // região viva anunciaria só a última. Medido nesta rodada, no navegador.
+  // região viva anunciaria só a última. Medido na rodada 7, no navegador.
   return { confirmandoId: proximo, anuncio: partes.length === 0 ? null : partes.join(" ") };
+}
+
+/**
+ * [MÉDIO #3, rodada 9] O 2º clique — o que apaga. Existe como função PRÓPRIA
+ * (e não como `transicaoDeConfirmacao(..., null)`) porque o defeito nasceu
+ * de os dois caminhos chamarem a MESMA porta: `aoConfirmar(null)` antes do
+ * despacho parecia "sair da confirmação", e a porta, vendo `atual !== null`
+ * e `proximo === null`, cumpria o seu contrato e anunciava o cancelamento.
+ * Aqui a saída por confirmação é um estado distinto, e ele é MUDO — quem
+ * fala é o sucesso da exclusão.
+ */
+export function saidaPorConfirmacao(
+  op: "nota_excluir" | "relacao_excluir",
+  atual: string | null,
+): TransicaoDeConfirmacao {
+  return transicaoDeConfirmacao(op, atual, null, "confirmou");
 }
 
 export type DecisaoDeEscrita = "gravar" | "aguardar" | "invalido" | "sem_mudanca";
