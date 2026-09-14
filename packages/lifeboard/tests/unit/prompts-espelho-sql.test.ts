@@ -7,6 +7,7 @@ import {
   BACKOFF_POR_TENTATIVA_MIN,
   CONTAS,
   JANELA_HEARTBEAT_MIN,
+  LIMITE_DEFASAGEM_HORAS,
   MAX_TENTATIVAS,
 } from "@/core/prompts/tipos";
 
@@ -37,6 +38,7 @@ const ARQUIVOS = [
   "0013_lifeboard_v3_fila_contabilidade.sql",
   "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
   "0015_lifeboard_v3_fila_dia_e_dono.sql",
+  "0016_lifeboard_v3_consumo_por_entidade.sql",
 ] as const;
 
 /** As 6 migrations da fila — a varredura do `raise` (#3) vale para todas. */
@@ -48,6 +50,7 @@ const MIGRATIONS_DA_FILA = [
   "0013_lifeboard_v3_fila_contabilidade.sql",
   "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
   "0015_lifeboard_v3_fila_dia_e_dono.sql",
+  "0016_lifeboard_v3_consumo_por_entidade.sql",
 ] as const;
 
 /** O teste COMPORTAMENTAL da fila — o que este arquivo NÃO é (ver o bloco D28). */
@@ -273,11 +276,96 @@ describe("D28 — contrato mínimo: o teste SQL só chama função que existe na
   });
 
   it("D25 — o dia do item no SQL é o do FECHAMENTO (a régua de painel_fila_itens_do_dia)", () => {
-    const sql = semComentarios(ler("0015_lifeboard_v3_fila_dia_e_dono.sql"));
+    const sql = semComentarios(ler("0016_lifeboard_v3_consumo_por_entidade.sql"));
     expect(sql).toMatch(/painel_dia_operador\(f\.concluido_em\)\s*=\s*p_dia/);
     // e a régua de `ajustar_custo` é a MESMA (era `pego_em` de um lado e
     // `concluido_em` do outro — o botão prometia e não movia número nenhum):
     expect(sql).toMatch(/painel_dia_operador\(v_row\.concluido_em\)\s*<>\s*public\.painel_dia_operador\(\)/);
     expect(sql).not.toContain("coalesce(f.pego_em, f.criado_em)");
+  });
+});
+
+/**
+ * ═══ RODADA 7 — o que 0016 tem que dizer, e o que ela NÃO pode ter ═══
+ *
+ * Contrato mínimo de novo, com o mesmo aviso do bloco D28: estes testes são de
+ * ORTOGRAFIA. Quem prova COMPORTAMENTO é `supabase/tests/fila_prompts.test.sql`
+ * — blocos T21/T22/T25 (D31), T26/T27/T28 (D32) e T29 (MÉDIO 4/BAIXO 9), e as
+ * seis mutações do relatório da rodada, cada uma derrubando ao menos 2 blocos.
+ */
+describe("D31/D32 — 0016 (a migration da rodada 7)", () => {
+  const SQL_0016 = () => semComentarios(ler("0016_lifeboard_v3_consumo_por_entidade.sql"));
+
+  it("é aditiva — a única remoção é a assinatura de 13 args do motivo_do_pull", () => {
+    const sql = SQL_0016().toLowerCase();
+    expect(sql).not.toContain("drop table");
+    expect(sql).not.toContain("drop column");
+    expect(sql).not.toContain("drop index");
+    const drops = sql.match(/drop function[^;]*;/g) ?? [];
+    expect(drops).toHaveLength(1);
+    expect(drops[0]).toContain("painel_fila_motivo_do_pull");
+    expect(sql).toContain("add column if not exists exigir_medicao_recente");
+    expect(sql).toContain("create or replace function");
+  });
+
+  it("D31 — o `left join lateral` NÃO filtra por dia (era a cobrança em dobro)", () => {
+    const sql = SQL_0016();
+    // O trecho entre `left join lateral (` e `) ses on true` é a dedup por
+    // ENTIDADE: nele não pode sobrar nenhuma comparação com `p_dia`.
+    const inicio = sql.indexOf("left join lateral (");
+    const fim = sql.indexOf(") ses on true", inicio);
+    expect(inicio, "0016 precisa ter o lateral da dedup").toBeGreaterThan(0);
+    const lateral = sql.slice(inicio, fim);
+    expect(lateral).toContain("s.sessao_id = f.session_id");
+    expect(lateral).toContain("s.custo_usd is not null");
+    expect(lateral).not.toContain("p_dia");
+    // E a contribuição é 0 ou o custo inteiro — nunca uma subtração (que fazia
+    // a estimativa virar PISO quando o real era menor).
+    expect(sql).toContain("case when ses.custo_usd is null then f.custo_usd else 0 end");
+    expect(sql).not.toContain("greatest(f.custo_usd - ses.custo_usd");
+  });
+
+  it("D32 — o limite de defasagem do SQL é LIMITE_DEFASAGEM_HORAS", () => {
+    const sql = SQL_0016();
+    const achados = [...sql.matchAll(/p_defasagem_horas\s*>\s*(\d+)/g)].map((m) =>
+      Number.parseInt(m[1] as string, 10),
+    );
+    expect(achados.length, "0016 precisa comparar a defasagem com o limite").toBeGreaterThan(0);
+    for (const horas of achados) expect(horas).toBe(LIMITE_DEFASAGEM_HORAS);
+    // E a coluna que liga a trava nasce DESLIGADA: nada muda até o operador querer.
+    expect(sql).toMatch(/exigir_medicao_recente boolean not null default false/);
+  });
+
+  it("D32 — nenhuma linha de 0016 mexe no VALOR do teto (isso é do operador)", () => {
+    const sql = SQL_0016().toLowerCase();
+    expect(sql).not.toMatch(/update\s+public\.painel_teto_diario\s+set\s+teto_usd/);
+    expect(sql).not.toMatch(/alter\s+column\s+teto_usd\s+set\s+default/);
+  });
+
+  it("MÉDIO 4/BAIXO 9 — medido ZERO é ajustável e o enum não chega à tela", () => {
+    const sql = SQL_0016();
+    expect(sql).toMatch(/not v_row\.custo_e_estimativa and coalesce\(v_row\.custo_usd, 0\) <> 0/);
+    expect(sql).toContain("public.painel_fila_estado_br(v_row.estado)");
+    // A recusa de estado não pode voltar a interpolar o enum cru.
+    expect(sql).not.toMatch(/\(este está %\)[\s\S]{0,40}v_row\.estado\s*$/m);
+  });
+
+  it("os blocos novos do teste SQL existem, e cada decisão de dinheiro tem DOIS", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    for (const marca of [
+      "T21 · D31",
+      "T22 · D31",
+      "T23 · D26 POSSE, SEGUNDO CAMINHO",
+      "T24 · D30/D31 DINHEIRO, SEGUNDO CAMINHO",
+      "T25 · D31, SEGUNDO CAMINHO",
+      "T26 · D32a/D32b",
+      "T27 · D32c",
+      "T28 · D32d",
+      "T29 · MÉDIO 4 + BAIXO 9",
+    ]) {
+      expect(teste, `caso ausente: ${marca}`).toContain(marca);
+    }
+    const oks = teste.match(/RESULTADO: ok —/g) ?? [];
+    expect(oks.length).toBeGreaterThanOrEqual(29);
   });
 });

@@ -118,9 +118,14 @@ begin
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T03 fechado ontem', 'maxima', 'Fable') returning id into v_id;
 
+  -- `pego_em` é de ANTEONTEM de propósito (rodada 7): assim este bloco também
+  -- cai quando alguém troca a régua do dia de `concluido_em` para `pego_em` —
+  -- D25 deixa de ter um único guardião (T01) e passa a ter dois, por caminhos
+  -- diferentes (headroom de hoje × leitura do dia anterior). Os números
+  -- afirmados são os mesmos de sempre: hoje 0, ontem 42.
   update public.painel_fila_prompts
      set estado = 'concluida', worker_id = 'w-T03', ultimo_worker_id = 'w-T03',
-         pego_em      = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '20 hours',
+         pego_em      = (public.painel_dia_operador() - 2)::timestamp at time zone 'America/Sao_Paulo' + interval '20 hours',
          concluido_em = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '21 hours',
          custo_usd = 42, custo_e_estimativa = false, tentativas = 1
    where id = v_id;
@@ -404,9 +409,13 @@ begin
   v_r := public.fila_prompts_pegar_interno(v_conta, 'w-T11-novo');
   v_motivo := v_r->>'motivo';
 
+  -- BAIXO 7 (rodada 7): a oração da parcela estimada ACUMULADA some quando ela
+  -- nomeia o MESMO dinheiro que a oração dos mortos DESTE disparo já nomeou —
+  -- aqui, os mesmos US$ 120,00 do mesmo item. Duas orações, um dinheiro só: a
+  -- segunda saía de graça e engordava a frase (o crítico mediu 331 caracteres).
   if v_motivo = '1 item morreu sem fechar neste disparo e lançou US$ 120,00 no dia; '
-                || 'nada cabe agora: o mais barato disponível custa US$ 120,00 e não há espaço livre agora; '
-                || 'US$ 120,00 do consumo de hoje são estimativa de 1 item que morreu sem fechar'
+                || 'nada cabe agora: o mais barato disponível custa US$ 120,00 e não há espaço livre agora'
+     and length(v_motivo) < 200
      and (v_r->>'mortos')::int = 1 and (v_r->>'mortos_usd')::numeric = 120 then
     raise exception 'RESULTADO: ok — T11 D27 morte + nada cabe no MESMO motivo: %', v_motivo;
   end if;
@@ -695,4 +704,429 @@ begin
       v_r->>'motivo', v_r->'menor_custo_fila';
   end if;
   raise exception 'FALHA: T20 D27 fila vazia — obteve %', v_r;
+end $$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- RODADA 7 — D31 (o dinheiro cobrado UMA vez), D32 (o teto que para de mentir),
+-- MÉDIO 4 (o medido zero), BAIXO 9 (o enum traduzido) e os SEGUNDOS BLOCOS.
+--
+-- POR QUE OS "SEGUNDOS BLOCOS" (achado de ARQUITETURA do crítico da rodada 6):
+--   cada decisão estava sustentada por UM ÚNICO bloco. Apagar T05 reabria o
+--   roubo de item morto sem nenhum outro vermelho; apagar T08 devolvia a
+--   estimativa-piso. As decisões que guardam DINHEIRO e POSSE passam a ter um
+--   segundo bloco POR OUTRO CAMINHO — não uma cópia do primeiro:
+--     · POSSE   : T05 (a recusa) + T23 (o dinheiro que a recusa NÃO moveu);
+--     · DINHEIRO: T08 (painel_fila_consumo_hoje) + T24 (a RPC secret-gated,
+--                 que devolve também a CONTAGEM de itens que contribuem);
+--     · D31     : T21/T22 (os dois sentidos da virada, por
+--                 painel_fila_consumo_do_dia) + T25 (a contribuição item a
+--                 item, direto em painel_fila_itens_do_dia).
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T21 · D31 — O CASO-TÍTULO: o mesmo dinheiro cobrado DUAS vezes na virada
+-- Medido pelo crítico com as RPCs reais (enfileirar → pegar → heartbeat com
+-- FILHA_ID → sessão publicada em 12/09 com 80 → fechar em 13/09 com 80 e o
+-- MESMO FILHA_ID):
+--   TRABALHO REAL = US$ 80,00 -> dia 12 cobra 80 ; dia 13 cobra 80,0000 ;
+--   TOTAL COBRADO 160,0000
+-- Esperado agora: 80 no TOTAL, e no dia da SESSÃO (que é quem tem o número).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_hoje numeric;
+  v_ontem numeric;
+  v_total numeric;
+begin
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T21 virada com sessao vinculada', 'maxima', 'Fable') returning id into v_id;
+
+  -- o item fechou HOJE, com o mesmo número que a sessão publicou ONTEM
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T21', ultimo_worker_id = 'w-T21',
+         session_id = 'sess-T21', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false,
+         pego_em = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo'
+                   + interval '23 hours',
+         concluido_em = now()
+   where id = v_id;
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T21', v_conta, 'T21', 'ativa', '{}', '{}',
+          (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '12 hours',
+          (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '12 hours',
+          80,
+          (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '12 hours');
+
+  v_hoje  := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador());
+  v_ontem := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador() - 1);
+  v_total := v_hoje + v_ontem;
+
+  if v_hoje = 0 and v_ontem = 80 and v_total = 80 then
+    raise exception 'RESULTADO: ok — T21 D31 trabalho de US$ 80,00 cobra 80 no total: hoje=% ontem=% TOTAL=%',
+      v_hoje, v_ontem, v_total;
+  end if;
+  raise exception 'FALHA: T21 D31 esperado hoje=0 ontem=80 TOTAL=80 obteve hoje=% ontem=% TOTAL=%',
+    v_hoje, v_ontem, v_total;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T22 · D31 — O SENTIDO INVERSO (o crítico mediu 160 nos DOIS)
+-- Item fechado 23h59 do dia anterior; a sessão só é atualizada 00h05 do dia
+-- seguinte. Antes: 80 no dia do item + 80 no dia da sessão = 160.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_hoje numeric;
+  v_ontem numeric;
+  v_total numeric;
+begin
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T22 virada inversa', 'maxima', 'Fable') returning id into v_id;
+
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T22', ultimo_worker_id = 'w-T22',
+         session_id = 'sess-T22', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false,
+         pego_em      = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '22 hours',
+         concluido_em = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '23 hours 59 minutes'
+   where id = v_id;
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T22', v_conta, 'T22', 'ativa', '{}', '{}',
+          (public.painel_dia_operador())::timestamp at time zone 'America/Sao_Paulo' + interval '5 minutes',
+          (public.painel_dia_operador())::timestamp at time zone 'America/Sao_Paulo' + interval '5 minutes',
+          80,
+          (public.painel_dia_operador())::timestamp at time zone 'America/Sao_Paulo' + interval '5 minutes');
+
+  v_hoje  := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador());
+  v_ontem := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador() - 1);
+  v_total := v_hoje + v_ontem;
+
+  if v_hoje = 80 and v_ontem = 0 and v_total = 80 then
+    raise exception 'RESULTADO: ok — T22 D31 inverso também cobra 80 no total: hoje=% ontem=% TOTAL=%',
+      v_hoje, v_ontem, v_total;
+  end if;
+  raise exception 'FALHA: T22 D31 inverso esperado hoje=80 ontem=0 TOTAL=80 obteve hoje=% ontem=% TOTAL=%',
+    v_hoje, v_ontem, v_total;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T23 · D26 POSSE, SEGUNDO CAMINHO — a recusa do intruso não move DINHEIRO
+-- T05 prova que o intruso ouve "não". Este prova a consequência que interessa:
+-- depois do "não", o número do dia continua o da casa. Apagar a guarda de
+-- `ultimo_worker_id` derruba OS DOIS, por caminhos diferentes (mensagem × saldo).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_consumo numeric;
+  v_custo numeric;
+  v_estimativa boolean;
+  v_erro text := '(nenhum erro)';
+begin
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T23 intruso nao move dinheiro', 'maxima', 'Fable') returning id into v_id;
+
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T23-dono',
+         tentativas = 3, custo_usd = 120, custo_e_estimativa = true,
+         motivo_falha = 'expirou 3 vezes sem fechamento',
+         pego_em = now() - interval '3 hours', concluido_em = now()
+   where id = v_id;
+
+  begin
+    perform public.fila_prompts_fechar_interno(
+      p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T23-intruso',
+      p_estado => 'falhou', p_custo_usd => 3, p_session_id => 'sess-T23');
+  exception when others then
+    v_erro := SQLERRM;
+  end;
+
+  select custo_usd, custo_e_estimativa into v_custo, v_estimativa
+    from public.painel_fila_prompts where id = v_id;
+  v_consumo := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_erro like 'Item pertence a outro worker%'
+     and v_custo = 120 and v_estimativa = true and v_consumo = 120 then
+    raise exception 'RESULTADO: ok — T23 D26 o intruso não move o dinheiro: erro="%" custo=% consumo=%',
+      v_erro, v_custo, v_consumo;
+  end if;
+  raise exception 'FALHA: T23 D26 esperado recusa + custo=120 + consumo=120; obteve erro="%" custo=% estimativa=% consumo=%',
+    v_erro, v_custo, v_estimativa, v_consumo;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T24 · D30/D31 DINHEIRO, SEGUNDO CAMINHO — pela RPC, com a CONTAGEM de itens
+-- T08 olha `painel_fila_consumo_hoje`. Este olha a porta secret-gated
+-- `fila_prompts_consumo_do_dia`, que devolve também quantos itens CONTRIBUEM.
+-- A mutação `greatest(custo − sessão, 0)` passa despercebida por um total de
+-- 120 mal lido, mas não por `itens = 0` virando `itens = 1`.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_rpc jsonb;
+  v_linha jsonb;
+begin
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T24 rpc conta os itens', 'maxima', 'Fable') returning id into v_id;
+
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T24',
+         tentativas = 3, custo_usd = 120, custo_e_estimativa = true,
+         session_id = 'sess-T24',
+         pego_em = now() - interval '3 hours', concluido_em = now()
+   where id = v_id;
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T24', v_conta, 'T24', 'ativa', '{}', '{}', now(), now(), 30, now());
+
+  v_rpc := public.fila_prompts_consumo_do_dia(
+             (select valor from private.lifeboard_config where chave = 'load_secret'),
+             public.painel_dia_operador());
+  select l into v_linha from jsonb_array_elements(v_rpc->'contas') as l where l->>'conta' = v_conta;
+
+  if (v_linha->>'consumo_usd')::numeric = 30 and (v_linha->>'itens')::int = 0 then
+    raise exception 'RESULTADO: ok — T24 D30/D31 a sessão paga por si e o item conta 0: linha=%', v_linha;
+  end if;
+  raise exception 'FALHA: T24 esperado consumo_usd=30 e itens=0; obteve %', v_linha;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T25 · D31, SEGUNDO CAMINHO — a contribuição ITEM A ITEM, nos dois dias
+-- T21/T22 somam o dia. Este abre a caixa: `painel_fila_itens_do_dia` devolve a
+-- contribuição de CADA item. Com o filtro de dia de volta no `left join
+-- lateral`, a contribuição do item no dia dele volta a ser 80 e este bloco cai
+-- junto com T21 — dois vermelhos, não um.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_contrib_hoje numeric;
+  v_linhas_ontem int;
+  v_total numeric;
+begin
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T25 contribuicao item a item', 'maxima', 'Fable') returning id into v_id;
+
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T25', ultimo_worker_id = 'w-T25',
+         session_id = 'sess-T25', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false,
+         pego_em = now() - interval '2 hours', concluido_em = now()
+   where id = v_id;
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T25', v_conta, 'T25', 'ativa', '{}', '{}',
+          (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '10 hours',
+          (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '10 hours',
+          80,
+          (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '10 hours');
+
+  select d.contribuicao into v_contrib_hoje
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) d
+   where d.id = v_id;
+  select count(*)::int into v_linhas_ontem
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador() - 1) d;
+  v_total := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador())
+           + public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador() - 1);
+
+  if v_contrib_hoje = 0 and v_linhas_ontem = 0 and v_total = 80 then
+    raise exception 'RESULTADO: ok — T25 D31 o item contribui 0 em todo dia: contribuicao_hoje=% linhas_ontem=% TOTAL=%',
+      v_contrib_hoje, v_linhas_ontem, v_total;
+  end if;
+  raise exception 'FALHA: T25 D31 esperado contribuicao=0 linhas_ontem=0 TOTAL=80; obteve %/%/%',
+    v_contrib_hoje, v_linhas_ontem, v_total;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T26 · D32a/D32b — A DEFASAGEM É MEDIDA E ENTRA NA FRASE
+-- Medido pelo crítico: a última sessão sincronizada era de 12/09 12:37 UTC
+-- (~37 h antes) e o motivo do pull não dizia uma palavra sobre isso.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_defasagem numeric;
+  v_com text;
+  v_sem text;
+begin
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T26', v_conta, 'T26', 'ativa', '{}', '{}',
+          now() - interval '37 hours', now() - interval '37 hours', 12, now() - interval '37 hours');
+
+  v_defasagem := public.painel_fila_defasagem_horas(v_conta);
+
+  v_com := public.painel_fila_motivo_do_pull(
+    p_mortos => 0, p_mortos_usd => 0, p_custo_escolhido => 5, p_headroom => 10,
+    p_menor_disponivel => null, p_elegiveis => 1, p_em_espera => 0, p_menor_espera => null,
+    p_espera_min => null, p_devolvidos => 0, p_travados => 0,
+    p_estimativa_usd => 0, p_estimativa_itens => 0,
+    p_defasagem_horas => 37, p_exigir_medicao => false);
+
+  -- 11,9 h ainda não passou de 12: a frase fica igual à de sempre.
+  v_sem := public.painel_fila_motivo_do_pull(
+    p_mortos => 0, p_mortos_usd => 0, p_custo_escolhido => 5, p_headroom => 10,
+    p_menor_disponivel => null, p_elegiveis => 1, p_em_espera => 0, p_menor_espera => null,
+    p_espera_min => null, p_devolvidos => 0, p_travados => 0,
+    p_estimativa_usd => 0, p_estimativa_itens => 0,
+    p_defasagem_horas => 11.9, p_exigir_medicao => false);
+
+  if round(v_defasagem) = 37
+     and v_com = 'atenção: o gasto medido desta conta é de 37 h atrás; '
+                 || 'peguei o item mais antigo que cabe: US$ 5,00 de US$ 10,00 livres'
+     and v_sem = 'peguei o item mais antigo que cabe: US$ 5,00 de US$ 10,00 livres' then
+    raise exception 'RESULTADO: ok — T26 D32a/b defasagem medida e dita: horas=% com="%" sem="%"',
+      v_defasagem, v_com, v_sem;
+  end if;
+  raise exception 'FALHA: T26 D32a/b — horas=% com="%" sem="%"', v_defasagem, v_com, v_sem;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T27 · D32c — `exigir_medicao_recente` RECUSA o pull (e o default não muda nada)
+-- O valor do teto é decisão do OPERADOR; esta coluna é a trava que ele pode
+-- ligar. Default `false` — e o mesmo cenário com `false` continua pegando o item.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_recusa jsonb;
+  v_livre jsonb;
+begin
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T27', v_conta, 'T27', 'ativa', '{}', '{}',
+          now() - interval '37 hours', now() - interval '37 hours', 0, now() - interval '37 hours');
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T27 item barato', 'baixa', 'Haiku') returning id into v_id;
+
+  update public.painel_teto_diario set exigir_medicao_recente = true where conta = v_conta;
+  v_recusa := public.fila_prompts_pegar_interno(v_conta, 'w-T27-a');
+
+  update public.painel_teto_diario set exigir_medicao_recente = false where conta = v_conta;
+  v_livre := public.fila_prompts_pegar_interno(v_conta, 'w-T27-b');
+
+  if v_recusa->'item' = 'null'::jsonb
+     and (v_recusa->>'recusado_por_medicao')::boolean
+     and v_recusa->>'motivo' = 'não autorizo contra saldo de 37 h atrás: esta conta exige medição recente'
+     and (v_livre->'item'->>'id')::uuid = v_id
+     and (v_livre->>'recusado_por_medicao')::boolean = false then
+    raise exception 'RESULTADO: ok — T27 D32c recusa com trava e pega sem ela: recusa="%" pegou=%',
+      v_recusa->>'motivo', v_livre->'item'->>'id';
+  end if;
+  raise exception 'FALHA: T27 D32c — recusa=% livre=%', v_recusa, v_livre;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T28 · D32d — A REALIDADE MEDIDA AO LADO DO TETO
+-- Medido pelo crítico na conta real: 9 de 9 dias com dado ACIMA do teto de
+-- US$ 150 (mediana ~2,6×, máximo 16,8× — 12/09 deu US$ 2.513,29 em 12 sessões).
+-- Este bloco prova o instrumento, com números plantados e conhecidos.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_dias int;
+  v_min numeric;
+  v_max numeric;
+  v_mediana numeric;
+  i int;
+begin
+  for i in 1..3 loop
+    insert into public.painel_frentes_sessoes
+      (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+    values ('sess-T28-' || i, v_conta, 'T28', 'ativa', '{}', '{}',
+            (public.painel_dia_operador() - i)::timestamp at time zone 'America/Sao_Paulo' + interval '9 hours',
+            (public.painel_dia_operador() - i)::timestamp at time zone 'America/Sao_Paulo' + interval '9 hours',
+            case i when 1 then 10 when 2 then 20 else 300 end,
+            (public.painel_dia_operador() - i)::timestamp at time zone 'America/Sao_Paulo' + interval '9 hours');
+  end loop;
+
+  select h.dias, h.min_usd, h.max_usd, h.mediana_usd
+    into v_dias, v_min, v_max, v_mediana
+    from public.painel_fila_historico_medido(v_conta) h;
+
+  if v_dias = 3 and v_min = 10 and v_max = 300 and v_mediana = 20 then
+    raise exception 'RESULTADO: ok — T28 D32d histórico medido: dias=% min=% max=% mediana=%',
+      v_dias, v_min, v_max, v_mediana;
+  end if;
+  raise exception 'FALHA: T28 D32d esperado dias=3 min=10 max=300 mediana=20; obteve %/%/%/%',
+    v_dias, v_min, v_max, v_mediana;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T29 · MÉDIO 4 + BAIXO 9 — o medido ZERO é ajustável; o medido de verdade não
+-- Zero não é medição: é a ausência dela com cara de número (a sessão fechou sem
+-- conseguir ler o usage). Sem esta porta o item fica cravado em US$ 0,00 para
+-- sempre. E nenhuma recusa volta a escrever "pega" na cara do operador.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_zero uuid;
+  v_medido uuid;
+  v_voando uuid;
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_ok jsonb;
+  v_erro_medido text := '(nenhum erro)';
+  v_erro_estado text := '(nenhum erro)';
+  v_custo numeric;
+begin
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T29 medido zero', 'maxima', 'Fable') returning id into v_zero;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T29 medido de verdade', 'maxima', 'Fable') returning id into v_medido;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T29 em execucao', 'maxima', 'Fable') returning id into v_voando;
+
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T29', tentativas = 3,
+         custo_usd = 0, custo_e_estimativa = false, concluido_em = now()
+   where id = v_zero;
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T29', tentativas = 3,
+         custo_usd = 95, custo_e_estimativa = false, concluido_em = now()
+   where id = v_medido;
+  update public.painel_fila_prompts
+     set estado = 'pega', worker_id = 'w-T29', ultimo_worker_id = 'w-T29',
+         tentativas = 1, pego_em = now(), heartbeat_em = now()
+   where id = v_voando;
+
+  v_ok := public.fila_prompts_ajustar_custo(v_segredo, v_zero, 42, null);
+  select custo_usd into v_custo from public.painel_fila_prompts where id = v_zero;
+
+  begin
+    perform public.fila_prompts_ajustar_custo(v_segredo, v_medido, 42, null);
+  exception when others then v_erro_medido := SQLERRM;
+  end;
+
+  begin
+    perform public.fila_prompts_ajustar_custo(v_segredo, v_voando, 42, null);
+  exception when others then v_erro_estado := SQLERRM;
+  end;
+
+  if (v_ok->>'ok')::boolean and (v_ok->>'era_medido_zero')::boolean and v_custo = 42
+     and v_erro_medido = 'Só custo estimado pela casa pode ser ajustado; este foi medido.'
+     and v_erro_estado = 'Só dá para ajustar o custo de item que falhou ou foi cancelado (este está em execução).'
+     and v_erro_estado not like '%pega%' then
+    raise exception 'RESULTADO: ok — T29 medido zero ajustado para %, medido recusado ("%"), estado em português ("%")',
+      v_custo, v_erro_medido, v_erro_estado;
+  end if;
+  raise exception 'FALHA: T29 — ok=% custo=% erro_medido="%" erro_estado="%"',
+    v_ok, v_custo, v_erro_medido, v_erro_estado;
 end $$;

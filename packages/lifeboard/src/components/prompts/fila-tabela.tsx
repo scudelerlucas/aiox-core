@@ -1,12 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { EstadoAcaoPrompt } from "@/app/prompts/actions";
-import { AjustarCustoBotao } from "@/components/prompts/ajustar-custo-botao";
+import {
+  ajustarCustoPromptAction,
+  cancelarPromptAction,
+  type EstadoAcaoPrompt,
+} from "@/app/prompts/actions";
+import { AjustarCustoBotao, type EstadoDoAjuste } from "@/components/prompts/ajustar-custo-botao";
 import { CancelarBotao } from "@/components/prompts/cancelar-botao";
 import { EstadoFilaChip } from "@/components/prompts/estado-fila-chip";
+import { MensagemDaFila } from "@/components/prompts/mensagem-da-fila";
+import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
+import { focarComAlternativa } from "@/components/task/foco";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { hojeNoFusoDoOperador } from "@/lib/fuso";
 import type { ItemFilaPrompt } from "@/core/prompts/tipos";
@@ -15,7 +22,10 @@ import {
   ROTULO_CONTA,
   descricaoExecucao,
   formatarUsd,
+  origemDoCusto,
   semSinal,
+  textoOrigemDoCusto,
+  textoSemAjuste,
 } from "@/core/prompts/tipos";
 
 const LIMITE_PREVIA = 90;
@@ -78,18 +88,19 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
 
 /**
  * D20: só item cujo custo é ESTIMATIVA DA CASA ganha o botão de ajuste —
- * `falhou` por expiração ou `cancelada` em execução. Item fechado por worker
- * já tem número medido; oferecer "ajustar" ali seria convidar a inventar.
+ * `falhou` por expiração ou `cancelada` em execução. MÉDIO 3 (rodada 5) + D25
+ * (rodada 6): e só item FECHADO HOJE (o ajuste de um item de ontem era aceito
+ * sem mover número nenhum, coroado com uma mensagem de sucesso).
  *
- * MÉDIO 3 (crítico da rodada 5) + D25 (rodada 6): e só item FECHADO HOJE. O
- * botão aparecia para qualquer `falhou`/`cancelada` da página, inclusive de
- * dias passados — e o ajuste de um item de ontem era aceito sem mover número
- * nenhum, coroado com "Custo ajustado — o gasto de hoje já considera o número
- * real." O dia aqui é o MESMO de `painel_fila_itens_do_dia` (o do fechamento) e
- * sai da MESMA função de fuso que o resto do app usa (`src/lib/fuso.ts`).
+ * MÉDIO 4 (rodada 7): UMA exceção, testada dos dois lados (aqui e no banco) —
+ * custo MEDIDO igual a ZERO também é ajustável. É o modo de falha conhecido: a
+ * sessão fechou sem conseguir ler o usage. Zero não é medição; é a ausência
+ * dela com cara de número, e sem esta porta o item ficava cravado em US$ 0,00
+ * para sempre. Medido > 0 continua fechado, aqui e no `fila_prompts_ajustar_custo`.
  */
-function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
-  if (!item.custoEEstimativa) return false;
+export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
+  const origem = origemDoCusto(item);
+  if (origem !== "estimativa" && origem !== "medido-zero") return false;
   if (item.estado !== "falhou" && item.estado !== "cancelada") return false;
   if (item.concluidoEm === null) return false;
   const dia = Date.parse(item.concluidoEm);
@@ -97,34 +108,55 @@ function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
   return hojeNoFusoDoOperador(new Date(dia)) === hojeNoFusoDoOperador(new Date(agora));
 }
 
-/** D20: a célula de custo diz de onde o número veio. */
+/**
+ * D20 + MÉDIO 4 (rodada 7): a célula de custo diz DE ONDE o número veio — e
+ * "medido pela sessão" é uma frase, não um silêncio.
+ */
 function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
   if (item.custoUsd === null) return <span className="text-bone-500">—</span>;
+  const origem = origemDoCusto(item);
+  const nota = textoOrigemDoCusto(item);
+  const atencao = origem === "estimativa" || origem === "medido-zero";
   return (
-    <span className={item.custoEEstimativa ? "text-state-progress" : undefined}>
+    <span className={atencao ? "text-state-progress" : undefined}>
       {formatarUsd(item.custoUsd)}
-      {item.custoEEstimativa ? (
-        <span className="block text-[11px] text-state-progress">estimativa da casa</span>
-      ) : item.custoAjustadoEm !== null ? (
-        <span className="block text-[11px] text-bone-400">ajustado por você</span>
+      {nota ? (
+        <span
+          className={`block text-[11px] ${atencao ? "text-state-progress" : "text-bone-400"}`}
+        >
+          {nota}
+        </span>
       ) : null}
     </span>
   );
 }
 
 /**
- * D22 (rodada 5): as duas ações da linha ficam SEMPRE montadas — o que muda é
- * o gatilho de cada uma. Motivo medido: toda ação chama `router.refresh()` no
- * sucesso, o item muda de estado e uma renderização condicional
- * (`podeCancelar ? <Cancelar/> : podeAjustar ? <Ajustar/> : null`) DESMONTAVA o
- * componente que acabara de responder — levando junto a frase que a action
- * tinha calculado ("US$ 50,00 entram no gasto de hoje como estimativa"). Com
- * as duas montadas, a região viva de cada uma sobrevive ao refresh e o
- * operador lê o que aconteceu.
+ * D22 (rodada 5) + BAIXO 4 (rodada 5) + MÉDIO 3/BAIXO 10 (rodada 7): a linha é
+ * a dona do estado.
+ *
+ * Medido, em três rodadas: toda ação chama `router.refresh()` no sucesso, o
+ * item muda de estado e qualquer coisa guardada DENTRO do botão morre com ele —
+ * primeiro morreu a frase da resposta (rodada 5), depois ela sobreviveu mas o
+ * que o operador estava DIGITANDO não (rodada 6: abrir o ajuste em 390 px,
+ * digitar, ir para 1280 px → painel fechado e campos vazios, porque a tabela e
+ * o cartão são DUAS instâncias). Agora a linha guarda tudo: a resposta, o
+ * painel aberto, o valor e o id de sessão — e os dois hooks de ação.
+ *
+ * BAIXO 10: e por isso existe UMA região `role="status"` por linha, no lugar
+ * das 4 de antes (2 ações × 2 breakpoints).
  */
 interface RespostasDaLinha {
   cancelar?: EstadoAcaoPrompt;
   ajustar?: EstadoAcaoPrompt;
+  /** Qual das duas respondeu por último — é ela que a região viva mostra. */
+  ultima?: "cancelar" | "ajustar";
+}
+
+const AJUSTE_VAZIO: EstadoDoAjuste = { aberto: false, valor: "", sessao: "" };
+
+function temTexto(estado: EstadoAcaoPrompt | undefined): boolean {
+  return Boolean(estado && (estado.mensagem || estado.erro));
 }
 
 function AcoesDaLinha({
@@ -132,27 +164,111 @@ function AcoesDaLinha({
   agora,
   respostas,
   aoResponder,
+  ajuste,
+  aoMudarAjuste,
 }: {
   item: ItemFilaPrompt;
   agora: number;
   respostas: RespostasDaLinha | undefined;
-  aoResponder: (id: string, qual: keyof RespostasDaLinha, estado: EstadoAcaoPrompt) => void;
+  aoResponder: (id: string, qual: "cancelar" | "ajustar", estado: EstadoAcaoPrompt) => void;
+  ajuste: EstadoDoAjuste;
+  aoMudarAjuste: (id: string, patch: Partial<EstadoDoAjuste>) => void;
 }): JSX.Element {
+  const mensagemRef = useRef<HTMLParagraphElement>(null);
+  const caixaRef = useRef<HTMLDivElement>(null);
+  const gatilhoRef = useRef<HTMLButtonElement>(null);
+  const [ultimaLocal, setUltimaLocal] = useState<"cancelar" | "ajustar" | null>(null);
+  const [pedidoDeFocoCancelar, setPedidoDeFocoCancelar] = useState(0);
+  const [pedidoDeFocoAjuste, setPedidoDeFocoAjuste] = useState(0);
+
+  const ajustavel = podeAjustarCusto(item, agora);
+
+  const acaoCancelar = useAcaoPrompt(
+    cancelarPromptAction,
+    () => setPedidoDeFocoCancelar((n) => n + 1),
+    (estado) => {
+      setUltimaLocal("cancelar");
+      aoResponder(item.id, "cancelar", estado);
+    },
+  );
+  const acaoAjustar = useAcaoPrompt(
+    ajustarCustoPromptAction,
+    () => {
+      aoMudarAjuste(item.id, { aberto: false });
+      setPedidoDeFocoAjuste((n) => n + 1);
+    },
+    (estado) => {
+      setUltimaLocal("ajustar");
+      aoResponder(item.id, "ajustar", estado);
+    },
+  );
+
+  // BAIXO 3 (rodada 6, preservado): o `<button>` some do DOM com o foco nele.
+  // O foco é ENTREGUE — para a região viva da linha (cancelar) ou para o
+  // gatilho que reaparece, com a região como alternativa (ajuste). Nunca o
+  // `<body>`. `ajustavel` está nas dependências de propósito: depois do
+  // `router.refresh()` o item deixa de ser ajustável e o gatilho some.
+  useEffect(() => {
+    if (pedidoDeFocoCancelar === 0) return;
+    focarComAlternativa(mensagemRef.current, caixaRef.current);
+  }, [pedidoDeFocoCancelar]);
+  useEffect(() => {
+    if (pedidoDeFocoAjuste === 0) return;
+    focarComAlternativa(gatilhoRef.current, mensagemRef.current);
+  }, [pedidoDeFocoAjuste, ajustavel]);
+
+  function dispararCancelar(id: string): void {
+    const form = new FormData();
+    form.set("id", id);
+    acaoCancelar.disparar(form);
+  }
+  function dispararAjuste(id: string, custoUsd: string, sessionId: string): void {
+    const form = new FormData();
+    form.set("id", id);
+    form.set("custo_usd", custoUsd);
+    form.set("session_id", sessionId);
+    acaoAjustar.disparar(form);
+  }
+
+  // A resposta compartilhada pela LINHA vence; o estado local só aparece antes
+  // de o mapa ter sido escrito (primeiro render depois da ação, e a renderização
+  // estática dos testes, que substituem o encanamento do hook).
+  const doMapa = respostas?.ultima ? respostas[respostas.ultima] : undefined;
+  const local =
+    ultimaLocal === "ajustar"
+      ? acaoAjustar.estado
+      : ultimaLocal === "cancelar"
+        ? acaoCancelar.estado
+        : temTexto(acaoCancelar.estado)
+          ? acaoCancelar.estado
+          : acaoAjustar.estado;
+  const visivel = doMapa ?? local;
+
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div ref={caixaRef} tabIndex={-1} className="flex flex-col items-end gap-1 focus:outline-none">
       <CancelarBotao
         id={item.id}
         emExecucao={item.estado === "pega"}
         podeCancelar={podeCancelar(item)}
-        resposta={respostas?.cancelar}
-        aoResponder={(estado) => aoResponder(item.id, "cancelar", estado)}
+        pendente={acaoCancelar.pendente}
+        aoConfirmar={dispararCancelar}
       />
       <AjustarCustoBotao
         id={item.id}
-        custoAtualUsd={item.custoUsd}
-        podeAjustar={podeAjustarCusto(item, agora)}
-        resposta={respostas?.ajustar}
-        aoResponder={(estado) => aoResponder(item.id, "ajustar", estado)}
+        podeAjustar={ajustavel}
+        pendente={acaoAjustar.pendente}
+        estado={ajuste}
+        aoMudarEstado={(patch) => aoMudarAjuste(item.id, patch)}
+        aoSalvar={dispararAjuste}
+        fraseSemAjuste={ajustavel ? null : textoSemAjuste(item)}
+        refDaMensagem={mensagemRef}
+        refDoGatilho={gatilhoRef}
+      />
+      <MensagemDaFila
+        mensagem={visivel.mensagem}
+        erro={visivel.erro}
+        tom={visivel.tom}
+        refDaMensagem={mensagemRef}
       />
     </div>
   );
@@ -161,7 +277,7 @@ function AcoesDaLinha({
 /**
  * OS-LIFEBOARD · P7 — a tabela da fila: estado (com "sem sinal"), conta,
  * complexidade/modelo, prompt (prévia + "ver tudo"), idades, custo, link da
- * sessão e cancelar. Mobile: vira lista de cartões (tabela larga rolando de
+ * sessão e as ações. Mobile: vira lista de cartões (tabela larga rolando de
  * lado quebraria a régua de gutter ≥16px).
  */
 export function FilaTabela({
@@ -183,22 +299,28 @@ export function FilaTabela({
   /** D15: já estamos numa página seguinte (há um "voltar ao começo" a oferecer). */
   emPaginaSeguinte?: boolean;
 }): JSX.Element {
-  /**
-   * BAIXO 4 (crítico da rodada 5): cada ação da linha é renderizada DUAS vezes
-   * — a tabela (`hidden sm:block`) e o cartão (`sm:hidden`) —, e cada instância
-   * tinha o seu próprio `useState`. Medido: a frase de cancelamento clicada em
-   * 390 px não existia ao redimensionar para 1280 px, porque quem a guardava
-   * era a outra instância. A resposta passa a morar AQUI, uma por item, e as
-   * duas instâncias leem a mesma. (Um `useState` dentro do `.map()` seria
-   * violação da regra dos hooks — por isso um mapa só, por id.)
-   */
   const [respostas, setRespostas] = useState<Record<string, RespostasDaLinha>>({});
+  // MÉDIO 3 (rodada 7): o que o operador está DIGITANDO mora aqui — uma entrada
+  // por id, lida pelas duas instâncias da linha (tabela e cartão).
+  const [ajustes, setAjustes] = useState<Record<string, EstadoDoAjuste>>({});
+
   function registrarResposta(
     id: string,
-    qual: keyof RespostasDaLinha,
+    qual: "cancelar" | "ajustar",
     estado: EstadoAcaoPrompt,
   ): void {
-    setRespostas((atual) => ({ ...atual, [id]: { ...atual[id], [qual]: estado } }));
+    setRespostas((atual) => ({ ...atual, [id]: { ...atual[id], [qual]: estado, ultima: qual } }));
+  }
+  function mudarAjuste(id: string, patch: Partial<EstadoDoAjuste>): void {
+    setAjustes((atual) => ({ ...atual, [id]: { ...(atual[id] ?? AJUSTE_VAZIO), ...patch } }));
+  }
+  function ajusteDe(item: ItemFilaPrompt): EstadoDoAjuste {
+    const guardado = ajustes[item.id];
+    if (guardado) return guardado;
+    // O valor de partida é o custo atual do item — e ele NÃO entra no mapa até
+    // o operador mexer, para o `router.refresh()` não sobrescrever o que ele
+    // acabou de digitar.
+    return { ...AJUSTE_VAZIO, valor: item.custoUsd === null ? "" : item.custoUsd.toFixed(2) };
   }
 
   const limite = limiteAtual ?? 50;
@@ -293,6 +415,8 @@ export function FilaTabela({
                     agora={agora}
                     respostas={respostas[item.id]}
                     aoResponder={registrarResposta}
+                    ajuste={ajusteDe(item)}
+                    aoMudarAjuste={mudarAjuste}
                   />
                 </td>
               </tr>
@@ -320,10 +444,12 @@ export function FilaTabela({
             <div className="mt-2">
               <CelulaPrompt item={item} />
             </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="mt-2 flex items-start justify-between gap-2">
               <p className="text-xs text-bone-400">
                 {item.custoUsd !== null
-                  ? `${formatarUsd(item.custoUsd)}${item.custoEEstimativa ? " (estimativa da casa)" : ""}`
+                  ? `${formatarUsd(item.custoUsd)}${
+                      textoOrigemDoCusto(item) ? ` (${textoOrigemDoCusto(item)})` : ""
+                    }`
                   : "sem custo ainda"}
                 {item.sessaoUrl ? (
                   <>
@@ -339,6 +465,8 @@ export function FilaTabela({
                 agora={agora}
                 respostas={respostas[item.id]}
                 aoResponder={registrarResposta}
+                ajuste={ajusteDe(item)}
+                aoMudarAjuste={mudarAjuste}
               />
             </div>
           </div>

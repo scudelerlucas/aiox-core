@@ -42,6 +42,12 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     estimativaItens: 0,
     emEspera: 0,
     medidoAteEm: menosMin(30),
+    // D32a/d (rodada 7): a conta medida HÁ POUCO — a linha do card continua
+    // sendo "medido até há 30 min", e agora vem com a faixa real dos dias
+    // medidos ao lado do teto.
+    defasagemHoras: 0.5,
+    exigeMedicaoRecente: false,
+    historico: { dias: 9, minUsd: 155.72, maxUsd: 2513.29, medianaUsd: 391.7 },
   }, // ok (28,1% com o item da fila somado)
   {
     conta: "lsgpandora@gmail.com",
@@ -56,6 +62,9 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     estimativaItens: 0,
     emEspera: 0,
     medidoAteEm: menosMin(80),
+    defasagemHoras: 80 / 60,
+    exigeMedicaoRecente: false,
+    historico: { dias: 2, minUsd: 12.4, maxUsd: 61.9, medianaUsd: 37.15 },
   }, // warn (75,7%)
   {
     conta: "almapetra.ltda@gmail.com",
@@ -68,7 +77,13 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     estimativaUsd: 0,
     estimativaItens: 0,
     emEspera: 0,
+    // D32a (rodada 7): 13 h de atraso — acima das 12 h, o card troca "medido
+    // até" por "última medição há 13 h" e a linha inteira sai em amarelo. É o
+    // caso que o crítico mediu na conta real (37 h) e que a tela escondia.
     medidoAteEm: menosMin(13 * 60),
+    defasagemHoras: 13,
+    exigeMedicaoRecente: false,
+    historico: { dias: 1, minUsd: 150, maxUsd: 150, medianaUsd: 150 },
   }, // crit — teto atingido
 ];
 

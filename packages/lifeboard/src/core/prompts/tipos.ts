@@ -168,9 +168,45 @@ export interface ConsumoConta {
   estimativaItens: number;
   /** D19: quantos itens estão de castigo (backoff) esperando nova tentativa. */
   emEspera: number;
-  /** Instante da última sincronização medida (ISO) — null se nenhuma sessão foi publicada hoje. */
+  /**
+   * D32a (rodada 7): instante da ÚLTIMA medição desta conta — de QUALQUER dia,
+   * não só de hoje (ISO). `null` passa a significar UMA coisa: esta conta nunca
+   * teve sessão medida. Antes, `null` era "nenhuma sessão HOJE ainda", e uma
+   * conta com 215 sessões e 37 h de atraso era indistinguível de uma conta que
+   * nunca rodou nada — as duas imprimiam "US$ 0,00 de US$ 150,00 · US$ 150,00
+   * livres", como se o zero fosse medido.
+   */
   medidoAteEm: string | null;
+  /** D32a: horas desde `medidoAteEm`; `null` quando nunca houve medição. */
+  defasagemHoras?: number | null;
+  /** D32c: esta conta recusa o pull enquanto a medição estiver velha. */
+  exigeMedicaoRecente?: boolean;
+  /** D32d: a faixa real dos últimos dias MEDIDOS, para o teto ser comparável. */
+  historico?: HistoricoMedido | null;
 }
+
+/**
+ * D32d (rodada 7): a realidade medida ao lado do teto. Medido pelo crítico na
+ * conta real: 9 de 9 dias com dado ACIMA do teto de US$ 150 (mediana ~2,6×,
+ * máximo 16,8× — 12/09 deu US$ 2.513,29 em 12 sessões). O teto continua sendo
+ * decisão do operador; o que faltava era o operador PODER ver contra o quê
+ * está decidindo.
+ */
+export interface HistoricoMedido {
+  /** Quantos dias COM medição entraram na conta (hoje fora: hoje é parcial). */
+  dias: number;
+  minUsd: number | null;
+  maxUsd: number | null;
+  medianaUsd: number | null;
+}
+
+/**
+ * D32a/D32b (rodada 7): acima disto o saldo é velho o bastante para ser dito em
+ * voz alta. Espelho do `> 12` de `public.painel_fila_motivo_do_pull` e de
+ * `fila_prompts_pegar_interno` (migration 0016) — `tests/unit/
+ * prompts-espelho-sql.test.ts` lê o .sql do disco e compara com esta constante.
+ */
+export const LIMITE_DEFASAGEM_HORAS = 12;
 
 export interface FilaPromptsState {
   fila: ItemFilaPrompt[];
@@ -315,6 +351,118 @@ export function textoEstimativa(consumo: ConsumoConta): string | null {
       ? "1 item que morreu sem fechar"
       : `${consumo.estimativaItens} itens que morreram sem fechar`;
   return `${formatarUsd(consumo.estimativaUsd)} do consumo são estimativa de ${itens}`;
+}
+
+// ── D32a/d · a tela diz DE QUANDO é o número, e contra o que o teto compara ──
+
+/**
+ * O que o card escreve sobre a idade do saldo. Três estados, e eles são
+ * DIFERENTES — o crítico da rodada 6 mediu os três colapsados em um:
+ *
+ *  · nunca mediu nada      → "sem medição nenhuma" (NUNCA "US$ 0,00 … livres":
+ *    zero não medido não é zero gasto, e a tela não pode fingir que é);
+ *  · mediu há mais de 12 h → "última medição há N h" (medido: 37 h, e a tela
+ *    mostrava o saldo como se fosse de agora);
+ *  · mediu há pouco        → o de sempre, "medido até há X".
+ *
+ * Devolve o texto curto e o rótulo do estado; quem pinta é o componente.
+ */
+export type EstadoDaMedicao = "sem-medicao" | "atrasada" | "recente";
+
+export function estadoDaMedicao(consumo: ConsumoConta, agora: number): EstadoDaMedicao {
+  if (consumo.medidoAteEm === null) return "sem-medicao";
+  const horas = horasDeDefasagem(consumo, agora);
+  if (horas === null) return "sem-medicao";
+  return horas > LIMITE_DEFASAGEM_HORAS ? "atrasada" : "recente";
+}
+
+/**
+ * As horas de atraso: o número do banco (`defasagemHoras`) quando ele vem, e o
+ * cálculo local a partir de `medidoAteEm` quando não vem (banco antigo, sem a
+ * migration 0016 — a tela degrada, não quebra).
+ */
+export function horasDeDefasagem(consumo: ConsumoConta, agora: number): number | null {
+  if (typeof consumo.defasagemHoras === "number" && Number.isFinite(consumo.defasagemHoras)) {
+    return consumo.defasagemHoras;
+  }
+  if (consumo.medidoAteEm === null) return null;
+  const t = Date.parse(consumo.medidoAteEm);
+  if (Number.isNaN(t)) return null;
+  return (agora - t) / 3_600_000;
+}
+
+export function textoDaMedicao(consumo: ConsumoConta, agora: number): string {
+  const estado = estadoDaMedicao(consumo, agora);
+  if (estado === "sem-medicao") return "sem medição nenhuma";
+  if (estado === "atrasada") {
+    const horas = horasDeDefasagem(consumo, agora) ?? 0;
+    return `última medição há ${Math.round(horas)} h`;
+  }
+  return "medição recente";
+}
+
+/**
+ * D32d: o teto ao lado da realidade, numa linha. O valor do teto é decisão do
+ * operador — esta função não o muda; ela só põe do lado o que os dias medidos
+ * realmente custaram, que é a informação que faltava para ele escolher um teto
+ * que exista.
+ */
+export function textoTetoVsRealidade(consumo: ConsumoConta): string | null {
+  const h = consumo.historico;
+  if (!h || h.dias <= 0 || h.minUsd === null || h.maxUsd === null || h.medianaUsd === null) {
+    return null;
+  }
+  const dias = h.dias === 1 ? "no último dia medido" : `nos últimos ${h.dias} dias medidos`;
+  return (
+    `teto ${formatarUsd(consumo.tetoUsd)} · ${dias} o gasto ficou entre ` +
+    `${formatarUsd(h.minUsd)} e ${formatarUsd(h.maxUsd)} (mediana ${formatarUsd(h.medianaUsd)})`
+  );
+}
+
+// ── MÉDIO 4 (rodada 7) · de onde veio o número do custo, e se dá para mexer ───
+
+/**
+ * O crítico mediu o buraco: depois que o worker grava um número MEDIDO o botão
+ * "ajustar custo" some e a tela não diz por quê — o operador fica olhando uma
+ * linha sem ação e sem explicação. E havia um caso em que sumir era errado:
+ * custo medido IGUAL A ZERO é o modo de falha conhecido (a sessão fechou sem
+ * conseguir ler o usage). Zero não é medição; é a ausência dela com cara de
+ * número, e sem porta o item fica cravado em US$ 0,00 para sempre.
+ */
+export type OrigemDoCusto = "estimativa" | "medido-zero" | "ajustado" | "medido";
+
+export function origemDoCusto(item: ItemFilaPrompt): OrigemDoCusto | null {
+  if (item.custoUsd === null) return null;
+  if (item.custoEEstimativa) return "estimativa";
+  if (item.custoUsd === 0) return "medido-zero";
+  if (item.custoAjustadoEm !== null) return "ajustado";
+  return "medido";
+}
+
+export function textoOrigemDoCusto(item: ItemFilaPrompt): string | null {
+  switch (origemDoCusto(item)) {
+    case "estimativa":
+      return "estimativa da casa";
+    case "medido-zero":
+      return "a sessão fechou sem ler o gasto — dá para corrigir";
+    case "ajustado":
+      return "ajustado por você";
+    case "medido":
+      return "medido pela sessão";
+    default:
+      return null;
+  }
+}
+
+/**
+ * A frase que ENTRA NO LUGAR do botão quando o ajuste não é oferecido porque o
+ * número foi medido. Só nesse caso: item de outro dia, ou item que ainda não
+ * fechou, não ganham frase nenhuma (ali o botão nunca fez sentido).
+ */
+export function textoSemAjuste(item: ItemFilaPrompt): string | null {
+  return origemDoCusto(item) === "medido" || origemDoCusto(item) === "ajustado"
+    ? "valores medidos pela sessão não são ajustados aqui"
+    : null;
 }
 
 // ── D14 · o SQL manda código + números; a frase nasce aqui ───────────────────
@@ -470,6 +618,10 @@ export interface NumerosDoPull {
   /** D20: parcela do consumo de hoje que ninguém mediu. */
   estimativaUsd: number;
   estimativaItens: number;
+  /** D32a/b: horas desde a última medição desta conta; `null` = nunca mediu. */
+  defasagemHoras?: number | null;
+  /** D32c: a conta recusa o pull contra saldo velho (coluna do teto). */
+  exigeMedicaoRecente?: boolean;
 }
 
 /**
@@ -484,6 +636,24 @@ export interface NumerosDoPull {
  */
 export function montarMotivoDoPull(n: NumerosDoPull): string {
   const frases: string[] = [];
+  const defasagem = n.defasagemHoras ?? null;
+
+  // D32c (rodada 7): a RECUSA é a frase inteira. Não adianta listar o que
+  // caberia num saldo que a casa acabou de declarar velho demais para
+  // autorizar gasto. (Default `false` na coluna: nada muda até o operador ligar.)
+  if (n.exigeMedicaoRecente === true && (defasagem === null || defasagem > LIMITE_DEFASAGEM_HORAS)) {
+    return defasagem === null
+      ? "não autorizo contra saldo nenhum: esta conta exige medição recente e nunca teve gasto medido"
+      : `não autorizo contra saldo de ${Math.round(defasagem)} h atrás: esta conta exige medição recente`;
+  }
+
+  // D32b: a defasagem vem PRIMEIRO — ela qualifica todos os números seguintes.
+  // Conta que NUNCA mediu nada não ganha oração aqui de propósito: os números
+  // do pull dela são todos zero e a oração seria um prefixo permanente em toda
+  // frase. Quem diz isso é o CARD ("sem medição nenhuma").
+  if (defasagem !== null && defasagem > LIMITE_DEFASAGEM_HORAS) {
+    frases.push(`atenção: o gasto medido desta conta é de ${Math.round(defasagem)} h atrás`);
+  }
 
   if (n.mortos === 1) {
     frases.push(
@@ -532,7 +702,14 @@ export function montarMotivoDoPull(n: NumerosDoPull): string {
     );
   }
 
-  if (n.estimativaUsd > 0) {
+  // D20: a parcela estimada é dita em voz alta — BAIXO 7 (rodada 7): exceto
+  // quando ela é EXATAMENTE o dinheiro que a oração dos mortos deste disparo já
+  // nomeou. Duas orações para o mesmo dinheiro só engordam a frase (o crítico
+  // mediu 331 caracteres, com a repetição dentro), e essa frase vai LITERAL
+  // para o relatório diário da Routine.
+  const mesmoDinheiroDosMortos =
+    n.mortos > 0 && n.mortos === n.estimativaItens && n.mortosUsd === n.estimativaUsd;
+  if (n.estimativaUsd > 0 && !mesmoDinheiroDosMortos) {
     const itens =
       n.estimativaItens === 1
         ? "1 item que morreu sem fechar"

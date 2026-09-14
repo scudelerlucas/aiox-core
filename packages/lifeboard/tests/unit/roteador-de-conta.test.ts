@@ -96,7 +96,7 @@ describe("escolherConta", () => {
     // D9: frase gramatical, rótulo da conta, complexidade por extenso, vírgula decimal.
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 120,00 livres para uma tarefa máxima contando a fila parada. " +
-        "A mais folgada (Pandora) tem US$ 102,90.",
+        "A mais folgada (Pandora) tem US$ 102,90 livres.",
     );
   });
 
@@ -120,7 +120,7 @@ describe("escolherConta", () => {
     // e o headroom aparece como explicação, sem virar veredito:
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 50,00 livres para uma tarefa alta contando a fila parada. " +
-        "A mais folgada (Pandora) tem US$ 1,00 (headroom de US$ 150,00 menos US$ 149,00 já na fila).",
+        "A mais folgada (Pandora) tem US$ 1,00 livres (headroom de US$ 150,00 menos US$ 149,00 já na fila).",
     );
   });
 
@@ -135,7 +135,7 @@ describe("escolherConta", () => {
     expect(r.cabeHoje).toBe(false);
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 50,00 livres para uma tarefa alta contando a fila parada. " +
-        "A mais folgada (Lucas) tem US$ 10,00; Pandora tem US$ 150,00 livres agora, " +
+        "A mais folgada (Lucas) tem US$ 10,00 livres; Pandora tem US$ 150,00 livres agora, " +
         "mas US$ 140,00 já na fila. Empate no espaço livre; vale a ordem da casa.",
     );
   });

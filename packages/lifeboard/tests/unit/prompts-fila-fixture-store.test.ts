@@ -576,7 +576,12 @@ describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => 
     }
     const morte = pegarFixture(ALMA, "W9", AGORA);
     expect(morte.mortos).toBe(1);
-    expect(morte.motivo).toContain("do consumo de hoje são estimativa de 1 item que morreu sem fechar");
+    // BAIXO 7 (rodada 7): a morte DESTE disparo e a parcela estimada ACUMULADA
+    // nomeiam o mesmo dinheiro — o mesmo item, os mesmos US$ 50,00. Só a
+    // primeira sai; a segunda saía de graça e engordava a frase que vai
+    // LITERAL para o relatório diário da Routine.
+    expect(morte.motivo).toContain("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia");
+    expect(morte.motivo).not.toContain("do consumo de hoje são estimativa");
 
     const conta = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA) as {
       consumoHojeUsd: number;
@@ -688,7 +693,14 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
     // D27 (rodada 6): o disparo que PEGA algo também tem frase — antes o
     // relatório da Routine recebia `motivo: null` e ficava mudo sobre o que
     // acabara de acontecer.
-    expect(r.motivo).toBe("peguei o item mais antigo que cabe: US$ 5,00 de US$ 110,00 livres");
+    // D32b (rodada 7): a conta do fixture (Alma Petra) está com a medição de
+    // 13 h atrás — acima do limite de 12 h —, então a frase ABRE pela ressalva
+    // e só depois conta o que pegou. Era exatamente o que faltava: o crítico
+    // mediu 37 h de atraso e a tela falava do saldo como se fosse de agora.
+    expect(r.motivo).toBe(
+      "atenção: o gasto medido desta conta é de 13 h atrás; " +
+        "peguei o item mais antigo que cabe: US$ 5,00 de US$ 110,00 livres",
+    );
   });
 
   it("quando nada cabe, o menor custo vem da fila INTEIRA (não dos 50 primeiros)", () => {
@@ -736,7 +748,10 @@ describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
     expect(morte.mortos).toBe(1);
     expect(morte.mortosUsd).toBe(50);
     expect(morte.item).toBeNull();
-    expect(morte.motivo?.startsWith("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia")).toBe(true);
+    // D32b: a ressalva de defasagem vem antes (13 h nesta conta do fixture);
+    // a oração da morte continua sendo a primeira coisa que se diz sobre a FILA.
+    expect(morte.motivo).toContain("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia");
+    expect(morte.motivo?.startsWith("atenção: o gasto medido desta conta é de 13 h atrás; ")).toBe(true);
     expect(morte.motivo).not.toContain("fila vazia");
   });
 });

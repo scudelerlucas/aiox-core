@@ -69,6 +69,7 @@ import type {
   Conta,
   ConsumoConta,
   EstadoFila,
+  HistoricoMedido,
   ItemFilaPrompt,
   MotivoCancelamento,
   MotivoEnfileirar,
@@ -124,7 +125,19 @@ export type ResultadoFilaFixture =
 interface EstadoFilaFixture {
   fila: Map<string, ItemFilaPrompt>;
   /** Só o teto e o gasto das SESSÕES PUBLICADAS vivem aqui — o resto é derivado. */
-  base: Map<Conta, { tetoUsd: number; publicadasUsd: number; medidoAteEm: string | null }>;
+  base: Map<
+    Conta,
+    {
+      tetoUsd: number;
+      publicadasUsd: number;
+      medidoAteEm: string | null;
+      /** D32a (rodada 7): quão velho é o número medido desta conta. */
+      defasagemHoras: number | null;
+      exigeMedicaoRecente: boolean;
+      /** D32d: a faixa real dos últimos dias medidos, ao lado do teto. */
+      historico: HistoricoMedido | null;
+    }
+  >;
   /** D10: sessão publicada (`sessionId` → custo, `null` = publicada sem custo). */
   sessoesPublicadas: Map<string, number | null>;
   /**
@@ -145,7 +158,14 @@ function estadoNovo(): EstadoFilaFixture {
         (c) =>
           [
             c.conta,
-            { tetoUsd: c.tetoUsd, publicadasUsd: c.consumoHojeUsd, medidoAteEm: c.medidoAteEm },
+            {
+              tetoUsd: c.tetoUsd,
+              publicadasUsd: c.consumoHojeUsd,
+              medidoAteEm: c.medidoAteEm,
+              defasagemHoras: c.defasagemHoras ?? null,
+              exigeMedicaoRecente: c.exigeMedicaoRecente === true,
+              historico: c.historico ?? null,
+            },
           ] as const,
       ),
     ),
@@ -303,6 +323,9 @@ export function listarConsumoFixture(agora: number = Date.now()): ConsumoConta[]
       estimativaItens: estimativa.itens,
       emEspera: emEsperaDe(conta, agora),
       medidoAteEm: base?.medidoAteEm ?? null,
+      defasagemHoras: base?.defasagemHoras ?? null,
+      exigeMedicaoRecente: base?.exigeMedicaoRecente === true,
+      historico: base?.historico ?? null,
     };
   });
 }
@@ -734,6 +757,11 @@ export function pegarFixture(
     travados: 0,
     estimativaUsd: estimativa.usd,
     estimativaItens: estimativa.itens,
+    // D32a/c (rodada 7): o fixture é a conta medida há pouco e sem trava — o
+    // ramo de defasagem e o de recusa se provam no banco (T26/T27) e na função
+    // pura (tests/unit/prompts-motivo-do-pull.test.ts).
+    defasagemHoras: loja().base.get(conta)?.defasagemHoras ?? null,
+    exigeMedicaoRecente: loja().base.get(conta)?.exigeMedicaoRecente === true,
   });
 
   const comum = {

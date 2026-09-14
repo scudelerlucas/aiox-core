@@ -160,7 +160,9 @@ export function escolherConta(
       `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}.${empate}`
     : `Nenhuma conta tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
       `${ROTULO_COMPLEXIDADE[complexidade]} contando a fila parada. A mais folgada ` +
-      `(${ROTULO_CONTA[melhor.conta]}) tem ${melhorEspaco > 0 ? formatarUsd(melhorEspaco) : "0 livres"}` +
+      // Arranhão da rodada 7: saía "A mais folgada (Pandora) tem US$ 30,00" —
+      // sem dizer de quê. Toda metade da frase agora termina em "livres".
+      `(${ROTULO_CONTA[melhor.conta]}) tem ${melhorEspaco > 0 ? `${formatarUsd(melhorEspaco)} livres` : "0 livres"}` +
       `${detalhe}${revelacao}.${empate}`;
 
   return {
