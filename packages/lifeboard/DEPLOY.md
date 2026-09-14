@@ -142,9 +142,49 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
   → `0012_lifeboard_v3_fila_posse_e_tentativas.sql` (rodada 3: posse, tentativa com fim,
   elegibilidade por item) → `0013_lifeboard_v3_fila_contabilidade.sql` (rodada 4, D10–D20) →
   `0014_lifeboard_v3_fila_pull_e_mensagens.sql` (rodada 5, D21–D24) →
-  **`0015_lifeboard_v3_fila_dia_e_dono.sql`** (a rodada 6, D25–D30 — aditiva e re-aplicável; a
+  `0015_lifeboard_v3_fila_dia_e_dono.sql` (a rodada 6, D25–D30 — aditiva e re-aplicável; a
   única remoção é a assinatura de 3 argumentos de `fila_prompts_ajustar_custo`, trocada pela de
-  4, porque duas assinaturas com default deixariam a chamada ambígua no PostgREST).
+  4, porque duas assinaturas com default deixariam a chamada ambígua no PostgREST) →
+  **`0016_lifeboard_v3_consumo_por_entidade.sql`** (a rodada 7, D31–D32 — aditiva e
+  re-aplicável; a única remoção é a assinatura de 13 argumentos de
+  `painel_fila_motivo_do_pull`, trocada pela de 15, pelo mesmo motivo de ambiguidade) →
+  `0017_lifeboard_v3_restaurar_nota_e_aresta.sql` (o contrato de restauração da data original
+  no desfazer — estava FALTANDO nesta sequência, achado do CodeRabbit; quem seguisse a lista
+  subia a aplicação sem ele) →
+  `0018_lifeboard_v3_caixa_auditavel.sql` (a rodada 8, D33–D35 + `custo_origem`) →
+  **`0019_lifeboard_v3_livro_razao.sql`** (a rodada 9 — o caixa vira LIVRO-RAZÃO) →
+  **`0020_lifeboard_v3_livro_razao_concorrencia.sql`** (a rodada 10, D42–D45 — os quatro P1
+  que CodeRabbit e Codex acharam na 0019; **obrigatória para quem já aplicou a 0019**, porque
+  a trava de concorrência do livro e o reparo de proveniência da abertura moram aqui).
+
+### O caixa é um livro-razão (migration 0019, rodada 9)
+
+O crítico da rodada 8 reprovou com 4 ALTO e um diagnóstico único: **o caixa
+recalculava o dia a cada leitura, então o passado mudava.** O valor de um dia era
+uma expressão sobre linhas vivas (`painel_frentes_sessoes` × `painel_fila_prompts`)
+reavaliada a cada `select`; qualquer coluna que mexesse — `concluido_em`,
+`atualizado_em`, `conta`, `session_id` — reescrevia dias já encerrados e já
+relatados. A 0019 troca o modelo:
+
+| Decisão | O que passou a valer |
+|---|---|
+| **D37** | `public.painel_caixa_lancamentos` — lançamentos IMUTÁVEIS de (dia de competência, conta, valor, origem, entidade). O `dia` é carimbado no instante do lançamento; um `before update or delete` recusa edição e apagamento. **Consumo de um dia = soma dos lançamentos daquele dia**, e nada mais. |
+| **D38** | Correção nunca edita: `painel_caixa_lancar` grava duas linhas novas, as duas datadas de HOJE — o estorno do líquido anterior e o valor novo. O dia antigo fica como foi relatado. |
+| **D39** | A entidade é canônica: item COM sessão vinculada e a sessão são **a mesma entidade** (`sessao:<id>`). E a **conta é fixada no primeiro lançamento** — publicação posterior sob outra conta não remaneja dinheiro. `painel_caixa_lancar_item` funde a entidade órfã quando o item lançou antes de ganhar sessão. |
+| **D40** | `check (valor_usd <> 0)`: "sem valor" e "valor zero" são o mesmo não-lançamento. Uma sessão que fechou sem ler o usage não tem como desarmar `exigir_medicao_recente`, porque não deixa linha. |
+| **D41** | Uma definição só de "quanto a conta gastou no dia X": a view `painel_consumo_por_conta_dia`, `painel_fila_consumo_do_dia`, `painel_fila_itens_do_dia`, `painel_fila_estimativa_usd` e `painel_fila_historico_medido` leem **todas** o livro. |
+| **D42** | O chooser virou função PURA (`painel_fila_escolher_conta(jsonb, numeric)`), com a recusa por medição velha e o descarte de conta cujo teto não comporta o item. A paridade com `escolherConta` (TS) é provada caso a caso: o bloco **T42** roda a tabela de casos no SQL e `tests/unit/prompts-paridade-chooser.test.ts` lê **o mesmo literal** do disco e roda o TS. |
+| **D43** | Barreira de teste: `constraint trigger … deferrable initially deferred` nas quatro tabelas de dinheiro. Com `lifeboard.teste = on` (armado uma vez no topo da suíte), qualquer transação que escreva nelas **aborta no commit** — um bloco que esqueça o `raise` não persiste nada. |
+
+**Abertura dos dados:** as 215 sessões e os itens existentes viraram lançamentos de
+abertura, cada um na data que a leitura anterior já lhes atribuía. O §8 da migration
+compara, conta a conta e dia a dia, a fórmula velha (escrita inline) com a soma do
+livro e **aborta a migration se um único dia mudar de valor**. Medido na aplicação:
+194 lançamentos, 54 dias, US$ 11.374,9695 — o mesmo total de antes, e 12/09 continua
+em US$ 2.513,29.
+
+**Leitura do livro pelo operador:** `fila_prompts_extrato_do_dia(secret, conta, dia)`
+devolve o dia lançamento a lançamento, com a origem e o estorno de cada um.
 
 ### Teste da fila de prompts (o que guarda o COMPORTAMENTO)
 
@@ -152,9 +192,13 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f supabase/tests/fila_prompts.test.sql
 ```
 
-Cada bloco é um `do $$ … $$;` que **termina em `raise exception`** — `RESULTADO: ok — <caso>`
+São **51 blocos** desde a rodada 9 (T01–T51). O arquivo arma, na primeira linha,
+`select set_config('lifeboard.teste', 'on', false)` — a barreira de D43, que vale para
+a sessão inteira do psql. Cada bloco é um `do $$ … $$;` que **termina em `raise exception`** — `RESULTADO: ok — <caso>`
 quando a asserção passa, `FALHA: <caso> esperado X obteve Y` quando não. O `raise` É o
-mecanismo de rollback: nenhum bloco deixa linha no banco, passe ou falhe. Por isso
+mecanismo de rollback; e desde a rodada 9 ele deixou de ser o ÚNICO: se um bloco
+esquecer o `raise`, o gatilho diferido de D43 aborta a transação no commit e nada
+persiste (provado por T51 e pela própria mensagem da barreira). Por isso
 `ON_ERROR_STOP=0`: cada bloco aborta sozinho e o arquivo continua até o fim. **Nunca rodar com
 `ON_ERROR_STOP=1`** — o primeiro "ok" pararia a suíte.
 
@@ -175,6 +219,48 @@ esse nem chega no `select`. Consequência assumida: o `skip locked` não é exer
 de uma conexão só (o projeto não tem `dblink` nem `pg_background`, e `pegar_interno` é revogada
 para `anon`/`authenticated`), e por isso a FRASE do caso "item elegível travado" (B5) mora numa
 função pura, `painel_fila_motivo_do_pull`, testada ramo a ramo no bloco **T13**.
+
+### O que a rodada 7 mudou — o dinheiro é cobrado UMA vez, e o teto para de mentir
+
+> **O princípio:** **cada dinheiro tem UM dono e é cobrado UMA vez; e a tela nunca afirma um
+> número que ninguém mediu.** Os dois ALTO do crítico eram isso: US$ 80 de trabalho real
+> cobrados duas vezes na virada do dia, e um teto de US$ 150 impresso como se o zero ao lado
+> dele fosse medido — sobre contas cuja última medição era de 37 h antes, ou que nunca tiveram
+> medição nenhuma.
+
+| | Decisão | Efeito |
+|---|---|---|
+| **D31** | **a dedup é por ENTIDADE, não por (entidade, dia)** | O `left join lateral` de `painel_fila_itens_do_dia` (0015:131) só achava a sessão vinculada quando ela tinha sido publicada NAQUELE dia; fora disso o item contribuía INTEIRO enquanto a sessão contribuía inteira no dia dela. Medido ponta a ponta com as RPCs reais: `TRABALHO REAL = US$ 80,00 -> dia 12 cobra 80 ; dia 13 cobra 80,0000 ; TOTAL COBRADO 160,0000` — e o `p_session_id`, que o doc manda passar exatamente para isso, estava gravado e não impedia nada. Regra única agora: **item com sessão vinculada que tenha custo publicado contribui ZERO em todo dia** — quem paga é a sessão, no dia dela. Item sem sessão vinculada (ou com sessão sem custo, D30) contribui com o próprio custo no dia de `concluido_em` (D25); item em voo continua reserva do dia corrente. Provado em **T21** (o cenário de 160 fecha em **80**, no dia da sessão), **T22** (o inverso, idem) e **T25** (a contribuição item a item = 0 nos dois dias). |
+| **D32a** | **a tela diz DE QUANDO é o número** | `painel_fila_medido_ate` passou a devolver a última medição de QUALQUER dia (era só de hoje), e `painel_fila_defasagem_horas` diz quantas horas atrás. `fila_prompts_listar` devolve `medidoAteEm`, `defasagemHoras`, `exigeMedicaoRecente` e `historico`. O card tem três frases para três estados que antes eram um só: **"sem medição nenhuma"** (nunca houve sessão — e aí ele NÃO escreve "US$ 0,00 de US$ 150,00 · US$ 150,00 livres"), **"última medição há N h"** (acima de 12 h) e o "medido até …" de sempre. |
+| **D32b** | **o pull avisa quando o saldo é velho** | acima de 12 h de defasagem, o `motivo` abre por *"atenção: o gasto medido desta conta é de N h atrás"* — e essa oração vem PRIMEIRO, porque qualifica todos os números seguintes. Conta que nunca mediu nada não ganha oração aqui de propósito (seria um prefixo permanente em toda frase; quem diz isso é o card). Provado em **T26** e na função pura. |
+| **D32c** | **a trava OPCIONAL do operador** | coluna nova `painel_teto_diario.exigir_medicao_recente boolean not null default false`. Com `true`, o pull daquela conta **RECUSA** antes de escrever qualquer coisa, com motivo próprio: *"não autorizo contra saldo de N h atrás: esta conta exige medição recente"* (ou *"…contra saldo nenhum…"* quando nunca houve medição). **Default `false`: nada muda até o operador ligar.** Ligar/desligar: `update public.painel_teto_diario set exigir_medicao_recente = true where conta = '<conta>';`. Provado em **T27**, nos dois sentidos (com a trava recusa; sem ela, pega o item). |
+| **D32d** | **o teto ao lado da realidade medida** | `painel_fila_historico_medido(conta, dias default 10)` devolve dias/mín/máx/mediana dos últimos dias COM medição (hoje fora: hoje é parcial), e o card imprime *"teto US$ 150,00 · nos últimos N dias medidos o gasto ficou entre US$ X e US$ Y (mediana US$ Z)"*. **Nenhuma linha da 0016 muda o VALOR do teto** — isso é decisão do operador (régua da casa `teto-de-gasto-diario`), e o que faltava era ele poder ver contra o quê está decidindo. Medido na conta real quando o crítico reprovou: 9 de 9 dias com dado acima do teto, mediana ~2,6×, máximo 16,8× (12/09: US$ 2.513,29 em 12 sessões). Provado em **T28**. |
+| **MÉDIO 3** | **o resize deixou de apagar o que se digitava** | `aberto`, `valor` e `sessao` subiram do `useState` de `AjustarCustoBotao` para um mapa por id em `FilaTabela` — as duas instâncias da linha (tabela `sm:block` + cartão `sm:hidden`) leem e escrevem o MESMO estado. Na rodada 6 só a RESPOSTA tinha subido. |
+| **MÉDIO 4** | **o número medido tem porta e tem explicação** | a célula diz de onde o número veio (*"medido pela sessão"*, *"estimativa da casa"*, *"ajustado por você"*) e, no lugar do botão, entra *"valores medidos pela sessão não são ajustados aqui"*. **Exceção testada:** custo medido **igual a zero** É ajustável — é o modo de falha conhecido (a sessão fechou sem conseguir ler o usage), e a célula diz isso. Provado em **T29** e no render. |
+| **MÉDIO 5** | **a ação destrutiva não sai mais da página** | o `window.confirm` nativo (que BLOQUEIA a thread e devolve o foco onde quiser) virou confirmação de dois passos dentro da página, no padrão da peça P6: o próprio botão vira *"confirmar cancelamento?"*, o foco não sai dele, **Escape cancela** e a janela é de 5 s. A frase que explica a consequência aparece junto. |
+| **BAIXO 6** | **44 px** | "cancelar", "ajustar custo", "salvar", "fechar" e os dois campos passaram de `min-h-[32px]` para `min-h-[44px]` — o mesmo alvo da navegação da página. Medido no HTML de produção: 0 ocorrências de 32 px, 25 de 44. |
+| **BAIXO 7** | **a frase do pull parou de repetir o mesmo dinheiro** | tinha 331 caracteres e duas orações para o MESMO valor: a do disparo (*"1 item morreu … e lançou US$ 120,00 no dia"*) e a acumulada do dia (*"US$ 120,00 do consumo de hoje são estimativa de 1 item…"*). Quando as duas nomeiam o mesmo dinheiro do mesmo disparo, **só a primeira sai**. |
+| **BAIXO 9** | **nenhum enum na cara do operador** | `painel_fila_estado_br` traduz o estado: *"(este está em execução)"*, nunca *"(este está pega)"*. |
+| **BAIXO 10** | **uma região viva por linha** | eram 4 por linha (2 ações × 2 breakpoints) — **33 num fixture de 8 itens**. Os dois hooks de ação e a região `role="status"` subiram para `AcoesDaLinha`: **17 no HTML de produção** (8 itens × 2 breakpoints + 1 do formulário) e **1 por linha visível** (a outra instância é `display:none`, fora da árvore de acessibilidade). |
+| **arranhão** | **"livres"** | `roteador.ts:163` dizia *"A mais folgada (Pandora) tem US$ 30,00"* — sem dizer de quê. Agora toda metade da frase termina em "livres". |
+
+**Arquitetura de teste (achado de arquitetura do crítico):** cada decisão estava sustentada por
+UM ÚNICO bloco — apagar T05 reabria o roubo de item morto sem nenhum outro vermelho. As
+decisões que guardam **dinheiro** e **posse** ganharam um segundo bloco, por outro caminho:
+POSSE = T05 (a recusa) + **T23** (o dinheiro que a recusa não moveu); DINHEIRO = T08
+(`painel_fila_consumo_hoje`) + **T24** (a RPC secret-gated, que devolve também a CONTAGEM de
+itens que contribuem); D31 = T21/T22 + **T25**; e D25 ganhou T03 como segundo guardião (o
+`pego_em` do bloco é de anteontem de propósito). Medido depois, com as seis mutações do
+crítico aplicadas uma a uma sobre a migration viva e a suíte inteira rodada em cada uma:
+
+| Mutação | Blocos derrubados |
+|---|---|
+| (a) `concluido_em` → `coalesce(pego_em, criado_em)` | **2** — T01, T03 |
+| (b) `greatest(custo − sessão, 0)` | **2** — T08, T24 |
+| (c) guarda de `ultimo_worker_id` removida | **2** — T05, T23 |
+| (d) motivo de volta a ramo único | **4** — T11, T12, T13, T26 |
+| (e) `custo_estimado_usd <= v_headroom + 100000` | **4** — T11, T12, T15, T16 |
+| (f) filtro de dia de volta no `left join lateral` | **3** — T21, T22, T25 |
 
 ### O que a rodada 6 mudou — o dia que reconhece paga, e o dono do morto entrega o número
 

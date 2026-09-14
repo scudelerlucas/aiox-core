@@ -23,3 +23,44 @@ export const FUSO_DO_OPERADOR = "America/Sao_Paulo";
 export function hojeNoFusoDoOperador(agora: Date = new Date()): string {
   return agora.toLocaleDateString("sv", { timeZone: FUSO_DO_OPERADOR });
 }
+
+/**
+ * `dd/mm/aaaa` de um instante ISO, no fuso do operador — para NOMEAR coisas
+ * ("a nota de Claude de 12/07/2026"), onde "há 67 dias" não distingue duas
+ * linhas na mesma semana. `pt-BR` dá a ordem dia/mês/ano com zeros à
+ * esquerda; ISO inválido devolve `null` (o chamador decide o que dizer).
+ */
+export function dataCurtaNoFusoDoOperador(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("pt-BR", {
+    timeZone: FUSO_DO_OPERADOR,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+/**
+ * [MÉDIO #4, rodada 7] A régua do `criado_em` que um DESFAZER manda junto —
+ * o instante ORIGINAL da nota/relação que está voltando. Mesma lei da
+ * migration 0017, adiantada aqui em português para não gastar a chamada de
+ * rede: precisa ser uma data de verdade, e não pode estar no futuro
+ * (restaurar é devolver ao passado, nunca inventar um instante à frente). Um
+ * minuto de folga cobre a diferença de relógio entre o navegador e o banco.
+ *
+ * Vive aqui, e não em `app/tarefa/actions.ts`, por uma razão do Next: um
+ * arquivo `"use server"` só pode exportar funções assíncronas — uma função
+ * pura exportada de lá quebra o build. Aqui ela é exportável e testável.
+ */
+export function dataOriginalValidaOuErro(
+  bruto: string,
+  agora: number = Date.now(),
+): { iso: string } | { erro: string } {
+  const d = new Date(bruto);
+  if (Number.isNaN(d.getTime())) return { erro: "A data original não é uma data válida." };
+  if (d.getTime() > agora + 60_000) {
+    return { erro: "A data original não pode estar no futuro." };
+  }
+  return { iso: d.toISOString() };
+}

@@ -59,7 +59,11 @@ export default function RootLayout({
               // altura, mas o LINK dentro dela tinha 20 — e o alvo de toque é
               // o link, não a barra. `inline-flex` + `min-h-[44px]` fazem a
               // área clicável ocupar a faixa inteira, sem mudar o visual.
-              className="inline-flex min-h-[44px] items-center text-bone-300 hover:text-bone-100"
+              //
+              // [BAIXO #7, rodada 7] a rodada 6 só olhou a ALTURA: "Painel",
+              // o rótulo mais curto, media 42 px de largura. Mesmo piso nas
+              // duas dimensões agora.
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-bone-300 hover:text-bone-100"
             >
               {l.label}
             </Link>

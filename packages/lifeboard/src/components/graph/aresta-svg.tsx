@@ -1,4 +1,10 @@
+import {
+  larguraDoTracoNominal,
+  SEPARACAO_DA_TRIPLA_MUNDO,
+  type TipoDeBanda,
+} from "@/lib/geometria-da-aresta";
 import type { ArestaVisual, CamadaGrafo } from "@/lib/camadas-do-grafo";
+import type { Ponto } from "@/lib/layout-do-grafo";
 
 /**
  * OS-LIFEBOARD · P4 — SVG puro de UMA aresta do grafo v3.
@@ -229,6 +235,22 @@ export interface ArestaSvgGroupProps {
    */
   offsetPx?: number;
   /**
+   * Piso do traço em px de MUNDO (`1px de tela / zoom`). D3 da rodada 6: a
+   * largura do traço voltou a ser px de MUNDO (some o `non-scaling-stroke`),
+   * então ela ENCOLHE com o zoom — e este piso é o que impede a linha de sumir
+   * no zoom mínimo. Default 0: fora do canvas (legenda, teste de render) não
+   * há zoom nenhum e o nominal já é o valor final.
+   */
+  pisoDeTracoMundo?: number;
+  /**
+   * Onde ancorar o rótulo de % da sinergia (px de mundo). `undefined` = usa
+   * `midX/midY` (o comportamento de sempre, para quem instancia este
+   * componente fora do canvas); `null` = o colocador (`rotulo-da-aresta.ts`)
+   * NÃO achou lugar livre e o texto não é desenhado — o valor fica só no
+   * rótulo acessível do grupo (achado MÉDIO #5 da rodada 6).
+   */
+  rotulo?: Ponto | null;
+  /**
    * Fator de escala do glifo do fim (seta/círculo/losango/❌), ancorado no
    * próprio ponto — ver `GlifoFim`. Default 1 (tamanho normal, mesmo de
    * sempre). `v3-edge.tsx` passa `1/zoom` (piso 1) para o ❌ nunca cair
@@ -265,7 +287,9 @@ export function ArestaSvgGroup({
   spec,
   anguloGraus = 0,
   eixoDeslocamento = "y",
-  offsetPx = 3.5,
+  offsetPx = SEPARACAO_DA_TRIPLA_MUNDO,
+  pisoDeTracoMundo = 0,
+  rotulo,
   glifoEscala = 1,
   labelFontePx = 12,
 }: ArestaSvgGroupProps): JSX.Element {
@@ -282,11 +306,22 @@ export function ArestaSvgGroup({
     .join(" ");
   const deslocaMenos = eixoDeslocamento === "x" ? `translate(-${offsetPx},0)` : `translate(0,-${offsetPx})`;
   const deslocaMais = eixoDeslocamento === "x" ? `translate(${offsetPx},0)` : `translate(0,${offsetPx})`;
-  // `vector-effect="non-scaling-stroke"` (achado ALTO #3): a LARGURA do
-  // traço passa a ser lida em px de TELA pelo navegador, ignorando a escala
-  // do pane do ReactFlow — sem isto, os 2px de largura viravam ~1px a
-  // zoom 0,5 e a separação (já corrigida por `offsetPx`) não bastava sozinha.
-  const naoEscalarTraco = { vectorEffect: "non-scaling-stroke" as const };
+  // D3 da rodada 6 (achado ALTO #3): a largura do traço é px de MUNDO — a
+  // MESMA unidade da separação da tripla e do passo do canal (`FAIXA_PX`).
+  // Antes eram três réguas em três unidades, e a zoom 0,5 a meia-banda da
+  // tripla (5,0px de tela) engolia o passo do canal (3,0px de tela): o crítico
+  // achou uma aresta verde pintada DENTRO da tripla vermelha. `max()` com o
+  // piso mantém a linha visível quando o zoom encolhe o mundo.
+  const tipoDoTraco: TipoDeBanda = spec.critica
+    ? "critico"
+    : spec.destacadaPeloSelecionado
+      ? "destacada"
+      : spec.camada;
+  const larguraDoTraco = Math.max(larguraDoTracoNominal(tipoDoTraco), pisoDeTracoMundo);
+  const rotuloX = rotulo === undefined ? midX : rotulo?.x;
+  const rotuloY = rotulo === undefined ? midY : rotulo?.y;
+  const temRotulo = spec.camada === "sinergia" && typeof spec.pesoPercent === "number";
+  const textoDoRotulo = temRotulo ? `${spec.pesoPercent}%` : "";
 
   return (
     <g
@@ -304,6 +339,7 @@ export function ArestaSvgGroup({
       // depender de parsear string.
       data-origem={spec.origem}
       data-destino={spec.destino}
+      aria-label={temRotulo ? `sinergia ${textoDoRotulo}` : undefined}
     >
       {spec.critica ? (
         <>
@@ -311,20 +347,18 @@ export function ArestaSvgGroup({
             className="lb-edge-path"
             d={path}
             stroke={cor}
-            strokeWidth={2}
+            strokeWidth={larguraDoTraco}
             fill="none"
             transform={deslocaMenos}
-            {...naoEscalarTraco}
           />
-          <path className="lb-edge-path" d={path} stroke={cor} strokeWidth={2} fill="none" {...naoEscalarTraco} />
+          <path className="lb-edge-path" d={path} stroke={cor} strokeWidth={larguraDoTraco} fill="none" />
           <path
             className="lb-edge-path"
             d={path}
             stroke={cor}
-            strokeWidth={2}
+            strokeWidth={larguraDoTraco}
             fill="none"
             transform={deslocaMais}
-            {...naoEscalarTraco}
           />
         </>
       ) : (
@@ -332,25 +366,29 @@ export function ArestaSvgGroup({
           className="lb-edge-path"
           d={path}
           stroke={cor}
-          strokeWidth={spec.destacadaPeloSelecionado ? 2.5 : 1.75}
+          strokeWidth={larguraDoTraco}
           strokeDasharray={dasharray}
           fill="none"
-          {...naoEscalarTraco}
         />
       )}
+      {/* O valor da sinergia vive no rótulo ACESSÍVEL do grupo, sempre — mesmo
+          quando o colocador não achou lugar livre para o texto (achado MÉDIO
+          #5): teclado e leitor de tela alcançam; o `<title>` também é o
+          tooltip nativo do SVG. */}
+      {temRotulo ? <title>{`sinergia ${textoDoRotulo}`}</title> : null}
       <GlifoFim x={endX} y={endY} forma={forma} cor={cor} anguloGraus={anguloGraus} escala={glifoEscala} />
-      {spec.camada === "sinergia" && typeof spec.pesoPercent === "number" ? (
+      {temRotulo && rotuloX !== undefined && rotuloY !== undefined ? (
         <text
           className="lb-edge-label lb-edge-label-sinergia"
-          x={midX}
-          y={midY}
-          // Tamanho pela régua única de tipografia do grafo (piso de 11,4px
-          // de TELA em qualquer zoom) — ver `labelFontePx`.
+          x={rotuloX}
+          y={rotuloY}
+          // Tamanho pela régua única de tipografia do grafo (piso de 12px de
+          // TELA em qualquer zoom) — ver `labelFontePx`.
           fontSize={labelFontePx}
           textAnchor="middle"
           fill={cor}
         >
-          {spec.pesoPercent}%
+          {textoDoRotulo}
         </text>
       ) : null}
     </g>

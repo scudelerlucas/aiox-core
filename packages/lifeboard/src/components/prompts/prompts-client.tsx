@@ -31,13 +31,22 @@ export function PromptsClient({
   const [complexidade, setComplexidade] = useState<Complexidade>("baixa");
   const [contaOverride, setContaOverride] = useState<string>("");
 
-  const escolha = useMemo(() => escolherConta(consumo, complexidade), [consumo, complexidade]);
+  // D36 (rodada 8): o instante entra no roteamento. Sem ele, `escolherConta` e
+  // `contaTemEspacoPara` não conseguem perguntar "o banco recusaria agora?" —
+  // e era exatamente isso que fazia a tela convidar para um disparo recusado.
+  const instante = agora ?? Date.now();
+
+  const escolha = useMemo(
+    () => escolherConta(consumo, complexidade, instante),
+    [consumo, complexidade, instante],
+  );
   const modeloImplicado = modeloParaComplexidade(complexidade);
 
   const contaOverrideItem =
     contaOverride === "" ? undefined : consumo.find((c) => c.conta === contaOverride);
   const overrideSemEspaco =
-    contaOverrideItem !== undefined && !contaTemEspacoPara(contaOverrideItem, complexidade);
+    contaOverrideItem !== undefined &&
+    !contaTemEspacoPara(contaOverrideItem, complexidade, instante);
 
   // "Não cabe hoje" é um AVISO; "impossível" (conta null) é o único bloqueio.
   const naoCabeHoje = contaOverride === "" ? !escolha.cabeHoje : overrideSemEspaco;
@@ -63,7 +72,7 @@ export function PromptsClient({
               proximoModelo={modeloImplicado}
               seriaEscolhida={seriaEscolhida}
               semEspacoHoje={semEspacoHoje}
-              agora={agora}
+              agora={instante}
             />
           );
         })}

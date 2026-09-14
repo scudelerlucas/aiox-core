@@ -45,6 +45,72 @@ function respostaDaRpc(corpo: Record<string, unknown>): Response {
   });
 }
 
+const ISO_AGORA = new Date("2026-09-14T12:00:00.000Z").toISOString();
+const AGORA = Date.parse(ISO_AGORA);
+
+/** Um item de fila `falhou` HOJE com custo de ESTIMATIVA (o que abre o ajuste). */
+function itemDaFila(patch: Record<string, unknown>): never {
+  return {
+    id: "fila-1",
+    conta: "lucasscudeler@gmail.com",
+    prompt: "auditar RLS",
+    promptTamanho: 11,
+    complexidade: "maxima",
+    modeloSugerido: "Fable",
+    estado: "falhou",
+    custoUsd: 120,
+    custoEstimadoUsd: 120,
+    criadoEm: new Date(AGORA - 3_600_000).toISOString(),
+    pegoEm: new Date(AGORA - 3_000_000).toISOString(),
+    concluidoEm: new Date(AGORA - 60_000).toISOString(),
+    heartbeatEm: null,
+    workerId: null,
+    tentativas: 3,
+    maxTentativas: 3,
+    sessionId: null,
+    motivoFalha: "expirou 3 vezes sem fechamento",
+    custoEEstimativa: true,
+    custoAjustadoEm: null,
+    disponivelEm: null,
+    sessaoUrl: null,
+    resultado: null,
+    criadoPor: null,
+    taskId: null,
+    ...patch,
+  } as never;
+}
+
+/**
+ * D22 (rodada 5) + BAIXO 10 (rodada 7) — O PAR QUE A PRODUÇÃO REALMENTE FORMA.
+ *
+ * Aqui morava o teste que "provava" #11 montando `<MensagemDaFila>` À MÃO com a
+ * frase do cancelamento. Ele passava — e a tela continuava muda, porque quem
+ * renderiza em produção é a LINHA. Desde a rodada 7 a região viva e os dois
+ * hooks de ação moram em `AcoesDaLinha` (dentro de `FilaTabela`), então é
+ * `FilaTabela` que se monta aqui: o par testado é o par da produção.
+ *
+ * O único ponto substituído é o encanamento do hook (`useState`/`useTransition`/
+ * `useRouter` não rodam sem DOM — este pacote não tem jsdom nem
+ * testing-library): o stub devolve exatamente o que `useAcaoPrompt` guarda
+ * depois do `setEstado`, e o estado vem da AÇÃO DE VERDADE, com `fetch`
+ * mockado. A prova de interação real (clicar, digitar, Enter, redimensionar) é
+ * a de navegador, no relatório da rodada.
+ */
+async function renderLinha(
+  estado: Record<string, unknown>,
+  item: never,
+): Promise<string> {
+  vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
+    useAcaoPrompt: () => ({ estado, pendente: false, disparar: () => {} }),
+  }));
+  vi.resetModules();
+  const { FilaTabela } = await import("@/components/prompts/fila-tabela");
+  const html = renderToStaticMarkup(<FilaTabela itens={[item]} agora={AGORA} />);
+  vi.doUnmock("@/components/prompts/usar-acao-prompt");
+  vi.resetModules();
+  return html;
+}
+
 describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
   const fetchMock = vi.fn();
   // `@/config/env` EXIGE URL/chave/segredo quando o modo é live (e lança se
@@ -259,7 +325,7 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
    * interação real (clicar, digitar, Enter) é a de navegador, no relatório da
    * rodada.
    */
-  it("#11/D22 — `CancelarBotao` (produção) mostra a frase do cancelamento no [role=status]", async () => {
+  it("#11/D22 — a LINHA (produção) mostra a frase do cancelamento no [role=status]", async () => {
     const { cancelarPromptAction } = await import("@/app/prompts/actions");
     fetchMock.mockResolvedValueOnce(
       respostaDaRpc({
@@ -273,14 +339,7 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
     const estado = await cancelarPromptAction({}, form({ id: "fila-1" }));
     expect(estado.mensagem).toContain("Cancelado durante a execução.");
 
-    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
-      useAcaoPrompt: () => ({ estado, pendente: false, disparar: () => {} }),
-    }));
-    vi.resetModules();
-    const { CancelarBotao } = await import("@/components/prompts/cancelar-botao");
-    const html = renderToStaticMarkup(<CancelarBotao id="fila-1" emExecucao />);
-    vi.doUnmock("@/components/prompts/usar-acao-prompt");
-    vi.resetModules();
+    const html = await renderLinha(estado, itemDaFila({ estado: "pega", heartbeatEm: ISO_AGORA }));
 
     expect(html).toContain('role="status"');
     expect(html).toContain("Cancelado durante a execução.");
@@ -289,41 +348,31 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
     expect(html).toContain("cancelar");
   });
 
-  it("D22 — `AjustarCustoBotao` (produção) deixa de ser mudo no sucesso", async () => {
+  it("D22 — o sucesso do ajuste de custo deixa de ser mudo (na região da LINHA)", async () => {
     const { ajustarCustoPromptAction } = await import("@/app/prompts/actions");
     fetchMock.mockResolvedValueOnce(respostaDaRpc({ ok: true, custo_usd: 12.3 }));
 
     const estado = await ajustarCustoPromptAction({}, form({ id: "fila-8", custo_usd: "12,30" }));
     expect(estado.mensagem).toBe("Custo ajustado — o gasto de hoje já considera o número real.");
 
-    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
-      useAcaoPrompt: () => ({ estado, pendente: false, disparar: () => {} }),
-    }));
-    vi.resetModules();
-    const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
-    const html = renderToStaticMarkup(<AjustarCustoBotao id="fila-8" custoAtualUsd={50} />);
-    vi.doUnmock("@/components/prompts/usar-acao-prompt");
-    vi.resetModules();
+    const html = await renderLinha(estado, itemDaFila({}));
 
     expect(html).toContain('role="status"');
     expect(html).toContain("Custo ajustado — o gasto de hoje já considera o número real.");
   });
 
-  it("a região viva existe ANTES da frase (vazia e sr-only), nos dois botões", async () => {
-    vi.doMock("@/components/prompts/usar-acao-prompt", () => ({
-      useAcaoPrompt: () => ({ estado: {}, pendente: false, disparar: () => {} }),
-    }));
-    vi.resetModules();
-    const { CancelarBotao } = await import("@/components/prompts/cancelar-botao");
-    const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
-    const htmlCancelar = renderToStaticMarkup(<CancelarBotao id="fila-1" />);
-    const htmlAjustar = renderToStaticMarkup(<AjustarCustoBotao id="fila-8" custoAtualUsd={50} />);
-    vi.doUnmock("@/components/prompts/usar-acao-prompt");
-    vi.resetModules();
-
-    for (const html of [htmlCancelar, htmlAjustar]) {
-      expect(html).toContain('role="status"');
-      expect(html).toContain("sr-only");
-    }
+  /**
+   * BAIXO 10 (rodada 7): eram 4 regiões `role="status"` por linha — 2 ações ×
+   * 2 breakpoints (o crítico contou 33 num fixture de 10 itens). A região passa
+   * a ser da LINHA: 1 por instância renderizada, e só uma instância está
+   * visível de cada vez (a outra é `display:none`, fora da árvore de
+   * acessibilidade). A conta abaixo é sobre o DOM inteiro, os dois breakpoints
+   * somados — antes dava 4 por item.
+   */
+  it("BAIXO 10 — uma região viva por linha renderizada (2 no DOM, 1 por breakpoint)", async () => {
+    const html = await renderLinha({}, itemDaFila({}));
+    const regioes = html.match(/role="status"/g) ?? [];
+    expect(regioes).toHaveLength(2);
+    expect(html).toContain("sr-only");
   });
 });

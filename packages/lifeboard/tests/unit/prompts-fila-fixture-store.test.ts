@@ -5,6 +5,7 @@ import {
   ajustarTetoFixture,
   cancelarFixture,
   cursorDaPaginaFixture,
+  definirExigirMedicaoFixture,
   definirTemposFixture,
   enfileirarFixture,
   envelhecerSinalFixture,
@@ -171,8 +172,13 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 
   it("um item caro na frente não bloqueia o barato atrás dele (pula o que não cabe)", () => {
     resetarFilaFixtureStore();
-    // Alma Petra está a 150/150 medido. Baixa o medido para 40 usando outra conta
-    // limpa: Pandora (98,50 medido) não serve; usa-se a semente do Lucas (42,10).
+    // BAIXO 1 (rodada 9): o TETO DESTE CENÁRIO é declarado aqui, não herdado do
+    // fixture. O fixture nasce com o teto de produção (500 desde 14/09) e este
+    // bloco precisa de um teto em que a `maxima` NÃO caiba e a `baixa` caiba —
+    // com 42,10 já medidos, 150 é esse teto. Antes o bloco dependia, em
+    // silêncio, de o fixture valer 150; quando o operador trocou o número, o
+    // cenário virou outro sem ninguém perceber.
+    ajustarTetoFixture(LUCAS, 150);
     enfileirarFixture({ prompt: "cara", complexidade: "maxima", conta: LUCAS, agora: AGORA + 1 });
     enfileirarFixture({ prompt: "barata", complexidade: "baixa", conta: LUCAS, agora: AGORA + 2 });
 
@@ -193,6 +199,11 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 
   it("quando nada cabe, o motivo NOMEIA o menor custo que não coube", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): o fixture passou a nascer com a trava de medição
+    // recente LIGADA na Alma Petra (é o estado em que o banco recusa todo
+    // disparo, e ele precisava existir em screenshot). Este bloco prova o
+    // PULL, não a trava — então a trava sai de cena aqui, em voz alta.
+    definirExigirMedicaoFixture(ALMA, false);
     // Alma Petra: 150 medido de 150 de teto — nem a mais barata cabe.
     enfileirarFixture({ prompt: "x", complexidade: "baixa", conta: ALMA, agora: AGORA });
     const r = pegarFixture(ALMA, "W1", AGORA);
@@ -232,7 +243,10 @@ describe("D3 — admissão só recusa o impossível", () => {
     // Com os tetos de produção (150 nas 3) nenhuma complexidade estoura, então
     // a admissão nunca recusa — é o desenho D3. O caso só existe com um teto
     // menor: os MESMOS números do bloco SQL provado ao vivo (teto 10 + máxima).
-    expect(listarConsumoFixture(AGORA).every((c) => c.tetoUsd === 150)).toBe(true);
+    // BAIXO 1 (rodada 9): o fixture está no teto de produção — 500 nas três
+    // contas, a decisão do operador de 14/09. Nenhuma complexidade estoura 500,
+    // então a recusa de admissão só existe com um teto declarado aqui.
+    expect(listarConsumoFixture(AGORA).every((c) => c.tetoUsd === 500)).toBe(true);
     ajustarTetoFixture(ALMA, 10);
     const r = enfileirarFixture({
       prompt: "a mais cara possível",
@@ -372,6 +386,10 @@ describe("D16 — o consumo do fixture MEXE (não é mais constante)", () => {
 
   it("o teto barra o pull DE VERDADE: gastar 140 no Lucas impede a próxima tarefa alta", () => {
     resetarFilaFixtureStore();
+    // BAIXO 1 (rodada 9): o teto do CENÁRIO é declarado aqui. Este bloco prova
+    // que o teto barra o pull — para isso o gasto tem de encostar no teto, e é
+    // o bloco que escolhe os dois números, não o fixture de produção.
+    ajustarTetoFixture(LUCAS, 150);
     const item = pegarFixture(LUCAS, "W1", AGORA).item as { id: string };
     fecharFixture({
       id: item.id,
@@ -553,10 +571,18 @@ describe("D19 — backoff: quem volta cumpre castigo antes de ser re-pego", () =
 describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => {
   it("item morto conta o estimado, aparece como estimativa e o ajuste corrige o dia", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): a Alma Petra do fixture nasce com a trava de medição
+    // recente LIGADA (o estado em que o banco recusa todo disparo precisava
+    // existir em screenshot). Este bloco prova outra coisa — a trava sai de
+    // cena aqui, em voz alta, e T-blocos próprios provam a trava.
+    definirExigirMedicaoFixture(ALMA, false);
     // A Alma Petra da semente está exatamente no teto; sobe-se o teto ANTES de
     // enfileirar, para o pull conseguir liberar o item e o cenário ser sobre a
     // MORTE do item, não sobre o teto.
-    ajustarTetoFixture(ALMA, 400);
+    // BAIXO 1 (rodada 9): com o teto de produção em 500 e a semente da Alma
+    // Petra EM CIMA dele, o teto do cenário sobe para 800 — o bloco é sobre a
+    // MORTE do item, e ele precisa de espaço para o pull chegar lá.
+    ajustarTetoFixture(ALMA, 800);
     const base = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd ?? 0;
     const novo = enfileirarFixture({
       prompt: "vai morrer",
@@ -576,7 +602,12 @@ describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => 
     }
     const morte = pegarFixture(ALMA, "W9", AGORA);
     expect(morte.mortos).toBe(1);
-    expect(morte.motivo).toContain("do consumo de hoje são estimativa de 1 item que morreu sem fechar");
+    // BAIXO 7 (rodada 7): a morte DESTE disparo e a parcela estimada ACUMULADA
+    // nomeiam o mesmo dinheiro — o mesmo item, os mesmos US$ 50,00. Só a
+    // primeira sai; a segunda saía de graça e engordava a frase que vai
+    // LITERAL para o relatório diário da Routine.
+    expect(morte.motivo).toContain("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia");
+    expect(morte.motivo).not.toContain("do consumo de hoje são estimativa");
 
     const conta = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA) as {
       consumoHojeUsd: number;
@@ -660,6 +691,11 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
 
   it("60 itens: o elegível da posição 51 é pego, e `pulados` conta os 50 que não cabem", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): a Alma Petra do fixture nasce com a trava de medição
+    // recente LIGADA (o estado em que o banco recusa todo disparo precisava
+    // existir em screenshot). Este bloco prova outra coisa — a trava sai de
+    // cena aqui, em voz alta, e T-blocos próprios provam a trava.
+    definirExigirMedicaoFixture(ALMA, false);
     // Teto alto na ADMISSÃO (senão o `maxima` seria recusado como impossível) e
     // headroom de 110 na HORA DO PULL — as duas coisas que o bloco SQL fez.
     ajustarTetoFixture(ALMA, 500);
@@ -688,7 +724,14 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
     // D27 (rodada 6): o disparo que PEGA algo também tem frase — antes o
     // relatório da Routine recebia `motivo: null` e ficava mudo sobre o que
     // acabara de acontecer.
-    expect(r.motivo).toBe("peguei o item mais antigo que cabe: US$ 5,00 de US$ 110,00 livres");
+    // D32b (rodada 7): a conta do fixture (Alma Petra) está com a medição de
+    // 13 h atrás — acima do limite de 12 h —, então a frase ABRE pela ressalva
+    // e só depois conta o que pegou. Era exatamente o que faltava: o crítico
+    // mediu 37 h de atraso e a tela falava do saldo como se fosse de agora.
+    expect(r.motivo).toBe(
+      "atenção: o gasto medido desta conta é de 13 h atrás; " +
+        "peguei o item mais antigo que cabe: US$ 5,00 de US$ 110,00 livres",
+    );
   });
 
   it("quando nada cabe, o menor custo vem da fila INTEIRA (não dos 50 primeiros)", () => {
@@ -716,7 +759,15 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
 describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
   it("item na 3ª expiração: o motivo começa por '1 item morreu' e traz o valor lançado", () => {
     resetarFilaFixtureStore();
-    ajustarTetoFixture(ALMA, 400);
+    // MÉDIO 2 (rodada 8): a Alma Petra do fixture nasce com a trava de medição
+    // recente LIGADA (o estado em que o banco recusa todo disparo precisava
+    // existir em screenshot). Este bloco prova outra coisa — a trava sai de
+    // cena aqui, em voz alta, e T-blocos próprios provam a trava.
+    definirExigirMedicaoFixture(ALMA, false);
+    // BAIXO 1 (rodada 9): com o teto de produção em 500 e a semente da Alma
+    // Petra EM CIMA dele, o teto do cenário sobe para 800 — o bloco é sobre a
+    // MORTE do item, e ele precisa de espaço para o pull chegar lá.
+    ajustarTetoFixture(ALMA, 800);
     const novo = enfileirarFixture({
       prompt: "vai morrer na 3a",
       complexidade: "alta",
@@ -736,7 +787,10 @@ describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
     expect(morte.mortos).toBe(1);
     expect(morte.mortosUsd).toBe(50);
     expect(morte.item).toBeNull();
-    expect(morte.motivo?.startsWith("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia")).toBe(true);
+    // D32b: a ressalva de defasagem vem antes (13 h nesta conta do fixture);
+    // a oração da morte continua sendo a primeira coisa que se diz sobre a FILA.
+    expect(morte.motivo).toContain("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia");
+    expect(morte.motivo?.startsWith("atenção: o gasto medido desta conta é de 13 h atrás; ")).toBe(true);
     expect(morte.motivo).not.toContain("fila vazia");
   });
 });
@@ -803,7 +857,7 @@ describe("#7 — só custo ESTIMADO pela casa pode ser ajustado", () => {
       tentativas: 1,
     });
     expect(ajustarCustoFixture(novo.id, 1, null, AGORA)).toEqual({
-      erro: "Só custo estimado pela casa pode ser ajustado; este foi medido.",
+      erro: "Este custo foi medido pela sessão — não dá para corrigi-lo aqui.",
     });
   });
 });

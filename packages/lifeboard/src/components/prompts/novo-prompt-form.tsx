@@ -120,7 +120,7 @@ export function NovoPromptForm({
             value={contaOverride}
             onChange={(e) => aoMudarContaOverride(e.target.value)}
             disabled={pendente}
-            className="min-h-[36px] rounded-md border border-navy-700 bg-navy-900 px-2 text-sm text-bone-100 focus:border-gold-500 focus:outline-none disabled:opacity-50"
+            className="min-h-[44px] rounded-md border border-navy-700 bg-navy-900 px-2 text-sm text-bone-100 focus:border-gold-500 focus:outline-none disabled:opacity-50"
           >
             <option value="">automático (maior espaço livre hoje)</option>
             {CONTAS.map((c) => (
@@ -152,7 +152,7 @@ export function NovoPromptForm({
               id="task-link"
               name="task_id"
               disabled={pendente}
-              className="min-h-[36px] max-w-[220px] rounded-md border border-navy-700 bg-navy-900 px-2 text-sm text-bone-100 focus:border-gold-500 focus:outline-none disabled:opacity-50"
+              className="min-h-[44px] max-w-[220px] rounded-md border border-navy-700 bg-navy-900 px-2 text-sm text-bone-100 focus:border-gold-500 focus:outline-none disabled:opacity-50"
             >
               <option value="">nenhuma</option>
               {tarefas.map((t) => (
@@ -188,10 +188,13 @@ export function NovoPromptForm({
         </p>
       ) : null}
 
+      {/* BAIXO 3 (rodada 8): a AÇÃO PRIMÁRIA da tela estava em 40 px e os dois
+          selects em 36, numa página cuja navegação usa 44 — o alvo menor era
+          justamente o mais importante. Os três foram para 44. */}
       <button
         type="submit"
         disabled={pendente || prompt.trim().length === 0 || impossivel === true}
-        className="mt-4 min-h-[40px] rounded-md border border-gold-500 bg-navy-800 px-4 text-sm font-semibold text-gold-300 transition duration-150 ease-almapetra hover:bg-navy-700 disabled:opacity-50"
+        className="mt-4 min-h-[44px] rounded-md border border-gold-500 bg-navy-800 px-4 text-sm font-semibold text-gold-300 transition duration-150 ease-almapetra hover:bg-navy-700 disabled:opacity-50"
       >
         {pendente ? "enviando…" : "Enviar para a fila"}
       </button>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ZOOM_MINIMO } from "@/components/graph/tipografia-do-cartao";
 import { layoutDoGrafo, type ArestaDoLayout, type ArestaParaRotear } from "@/lib/layout-do-grafo";
 import { arestasDo11, arvore200, cadeia200, FIXTURE_11, grafo40 } from "./cenarios-do-grafo";
 
@@ -13,12 +14,20 @@ import { arestasDo11, arvore200, cadeia200, FIXTURE_11, grafo40 } from "./cenari
  * como uma.
  *
  * A régua, literal: **para todo par de arestas, o comprimento de segmento
- * COLINEAR SOBREPOSTO (mesmo y ± 1px com x sobreposto, ou mesmo x ± 1px com y
- * sobreposto) é 0 px.** Não "é pequeno", não "melhorou": zero. Encostar ponta
- * com ponta é permitido (comprimento 0); correr junto, não.
+ * COLINEAR SOBREPOSTO é 0 px.** Não "é pequeno", não "melhorou": zero.
+ * Encostar ponta com ponta é permitido (comprimento 0); correr junto, não.
+ *
+ * P4g (achado BAIXO #12 do crítico hostil ROUND 6): "mesma linha" era ±1px de
+ * MUNDO — e o mundo encolhe. Em 200-árvore a separação mínima era 1,26px de
+ * mundo (0,63px de TELA no zoom mínimo) e o DOM tinha 852 sobreposições a ±1px
+ * de tela, com este teste devolvendo 0. Uma régua que mede numa unidade e um
+ * olho que vê noutra. Agora a tolerância é **1px de TELA no PIOR zoom
+ * suportado** (`ZOOM_MINIMO`) — convertida para mundo, é ela que decide.
  */
 
-const TOLERANCIA_MESMA_LINHA = 1;
+/** "Duas linhas que o olho lê como uma": 1px de tela no pior zoom. */
+const TOLERANCIA_DE_TELA_PX = 1;
+const TOLERANCIA_MESMA_LINHA = TOLERANCIA_DE_TELA_PX / ZOOM_MINIMO;
 
 interface Segmento {
   aresta: string;
@@ -129,6 +138,16 @@ describe("canais — 0 px de segmento colinear sobreposto entre duas arestas", (
 
   it("200 tarefas em ÁRVORE", () => {
     expect(colisoesColineares(rotear({ ...arvore200(), maxColunas: 6 }))).toEqual([]);
+  });
+
+  it("a régua é px de TELA no zoom mínimo — duas arestas a 1,26px de mundo NÃO passam mais", () => {
+    // O caso exato que a régua antiga (±1px de mundo) deixava passar: 1,26px
+    // de mundo é 0,63px de tela no piso do zoom — a mesma linha, para o olho.
+    const quaseJuntas: ArestaDoLayout[] = [
+      { id: "a", origem: "x", destino: "y", pontos: [{ x: 0, y: 10 }, { x: 100, y: 10 }] },
+      { id: "b", origem: "z", destino: "w", pontos: [{ x: 20, y: 11.26 }, { x: 120, y: 11.26 }] },
+    ];
+    expect(colisoesColineares(quaseJuntas)).toEqual([{ a: "a", b: "b", px: 80 }]);
   });
 
   it("a própria medição pega uma colisão quando ela existe (falsificador da régua)", () => {

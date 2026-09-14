@@ -5,7 +5,9 @@ import type { Complexidade, Conta, ConsumoConta } from "@/core/prompts/tipos";
 import {
   CONTAS,
   CUSTO_ESTIMADO_POR_COMPLEXIDADE,
+  LIMITE_DEFASAGEM_HORAS,
   MODELO_POR_COMPLEXIDADE,
+  bancoRecusaria,
   custoEstimadoParaComplexidade,
   espacoLivreUsd,
   textoEspacoLivre,
@@ -96,7 +98,11 @@ describe("escolherConta", () => {
     // D9: frase gramatical, rótulo da conta, complexidade por extenso, vírgula decimal.
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 120,00 livres para uma tarefa máxima contando a fila parada. " +
-        "A mais folgada (Pandora) tem US$ 102,90.",
+        // MÉDIO 1 (rodada 8): a frase carimba DE QUANDO é a medição. O helper
+        // `consumo()` deste arquivo nasce sem medição nenhuma, e é isso que a
+        // frase passa a dizer — em vez de apresentar como saldo de agora um
+        // número que ninguém mediu.
+        "A mais folgada (Pandora) tem US$ 102,90 livres — sem medição nenhuma.",
     );
   });
 
@@ -120,7 +126,7 @@ describe("escolherConta", () => {
     // e o headroom aparece como explicação, sem virar veredito:
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 50,00 livres para uma tarefa alta contando a fila parada. " +
-        "A mais folgada (Pandora) tem US$ 1,00 (headroom de US$ 150,00 menos US$ 149,00 já na fila).",
+        "A mais folgada (Pandora) tem US$ 1,00 livres (headroom de US$ 150,00 menos US$ 149,00 já na fila) — sem medição nenhuma.",
     );
   });
 
@@ -135,8 +141,9 @@ describe("escolherConta", () => {
     expect(r.cabeHoje).toBe(false);
     expect(r.motivo).toBe(
       "Nenhuma conta tem US$ 50,00 livres para uma tarefa alta contando a fila parada. " +
-        "A mais folgada (Lucas) tem US$ 10,00; Pandora tem US$ 150,00 livres agora, " +
-        "mas US$ 140,00 já na fila. Empate no espaço livre; vale a ordem da casa.",
+        "A mais folgada (Lucas) tem US$ 10,00 livres — sem medição nenhuma; " +
+        "Pandora tem US$ 150,00 livres agora, mas US$ 140,00 já na fila. " +
+        "Empate no espaço livre; vale a ordem da casa.",
     );
   });
 
@@ -337,5 +344,100 @@ describe("paridade com o roteamento SQL (fila_prompts_enfileirar, migration 0012
         custoEstimadoParaComplexidade(complexidade) <= espacoLivreUsd(escolhida),
       );
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D36 (rodada 8) — O ROTEADOR LEU D32
+//
+// MÉDIO 1 do crítico, medido na tela: `escolherConta` e `contaTemEspacoPara`
+// ignoravam `defasagemHoras` e `exigeMedicaoRecente`, os dois campos que a
+// rodada 7 criou. Resultado: a frase ao lado do botão dizia "Pandora tem o
+// maior espaço livre hoje… US$ 500,00" sobre uma conta que o card, dois
+// centímetros acima, declarava "sem medição nenhuma"; e com a trava ligada e a
+// medição velha, `cabeHoje` saía `true` e o selo "escolhida agora" aparecia
+// enquanto o BANCO recusava 100% dos disparos.
+// ─────────────────────────────────────────────────────────────────────────────
+const AGORA_ROTEADOR = Date.parse("2026-09-14T12:00:00.000Z");
+
+/** Conta com medição declarada (o helper `consumo` acima nasce sem nenhuma). */
+function medida(
+  base: ConsumoConta,
+  horas: number | null,
+  exigeMedicaoRecente = false,
+): ConsumoConta {
+  return {
+    ...base,
+    medidoAteEm: horas === null ? null : new Date(AGORA_ROTEADOR - horas * 3_600_000).toISOString(),
+    defasagemHoras: horas,
+    exigeMedicaoRecente,
+  };
+}
+
+describe("D36 — conta que o banco recusaria não é escolhida nem convidada", () => {
+  it("bancoRecusaria espelha a porta do pull: trava ligada + medição velha", () => {
+    expect(bancoRecusaria(medida(consumo(LUCAS, 0), 37, true), AGORA_ROTEADOR)).toBe(true);
+    expect(bancoRecusaria(medida(consumo(LUCAS, 0), null, true), AGORA_ROTEADOR)).toBe(true);
+    // No limite exato (12 h) ainda passa — é `> 12`, como no SQL.
+    expect(
+      bancoRecusaria(medida(consumo(LUCAS, 0), LIMITE_DEFASAGEM_HORAS, true), AGORA_ROTEADOR),
+    ).toBe(false);
+    // Sem a trava, medição velha NÃO recusa (a trava é decisão do operador).
+    expect(bancoRecusaria(medida(consumo(LUCAS, 0), 37, false), AGORA_ROTEADOR)).toBe(false);
+  });
+
+  it("a conta travada PERDE para uma conta com menos espaço livre", () => {
+    // Lucas: trava ligada e medição de 37 h — US$ 150,00 de espaço que o banco
+    // não autoriza gastar. Pandora: US$ 10,00 de espaço, mas autorizados.
+    const r = escolherConta(
+      [medida(consumo(LUCAS, 0), 37, true), medida(consumo(PANDORA, 140), 1)],
+      "baixa",
+      AGORA_ROTEADOR,
+    );
+    expect(r.conta).toBe(PANDORA);
+    expect(r.cabeHoje).toBe(true);
+    expect(r.motivo).not.toContain("Lucas");
+  });
+
+  it("TODAS travadas: cabeHoje é false e a frase diz que o banco recusa", () => {
+    const r = escolherConta(
+      [medida(consumo(LUCAS, 0), 37, true), medida(consumo(PANDORA, 0), null, true)],
+      "baixa",
+      AGORA_ROTEADOR,
+    );
+    expect(r.cabeHoje).toBe(false);
+    expect(r.motivo).toBe(
+      "Nenhuma conta autoriza gasto agora: ela exige medição de menos de 12 h e " +
+        "a última medição é de 37 h atrás. O item entra na fila e roda quando a medição voltar.",
+    );
+    // D3 continua valendo: o item ENTRA na fila; isto é aviso, não recusa.
+    expect(r.conta).not.toBeNull();
+  });
+
+  it("contaTemEspacoPara devolve FALSO quando o banco recusaria, com espaço de sobra", () => {
+    const folgada = medida(consumo(LUCAS, 0), 37, true); // 150 livres, 0 autorizados
+    expect(espacoLivreUsd(folgada)).toBe(150);
+    expect(contaTemEspacoPara(folgada, "baixa", AGORA_ROTEADOR)).toBe(false);
+    // E a MESMA conta, com medição recente, volta a caber.
+    expect(contaTemEspacoPara(medida(folgada, 1, true), "baixa", AGORA_ROTEADOR)).toBe(true);
+  });
+
+  it("toda frase de espaço livre carimba DE QUANDO é a medição", () => {
+    const recente = escolherConta([medida(consumo(LUCAS, 0), 0.5)], "baixa", AGORA_ROTEADOR);
+    expect(recente.motivo).toContain("— medição recente.");
+    const atrasada = escolherConta([medida(consumo(LUCAS, 0), 37)], "baixa", AGORA_ROTEADOR);
+    expect(atrasada.motivo).toContain("— última medição há 37 h.");
+    const nunca = escolherConta([medida(consumo(LUCAS, 0), null)], "baixa", AGORA_ROTEADOR);
+    expect(nunca.motivo).toContain("— sem medição nenhuma.");
+  });
+
+  it("sem trava nenhuma (o estado de hoje nas 3 contas) nada muda no roteamento", () => {
+    const r = escolherConta(
+      [medida(consumo(LUCAS, 100), 0.5), medida(consumo(PANDORA, 10), 37), medida(consumo(ALMA, 50), null)],
+      "baixa",
+      AGORA_ROTEADOR,
+    );
+    expect(r.conta).toBe(PANDORA);
+    expect(r.cabeHoje).toBe(true);
   });
 });

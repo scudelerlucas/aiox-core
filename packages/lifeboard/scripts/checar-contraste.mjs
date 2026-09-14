@@ -143,6 +143,12 @@ const PARES = [
   // `navy-800` sobre `navy-850` (1,14:1 — invisível). `navy-600` mede 4,01:1
   // sobre o mesmo cartão (o mínimo aqui é 3:1, decorativo/UI, não texto).
   ["navy-600", "navy-850", 3, "trilho da barra de progresso do cartão de conta (P7 #16, era navy-800 1,14:1)"],
+  // D32a (P7, rodada 7): as duas frases novas do cartão de conta. Cor NUNCA é o
+  // único sinal — as duas dizem por extenso o que são ("sem medição nenhuma",
+  // "última medição há N h"); a cor só reforça.
+  ["state-blocked", "navy-850", 4.5, "'sem medição nenhuma' no cartão de conta (P7 D32a)"],
+  ["state-progress", "navy-850", 4.5, "'última medição há N h' no cartão de conta (P7 D32a)"],
+  ["bone-400", "navy-850", 4.5, "teto × faixa real dos dias medidos no cartão (P7 D32d)"],
   // ── Linha do tempo / Gantt, rodada 4 do crítico hostil (P5e, 13/09/2026) ──
   // Achado BAIXO #8: o marcador de atraso era SEMPRE vermelho (`state-error`)
   // — sobre a barra crítica (preenchimento `aresta-critico`, também vermelho)

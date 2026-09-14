@@ -3,7 +3,11 @@ import { useViewport, type EdgeProps } from "reactflow";
 
 import { ArestaSvgGroup, type ArestaSvgSpec } from "@/components/graph/aresta-svg";
 import { tipografiaDoCartao } from "@/components/graph/tipografia-do-cartao";
-import { posicaoDoGlifo } from "@/lib/geometria-da-aresta";
+import {
+  posicaoDoGlifo,
+  PISO_DE_TRACO_NA_TELA_PX,
+  SEPARACAO_DA_TRIPLA_MUNDO,
+} from "@/lib/geometria-da-aresta";
 import type { Ponto } from "@/lib/layout-do-grafo";
 
 /**
@@ -23,17 +27,7 @@ import type { Ponto } from "@/lib/layout-do-grafo";
  * implementação.
  */
 
-/** Zoom real medido pelo crítico no fixture: 0,43–0,51 — o piso "nunca encolhe" é 1. */
-const PX_DE_TELA_ALVO_DO_OFFSET = 4;
 const ESCALA_MAXIMA_DO_GLIFO = 3;
-/**
- * O ❌ de obsolescência, desenhado bem no handle de destino, ficava ATRÁS do
- * cartão. Recuar 16px de TELA (zoom-invariante) para FORA do cartão de
- * destino deixa o glifo no vão entre os cartões, sempre visível. Para que
- * lado é "fora" é decisão de `posicaoDoGlifo` (`geometria-da-aresta.ts`),
- * testada — não mais um `? :` inline aqui.
- */
-const RECUO_GLIFO_OBSOLESCENCIA_PX = 16;
 
 export interface V3EdgeData extends ArestaSvgSpec {
   /**
@@ -45,6 +39,13 @@ export interface V3EdgeData extends ArestaSvgSpec {
    * cota (`midY`), uma escondendo a outra por completo.
    */
   pontos: Ponto[];
+  /**
+   * Âncora do rótulo de % da sinergia, decidida pelo colocador único
+   * (`rotulo-da-aresta.ts`, achado MÉDIO #5) com conhecimento de TODOS os
+   * rótulos e de TODOS os cartões. `null` = não há lugar livre e o texto não é
+   * desenhado. Ausente = a aresta não tem rótulo.
+   */
+  rotulo?: Ponto | null;
 }
 
 export interface GeometriaDoTraco {
@@ -96,28 +97,25 @@ export function geometriaDoTraco(pontos: readonly Ponto[]): GeometriaDoTraco {
 }
 
 export function V3Edge(props: EdgeProps<V3EdgeData>): JSX.Element | null {
-  const { targetX, targetY, targetPosition, data } = props;
-  // Zoom REAL do canvas (achado ALTO #3/#4): a 0,43–0,51 (medido pelo
-  // crítico), um offset/tamanho fixo em unidades de mundo encolhe junto e
-  // vira mancha ilegível. Dividir pelo zoom mantém a separação/tamanho
-  // constantes EM PIXEL DE TELA, em qualquer zoom.
+  const { data } = props;
+  // Zoom REAL do canvas — só duas coisas ainda dependem dele: o PISO do traço
+  // (1px de tela, para a linha não sumir quando o mundo encolhe) e a escala do
+  // glifo. A separação da tripla virou px de MUNDO (D3 da rodada 6): era ela,
+  // medida em px de tela contra um canal medido em px de mundo, que fazia a
+  // tripla vermelha pintar por cima das vizinhas a zoom 0,5.
   const { zoom } = useViewport();
   if (!data) return null;
 
   const zoomSeguro = zoom > 0 ? zoom : 1;
-  const offsetPx = PX_DE_TELA_ALVO_DO_OFFSET / zoomSeguro;
   const glifoEscala = Math.min(ESCALA_MAXIMA_DO_GLIFO, Math.max(1, 1 / zoomSeguro));
 
-  const { path, midX, midY, anguloGraus, eixoDeslocamento } = geometriaDoTraco(data.pontos);
+  const { path, midX, midY, eixoDeslocamento } = geometriaDoTraco(data.pontos);
 
-  // P4f (achado MÉDIO #4): a posição do ❌ virou função pura e testada
-  // (`posicaoDoGlifo`) — o `? :` inline que morava aqui era exatamente a
-  // metade que o crítico reverteu com 570/570 testes verdes.
-  const recuoPx = RECUO_GLIFO_OBSOLESCENCIA_PX / zoomSeguro;
-  const glifo =
-    data.camada === "obsolescencia"
-      ? posicaoDoGlifo(targetX, targetY, targetPosition, recuoPx)
-      : { x: targetX, y: targetY };
+  // Achado ALTO #4 da rodada 6: o glifo ancora no ÚLTIMO VÉRTICE da polilinha,
+  // com a direção do penúltimo→último — nunca mais no handle do ReactFlow (que
+  // é o mesmo ponto para todas as arestas que chegam no cartão, e não é o fim
+  // do caminho desenhado).
+  const glifo = posicaoDoGlifo(data.pontos);
 
   return (
     <ArestaSvgGroup
@@ -127,12 +125,14 @@ export function V3Edge(props: EdgeProps<V3EdgeData>): JSX.Element | null {
       endX={glifo.x}
       endY={glifo.y}
       spec={data}
-      anguloGraus={anguloGraus}
+      anguloGraus={glifo.anguloGraus}
       eixoDeslocamento={eixoDeslocamento}
-      offsetPx={offsetPx}
+      offsetPx={SEPARACAO_DA_TRIPLA_MUNDO}
+      pisoDeTracoMundo={PISO_DE_TRACO_NA_TELA_PX / zoomSeguro}
+      rotulo={data.rotulo}
       glifoEscala={glifoEscala}
       // O rótulo de % da sinergia segue a MESMA régua de tipografia do
-      // cartão (piso de 11,4px de tela em qualquer zoom) — era o único texto
+      // cartão (piso de 12px de tela em qualquer zoom) — era o único texto
       // do grafo que ainda tinha tamanho fixo de 12px.
       labelFontePx={tipografiaDoCartao(zoomSeguro).dadoPx}
     />

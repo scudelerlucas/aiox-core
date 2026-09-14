@@ -7,6 +7,7 @@ import {
   faixaDoEixo,
   gerarEscalaEixo,
   labelDaBordaDoEixo,
+  rotuloDeData,
   type RotuloEixo,
 } from "@/core/timeline/eixo-rotulos";
 
@@ -76,7 +77,7 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
           }
 
           // 2. Mesma régua na 2ª faixa do cabeçalho (os meses).
-          const meses = [...escala.ticksMes].sort((a, b) => a.x - b.x);
+          const meses = [...escala.rotulosSuperiores].sort((a, b) => a.x - b.x);
           for (let i = 1; i < meses.length; i += 1) {
             expect(meses[i]!.x - meses[i - 1]!.x).toBeGreaterThanOrEqual(
               distanciaMinima(meses[i - 1]!, meses[i]!),
@@ -88,7 +89,13 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
           const hoje = escala.rotulos.find((r) => r.tipo === "hoje");
           expect(hoje).toBeDefined();
           expect(hoje?.x).toBe(Math.min(diasAteHoje, totalDias) * pxPorDia);
-          expect(hoje?.label).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
+          // Rodada 7 (D4): o chip de "hoje" usa a MESMA régua de rótulo do
+          // resto do eixo — `dd/MM` até 363 dias, `dd/MM/aaaa` a partir de 364
+          // (quando a data pode repetir). Antes ele carregava o ano sempre e,
+          // sendo o rótulo mais largo E o de prioridade máxima, apagava o
+          // vizinho seguinte num painel estreito (390px → 1 rótulo na tela).
+          expect(hoje?.label).toBe(rotuloDeData(hojeIso, totalDias));
+          expect(hoje?.label).toMatch(/^\d{2}\/\d{2}$/);
 
           // 4. (i) OU existe um rótulo colocado em `x=0`, OU o 1º sobrevivente
           //    está perto demais para a borda caber — medido contra o rótulo
@@ -109,14 +116,14 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
             combosComBordaCedida += 1;
             expect(primeiro.tipo).toBe("hoje");
           }
+          // Rodada 7 (D4): o ANO subiu de andar. A faixa de BAIXO carrega
+          // `dd/MM` em toda densidade; num horizonte que repete datas, quem
+          // desambigua é a faixa de CIMA, que existe sempre e leva mês+ano.
           if (totalDias >= 364) {
-            const faixa = faixaDoEixo(pxPorDia);
-            if (faixa === "dia") {
-              const primeiroMes = [...escala.ticksMes].sort((a, b) => a.x - b.x)[0];
-              expect(primeiroMes?.label ?? "").toMatch(/\/\d{4}$/);
-            } else {
-              expect(primeiro.label).toMatch(/\d{4}/);
-            }
+            const primeiroMes = [...escala.rotulosSuperiores].sort((a, b) => a.x - b.x)[0];
+            expect(primeiroMes?.label ?? "").toMatch(/\/\d{4}$/);
+            expect(escala.rotulosSuperiores.every((m) => /\/\d{4}$/.test(m.label))).toBe(true);
+            expect(faixaDoEixo(pxPorDia)).toBeTruthy();
           }
 
           // 5. Nenhum vão maior que o limiar — a não ser quando a largura dos
@@ -132,7 +139,7 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
             // mais largo — por isso às vezes ele mesmo não cabe).
             const meio: RotuloEixo = {
               x: 0,
-              label: totalDias >= 364 ? "00/00/0000" : "00/00",
+              label: "00/00", // rodada 7 (D4): o rótulo de data é `dd/MM` em toda escala
               forte: false,
               tipo: "preenchimento",
             };
@@ -141,11 +148,22 @@ describe("gerarEscalaEixo — o invariante é a FUNÇÃO, não a constante (acha
             );
           }
 
-          // 6. Nenhum `dd/MM` repetido na mesma faixa (o segundo leva o ano).
-          const repetidos = escala.rotulos
-            .map((r) => r.label)
-            .filter((l) => /^\d{2}\/\d{2}$/.test(l));
-          expect(new Set(repetidos).size).toBe(repetidos.length);
+          /*
+            6. `dd/MM` repetido na faixa de baixo só é admissível quando a faixa
+            de CIMA desambigua — e ela sempre desambigua, porque num horizonte
+            ≥ 366 dias todo rótulo dela leva o ano. Até a rodada 6 a regra era
+            "o segundo leva o ano", o que era a única saída quando não existia
+            faixa de cima em toda densidade; a conta que obrigou a troca está
+            em `rotuloDeData` (com o ano no rótulo de data, ≥ 2 rótulos a 390px
+            num horizonte de 400 dias é fisicamente impossível: 300px de
+            necessidade para 218px de painel).
+          */
+          const datas = escala.rotulos.map((r) => r.label).filter((l) => /^\d{2}\/\d{2}$/.test(l));
+          if (new Set(datas).size !== datas.length) {
+            expect(totalDias).toBeGreaterThanOrEqual(364);
+            expect(escala.rotulosSuperiores.length).toBeGreaterThanOrEqual(1);
+            expect(escala.rotulosSuperiores.every((m) => /\/\d{4}$/.test(m.label))).toBe(true);
+          }
         });
       }
     }
@@ -170,7 +188,7 @@ describe("gerarEscalaEixo — o chip de 'hoje' nunca é movido para a borda (ach
     });
     const hoje = escala.rotulos.find((r) => r.tipo === "hoje");
     expect(hoje?.x).toBe(18);
-    expect(hoje?.label).toBe("04/09/2026");
+    expect(hoje?.label).toBe("04/09");
     // A borda cedeu: ninguém em x=0 dizendo uma data que não é a de lá.
     expect(escala.rotulos.some((r) => r.x === 0)).toBe(false);
   });
@@ -211,7 +229,7 @@ describe("gerarEscalaEixo — o chip de 'hoje' nunca é movido para a borda (ach
 });
 
 describe("gerarEscalaEixo — o ano aparece na virada (achado BAIXO #7, rodada 4)", () => {
-  it("faixa 'dia': a 2ª linha do cabeçalho ganha o ano no 1º mês de cada ano", () => {
+  it("faixa 'dia': a faixa de cima ganha o ano no 1º mês de cada ano", () => {
     const escala = gerarEscalaEixo({
       minIso: "2026-11-01",
       maxIso: "2027-02-01",
@@ -219,11 +237,18 @@ describe("gerarEscalaEixo — o ano aparece na virada (achado BAIXO #7, rodada 4
       hojeIso: "2026-11-01",
     });
     expect(escala.faixa).toBe("dia");
-    expect(escala.ticksMes.filter((t) => t.label.includes("/2026")).length).toBeGreaterThanOrEqual(1);
-    expect(escala.ticksMes.filter((t) => t.label.includes("/2027")).length).toBeGreaterThanOrEqual(1);
+    expect(escala.rotulosSuperiores.filter((t) => t.label.includes("/2026")).length).toBeGreaterThanOrEqual(1);
+    expect(escala.rotulosSuperiores.filter((t) => t.label.includes("/2027")).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("faixa 'mes' (sem 2ª linha): o ano entra na FAIXA PRINCIPAL no 1º mês de cada ano", () => {
+  /**
+   * Rodada 7 (decisão D4): na faixa "mes" os NOMES DE MÊS saíram da faixa
+   * principal — lá embaixo agora vivem DATAS (o período menor), e o mês é o
+   * período MAIOR, que vive na faixa de cima. Antes desta rodada a faixa de
+   * cima simplesmente não existia abaixo de 24px/dia: a 390px, com "auto" em
+   * 6px/dia, o crítico mediu faixa ÚNICA, 2 rótulos visíveis e nenhum mês.
+   */
+  it("faixa 'mes': o ano entra na FAIXA DE CIMA no 1º mês de cada ano", () => {
     const escala = gerarEscalaEixo({
       minIso: "2026-08-01",
       maxIso: "2027-04-01",
@@ -231,25 +256,28 @@ describe("gerarEscalaEixo — o ano aparece na virada (achado BAIXO #7, rodada 4
       hojeIso: "2026-12-01",
     });
     expect(escala.faixa).toBe("mes");
-    const deMes = escala.rotulos.filter((r) => r.tipo === "mes" || r.tipo === "borda");
+    expect(escala.periodoSuperior).toBe("mes");
+    const deMes = escala.rotulosSuperiores;
     expect(deMes.filter((r) => r.label.includes("/2026")).length).toBeGreaterThanOrEqual(1);
     expect(deMes.filter((r) => r.label.includes("/2027")).length).toBeGreaterThanOrEqual(1);
+    // E a faixa de BAIXO passou a carregar datas, não nomes de mês.
+    expect(escala.rotulos.every((r) => r.tipo !== "mes")).toBe(true);
+    expect(escala.rotulos.filter((r) => /\d{2}\/\d{2}/.test(r.label)).length).toBeGreaterThan(1);
   });
 
-  it("mesmo ano inteiro, sem virada: uma única ocorrência do ano nos rótulos de mês", () => {
+  it("mesmo ano inteiro, sem virada: uma única ocorrência do ano na faixa de cima", () => {
     const escala = gerarEscalaEixo({
       minIso: "2026-01-05",
       maxIso: "2026-11-01",
       pxPorDia: 6,
       hojeIso: "2026-06-15",
     });
-    const deMes = escala.rotulos.filter((r) => r.tipo === "mes" || r.tipo === "borda");
-    expect(deMes.filter((r) => r.label.includes("/2026")).length).toBe(1);
+    expect(escala.rotulosSuperiores.filter((r) => r.label.includes("/2026")).length).toBe(1);
   });
 });
 
 describe("gerarEscalaEixo — dois 'ago' na mesma régua nunca mais (achado BAIXO A8, rodada 6)", () => {
-  it("faixa 'mes', horizonte de 400 dias: nenhum rótulo de mês repetido", () => {
+  it("faixa 'mes', horizonte de 400 dias: nenhum rótulo de mês repetido (faixa de cima)", () => {
     const escala = gerarEscalaEixo({
       minIso: "2026-08-01",
       maxIso: "2027-09-05", // 400 dias — "ago" cai duas vezes
@@ -257,9 +285,7 @@ describe("gerarEscalaEixo — dois 'ago' na mesma régua nunca mais (achado BAIX
       hojeIso: "2026-09-13",
     });
     expect(escala.faixa).toBe("mes");
-    const deMes = escala.rotulos
-      .filter((r) => r.tipo === "mes" || r.tipo === "borda")
-      .map((r) => r.label);
+    const deMes = escala.rotulosSuperiores.map((r) => r.label);
     expect(deMes.length).toBeGreaterThan(2);
     expect(new Set(deMes).size).toBe(deMes.length);
     // E o ano está lá nos DOIS agostos (a régua é "sempre com ano", não "só em janeiro").
@@ -267,7 +293,7 @@ describe("gerarEscalaEixo — dois 'ago' na mesma régua nunca mais (achado BAIX
     expect(deMes.every((l) => /\/\d{4}$/.test(l))).toBe(true);
   });
 
-  it("faixa 'dia', horizonte > 366 dias: a 2ª linha do cabeçalho também não repete mês", () => {
+  it("faixa 'dia', horizonte > 366 dias: a faixa de cima também não repete mês", () => {
     const escala = gerarEscalaEixo({
       minIso: "2026-08-01",
       maxIso: "2027-09-05",
@@ -275,7 +301,7 @@ describe("gerarEscalaEixo — dois 'ago' na mesma régua nunca mais (achado BAIX
       hojeIso: "2026-09-13",
     });
     expect(escala.faixa).toBe("dia");
-    const meses = escala.ticksMes.map((t) => t.label);
+    const meses = escala.rotulosSuperiores.map((t) => t.label);
     expect(meses.length).toBeGreaterThan(2);
     expect(new Set(meses).size).toBe(meses.length);
   });
@@ -287,9 +313,7 @@ describe("gerarEscalaEixo — dois 'ago' na mesma régua nunca mais (achado BAIX
       pxPorDia: 6,
       hojeIso: "2026-06-15",
     });
-    const deMes = escala.rotulos
-      .filter((r) => r.tipo === "mes" || r.tipo === "borda")
-      .map((r) => r.label);
+    const deMes = escala.rotulosSuperiores.map((r) => r.label);
     expect(deMes.filter((l) => l.includes("/2026")).length).toBe(1);
   });
 });

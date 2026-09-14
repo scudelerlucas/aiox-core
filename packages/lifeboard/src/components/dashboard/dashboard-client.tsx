@@ -21,6 +21,11 @@ import { SourceFilter, type SourceFilterOption } from "@/components/dashboard/so
 import { StaleSourceFlag } from "@/components/dashboard/stale-source-flag";
 import { TodayList, type TodayListItem } from "@/components/dashboard/today-list";
 import { Providers } from "@/components/providers";
+import {
+  CLASSES_DA_FAIXA_DE_BAIXO,
+  CLASSES_DA_SECAO_DO_GRAFO,
+  estiloDasAlturasDoCorpo,
+} from "@/lib/altura-do-canvas";
 import { passaNoFiltro } from "@/lib/filtro-de-fontes";
 import { useTodayQuery } from "@/hooks/use-today-query";
 import { useSourceFilter } from "@/stores/source-filter";
@@ -108,7 +113,16 @@ function DashboardInner({
     aba === alvo ? "flex" : "hidden lg:flex";
 
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-navy-950 text-bone-100">
+    /* P4h (achado MÉDIO #4): a partir de 1024px a PÁGINA rola. Era a única
+       forma de o canvas do desktop não ficar proporcionalmente MENOR que o do
+       tablet (medido: 354px a 1280 contra 534px a 768, com o tablet mostrando
+       12 cartões a mais em 200 nós) sem espremer "Hoje" contra o rodapé. O
+       grafo fica com a dobra; "Hoje" e "Fontes" ficam a um rolar — que é o que
+       o comentário do corpo já prometia. Números: `@/lib/altura-do-canvas`. */
+    <div
+      style={estiloDasAlturasDoCorpo()}
+      className="flex h-[100dvh] flex-col overflow-hidden bg-navy-950 text-bone-100 lg:h-auto lg:min-h-[100dvh] lg:overflow-y-auto"
+    >
       {/* ── CABEÇALHO ──────────────────────────────────────────────────── */}
       <header className="flex shrink-0 items-center gap-3 border-b border-navy-700 bg-navy-900 px-3 py-2.5 sm:px-4">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -251,38 +265,20 @@ function DashboardInner({
       </nav>
 
       {/* ── CORPO ─────────────────────────────────────────────────────────
-          Celular: um painel por vez. Desktop (≥1024): fontes · HOJE · grafo.
-          "Hoje" vem antes do grafo porque é a resposta à única pergunta da
-          tela ("o que eu faço agora?"); o grafo explica o porquê. */}
-      <div className="flex min-h-0 flex-1">
-        <aside
-          className={`${visivel("fontes")} min-h-0 w-full shrink-0 flex-col overflow-y-auto border-navy-700 bg-navy-900 lg:w-60 lg:border-r xl:w-64`}
-        >
-          <SourceFilter
-            options={filterOptions}
-            selected={selected}
-            onChange={setSelected}
-          />
-        </aside>
+          Celular: um painel por vez (as abas acima).
 
-        <section
-          aria-label="Prioridades de hoje"
-          className={`${visivel("hoje")} min-h-0 w-full min-w-0 flex-col bg-navy-950 lg:w-[24rem] lg:shrink-0 lg:border-r lg:border-navy-700 xl:w-[27rem]`}
-        >
-          <TodayList
-            items={todayItems}
-            excludedCycleIds={excludedCycles}
-            isLoading={today.isLoading}
-            error={today.error}
-            selectedTaskId={selectedTaskId}
-            onSelectTask={setSelectedTaskId}
-            sources={sources}
-          />
-        </section>
-
+          Desktop (≥1024): o GRAFO ocupa a largura inteira do conteúdo e as
+          duas colunas que dividiam espaço com ele descem para baixo do canvas.
+          P4g (achado MÉDIO #7 do crítico hostil ROUND 6): a 1280 real o pane
+          do grafo media 592px — o ramo de 6 colunas do layout estava MORTO
+          (390→3, 1280→3, 1440→4, 1920→6 colunas). Um grafo que só existe em
+          1920 não é um grafo: é uma promessa. "Hoje" continua sendo a resposta
+          da tela, e continua a um rolar de distância — mas quem precisa do
+          grafo precisa dele inteiro. */}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-none">
         <section
           aria-label="Grafo de dependências"
-          className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900`}
+          className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900 ${CLASSES_DA_SECAO_DO_GRAFO}`}
         >
           <div className="flex min-h-[44px] shrink-0 items-center justify-between gap-2 border-b border-navy-700 px-3">
             <span className="text-sm font-semibold text-bone-300">
@@ -292,7 +288,7 @@ function DashboardInner({
               type="button"
               onClick={() => setShowFallback((v) => !v)}
               aria-pressed={showFallback}
-              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-navy-600 px-2.5 text-xs font-medium text-bone-200 transition hover:bg-navy-800"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-navy-600 px-3 text-xs font-medium text-bone-200 transition hover:bg-navy-800"
             >
               {showFallback ? <Network size={14} /> : <List size={14} />}
               {showFallback ? "ver grafo" : "ver como lista"}
@@ -312,6 +308,41 @@ function DashboardInner({
             />
           </div>
         </section>
+
+        {/* No celular a linha de baixo só DISPUTA altura quando tem conteúdo
+            visível: com a aba "Grafo" aberta, os dois painéis estão `hidden` e
+            um `flex-1` aqui roubaria metade da tela para uma faixa vazia
+            (medido: pane do grafo com 145px de altura a 390). */}
+        <div
+          className={`flex min-h-0 ${
+            aba === "grafo" ? "" : "flex-1"
+          } ${CLASSES_DA_FAIXA_DE_BAIXO}`}
+        >
+          <aside
+            className={`${visivel("fontes")} min-h-0 w-full shrink-0 flex-col overflow-y-auto border-navy-700 bg-navy-900 lg:w-60 lg:border-r xl:w-64`}
+          >
+            <SourceFilter
+              options={filterOptions}
+              selected={selected}
+              onChange={setSelected}
+            />
+          </aside>
+
+          <section
+            aria-label="Prioridades de hoje"
+            className={`${visivel("hoje")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-950`}
+          >
+            <TodayList
+              items={todayItems}
+              excludedCycleIds={excludedCycles}
+              isLoading={today.isLoading}
+              error={today.error}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={setSelectedTaskId}
+              sources={sources}
+            />
+          </section>
+        </div>
       </div>
     </div>
   );

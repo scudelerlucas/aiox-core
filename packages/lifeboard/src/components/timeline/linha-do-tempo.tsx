@@ -7,20 +7,30 @@ import {
   ARESTA_STROKE_DESTACADA,
 } from "@/components/graph/aresta-svg";
 import {
+  avisoDeItensFora,
   depoisDoFimDesenhado,
   diasDesenhados,
+  faixaSuperiorDaTela,
   fimDesenhadoIso as calcularFimDesenhadoIso,
   gerarEscalaEixo,
   larguraAproximada,
   PADDING_CHIP_PX,
-  rotuloMesAno,
+  rotulosNaJanela,
+  tetoMordeu as tetoMordeuAJanela,
 } from "@/core/timeline/eixo-rotulos";
+import { aplicarPlanoDaFolha, planoDaFolhaInferior } from "@/core/timeline/folha-inferior";
 import {
-  clampScroll,
+  avisoDeOverflow,
   fatorDeOverflow,
   formatarFator,
   posicaoDoBadge,
 } from "@/core/timeline/geometria-painel";
+import {
+  aoRedimensionar,
+  aplicarTransformDoCabecalho,
+  rolarESincronizar,
+  scrollParaRevelar,
+} from "@/core/timeline/sincronizacao-painel";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoProps,
@@ -133,6 +143,8 @@ const ANCORA_HOJE_FRACAO = 0.4;
  * 1ª medição (SSR / sem nav encontrada no DOM).
  */
 const NAV_ALTURA_FALLBACK = 0;
+/** Respiro entre a nav sticky e o topo do painel de detalhe quando ele é COLUNA (≥768px). */
+const MARGEM_PAINEL_STICKY_PX = 8;
 
 function ehZoomValido(v: unknown): v is Zoom {
   return v === "auto" || v === "semana" || v === "mes" || v === "trimestre";
@@ -234,7 +246,35 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   // "auto" é o default quando nada foi salvo (achado CRÍTICO #3) — persiste a
   // escolha do operador do jeito que já era feito para os zooms fixos.
   const [zoom, setZoom] = useState<Zoom>(() => lerZoomSalvo() ?? "auto");
-  const [ativoId, setAtivoId] = useState<string | null>(null);
+  /**
+   * Rodada 7 (achado MÉDIO #7): o painel de detalhe deixou de ser exclusivo
+   * das TAREFAS — a metade das linhas da tela são ASSUNTOS (PRs), cujo nome a
+   * 390px trunca em `line-clamp-2` e cujo único caminho para o texto inteiro
+   * era o `title` (inexistente no toque) ou sair para o GitHub. Como assunto e
+   * tarefa podem repetir id, o que fica ativo é a CHAVE da linha
+   * (`${kind}-${id}`), a mesma que o `map` já usa — nunca o id cru.
+   */
+  const [ativaChave, setAtivaChave] = useState<string | null>(null);
+  /**
+   * Rodada 7: abrir ou fechar o detalhe MUDA A ALTURA da página — o gráfico
+   * fica mais estreito e o aviso "a janela é maior que a tela" nasce (medido a
+   * 1024px: a página cresceu 40px). O que não pode mudar é onde a LINHA QUE O
+   * OPERADOR TOCOU está na tela — a âncora certa é ela, não o `scrollY` cru
+   * (repor o `scrollY` brigaria com o "scroll anchoring" do navegador e faria
+   * o conteúdo pular 40px, que é o defeito ao contrário). Guardado no CLIQUE,
+   * reposto depois do layout E de novo quando o `ResizeObserver` assenta a
+   * largura nova; a validade curta impede que um resize de janela, muito
+   * depois, ressuscite uma âncora velha.
+   */
+  const ancoraDaLinhaRef = useRef<{ chave: string; topAntes: number; expiraEm: number } | null>(null);
+  const alternarAtiva = (chave: string): void => {
+    const botao = botoesLinhaRef.current.get(chave);
+    ancoraDaLinhaRef.current =
+      botao && typeof window !== "undefined"
+        ? { chave, topAntes: botao.getBoundingClientRect().top, expiraEm: Date.now() + 1500 }
+        : null;
+    setAtivaChave((a) => (a === chave ? null : chave));
+  };
   const painelRef = useRef<HTMLDivElement | null>(null);
   const [larguraPainel, setLarguraPainel] = useState(0);
   /**
@@ -248,13 +288,6 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     esquerda: false,
     direita: false,
   });
-  const atualizarAfordanciaScroll = (el: HTMLDivElement): void => {
-    const FOLGA_PX = 1; // tolerância de arredondamento de subpixel
-    setAfordanciaScroll({
-      esquerda: el.scrollLeft > FOLGA_PX,
-      direita: el.scrollLeft + el.clientWidth < el.scrollWidth - FOLGA_PX,
-    });
-  };
   /**
    * P5c (achado ALTO #2 do crítico hostil, rodada 2): o cabeçalho de datas
    * vivia DENTRO do painel `overflow-x-auto` — `overflow-x` diferente de
@@ -288,17 +321,31 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * conseguirem consertar (as duas repetiam o mesmo destino impossível).
    * Este é o ÚNICO caminho de sincronização da tela.
    */
-  const sincronizarComPainel = (el: HTMLDivElement): void => {
-    const atual = el.scrollLeft;
-    const ticks = headerTicksRef.current;
-    if (ticks) ticks.style.transform = `translateX(${-atual}px)`;
-    setScrollLeft(atual);
+  /**
+   * Rodada 7 (achado ALTO #1): o componente virou CASCA. Ele não escreve mais
+   * em `.scrollLeft` nem calcula o `translateX` — as duas coisas vivem em
+   * `core/timeline/sincronizacao-painel.ts` (puro, elemento injetado, testado
+   * com um elemento falso que CLAMPA como o navegador). Aqui só resta aplicar
+   * ao DOM o que o módulo devolveu. A varredura de fonte
+   * (`tests/unit/linha-do-tempo-sincronizacao.test.ts`) falha se alguém
+   * reintroduzir uma atribuição direta a `.scrollLeft` neste arquivo.
+   */
+  const aplicarSincronizacao = (s: {
+    scrollLeftAplicado: number;
+    transformDoCabecalho: number;
+    afordancia: { esquerda: boolean; direita: boolean };
+  }): void => {
+    aplicarTransformDoCabecalho(headerTicksRef.current, s);
+    setScrollLeft(s.scrollLeftAplicado);
+    setAfordanciaScroll(s.afordancia);
   };
-  /** Vai para `destino` (já clampado pela régua pura) e sincroniza pelo valor REAL. */
+  /** O painel mexeu sozinho (evento `scroll`, ou resize): relê e sincroniza. */
+  const sincronizarComPainel = (el: HTMLDivElement): void => {
+    aplicarSincronizacao(aoRedimensionar(el));
+  };
+  /** Vai para `destino` e sincroniza pelo valor que o navegador REALMENTE assumiu. */
   const rolarPara = (el: HTMLDivElement, destino: number): void => {
-    el.scrollLeft = clampScroll(destino, el.scrollWidth, el.clientWidth);
-    sincronizarComPainel(el);
-    atualizarAfordanciaScroll(el);
+    aplicarSincronizacao(rolarESincronizar(el, destino));
   };
 
   /**
@@ -310,6 +357,32 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * 1ª medição (SSR, ou nav não encontrada).
    */
   const [navAltura, setNavAltura] = useState<number>(NAV_ALTURA_FALLBACK);
+  /**
+   * Rodada 7 (achado BAIXO #10): a 390×844 o crítico mediu 494px de cabeçalho
+   * antes da primeira linha — título, parágrafo, 4 botões, "Hoje", 2 avisos e
+   * uma legenda de 13 itens que sozinha ocupava várias linhas. A legenda vira
+   * um `<details>` FECHADO por padrão; a partir de 768px ele abre sozinho (o
+   * 1º render é sempre fechado, e o efeito abre depois do mount — nunca um
+   * `open` decidido no servidor, que daria hidratação divergente).
+   *
+   * Rodada 9 (achado BAIXO A5) — o NÚMERO da rodada 8 estava errado, e o
+   * número certo importa porque é ele que diz se a 1ª linha aparece sem rolar.
+   * A rodada 8 declarou "494 → 293px"; 293px é o topo do CABEÇALHO DA ESCALA,
+   * não o da primeira linha. A primeira LINHA nasce em **393px**:
+   * `topo do h1 = 65` + `details = 225` + `cabeçalho da escala = 293 + 58` +
+   * `grupo ASSUNTOS = 42`. A conclusão continua a mesma (393 < 844: a 1ª linha
+   * aparece sem rolar, a 390×844); o número declarado é que era 3,4× otimista
+   * sobre a economia.
+   */
+  const [legendaAberta, setLegendaAberta] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+    const mq = window.matchMedia("(min-width: 768px)");
+    const aplicar = (): void => setLegendaAberta(mq.matches);
+    aplicar();
+    mq.addEventListener("change", aplicar);
+    return () => mq.removeEventListener("change", aplicar);
+  }, []);
   /**
    * "Voltar para hoje" (botão + tecla `H`) precisa da versão ATUAL da função
    * (que depende de `xHoje`/`pxPorDia`/largura do painel) dentro de um
@@ -325,15 +398,23 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * que `Escape`/"fechar" devolvam o foco exatamente de onde ele saiu.
    */
   const botoesLinhaRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+  /**
+   * Rodada 9 (achado ALTO A1): o espaço reservado abaixo da última linha
+   * enquanto a folha inferior está aberta. Altura manipulada direto no DOM
+   * (sem re-render por pixel, mesma disciplina do `transform` do cabeçalho) e
+   * decidida pela função pura — nunca um `pb-` fixo que mentiria sobre a
+   * altura real da folha.
+   */
+  const espacoFolhaRef = useRef<HTMLDivElement | null>(null);
   const registrarBotaoLinha = (id: string, el: HTMLButtonElement | null): void => {
     if (el) botoesLinhaRef.current.set(id, el);
     else botoesLinhaRef.current.delete(id);
   };
   /** Fecha o painel e devolve o foco — nunca deixa o foco cair no `<body>`. */
   const fecharDetalhe = (): void => {
-    const id = ativoId;
-    setAtivoId(null);
-    if (id) botoesLinhaRef.current.get(id)?.focus();
+    const chave = ativaChave;
+    setAtivaChave(null);
+    if (chave) botoesLinhaRef.current.get(chave)?.focus();
   };
   const fecharDetalheRef = useRef<() => void>(() => {});
   fecharDetalheRef.current = fecharDetalhe;
@@ -387,6 +468,20 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     }
     return out;
   }, [props.grupos]);
+
+  const linhaAtivaQualquer = useMemo(
+    () =>
+      linhas.find(
+        (l): l is LinhaExibicaoDado => l.tipo === "linha" && l.chave === ativaChave,
+      )?.linha ?? null,
+    [linhas, ativaChave],
+  );
+  const linhaAtiva =
+    linhaAtivaQualquer && linhaAtivaQualquer.kind === "tarefa" ? linhaAtivaQualquer : null;
+  const assuntoAtivo =
+    linhaAtivaQualquer && linhaAtivaQualquer.kind === "assunto" ? linhaAtivaQualquer : null;
+  const predecessorasAtivas = new Set(linhaAtiva?.predecessores ?? []);
+  const sucessorasAtivas = new Set(linhaAtiva?.sucessores ?? []);
 
   // Janela dos ZOOMS FIXOS — o histórico inteiro (assuntos + tarefas), como
   // sempre foi: quem pede "Trimestre" quer ver os 59 dias de PRs também.
@@ -457,12 +552,10 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   // rotulos.ts`, pura, testada isoladamente). `rotulos` já vem com "hoje" e a
   // borda `x=0` inclusos e desconflitados — a VIEW só desenha o que ela
   // devolve, nunca decide sozinha se cabe mais um rótulo.
-  const { guiasSemana, ticksMes, rotulos, faixa } = useMemo(
+  const { guiasSemana, rotulosSuperiores, periodoSuperior, rotulos } = useMemo(
     () => gerarEscalaEixo({ minIso, maxIso, pxPorDia, hojeIso: props.hoje }),
     [minIso, maxIso, pxPorDia, props.hoje],
   );
-  /** P5d (achado MÉDIO #5, rodada 3): 2ª faixa (nome do mês) só na densidade "dia". */
-  const mostrarLinhaMeses = faixa === "dia";
   /**
    * P5f (achado MÉDIO A3, rodada 5): em "Semana" (46px/dia) o mês SUMIA da
    * tela ao rolar — a faixa de mês rola junto com o conteúdo, e o rótulo de
@@ -471,17 +564,57 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * esquerda do cabeçalho e nunca sai. Sempre com ano (é o único rótulo que
    * ancora a tela inteira — ano errado ali é pior que ano repetido).
    */
-  const mesGrudado = rotuloMesAno(minIso, pxPorDia > 0 ? scrollLeft / pxPorDia : 0);
   /**
-   * O mês grudado só existe onde a informação some de verdade: na faixa
-   * "dia", cujos rótulos são números soltos ("13", "14") sem mês nenhum. Nas
-   * faixas "semana" (`dd/MM`) e "mes" (nome do mês) o próprio rótulo já diz o
-   * mês — e um chip opaco na borda esquerda só serviria para tapar o vizinho
-   * (medido: ele escondia o chip de "hoje" quando "hoje" caía nos primeiros
-   * 70px da escala).
+   * O rótulo GRUDADO na borda esquerda da faixa de cima — o período (mês, ou
+   * trimestre/ano quando o mês não cabe) da posição ATUAL do scroll. Rodada 7
+   * (decisão D4): ele vive na faixa de cima em TODA densidade, porque a faixa
+   * de cima agora existe em toda densidade. É a única pista de período que
+   * nunca sai da tela por mais que se role.
    */
-  const larguraMesGrudado = mostrarLinhaMeses ? larguraAproximada(mesGrudado) : 0;
-  const alturaHeaderTotal = HEADER_H + (mostrarLinhaMeses ? HEADER_MES_H : 0);
+  const faixaDeCima = faixaSuperiorDaTela({
+    rotulosSuperiores,
+    minIso,
+    pxPorDia,
+    periodo: periodoSuperior,
+    janela: { scrollLeft, larguraVisivel: larguraPainel },
+  });
+  const mesGrudado = faixaDeCima.chip.label;
+  const larguraMesGrudado = faixaDeCima.chip.largura;
+  const alturaHeaderTotal = HEADER_H + HEADER_MES_H;
+  /**
+   * Rodada 7 (decisão D3): a MESMA lei nos dois lados da janela. A rodada 6
+   * guardava só a borda esquerda (`if (t.x < scrollLeft) return null`) e o
+   * crítico mediu 28 de 60 combos com rótulo cortado ao meio pela DIREITA
+   * ("nov/2026" com 1px visível; com o scroll no máximo o cortado era sempre
+   * o ÚLTIMO rótulo do eixo — a data em que a meta termina). `rotulosNaJanela`
+   * é puro e testado; a VIEW só desenha o que ele devolve.
+   */
+  /**
+   * Rodada 7 (decisão D2): com o painel COMPRIMINDO a tela, a coluna de
+   * rótulos de 240px + os 240 do painel deixavam só ~170px de gráfico a 768px.
+   * Enquanto o detalhe está aberto, a coluna volta aos 140px até `lg` — o nome
+   * inteiro está no painel ao lado de qualquer jeito, que é o ponto dele.
+   */
+  const detalheAberto = linhaAtivaQualquer !== null;
+  const classeColunaRotulos = detalheAberto
+    ? "w-[140px] shrink-0 lg:w-[240px]"
+    : "w-[140px] shrink-0 sm:w-[240px]";
+  const janelaCabecalho = { scrollLeft, larguraVisivel: larguraPainel };
+  const rotulosVisiveis = rotulosNaJanela(rotulos, janelaCabecalho);
+  /**
+   * Rodada 9 (achado MÉDIO A2): a faixa de cima NÃO é mais filtrada pelo
+   * espaço do chip grudado. Era `margemEsquerda: larguraMesGrudado` — e o
+   * efeito medido era que TODO rótulo de mês caindo atrás do chip sumia: 320
+   * de 730 posições de scroll (43,8%) tinham um mês começando dentro da
+   * janela sem nenhum cabeçalho, e em 48 delas o portador de ano mais próximo
+   * declarava ano diferente do real. Caso canônico (1280px, Mês, 400 d,
+   * `scrollLeft` 3333): a régua lia `dez/2026 … 04/01 11/01 18/01 25/01 …
+   * fev/2027`, com janeiro de 2027 inteiro sem cabeçalho. Agora o mês que
+   * entra EMPURRA o chip (`posicaoDoChipGrudado`), como faz a referência —
+   * nenhum rótulo é escondido por causa dele.
+   */
+  const superioresVisiveis = faixaDeCima.rotulos;
+  const chipGrudado = faixaDeCima.chip;
   /**
    * P5g (achado ALTO A3, rodada 6): o teto de dias (`TETO_DIAS_ESCALA`)
    * cortava a janela EM SILÊNCIO. A escala desenhava `min(teto, diff)` dias,
@@ -574,8 +707,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
        * estar no valor novo, nunca dispara `scroll` — o cabeçalho ficava
        * parado no valor antigo, 329,6px adiantado das barras.
        */
-      sincronizarComPainel(el);
-      atualizarAfordanciaScroll(el);
+      aplicarSincronizacao(aoRedimensionar(el));
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -646,6 +778,100 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   }, [xHoje, pxPorDia, larguraPainel, xFimAlvo, totalWidth]);
 
   /**
+   * Rodada 7 (decisão D2): com o painel de detalhe COMPRIMINDO o gráfico a
+   * partir de 768px, a largura visível encolhe — e a barra da linha que o
+   * operador acabou de selecionar pode ficar do lado de fora (era exatamente o
+   * que o crítico mediu a 768px, com a barra INTEGRALMENTE atrás do painel).
+   * Este efeito roda DEPOIS do de "voltar para hoje" (ordem de declaração é a
+   * ordem de execução no mesmo commit) e só mexe quando a barra não está
+   * inteira na janela: `scrollParaRevelar` é puro e devolve o próprio
+   * `scrollLeft` quando já dá para ver.
+   */
+  const faixaXDaAtiva = ((): { inicio: number; fim: number } | null => {
+    if (assuntoAtivo) {
+      if (assuntoAtivo.dataInvalida || assuntoAtivo.datasInconsistentes) return null;
+      return { inicio: xFor(assuntoAtivo.inicio), fim: xFor(assuntoAtivo.fim) };
+    }
+    if (!linhaAtiva || linhaAtiva.datasInconsistentes) return null;
+    if (linhaAtiva.semBarra) {
+      if (!linhaAtiva.pontoConcluidoEm) return null;
+      const x = xFor(linhaAtiva.pontoConcluidoEm);
+      return { inicio: x, fim: x };
+    }
+    return { inicio: xFor(linhaAtiva.inicio), fim: xFor(linhaAtiva.fimComFolga) };
+  })();
+  const inicioAtiva = faixaXDaAtiva?.inicio ?? null;
+  const fimAtiva = faixaXDaAtiva?.fim ?? null;
+  useEffect(() => {
+    const el = painelRef.current;
+    if (!el || inicioAtiva === null || fimAtiva === null) return;
+    const largura = el.clientWidth || larguraPainel;
+    const destino = scrollParaRevelar({
+      inicio: inicioAtiva,
+      fim: fimAtiva,
+      scrollLeftAtual: el.scrollLeft,
+      larguraVisivel: largura,
+      margem: 12,
+    });
+    if (Math.abs(destino - el.scrollLeft) < 0.5) return;
+    rolarPara(el, destino);
+  }, [ativaChave, inicioAtiva, fimAtiva, larguraPainel, pxPorDia, totalWidth]);
+
+  /**
+   * Rodada 7 (achado MÉDIO #5) + rodada 9 (achado ALTO A1): abaixo de 768px o
+   * painel é uma FOLHA INFERIOR `fixed`, e tocar uma linha baixa abria a folha
+   * EM CIMA dela. A rodada 8 pediu a rolagem e parou aí — e `window.scrollBy`
+   * é um NO-OP SILENCIOSO quando a página já está no fim
+   * (`scrollY === scrollHeight − innerHeight`), que é exatamente onde a ÚLTIMA
+   * linha vive. Medido na rota real, fixture de 25 linhas: tapava em 9 de 9
+   * casos (360/390/767 × as 3 últimas linhas), resíduo de 9 a 133px; a 390px a
+   * barra da linha tocada ficava 100% coberta e o rótulo sumia inteiro.
+   *
+   * A correção é dar à página PARA ONDE rolar: enquanto a folha inferior está
+   * aberta, o espaçador abaixo da última linha (`espacoFolhaRef`) recebe a
+   * altura da folha. O plano inteiro (é folha inferior? quanto reservar?
+   * quanto rolar?) vem de `planoDaFolhaInferior` — puro e testado com a
+   * geometria do resultado, não com a chamada de rolagem.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const id = window.requestAnimationFrame(() => {
+      const ancora = ancoraDaLinhaRef.current;
+      const botao = ancora ? botoesLinhaRef.current.get(ancora.chave) : null;
+      const folha = ativaChave
+        ? document.querySelector<HTMLElement>("[data-lb-detalhe]")
+        : null;
+      const rf = folha ? folha.getBoundingClientRect() : null;
+      const plano = planoDaFolhaInferior({
+        folha: rf
+          ? { top: rf.top, left: rf.left, width: rf.width, height: rf.height, bottom: rf.bottom }
+          : null,
+        bottomDoBotao: botao ? botao.getBoundingClientRect().bottom : null,
+        larguraJanela: window.innerWidth,
+      });
+      // A RESERVA entra ANTES da rolagem — é ela que faz o `scrollBy` deixar
+      // de ser no-op na última linha. Folha fechada ou folha-COLUNA (≥768px)
+      // devolvem 0 e a página volta ao tamanho de sempre. Quem ESCREVE é o
+      // módulo puro (`aplicarPlanoDaFolha`), com os elementos injetados — o
+      // componente não escreve geometria no DOM em lugar nenhum.
+      aplicarPlanoDaFolha(plano, {
+        espacador: espacoFolhaRef.current,
+        rolarPagina: (px) => window.scrollBy({ top: px, behavior: "auto" }),
+      });
+      if (plano.ehInferior) {
+        ancoraDaLinhaRef.current = null; // a folha manda; a âncora está consumida
+        return;
+      }
+      // Coluna (≥768) e fechamento: a linha tocada volta exatamente para onde
+      // estava na tela, por mais que a altura da página tenha mudado.
+      if (!ancora || !botao || Date.now() >= ancora.expiraEm) return;
+      const delta = botao.getBoundingClientRect().top - ancora.topAntes;
+      if (Math.abs(delta) > 0.5) window.scrollBy({ top: delta, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [ativaChave, larguraPainel]);
+
+  /**
    * P5d (achado ALTO #2, rodada 3): quantos itens começam (ou, para uma
    * tarefa `done` fora do CPM, TERMINAM — seu único ponto no tempo) antes da
    * janela vigente — só interessa em "auto" (os zooms fixos já mostram o
@@ -681,6 +907,21 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     return n;
   })();
 
+  /**
+   * Rodada 7 (achado MÉDIO #6): a FRASE do aviso é decidida por uma função
+   * pura e testada (`avisoDeItensFora`). O conselho "Mês/Trimestre mostra o
+   * histórico" só aparece quando ele é VERDADE — quando quem corta é o
+   * recorte do "auto". Quando quem corta é o TETO de dias da escala, nenhum
+   * zoom resolve (o crítico mediu: em Mês o fim RECUA de 29/10/2027 para
+   * 09/01/2027 e a contagem SOBE de 5 para 6), e o aviso diz isso.
+   */
+  const avisoItensFora = avisoDeItensFora({
+    itensFora: itensForaDaJanela,
+    fimDesenhadoFormatado: diaMesAnoCurto(fimDesenhado),
+    tetoMordeu: tetoMordeuAJanela(minIso, maxIso),
+    zoom: zoom === "auto" ? "auto" : "fixo",
+  });
+
   const indicePorTarefaId = useMemo(() => {
     const m = new Map<string, number>();
     linhas.forEach((l, i) => {
@@ -698,16 +939,6 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     return m;
   }, [linhas]);
 
-  const linhaAtiva = useMemo(
-    () =>
-      linhas.find(
-        (l): l is LinhaExibicaoDado & { linha: LinhaDoTempoTarefaRow } =>
-          l.tipo === "linha" && l.linha.kind === "tarefa" && l.linha.id === ativoId,
-      )?.linha ?? null,
-    [linhas, ativoId],
-  );
-  const predecessorasAtivas = new Set(linhaAtiva?.predecessores ?? []);
-  const sucessorasAtivas = new Set(linhaAtiva?.sucessores ?? []);
 
   interface Conector {
     chave: string;
@@ -755,7 +986,11 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
       if (!origemLinha || origemLinha.tipo !== "linha" || origemLinha.linha.kind !== "tarefa") continue;
       const origem = origemLinha.linha;
       const destacado =
-        ativoId === destino.id ? "predecessor" : ativoId === origem.id ? "sucessor" : null;
+        linhaAtiva?.id === destino.id
+          ? "predecessor"
+          : linhaAtiva?.id === origem.id
+            ? "sucessor"
+            : null;
       const x1 = xFor(origem.fim);
       const x2 = xFor(destino.inicio);
       const forasDeOrdem = x2 < x1;
@@ -791,13 +1026,19 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   });
 
   return (
-    <main className="mx-auto w-full max-w-[1400px] px-4 pb-16 pt-10 sm:px-6">
+    <main className="mx-auto w-full max-w-[1400px] px-4 pb-16 pt-5 sm:px-6 sm:pt-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-bone-50">
             Linha do tempo
           </h1>
-          <p className="mt-1 text-sm text-bone-300">
+          {/*
+            Rodada 7 (achado BAIXO #10): a 390×844 o crítico mediu 494px de
+            cabeçalho antes da PRIMEIRA linha do Gantt. Este parágrafo é a
+            decodificação das cores — a legenda logo abaixo diz o mesmo com
+            amostras. Some abaixo de 640px (`sm`), onde o custo é a tela toda.
+          */}
+          <p className="mt-1 hidden text-sm text-bone-300 sm:block">
             Progressão dos assuntos e das tarefas — predecessores em{" "}
             <span className="text-aresta-predecessor">amarelo</span>, sucessores em{" "}
             <span className="text-aresta-sucessao">verde</span>, caminho crítico em{" "}
@@ -820,11 +1061,18 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 onClick={() => mudarZoom(op.id)}
                 className={
                   zoom === op.id
-                    ? "min-h-[36px] border-l border-navy-700 bg-navy-850 px-3 text-xs font-semibold text-gold-300 first:border-l-0"
-                    : "min-h-[36px] border-l border-navy-700 bg-navy-900 px-3 text-xs text-bone-300 first:border-l-0 hover:text-bone-100"
+                    ? "min-h-[44px] min-w-[44px] border-l border-navy-700 bg-navy-850 px-3 text-xs font-semibold text-gold-300 first:border-l-0"
+                    : "min-h-[44px] min-w-[44px] border-l border-navy-700 bg-navy-900 px-3 text-xs text-bone-300 first:border-l-0 hover:text-bone-100"
                 }
               >
-                {op.id === "auto" && autoNaoCabe ? `Auto · não cabe (${telasDeRolagem}×)` : op.label}
+                {/*
+                  Rodada 7 (achado BAIXO #8): o aviso "· não cabe (N×)" vivia
+                  DENTRO deste botão — a 390px ele ia de 52×36 para 152×36 e
+                  empurrava o "Hoje" para outra linha, quebrando o segmentado
+                  em duas. O botão continua sendo só "Auto"; o aviso vive na
+                  linha de avisos abaixo, que já existe para isso.
+                */}
+                {op.label}
               </button>
             ))}
           </div>
@@ -838,7 +1086,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             type="button"
             onClick={irParaHoje}
             title="Voltar para hoje (tecla H)"
-            className="lb-tl-btn-hoje min-h-[36px] rounded-md border border-navy-700 bg-navy-900 px-3 text-xs font-semibold text-gold-300 hover:border-gold-600"
+            className="lb-tl-btn-hoje min-h-[44px] min-w-[44px] rounded-md border border-navy-700 bg-navy-900 px-3 text-xs font-semibold text-gold-300 hover:border-gold-600"
           >
             Hoje
           </button>
@@ -858,34 +1106,24 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             nada). A contagem usa o mesmo critério da barra (`fimDesenhado`) e
             o aviso nomeia o último dia desenhado.
           */}
-          {itensForaDaJanela > 0 ? (
+          {avisoItensFora ? (
             <p role="note" className="max-w-[280px] text-right text-[12px] text-bone-400">
-              {itensForaDaJanela} {itensForaDaJanela > 1 ? "itens começam" : "item começa"} ou
-              termina{itensForaDaJanela > 1 ? "m" : ""} fora da janela desenhada (até{" "}
-              {diaMesAnoCurto(fimDesenhado)})
-              {zoom === "auto" ? " — Mês/Trimestre mostra o histórico" : ""}
+              {avisoItensFora}
             </p>
           ) : null}
           {autoNaoCabe ? (
             <p role="note" className="max-w-[280px] text-right text-[12px] text-bone-400">
-              A janela é maior que a tela: {telasDeRolagem} telas de rolagem. Use ← → ou escolha
-              Trimestre.
+              {avisoDeOverflow({
+                telas: telasDeRolagem,
+                pxPorDiaAtual: pxPorDia,
+                pxPorDiaTrimestre: PX_POR_DIA_FIXO.trimestre,
+              })}
             </p>
           ) : null}
         </div>
       </div>
 
-      <Legenda />
-
-      {/*
-        P5f (achados MÉDIO A6 / BAIXO A11, rodada 5): a 390px a coluna de
-        rótulos trunca 11 de 25 nomes em 2 linhas e não havia NENHUM caminho
-        para o texto inteiro — nem para a página da tarefa. Tocar a linha
-        (o mesmo `<button>` que já destacava predecessores/sucessores) abre
-        este painel: nome completo, datas com ano, folga, estado e o link
-        "Abrir tarefa". `Escape` fecha (como já fechava a seleção).
-      */}
-      {linhaAtiva ? <PainelDetalheTarefa linha={linhaAtiva} onFechar={fecharDetalhe} /> : null}
+      <Legenda aberta={legendaAberta} onAlternar={setLegendaAberta} />
 
       {!linhas.some((l) => l.tipo === "linha") ? (
         <div
@@ -895,7 +1133,20 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
           Nada para mostrar na linha do tempo ainda.
         </div>
       ) : (
-        <div className="mt-6 flex w-full flex-col">
+        /*
+          Rodada 7 (decisão D2): o painel de detalhe deixou de SOBREPOR o
+          gráfico e passou a COMPRIMI-LO a partir de 768px. Medido pelo
+          crítico na rodada 6: o painel `fixed … md:w-[360px] z-40` tapava
+          70,0% do scroller a 768px, 45,7% a 1024 e 33,9% a 1280; a 768 a
+          barra da própria tarefa selecionada ficava INTEGRALMENTE atrás dele
+          e o `z-40` cobria o cabeçalho sticky (`z-20`), cortando "13/09/202".
+          Agora são duas colunas de verdade: o gráfico encolhe, o
+          `ResizeObserver` recalcula a escala e a sincronização (D1) roda nos
+          dois sentidos — abrir e fechar. Abaixo de 768 ele continua sendo a
+          folha inferior `fixed` (e a linha tocada rola para cima dela: D5).
+        */
+        <div className="mt-6 flex w-full flex-col md:flex-row md:items-start md:gap-3">
+        <div className="flex w-full min-w-0 flex-1 flex-col">
           {/*
             Achado ALTO #2 (rodada 2): cabeçalho de datas como linha PRÓPRIA,
             fora do scroller horizontal — `sticky` aqui stacka contra a
@@ -911,7 +1162,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
             className="sticky z-20 flex w-full"
           >
             {/* Célula do cabeçalho da coluna de rótulos — mesma largura da coluna abaixo. */}
-            <div className="w-[140px] shrink-0 border-b border-r border-navy-700 bg-navy-900 sm:w-[240px]" />
+            <div className={`${classeColunaRotulos} border-b border-r border-navy-700 bg-navy-900`} />
             {/* Célula do cabeçalho da escala — clip (nunca scroll próprio) + conteúdo deslocado por `transform` para acompanhar o `scrollLeft` do painel. */}
             <div className="relative min-w-0 flex-1 overflow-hidden border-b border-navy-700 bg-navy-900">
               <div
@@ -919,35 +1170,30 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 style={{ width: totalWidth, height: alturaHeaderTotal }}
                 className="relative"
               >
-                {/*
-                  Achado MÉDIO #5 (rodada 3): faixa do MÊS — só na densidade
-                  "dia" (≥24px/dia), onde a faixa de baixo é só números soltos
-                  ("13", "14"…) sem nenhum contexto de mês.
-                */}
-                {mostrarLinhaMeses ? (
-                  <div
-                    className="absolute inset-x-0 top-0 border-b border-navy-800"
-                    style={{ height: HEADER_MES_H }}
-                  >
-                    {ticksMes.map((t) =>
-                      // Achado BAIXO A12 (rodada 5): rótulo cortado pela borda
-                      // esquerda não aparece — ou cabe inteiro na viewport, ou
-                      // quem fala pela borda é o mês grudado.
-                      t.x < scrollLeft + larguraMesGrudado ? null : (
-                        <div
-                          key={`mes-${t.x}`}
-                          className="absolute top-0 flex h-full items-center border-l border-navy-700 pl-1 text-[12px] font-semibold text-bone-300"
-                          style={{ left: t.x }}
-                        >
-                          {t.label}
-                        </div>
-                      ),
-                    )}
-                  </div>
-                ) : null}
+                <div
+                  className="absolute inset-x-0 top-0 border-b border-navy-800"
+                  style={{ height: HEADER_MES_H }}
+                >
+                  {/*
+                    Rodada 7 (decisão D4): a faixa de cima existe em TODA
+                    densidade e carrega o período MAIOR (`periodoSuperior`).
+                    Rodada 7 (decisão D3): `superioresVisiveis` já veio filtrado
+                    pelos DOIS lados da janela — o que não cabe inteiro não é
+                    desenhado, e quem fala pela borda esquerda é o chip grudado.
+                  */}
+                  {superioresVisiveis.map((t) => (
+                    <div
+                      key={`sup-${t.x}`}
+                      className="absolute top-0 flex h-full items-center border-l border-navy-700 pl-1 text-[12px] font-semibold text-bone-300"
+                      style={{ left: t.x }}
+                    >
+                      {t.label}
+                    </div>
+                  ))}
+                </div>
                 <div
                   className="absolute inset-x-0"
-                  style={{ top: mostrarLinhaMeses ? HEADER_MES_H : 0, height: HEADER_H }}
+                  style={{ top: HEADER_MES_H, height: HEADER_H }}
                 >
                   {/*
                     P5e (achado ALTO, rodada 4 — causa raiz "o eixo tem dono
@@ -957,13 +1203,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                     ESTILO por `tipo`/`forte`; nunca mais decide sozinha se
                     cabe mais um rótulo (isso já veio resolvido).
                   */}
-                  {rotulos.map((t) => {
-                    // Achado BAIXO A12 (rodada 5): o candidato precisa caber
-                    // INTEIRO na viewport — um rótulo que a borda esquerda
-                    // corta ao meio não informa, só suja. Quando o chip do mês
-                    // está grudado nesta faixa (densidades sem 2ª linha), ele
-                    // também empurra o limite.
-                    if (t.x < scrollLeft) return null;
+                  {rotulosVisiveis.map((t) => {
                     // Achado ALTO A2 (rodada 5): o chip de "hoje" é ancorado
                     // no MESMO `left` da linha dourada — o `pl-1` vive DENTRO
                     // do `<span>` (padding não move a caixa), nunca num
@@ -1002,15 +1242,23 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 />
               </div>
               {/*
-                Achado MÉDIO A3 (rodada 5): o mês grudado vive FORA do
+                Achado MÉDIO A3 (rodada 5): o período grudado vive FORA do
                 conteúdo transladado (`headerTicksRef`) — por isso não rola.
-                Fica na 2ª faixa quando ela existe (densidade "dia"); senão,
-                na faixa principal, onde também é a única pista de mês.
+                Rodada 7 (achado BAIXO #11): o comentário anterior dizia que
+                ele "cai na faixa principal quando não há 2ª faixa" e o código
+                logo abaixo renderizava `null` nesse caso — a explicação mentia
+                sobre o próprio arquivo. Agora não há mais o caso: a faixa de
+                cima existe sempre (decisão D4) e o chip mora nela, sempre.
               */}
-              {mostrarLinhaMeses ? (
+              {(
                 <span
-                  className="lb-tl-mes-grudado absolute left-0 top-0 z-20 flex items-center bg-navy-900 text-[12px] font-semibold text-bone-200"
+                  className="lb-tl-mes-grudado absolute top-0 z-20 flex items-center whitespace-nowrap bg-navy-900 text-[12px] font-semibold text-bone-200"
                   style={{
+                    // Rodada 9 (achado MÉDIO A2): o chip não mora mais em
+                    // `left-0` fixo — ele é EMPURRADO para fora pelo mês que
+                    // entra (valor ≤ 0, vindo da função pura), em vez de apagar
+                    // o rótulo desse mês como fazia a rodada 8.
+                    left: chipGrudado.x,
                     height: HEADER_MES_H,
                     // P5g (achado BAIXO A5, rodada 6): o padding do chip é a
                     // MESMA constante que entra em `larguraAproximada` —
@@ -1024,7 +1272,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 >
                   {mesGrudado}
                 </span>
-              ) : null}
+              )}
               {/* Achado BAIXO A12 (rodada 5): o degradê de borda que o CORPO já
                   tinha passa a existir também no cabeçalho — começa onde o mês
                   grudado termina, para não apagá-lo. */}
@@ -1032,7 +1280,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-y-0 z-10 w-6 bg-gradient-to-r from-navy-900 to-transparent"
-                  style={{ left: larguraMesGrudado }}
+                  style={{ left: Math.max(0, chipGrudado.x + larguraMesGrudado) }}
                 />
               ) : null}
               {afordanciaScroll.direita ? (
@@ -1046,7 +1294,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
 
           <div className="flex w-full items-stretch">
             {/* Coluna de rótulos — fora do scroll horizontal, encolhe no celular. */}
-            <div className="w-[140px] shrink-0 border-r border-navy-700 sm:w-[240px]">
+            <div className={`${classeColunaRotulos} border-r border-navy-700`}>
               {linhas.map((l) =>
                 l.tipo === "cabecalho" ? (
                   <div
@@ -1060,12 +1308,12 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                   <RotuloLinha
                     key={l.chave}
                     linha={l.linha}
-                    ativo={ativoId === l.linha.id}
+                    ativo={ativaChave === l.chave}
                     destacadoPredecessora={l.linha.kind === "tarefa" && predecessorasAtivas.has(l.linha.id)}
                     destacadoSucessora={l.linha.kind === "tarefa" && sucessorasAtivas.has(l.linha.id)}
                     tituloPorTarefaId={tituloPorTarefaId}
-                    registrarBotao={(el) => registrarBotaoLinha(l.linha.id, el)}
-                    onAtivar={l.linha.kind === "tarefa" ? () => setAtivoId((a) => (a === l.linha.id ? null : l.linha.id)) : undefined}
+                    registrarBotao={(el) => registrarBotaoLinha(l.chave, el)}
+                    onAtivar={() => alternarAtiva(l.chave)}
                   />
                 ),
               )}
@@ -1095,10 +1343,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 role="region"
                 aria-label="Linha do tempo — use as setas para rolar"
                 className="w-full overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-500"
-                onScroll={(e) => {
-                  sincronizarComPainel(e.currentTarget);
-                  atualizarAfordanciaScroll(e.currentTarget);
-                }}
+                onScroll={(e) => sincronizarComPainel(e.currentTarget)}
                 onKeyDown={(e) => {
                   const el = e.currentTarget;
                   const irPara = (x: number): void => {
@@ -1140,6 +1385,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                         key={l.chave}
                         row={l.linha}
                         top={top}
+                        ativo={ativaChave === l.chave}
+                        onAtivar={() => alternarAtiva(l.chave)}
                         xFor={xFor}
                         foraDaJanela={foraDaJanela}
                         depoisDaJanela={depoisDaJanela}
@@ -1160,10 +1407,10 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                       fimDesenhado={fimDesenhado}
                       larguraTotal={totalWidth}
                       larguraErro={larguraErroMax}
-                      ativo={ativoId === l.linha.id}
+                      ativo={ativaChave === l.chave}
                       predecessora={predecessorasAtivas.has(l.linha.id)}
                       sucessora={sucessorasAtivas.has(l.linha.id)}
-                      onAtivar={() => setAtivoId((a) => (a === l.linha.id ? null : l.linha.id))}
+                      onAtivar={() => alternarAtiva(l.chave)}
                     />
                   );
                 })}
@@ -1204,7 +1451,44 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
           </div>
         </div>
         </div>
+        {/*
+          P5f (achados MÉDIO A6 / BAIXO A11, rodada 5): a 390px a coluna de
+          rótulos trunca os nomes em 2 linhas e não havia caminho nenhum para
+          o texto inteiro nem para a página da tarefa. Rodada 7 (achado MÉDIO
+          #7): o painel deixou de ser exclusivo das TAREFAS — ASSUNTO (PR),
+          que é metade das linhas da tela, também abre, com nome completo,
+          período, estado e o link externo como AÇÃO dentro do painel.
+        */}
+        {/*
+          Rodada 7 (decisão D2): como coluna, o painel gruda logo ABAIXO da nav
+          — que é `sticky top-0` e cuja altura é medida em runtime (`navAltura`,
+          a mesma fonte que o cabeçalho da escala usa). Sem isto, a 768px o
+          título do diálogo nascia por baixo da nav, cortado pela metade.
+        */}
+        {linhaAtiva ? (
+          <PainelDetalheTarefa
+            linha={linhaAtiva}
+            onFechar={fecharDetalhe}
+            topoSticky={navAltura + MARGEM_PAINEL_STICKY_PX}
+          />
+        ) : assuntoAtivo ? (
+          <PainelDetalheAssunto
+            linha={assuntoAtivo}
+            onFechar={fecharDetalhe}
+            topoSticky={navAltura + MARGEM_PAINEL_STICKY_PX}
+          />
+        ) : null}
+        </div>
       )}
+      {/*
+        Rodada 9 (achado ALTO A1): o espaço que a PÁGINA precisa ter abaixo da
+        última linha enquanto a folha inferior está aberta. Sem ele,
+        `window.scrollBy` não tem para onde rolar na última linha — vira no-op
+        silencioso e a folha fica em cima da barra (medido: 100% de cobertura a
+        390px). Altura 0 em repouso, escrita pelo efeito a partir da altura
+        REAL da folha; some sozinho quando o painel fecha ou vira coluna.
+      */}
+      <div ref={espacoFolhaRef} data-lb-espaco-folha="true" aria-hidden="true" style={{ height: 0 }} />
     </main>
   );
 }
@@ -1235,6 +1519,17 @@ function RotuloLinha({
   registrarBotao?: (el: HTMLButtonElement | null) => void;
   onAtivar?: () => void;
 }): JSX.Element {
+  /*
+    Rodada 7 (achado BAIXO #12): os CONTROLES da tela foram todos para 44px
+    (zoom, "Hoje", "fechar", "Abrir tarefa"). A LINHA fica em 42px por
+    justificativa escrita, como o achado permite: o alvo de toque aqui é a
+    linha INTEIRA (o `<button>` ocupa 100% da largura da coluna — 140px no
+    celular, 240px a partir de `sm`), então a área clicável é 140×42 = 5.880px²
+    contra os 1.936px² de um alvo quadrado de 44. A altura de 42 é a MESMA
+    constante (`ROW_H`) que posiciona a barra do Gantt à direita: subir para 44
+    desalinharia rótulo e barra, ou custaria 2px × N linhas de altura de página
+    — e a altura da linha não é o que dificulta o toque, a largura é.
+  */
   const classeBase =
     "flex h-[42px] items-center gap-1 border-b border-navy-800 bg-navy-850 px-2 py-1 text-xs";
   const anelClasse = ativo
@@ -1248,11 +1543,20 @@ function RotuloLinha({
   if (linha.kind === "assunto") {
     const cor = corDoAssunto(linha);
     return (
-      <a
-        href={linha.url}
-        target="_blank"
-        rel="noreferrer"
-        className={`${classeBase} text-bone-200 hover:text-bone-50`}
+      <button
+        type="button"
+        ref={registrarBotao}
+        onClick={onAtivar}
+        /*
+          Rodada 7 (achado BAIXO #9): `aria-pressed` descrevia um botão de
+          alternância de ESTADO; o que este botão faz é ABRIR UM DIÁLOGO. O par
+          certo é `aria-expanded` + `aria-haspopup="dialog"` — a mesma troca na
+          linha de tarefa.
+        */
+        aria-expanded={ativo}
+        aria-haspopup="dialog"
+        aria-label={`${linha.titulo} — assunto em ${linha.repo}`}
+        className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
         title={`${linha.titulo} — ${linha.repo}`}
       >
         <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${cor.barra}`} />
@@ -1271,7 +1575,7 @@ function RotuloLinha({
         >
           {linha.titulo}
         </span>
-      </a>
+      </button>
     );
   }
 
@@ -1296,7 +1600,10 @@ function RotuloLinha({
       type="button"
       ref={registrarBotao}
       onClick={onAtivar}
-      aria-pressed={ativo}
+      /* Rodada 7 (achado BAIXO #9): abre um DIÁLOGO — `aria-expanded` +
+         `aria-haspopup`, nunca `aria-pressed` (que anuncia um interruptor). */
+      aria-expanded={ativo}
+      aria-haspopup="dialog"
       aria-label={ariaLabel}
       title={`${linha.titulo}${linha.semDuracao ? " — estimativa faltando" : ""}`}
       className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
@@ -1320,6 +1627,8 @@ function BarraAssunto({
   fimDesenhado,
   larguraTotal,
   larguraErro,
+  ativo,
+  onAtivar,
 }: {
   row: LinhaDoTempoAssuntoRow;
   top: number;
@@ -1330,6 +1639,9 @@ function BarraAssunto({
   fimDesenhado: string;
   larguraTotal: number;
   larguraErro: number | undefined;
+  /** Rodada 7 (achado MÉDIO #7): assunto também abre o painel de detalhe. */
+  ativo: boolean;
+  onAtivar: () => void;
 }): JSX.Element {
   const cor = corDoAssunto(row);
   const x = xFor(row.inicio);
@@ -1373,18 +1685,16 @@ function BarraAssunto({
   const periodoAssunto = `${diaMesAnoCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesAnoCurto(row.fim)}`;
   if (foraDaJanela(row.inicio)) {
     return (
-      <a
-        href={row.url}
-        target="_blank"
-        rel="noreferrer"
+      <div
+        onClick={onAtivar}
         tabIndex={-1}
         aria-hidden="true"
-        className={`lb-tl-fora-da-janela absolute flex items-center text-[12px] font-semibold ${cor.texto}`}
+        className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${cor.texto}`}
         style={{ left: 0, top, height: BAR_H }}
         title={`${row.titulo} — ${periodoAssunto} (começa antes da janela)`}
       >
         ◀
-      </a>
+      </div>
     );
   }
 
@@ -1393,18 +1703,16 @@ function BarraAssunto({
   // nenhum aviso de que a barra inteira está lá fora.
   if (depoisDaJanela(row.inicio)) {
     return (
-      <a
-        href={row.url}
-        target="_blank"
-        rel="noreferrer"
+      <div
+        onClick={onAtivar}
         tabIndex={-1}
         aria-hidden="true"
-        className={`lb-tl-fora-da-janela absolute flex items-center text-[12px] font-semibold ${cor.texto}`}
+        className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${cor.texto}`}
         style={{ left: larguraTotal - 10, top, height: BAR_H }}
         title={`${row.titulo} — ${periodoAssunto} (começa depois da janela)`}
       >
         ▶
-      </a>
+      </div>
     );
   }
 
@@ -1412,10 +1720,8 @@ function BarraAssunto({
   // barra de 4px que fingia duração.
   if (row.marco) {
     return (
-      <a
-        href={row.url}
-        target="_blank"
-        rel="noreferrer"
+      <div
+        onClick={onAtivar}
         tabIndex={-1}
         aria-hidden="true"
         className={`lb-tl-marco absolute rotate-45 ${cor.barra}`}
@@ -1438,13 +1744,11 @@ function BarraAssunto({
     ? ` — termina em ${diaMesAnoCurto(row.fim)} — depois do fim da janela (${diaMesAnoCurto(fimDesenhado)})`
     : "";
   return (
-    <a
-      href={row.url}
-      target="_blank"
-      rel="noreferrer"
+    <div
+      onClick={onAtivar}
       tabIndex={-1}
       aria-hidden="true"
-      className={`absolute ${terminaForaAssunto ? "rounded-l-sm" : "rounded-sm"} ${cor.barra} opacity-90 hover:opacity-100`}
+      className={`absolute cursor-pointer ${terminaForaAssunto ? "rounded-l-sm" : "rounded-sm"} ${cor.barra} ${ativo ? "ring-2 ring-gold-500" : ""} opacity-90 hover:opacity-100`}
       style={{ left: x, top, width: largura, height: BAR_H }}
       title={`${row.titulo} — ${periodoAssunto}${avisoFim}`}
     >
@@ -1459,7 +1763,7 @@ function BarraAssunto({
           ▶
         </span>
       ) : null}
-    </a>
+    </div>
   );
 }
 
@@ -1985,9 +2289,12 @@ const ESTADO_EM_PORTUGUES: Record<LinhaDoTempoTarefaRow["status"], string> = {
 export function PainelDetalheTarefa({
   linha,
   onFechar,
+  topoSticky = 0,
 }: {
   linha: LinhaDoTempoTarefaRow;
   onFechar: () => void;
+  /** Altura da nav sticky + respiro — onde o painel-COLUNA gruda (≥768px). */
+  topoSticky?: number;
 }): JSX.Element {
   const marcas = [
     linha.critico ? "caminho crítico" : null,
@@ -2017,25 +2324,10 @@ export function PainelDetalheTarefa({
       aria-modal="false"
       aria-labelledby={tituloId}
       data-lb-detalhe="true"
-      className="lb-tl-detalhe fixed bottom-0 left-0 right-0 z-40 max-h-[60vh] overflow-y-auto border-t border-navy-700 bg-navy-850 px-3 py-2 text-[12px] text-bone-200 shadow-2xl md:left-auto md:top-0 md:h-full md:max-h-none md:w-[360px] md:border-l md:border-t-0"
+      style={{ ["--lb-tl-topo-painel" as string]: `${topoSticky}px` } as React.CSSProperties}
+      className={CLASSE_PAINEL_DETALHE}
     >
-      <div className="flex items-start justify-between gap-2">
-        <p
-          ref={tituloRef}
-          id={tituloId}
-          tabIndex={-1}
-          className="break-words font-semibold text-bone-50 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-500"
-        >
-          {linha.titulo}
-        </p>
-        <button
-          type="button"
-          onClick={onFechar}
-          className="min-h-[36px] shrink-0 rounded-md border border-navy-700 px-2 text-bone-300 hover:text-bone-50"
-        >
-          fechar
-        </button>
-      </div>
+      <CabecalhoDoDetalhe titulo={linha.titulo} tituloId={tituloId} tituloRef={tituloRef} onFechar={onFechar} />
       <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-bone-300">
         <div className="flex gap-1">
           <dt>Período:</dt>
@@ -2069,9 +2361,132 @@ export function PainelDetalheTarefa({
       {marcas.length > 0 ? <p className="mt-1 text-bone-400">{marcas.join(" · ")}</p> : null}
       <a
         href={`/tarefa/${encodeURIComponent(linha.id)}`}
-        className="mt-2 inline-flex min-h-[36px] items-center rounded-md border border-navy-700 bg-navy-900 px-3 text-bone-100 hover:border-gold-600"
+        className={CLASSE_ACAO_DETALHE}
       >
         Abrir tarefa
+      </a>
+    </div>
+  );
+}
+
+/**
+ * Rodada 7 (decisão D2): a forma do painel. Abaixo de 768px continua a FOLHA
+ * INFERIOR `fixed` (a folha do celular, com a linha ativa rolando para cima
+ * dela — achado MÉDIO #5). A partir de 768 ele deixa de ser `fixed` e vira uma
+ * COLUNA de verdade (`md:static`), dentro do `flex md:flex-row` da tela: o
+ * gráfico encolhe e se reajusta em vez de ficar 70% tapado. `z-40` só existe
+ * enquanto ele é folha — como coluna, nunca disputa camada com o cabeçalho
+ * sticky (`z-20`), que era o que cortava "13/09/202".
+ *
+ * 300px é a largura medida do conteúdo real (título em 2 linhas + 4 pares
+ * rótulo/valor + marcas + botão), não os 360 da rodada 6.
+ */
+const CLASSE_PAINEL_DETALHE =
+  "lb-tl-detalhe fixed bottom-0 left-0 right-0 z-40 max-h-[60vh] overflow-y-auto border-t border-navy-700 bg-navy-850 px-3 py-2 text-[12px] text-bone-200 shadow-2xl " +
+  "md:sticky md:bottom-auto md:left-auto md:right-auto md:top-[var(--lb-tl-topo-painel)] md:z-auto md:max-h-none md:w-[240px] md:shrink-0 md:self-start md:overflow-visible md:rounded-lg md:border md:border-navy-700 md:shadow-none lg:w-[300px]";
+
+/** Rodada 7 (achado BAIXO #12): toda ação do painel em 44px de altura mínima. */
+const CLASSE_ACAO_DETALHE =
+  "mt-2 inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-900 px-3 text-bone-100 hover:border-gold-600";
+
+/** Título focável + botão fechar — o mesmo cabeçalho para tarefa e para assunto. */
+function CabecalhoDoDetalhe({
+  titulo,
+  tituloId,
+  tituloRef,
+  onFechar,
+}: {
+  titulo: string;
+  tituloId: string;
+  tituloRef: React.RefObject<HTMLParagraphElement>;
+  onFechar: () => void;
+}): JSX.Element {
+  return (
+    <div className="flex items-start justify-between gap-2">
+      <p
+        ref={tituloRef}
+        id={tituloId}
+        tabIndex={-1}
+        className="break-words font-semibold text-bone-50 outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold-500"
+      >
+        {titulo}
+      </p>
+      <button
+        type="button"
+        onClick={onFechar}
+        className="min-h-[44px] min-w-[44px] shrink-0 rounded-md border border-navy-700 px-2 text-bone-300 hover:text-bone-50"
+      >
+        fechar
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Rodada 7 (achado MÉDIO #7): o painel de detalhe do ASSUNTO (PR).
+ *
+ * Metade das linhas desta tela são assuntos, e elas não tinham painel nenhum
+ * (`kind === "tarefa"` era a única condição que abria). A 390px o nome trunca
+ * em `line-clamp-2` e os dois únicos caminhos para o texto inteiro eram o
+ * `title` (que não existe no toque) e sair da aplicação para o GitHub. Aqui:
+ * nome completo, repositório, período com ano, estado — e o link externo como
+ * AÇÃO dentro do painel, não como o único caminho.
+ */
+export function PainelDetalheAssunto({
+  linha,
+  onFechar,
+  topoSticky = 0,
+}: {
+  linha: LinhaDoTempoAssuntoRow;
+  onFechar: () => void;
+  /** Altura da nav sticky + respiro — onde o painel-COLUNA gruda (≥768px). */
+  topoSticky?: number;
+}): JSX.Element {
+  const tituloRef = useRef<HTMLParagraphElement | null>(null);
+  const tituloId = `lb-tl-detalhe-assunto-${linha.id}`;
+  useEffect(() => {
+    tituloRef.current?.focus();
+  }, [linha.id]);
+  const estado =
+    linha.estado === "mergeado" ? "mergeado" : linha.estado === "fechado" ? "fechado sem merge" : "aberto";
+  const periodo = linha.dataInvalida
+    ? "data inválida"
+    : linha.datasInconsistentes
+      ? "datas inconsistentes"
+      : linha.marco
+        ? `${diaMesAnoCurto(linha.inicio)} (mesmo dia)`
+        : `${diaMesAnoCurto(linha.inicio)} → ${linha.aberto ? "em aberto" : diaMesAnoCurto(linha.fim)}`;
+  return (
+    <div
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={tituloId}
+      data-lb-detalhe="true"
+      style={{ ["--lb-tl-topo-painel" as string]: `${topoSticky}px` } as React.CSSProperties}
+      className={CLASSE_PAINEL_DETALHE}
+    >
+      <CabecalhoDoDetalhe titulo={linha.titulo} tituloId={tituloId} tituloRef={tituloRef} onFechar={onFechar} />
+      <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-bone-300">
+        <div className="flex gap-1">
+          <dt>Repositório:</dt>
+          <dd className="break-all text-bone-100">{linha.repo}</dd>
+        </div>
+        <div className="flex gap-1">
+          <dt>Período:</dt>
+          <dd className="text-bone-100">{periodo}</dd>
+        </div>
+        <div className="flex gap-1">
+          <dt>Estado:</dt>
+          <dd className="text-bone-100">{estado}</dd>
+        </div>
+      </dl>
+      <a
+        href={linha.url}
+        target="_blank"
+        rel="noreferrer"
+        className={CLASSE_ACAO_DETALHE}
+      >
+        Abrir no GitHub
       </a>
     </div>
   );
@@ -2087,7 +2502,13 @@ export function PainelDetalheTarefa({
  * `#6C7A99`) e só se distinguiam por forma — sem a legenda, ninguém sabia
  * que eram conceitos diferentes.
  */
-function Legenda(): JSX.Element {
+function Legenda({
+  aberta,
+  onAlternar,
+}: {
+  aberta: boolean;
+  onAlternar: (v: boolean) => void;
+}): JSX.Element {
   const ITENS: readonly { chave: string; amostra: JSX.Element; label: string }[] = [
     {
       chave: "critico",
@@ -2193,18 +2614,35 @@ function Legenda(): JSX.Element {
   // apagava os RÓTULOS de texto para leitor de tela (não só as amostras
   // decorativas, que já levavam seu próprio `aria-hidden` individual — esse
   // continua). Removido do contêiner; `role="list"` deixa a estrutura clara.
+  /*
+    Rodada 7 (achado BAIXO #10): 13 itens de legenda custavam várias linhas do
+    cabeçalho a 390px — parte dos 494px que empurravam a primeira linha do
+    Gantt para fora da tela. Vira `<details>`: fechado no celular, aberto
+    sozinho a partir de 768px (o pai decide, por `matchMedia`, DEPOIS do mount
+    — o 1º render é igual no servidor e no cliente). O `<summary>` tem 44px de
+    alvo de toque, como os outros controles.
+  */
   return (
-    <div
-      role="list"
-      aria-label="Legenda de símbolos da linha do tempo"
-      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-bone-400"
+    <details
+      open={aberta}
+      onToggle={(e) => onAlternar((e.currentTarget as HTMLDetailsElement).open)}
+      className="lb-tl-legenda mt-3"
     >
-      {ITENS.map((item) => (
-        <span key={item.chave} role="listitem" className="inline-flex items-center gap-1.5">
-          {item.amostra}
-          {item.label}
-        </span>
-      ))}
-    </div>
+      <summary className="flex min-h-[44px] cursor-pointer list-none items-center text-[12px] text-bone-300 marker:content-none">
+        Legenda ({ITENS.length} símbolos)
+      </summary>
+      <div
+        role="list"
+        aria-label="Legenda de símbolos da linha do tempo"
+        className="flex flex-wrap items-center gap-x-4 gap-y-1 pb-1 text-[12px] text-bone-400"
+      >
+        {ITENS.map((item) => (
+          <span key={item.chave} role="listitem" className="inline-flex items-center gap-1.5">
+            {item.amostra}
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </details>
   );
 }

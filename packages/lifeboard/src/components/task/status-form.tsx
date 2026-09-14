@@ -2,12 +2,10 @@
 
 import { useRef, useState } from "react";
 
-import { statusSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
-import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
-import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
-import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
+import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 import type { TaskStatus } from "@/types/canonical";
 
 const OPCOES: readonly OpcaoSegmentada<TaskStatus>[] = [
@@ -32,59 +30,44 @@ export interface StatusFormProps {
 /** Segmentado de status — muda sozinho ao clicar (sem botão "salvar" extra). */
 export function StatusForm({ taskId, statusAtual }: StatusFormProps): JSX.Element {
   const [valor, setValor] = useState<TaskStatus>(statusAtual);
-  /**
-   * [MÉDIO #3, rodada 6] O grupo inteiro, para devolver o foco ao botão que
-   * ficou marcado. Ele nunca sai do DOM (nenhum controle desta página usa
-   * `disabled`), mas passar o alvo explicitamente é o que faz esta operação
-   * entrar no teste-varredura como todas as outras.
-   */
+  /** O grupo inteiro, para devolver o foco ao botão que ficou marcado. */
   const grupoRef = useRef<HTMLDivElement | null>(null);
-  // [MÉDIO #1, rodada 3] mesmo padrão de `MaeForm`: reverte o segmentado
-  // para o último status CONFIRMADO quando a action falha (validação ou
-  // falha de rede) — em vez de deixar "concluída" na tela sem estar no banco.
+  // [MÉDIO #1, rodada 3] reverte o segmentado para o último status CONFIRMADO
+  // quando a action falha — em vez de deixar "concluída" na tela sem estar no
+  // banco.
   const confirmadoRef = useRef(statusAtual);
   const tentativaRef = useRef(confirmadoRef.current);
-  // [BAIXO #5, rodada 4] mesmo padrão de `DuracaoForm`/`MaeForm`.
-  const { mensagem, mostrar } = useMensagemSucesso();
-  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(
-    statusSetAction,
-    () => {
+
+  const porta = usarPortaDeEscrita({
+    op: "status",
+    alvo: () =>
+      grupoRef.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]'),
+    texto: () => `Status atualizado para ${ROTULO_STATUS[tentativaRef.current]}.`,
+    aoSucesso: () => {
       confirmadoRef.current = tentativaRef.current;
-      concluirEscrita(
-        "status",
-        grupoRef.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]'),
-        null,
-        (t) => mostrar(t),
-        `Status atualizado para ${ROTULO_STATUS[tentativaRef.current]}.`,
-      );
     },
-    () => {
+    aoFalha: () => {
       setValor(confirmadoRef.current);
     },
-  );
+  });
 
   function aoMudar(novo: TaskStatus): void {
     /**
      * [MÉDIO #3, rodada 6] 6 Enters no botão JÁ selecionado mandavam 6 POSTs
-     * idênticos — medido pelo crítico. Gravar o que já está gravado não é
-     * salvar: é gastar rede e abrir uma janela de erro onde não havia nada a
-     * mudar. A recusa aqui é silenciosa de propósito (o operador está vendo o
-     * valor que pediu, já marcado na tela).
+     * idênticos. A recusa aqui é silenciosa de propósito (o operador está
+     * vendo o valor que pediu, já marcado na tela).
      */
-    const decisao = decidirEscrita({
-      pendente: pendente || emVooAgora(),
-      mudou: novo !== confirmadoRef.current,
-    });
-    if (decisao !== "gravar") {
-      recusarEscrita("status", decisao, { anunciar: (t) => mostrar(t), alertar: (t) => mostrar(t) });
-      return;
+    // [Major do CodeRabbit, rodada 10] `tentativaRef` só depois do veredito:
+    // escrito antes, uma recusa sobrescrevia o valor EM VOO e a gravação a
+    // caminho anunciava e confirmava o valor errado.
+    const decisao = porta.escrever(
+      { task_id: taskId, status: novo },
+      { mudou: novo !== confirmadoRef.current },
+    );
+    if (decisao === "gravar") {
+      tentativaRef.current = novo;
+      setValor(novo);
     }
-    tentativaRef.current = novo;
-    setValor(novo);
-    const form = new FormData();
-    form.set("task_id", taskId);
-    form.set("status", novo);
-    disparar(form);
   }
 
   return (
@@ -94,10 +77,10 @@ export function StatusForm({ taskId, statusAtual }: StatusFormProps): JSX.Elemen
         opcoes={OPCOES}
         valorAtual={valor}
         aoMudar={aoMudar}
-        desabilitado={pendente}
+        desabilitado={porta.pendente}
       />
-      <CampoErro mensagem={estado.erro} />
-      <MensagemSucesso mensagem={mensagem} />
+      <CampoErro mensagem={porta.erroDoCampo} />
+      <MensagemSucesso mensagem={porta.mensagem} />
     </div>
   );
 }

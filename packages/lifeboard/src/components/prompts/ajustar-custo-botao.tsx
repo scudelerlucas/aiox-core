@@ -1,10 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, type FormEvent } from "react";
 
-import { ajustarCustoPromptAction, type EstadoAcaoPrompt } from "@/app/prompts/actions";
-import { MensagemDaFila } from "@/components/prompts/mensagem-da-fila";
-import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
 import { focarComAlternativa } from "@/components/task/foco";
 
 /**
@@ -13,163 +10,142 @@ import { focarComAlternativa } from "@/components/task/foco";
  * Um item que morreu sem fechar entra no gasto do dia pelo custo ESTIMADO da
  * complexidade — conservador de propósito (quem sumiu provavelmente gastou).
  * Só que uma estimativa de US$ 120 pode congelar a conta até a virada do dia
- * sobre um trabalho que custou US$ 3. Esta é a porta de saída: o operador põe
- * o número real e o teto volta a falar a verdade.
+ * sobre um trabalho que custou US$ 3. Esta é a porta de saída: o operador põe o
+ * número real e o teto volta a falar a verdade.
  *
- * RODADA 5:
- *  · #8 — o painel virou `<form onSubmit>`: **Enter salva**. Antes eram dois
- *    `<button type="button">` soltos e um `<input>` sem formulário; quem
- *    digitava o número e apertava Enter não salvava nada e não recebia aviso
- *    nenhum.
- *  · D22 — o sucesso era MUDO: a action devolvia "Custo ajustado — o gasto de
- *    hoje já considera o número real." e ninguém renderizava. Agora a mesma
- *    `MensagemDaFila` do formulário mostra a frase (e o erro).
- *  · `podeAjustar` mantém o componente MONTADO depois do `router.refresh()`
- *    (o item deixa de ser "estimativa da casa" e sairia da tela levando a
- *    frase junto) — some o gatilho, fica a região viva.
+ * RODADA 7 — o que mudou, e por que:
  *
- * RODADA 6 — três achados do crítico:
- *  · MÉDIO 3 · o gatilho aparecia para item `falhou`/`cancelada` de QUALQUER
- *    dia, e o ajuste de um item de ontem não movia número nenhum — com uma
- *    mensagem de sucesso por cima. Quem filtra por dia é `podeAjustarCusto` em
- *    `fila-tabela.tsx` (a régua do fuso do operador), e o banco recusa por
- *    baixo ("Só dá para ajustar o custo de item fechado hoje.").
- *  · D26 · campo OPCIONAL de sessão: vincular a sessão que rodou é o que
- *    impede o dia de somar a estimativa do item MAIS o custo real dela (o
- *    crítico mediu US$ 200 num trabalho de US$ 80). Fica opcional porque o
- *    operador nem sempre tem o id em mãos — e um campo obrigatório aqui
- *    fecharia a porta de saída que este painel É.
- *  · BAIXO 3 · ao salvar, o `<form>` some com o foco no submit e o foco caía
- *    no `<body>`. Agora ele volta para o gatilho "ajustar custo" (que
- *    reaparece) e, se ele não existir mais, para a frase da resposta.
+ *  · MÉDIO 3 · O RESIZE SALVAVA A FRASE E PERDIA O QUE O OPERADOR ESTAVA
+ *    DIGITANDO. `fila-tabela.tsx` monta a linha DUAS vezes (tabela
+ *    `hidden sm:block` + cartão `sm:hidden`); na rodada 6 só a RESPOSTA subiu
+ *    para a linha, enquanto `aberto`, `valor` e `sessao` continuaram em
+ *    `useState` local de cada instância. Medido: abrir o ajuste em 390 px,
+ *    digitar valor e id de sessão, ir para 1280 px → painel fechado e os dois
+ *    campos vazios. Agora os três moram na LINHA, num mapa por id, e as duas
+ *    instâncias leem e escrevem o mesmo estado.
  *
- * O gatilho só aparece em item `falhou`/`cancelada` FECHADO HOJE cujo custo
- * AINDA é estimativa da casa — em item fechado por worker, com número medido,
- * não há nada a ajustar (e desde a rodada 5 o banco recusa: "Só custo estimado
- * pela casa pode ser ajustado; este foi medido.").
+ *  · MÉDIO 4 · quando o custo já foi MEDIDO, o botão sumia e a tela não dizia
+ *    por quê. A frase entra no lugar do botão (`textoSemAjuste`), e há uma
+ *    exceção testada: custo medido IGUAL A ZERO É ajustável — é o modo de falha
+ *    conhecido (a sessão fechou sem conseguir ler o usage).
+ *
+ *  · BAIXO 6 · 44 px em todos os controles (era 32, com a navegação da mesma
+ *    página em 44).
+ *
+ *  · BAIXO 10 · sem região `role="status"` própria: quem mostra a resposta é a
+ *    LINHA, uma região só. O foco no sucesso continua sendo entregue (BAIXO 3,
+ *    rodada 6): primeiro alvo o gatilho que reaparece, alternativa a frase da
+ *    linha — nunca o `<body>`.
  */
+export interface EstadoDoAjuste {
+  aberto: boolean;
+  valor: string;
+  sessao: string;
+}
+
 export function AjustarCustoBotao({
   id,
-  custoAtualUsd,
   podeAjustar = true,
-  resposta,
-  aoResponder,
+  pendente = false,
+  estado,
+  aoMudarEstado,
+  aoSalvar,
+  fraseSemAjuste,
+  refDaMensagem,
+  refDoGatilho,
 }: {
   id: string;
-  custoAtualUsd: number | null;
   podeAjustar?: boolean;
-  /** BAIXO 4: a resposta guardada pela LINHA — sobrevive à troca de breakpoint. */
-  resposta?: EstadoAcaoPrompt;
-  aoResponder?: (estado: EstadoAcaoPrompt) => void;
+  pendente?: boolean;
+  /** MÉDIO 3: aberto/valor/sessão vivem na LINHA, não aqui. */
+  estado: EstadoDoAjuste;
+  aoMudarEstado: (patch: Partial<EstadoDoAjuste>) => void;
+  aoSalvar: (id: string, custoUsd: string, sessionId: string) => void;
+  /** MÉDIO 4: o que aparece NO LUGAR do botão quando o número foi medido. */
+  fraseSemAjuste?: string | null;
+  /** BAIXO 3/BAIXO 10: a região viva da LINHA — alternativa de foco. */
+  refDaMensagem?: React.RefObject<HTMLElement>;
+  /** A linha guarda o ref do gatilho para devolver o foco depois do refresh. */
+  refDoGatilho?: React.RefObject<HTMLButtonElement>;
 }): JSX.Element {
-  const [aberto, setAberto] = useState(false);
-  const [valor, setValor] = useState(custoAtualUsd === null ? "" : custoAtualUsd.toFixed(2));
-  const [sessao, setSessao] = useState("");
-  const [pedidoDeFoco, setPedidoDeFoco] = useState(0);
-  const gatilhoRef = useRef<HTMLButtonElement>(null);
-  const mensagemRef = useRef<HTMLParagraphElement>(null);
-  const { estado, pendente, disparar } = useAcaoPrompt(
-    ajustarCustoPromptAction,
-    () => {
-      setAberto(false);
-      setPedidoDeFoco((n) => n + 1);
-    },
-    aoResponder,
-  );
-  const visivel = resposta ?? estado;
-
-  /**
-   * BAIXO 3: primeiro alvo, o gatilho que acabou de reaparecer; alternativa, a
-   * frase da resposta (quando o item deixou de ser ajustável e o gatilho não
-   * volta). Nunca o `<body>`.
-   *
-   * `podeAjustar` está nas dependências DE PROPÓSITO, e foi medido no
-   * navegador: o sucesso do ajuste dispara `router.refresh()`, o servidor
-   * devolve o item já SEM a marca de estimativa e o gatilho — que tinha
-   * acabado de receber o foco — some do DOM. Sem esta dependência, o foco
-   * medido em 1280px depois de salvar era o `<body>`. Com ela, a mudança de
-   * `podeAjustar` re-entrega o foco à frase da resposta.
-   */
-  useEffect(() => {
-    if (pedidoDeFoco === 0) return;
-    focarComAlternativa(gatilhoRef.current, mensagemRef.current);
-  }, [pedidoDeFoco, podeAjustar]);
+  const proprioGatilho = useRef<HTMLButtonElement>(null);
+  const gatilho = refDoGatilho ?? proprioGatilho;
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    const form = new FormData();
-    form.set("id", id);
-    form.set("custo_usd", valor);
-    form.set("session_id", sessao);
-    disparar(form);
+    if (pendente) return;
+    aoSalvar(id, estado.valor, estado.sessao);
+  }
+
+  function fechar(): void {
+    aoMudarEstado({ aberto: false });
+    focarComAlternativa(gatilho.current, refDaMensagem?.current ?? null);
+  }
+
+  if (!podeAjustar) {
+    return fraseSemAjuste ? (
+      <p className="max-w-[220px] text-right text-[11px] text-bone-400">{fraseSemAjuste}</p>
+    ) : (
+      <></>
+    );
+  }
+
+  if (!estado.aberto) {
+    return (
+      <button
+        ref={gatilho}
+        type="button"
+        onClick={() => aoMudarEstado({ aberto: true })}
+        className="inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-850 px-2.5 text-xs font-medium text-bone-300 transition duration-150 ease-almapetra hover:border-gold-600 hover:text-gold-300 focus:border-gold-500 focus:outline-none"
+      >
+        ajustar custo
+      </button>
+    );
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      {podeAjustar && !aberto ? (
-        <button
-          ref={gatilhoRef}
-          type="button"
-          onClick={() => setAberto(true)}
-          className="min-h-[32px] rounded-md border border-navy-700 bg-navy-850 px-2.5 text-xs font-medium text-bone-300 transition duration-150 ease-almapetra hover:border-gold-600 hover:text-gold-300 focus:border-gold-500 focus:outline-none"
-        >
-          ajustar custo
-        </button>
-      ) : null}
-
-      {podeAjustar && aberto ? (
-        <form onSubmit={aoEnviar} className="flex flex-wrap items-center justify-end gap-1.5">
-          <label htmlFor={`custo-${id}`} className="text-[11px] text-bone-400">
-            US$
-          </label>
-          <input
-            id={`custo-${id}`}
-            name="custo_usd"
-            inputMode="decimal"
-            value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            disabled={pendente}
-            className="min-h-[32px] w-[74px] rounded-md border border-navy-700 bg-navy-900 px-2 text-xs text-bone-100 focus:border-gold-500 focus:outline-none"
-          />
-          <label htmlFor={`sessao-${id}`} className="text-[11px] text-bone-400">
-            sessão (opcional)
-          </label>
-          <input
-            id={`sessao-${id}`}
-            name="session_id"
-            value={sessao}
-            onChange={(e) => setSessao(e.target.value)}
-            disabled={pendente}
-            placeholder="session_…"
-            className="min-h-[32px] w-[128px] rounded-md border border-navy-700 bg-navy-900 px-2 text-xs text-bone-100 focus:border-gold-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={pendente}
-            className="min-h-[32px] rounded-md border border-gold-500 bg-navy-800 px-2.5 text-xs font-semibold text-gold-300 disabled:opacity-50"
-          >
-            {pendente ? "salvando…" : "salvar"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAberto(false);
-              setPedidoDeFoco((n) => n + 1);
-            }}
-            disabled={pendente}
-            className="min-h-[32px] rounded-md border border-navy-700 bg-navy-850 px-2 text-xs text-bone-300"
-          >
-            cancelar
-          </button>
-        </form>
-      ) : null}
-
-      <MensagemDaFila
-        mensagem={visivel.mensagem}
-        erro={visivel.erro}
-        tom={visivel.tom}
-        refDaMensagem={mensagemRef}
+    <form onSubmit={aoEnviar} className="flex flex-wrap items-center justify-end gap-1.5">
+      <label htmlFor={`custo-${id}`} className="text-[11px] text-bone-400">
+        US$
+      </label>
+      <input
+        id={`custo-${id}`}
+        name="custo_usd"
+        inputMode="decimal"
+        value={estado.valor}
+        onChange={(e) => aoMudarEstado({ valor: e.target.value })}
+        aria-busy={pendente ? true : undefined}
+        className="min-h-[44px] w-[84px] rounded-md border border-navy-700 bg-navy-900 px-2 text-xs text-bone-100 focus:border-gold-500 focus:outline-none"
       />
-    </div>
+      <label htmlFor={`sessao-${id}`} className="text-[11px] text-bone-400">
+        sessão (opcional)
+      </label>
+      <input
+        id={`sessao-${id}`}
+        name="session_id"
+        value={estado.sessao}
+        onChange={(e) => aoMudarEstado({ sessao: e.target.value })}
+        aria-busy={pendente ? true : undefined}
+        placeholder="session_…"
+        className="min-h-[44px] w-[140px] rounded-md border border-navy-700 bg-navy-900 px-2 text-xs text-bone-100 focus:border-gold-500 focus:outline-none"
+      />
+      <button
+        type="submit"
+        aria-busy={pendente ? true : undefined}
+        aria-disabled={pendente ? true : undefined}
+        className={`inline-flex min-h-[44px] items-center rounded-md border border-gold-500 bg-navy-800 px-2.5 text-xs font-semibold text-gold-300 focus:outline-none ${
+          pendente ? "opacity-50" : ""
+        }`}
+      >
+        {pendente ? "salvando…" : "salvar"}
+      </button>
+      <button
+        type="button"
+        onClick={fechar}
+        className="inline-flex min-h-[44px] items-center rounded-md border border-navy-700 bg-navy-850 px-2 text-xs text-bone-300 focus:border-gold-500 focus:outline-none"
+      >
+        fechar
+      </button>
+    </form>
   );
 }

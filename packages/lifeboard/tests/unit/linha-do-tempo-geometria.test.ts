@@ -132,7 +132,7 @@ describe("larguraAproximada — superestima de verdade agora (achado BAIXO A5)",
         pxPorDia,
         hojeIso: "2026-09-13",
       });
-      for (const r of [...escala.rotulos, ...escala.ticksMes]) textos.add(r.label);
+      for (const r of [...escala.rotulos, ...escala.rotulosSuperiores]) textos.add(r.label);
     }
     expect(textos.size).toBeGreaterThan(5);
     for (const texto of textos) {

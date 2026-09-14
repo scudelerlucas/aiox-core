@@ -99,12 +99,14 @@ describe("PaginaTarefa (fixture)", () => {
 
     const total = html.match(/role="status"/g)?.length ?? 0;
     const vazias = html.match(/role="status"[^>]*><\/p>/g)?.length ?? 0;
-    // 7 formulários (nota nova, subtarefa nova, duração, mãe, meta, status,
-    // átomos) + a região "Relação criada." do formulário de relação + as duas
-    // de "Excluída." (notas e relações). A régua do crítico é ≥ 5 — a página
-    // entrega 10.
+    // [BAIXO #7, rodada 9] 7 formulários (nota nova, subtarefa nova, duração,
+    // mãe, meta, status, átomos) + as DUAS do painel de notas (desfazer e
+    // anúncios) + as DUAS do painel de relações + as DUAS do formulário de
+    // relação. As de DESFAZER passaram a ser separadas das de ANÚNCIOS: era a
+    // fusão que fazia "Confirme: clique de novo…" ser lido colado ao botão
+    // "Desfazer" de uma exclusão anterior. A régua do crítico é ≥ 5.
     expect(total).toBeGreaterThanOrEqual(5);
-    expect(total).toBe(10);
+    expect(total).toBe(13);
     expect(vazias).toBe(total); // nenhuma nasce com texto
     expect(html).toContain('aria-atomic="true"');
   });

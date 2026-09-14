@@ -25,19 +25,43 @@ import { revalidatePath } from "next/cache";
 
 import { mutateLifeboard } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/tasks.fixture-store";
-import {
-  arestaAddAction,
-  arestaDelAction,
-  atomosSetAction,
-  estimativaSetAction,
-  goalSetAction,
-  mutar,
-  notaAddAction,
-  notaDelAction,
-  parentSetAction,
-  statusSetAction,
-  subtarefaAddAction,
-} from "@/app/tarefa/actions";
+import { escreverTarefaAction } from "@/app/tarefa/actions";
+import { mutar } from "@/app/tarefa/despachante";
+import type {
+  EstadoAcaoTarefa,
+  OperacaoDeEscrita,
+  PedidoDeEscrita,
+} from "@/app/tarefa/pedido";
+
+/**
+ * [ALTO #1, rodada 9] As dez actions por operação deixaram de ser exportadas:
+ * o servidor desta página tem UMA porta, `escreverTarefaAction`, e ela só
+ * aceita um `PedidoDeEscrita` (selo `unique symbol` não exportado —
+ * `pedido.ts`). Um componente não consegue montar esse objeto; um TESTE
+ * consegue, com a conversão abaixo, e é isso que mantém a bateria de
+ * validação desta rodada apontando exatamente para os mesmos ramos.
+ *
+ * Os dez nomes viram apelidos locais com a `op` correspondente — o corpo dos
+ * testes abaixo não mudou uma linha.
+ */
+function porOp(op: OperacaoDeEscrita) {
+  return async (estado: EstadoAcaoTarefa, f: FormData): Promise<EstadoAcaoTarefa> => {
+    const campos: Record<string, string> = {};
+    for (const [k, v] of f.entries()) if (typeof v === "string") campos[k] = v;
+    return escreverTarefaAction(estado, { op, campos } as unknown as PedidoDeEscrita);
+  };
+}
+
+const notaAddAction = porOp("nota_criar");
+const notaDelAction = porOp("nota_excluir");
+const subtarefaAddAction = porOp("subtarefa_criar");
+const parentSetAction = porOp("mae");
+const goalSetAction = porOp("meta");
+const atomosSetAction = porOp("atomos_salvar");
+const estimativaSetAction = porOp("duracao");
+const statusSetAction = porOp("status");
+const arestaAddAction = porOp("relacao_criar");
+const arestaDelAction = porOp("relacao_excluir");
 
 /**
  * OS-LIFEBOARD · P6 — os ramos de VALIDAÇÃO das server actions da tarefa
@@ -283,6 +307,9 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
       task_id: "task-build",
       texto: "uma nota válida",
       autor: "Lucas",
+      // [MÉDIO #4, rodada 7] `criado_em` só vem preenchido no DESFAZER; uma
+      // nota nova manda `null` e o banco usa o `default now()` de sempre.
+      criado_em: null,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/");
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
@@ -375,6 +402,7 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
       tipo: "sinergia",
       peso: 0.5,
       nota: null,
+      criado_em: null,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-deploy");
@@ -424,6 +452,7 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
       "task-build",
       "uma nota válida",
       "Lucas",
+      null, // [MÉDIO #4, rodada 7] sem `criado_em`: a nota nasce agora.
     );
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
@@ -511,6 +540,7 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
       "sinergia",
       0.5,
       null,
+      null, // [MÉDIO #4, rodada 7] idem.
     );
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
@@ -564,5 +594,80 @@ describe("tarefa/actions — mutar(): operação desconhecida (achado BAIXO #6, 
     }
 
     consoleErrorSpy.mockRestore();
+  });
+});
+
+/**
+ * [P2 do Codex, rodada 10] A DATA ORIGINAL é privilégio do DESFAZER.
+ *
+ * `nota_criar` e `nota_desfazer` caem no MESMO handler; idem `relacao_criar` e
+ * `relacao_desfazer_exclusao`. Até a rodada 9 o handler aceitava `criado_em`
+ * vindo em qualquer um dos dois, e a regra "só o desfazer manda a data" era
+ * uma CONVENÇÃO escrita em comentário.
+ *
+ * O selo do `PedidoDeEscrita` é um `unique symbol` — some na compilação. Do
+ * outro lado da rede o pedido é um objeto comum, então um cliente autenticado
+ * monta `{ op: "nota_criar", campos: { criado_em: "2020-01-01..." } }` na mão
+ * e RETRODATA uma nota nova, com a tela nunca tendo mostrado o campo. O
+ * estrago é na ordem cronológica: a nota nasce no passado, no meio do
+ * histórico de outra época.
+ *
+ * Agora quem decide é a OPERAÇÃO. Estes 4 testes são a guarda.
+ */
+describe("tarefa/actions — `criado_em` só no desfazer (P2 do Codex, rodada 10)", () => {
+  const modoOriginal = process.env.LIFEBOARD_DATA_MODE;
+  const DATA = "2020-01-01T12:00:00.000Z";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.LIFEBOARD_DATA_MODE = "live";
+    vi.mocked(mutateLifeboard).mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    if (modoOriginal === undefined) delete process.env.LIFEBOARD_DATA_MODE;
+    else process.env.LIFEBOARD_DATA_MODE = modoOriginal;
+  });
+
+  it("RECUSA `criado_em` numa nota NOVA — e não grava nada", async () => {
+    const r = await porOp("nota_criar")(
+      {},
+      form({ task_id: "task-build", texto: "nota forjada", criado_em: DATA }),
+    );
+    expect(r).toEqual({ erro: "Uma nota nova não escolhe a própria data." });
+    expect(mutateLifeboard).not.toHaveBeenCalled();
+  });
+
+  it("ACEITA `criado_em` no desfazer da nota — a data original volta", async () => {
+    const r = await porOp("nota_desfazer")(
+      {},
+      form({ task_id: "task-build", texto: "nota restaurada", criado_em: DATA }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith(
+      "nota_add",
+      expect.objectContaining({ criado_em: DATA }),
+    );
+  });
+
+  it("RECUSA `criado_em` numa relação NOVA — e não grava nada", async () => {
+    const r = await porOp("relacao_criar")(
+      {},
+      form({ origem: "a", destino: "b", tipo: "predecessor", criado_em: DATA }),
+    );
+    expect(r).toEqual({ erro: "Uma relação nova não escolhe a própria data." });
+    expect(mutateLifeboard).not.toHaveBeenCalled();
+  });
+
+  it("ACEITA `criado_em` no desfazer da exclusão da relação", async () => {
+    const r = await porOp("relacao_desfazer_exclusao")(
+      {},
+      form({ origem: "a", destino: "b", tipo: "predecessor", criado_em: DATA }),
+    );
+    expect(r).toEqual({ ok: true, id: undefined });
+    expect(mutateLifeboard).toHaveBeenCalledWith(
+      "aresta_add",
+      expect.objectContaining({ criado_em: DATA }),
+    );
   });
 });

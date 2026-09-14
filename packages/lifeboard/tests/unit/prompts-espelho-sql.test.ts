@@ -1,12 +1,15 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import type { Complexidade } from "@/core/prompts/tipos";
 import {
   BACKOFF_POR_TENTATIVA_MIN,
   CONTAS,
+  CUSTO_ESTIMADO_POR_COMPLEXIDADE,
   JANELA_HEARTBEAT_MIN,
+  LIMITE_DEFASAGEM_HORAS,
   MAX_TENTATIVAS,
 } from "@/core/prompts/tipos";
 
@@ -32,23 +35,29 @@ import {
  */
 
 const DIR_MIGRATIONS = join(__dirname, "..", "..", "supabase", "migrations");
-const ARQUIVOS = [
-  "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
-  "0013_lifeboard_v3_fila_contabilidade.sql",
-  "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
-  "0015_lifeboard_v3_fila_dia_e_dono.sql",
-] as const;
 
-/** As 6 migrations da fila — a varredura do `raise` (#3) vale para todas. */
-const MIGRATIONS_DA_FILA = [
-  "0007_lifeboard_v3_fila_prompts.sql",
-  "0009_lifeboard_v3_fila_ajustes.sql",
-  "0011_lifeboard_v3_fila_ajustes_2.sql",
-  "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
-  "0013_lifeboard_v3_fila_contabilidade.sql",
-  "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
-  "0015_lifeboard_v3_fila_dia_e_dono.sql",
-] as const;
+/**
+ * [rodada 10] As duas listas abaixo eram ESCRITAS À MÃO, e ficaram para trás:
+ * faltavam a 0017, a 0020 e a 0021, e a 0021 derrubou este teste ao declarar
+ * uma função nova. É o mesmo defeito que o CodeRabbit achou na sequência de
+ * implantação do DEPLOY.md — lista humana que envelhece calada.
+ *
+ * Agora saem do DISCO, em ordem. Migration nova entra sozinha; o teste deixa
+ * de ter uma lista para alguém esquecer de atualizar.
+ */
+function migrationsDoDisco(): readonly string[] {
+  return readdirSync(DIR_MIGRATIONS)
+    .filter((f) => /^\d{4}_.*\.sql$/.test(f) && !f.endsWith(".test.sql"))
+    .sort();
+}
+
+/** Onde as funções vivem: todas as migrations, porque `create or replace` anda. */
+const ARQUIVOS = migrationsDoDisco();
+
+/** As migrations da fila — a varredura do `raise` (#3) vale para todas. */
+const MIGRATIONS_DA_FILA = migrationsDoDisco().filter((f) =>
+  /fila|caixa|livro_razao|consumo_por_entidade/.test(f),
+);
 
 /** O teste COMPORTAMENTAL da fila — o que este arquivo NÃO é (ver o bloco D28). */
 const TESTE_SQL = join(__dirname, "..", "..", "supabase", "tests", "fila_prompts.test.sql");
@@ -118,8 +127,14 @@ function raisesComPorcentoS(sql: string): string[] {
 
 describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
   it("as migrations existem e têm conteúdo (se o caminho quebrar, o teste grita)", () => {
+    // [rodada 10] O piso era 1000 caracteres, calibrado para a lista escolhida
+    // a dedo. Lendo o diretório inteiro entram migrations antigas e curtas (a
+    // menor tem 844), e o número virava um obstáculo sem sentido: o que este
+    // teste guarda é o CAMINHO — se `DIR_MIGRATIONS` quebrar, `ler` estoura ou
+    // devolve vazio. O piso passa a dizer isso, e nada além disso.
+    expect(ARQUIVOS.length, "nenhuma migration encontrada no disco").toBeGreaterThan(15);
     for (const arquivo of ARQUIVOS) {
-      expect(ler(arquivo).length).toBeGreaterThan(1000);
+      expect(ler(arquivo).length, arquivo).toBeGreaterThan(100);
     }
   });
 
@@ -273,11 +288,394 @@ describe("D28 — contrato mínimo: o teste SQL só chama função que existe na
   });
 
   it("D25 — o dia do item no SQL é o do FECHAMENTO (a régua de painel_fila_itens_do_dia)", () => {
-    const sql = semComentarios(ler("0015_lifeboard_v3_fila_dia_e_dono.sql"));
+    const sql = semComentarios(ler("0016_lifeboard_v3_consumo_por_entidade.sql"));
     expect(sql).toMatch(/painel_dia_operador\(f\.concluido_em\)\s*=\s*p_dia/);
     // e a régua de `ajustar_custo` é a MESMA (era `pego_em` de um lado e
     // `concluido_em` do outro — o botão prometia e não movia número nenhum):
     expect(sql).toMatch(/painel_dia_operador\(v_row\.concluido_em\)\s*<>\s*public\.painel_dia_operador\(\)/);
     expect(sql).not.toContain("coalesce(f.pego_em, f.criado_em)");
+  });
+});
+
+/**
+ * ═══ RODADA 7 — o que 0016 tem que dizer, e o que ela NÃO pode ter ═══
+ *
+ * Contrato mínimo de novo, com o mesmo aviso do bloco D28: estes testes são de
+ * ORTOGRAFIA. Quem prova COMPORTAMENTO é `supabase/tests/fila_prompts.test.sql`
+ * — blocos T21/T22/T25 (D31), T26/T27/T28 (D32) e T29 (MÉDIO 4/BAIXO 9), e as
+ * seis mutações do relatório da rodada, cada uma derrubando ao menos 2 blocos.
+ */
+describe("D31/D32 — 0016 (a migration da rodada 7)", () => {
+  const SQL_0016 = () => semComentarios(ler("0016_lifeboard_v3_consumo_por_entidade.sql"));
+
+  it("é aditiva — a única remoção é a assinatura de 13 args do motivo_do_pull", () => {
+    const sql = SQL_0016().toLowerCase();
+    expect(sql).not.toContain("drop table");
+    expect(sql).not.toContain("drop column");
+    expect(sql).not.toContain("drop index");
+    const drops = sql.match(/drop function[^;]*;/g) ?? [];
+    expect(drops).toHaveLength(1);
+    expect(drops[0]).toContain("painel_fila_motivo_do_pull");
+    expect(sql).toContain("add column if not exists exigir_medicao_recente");
+    expect(sql).toContain("create or replace function");
+  });
+
+  it("D31 — o `left join lateral` NÃO filtra por dia (era a cobrança em dobro)", () => {
+    const sql = SQL_0016();
+    // O trecho entre `left join lateral (` e `) ses on true` é a dedup por
+    // ENTIDADE: nele não pode sobrar nenhuma comparação com `p_dia`.
+    const inicio = sql.indexOf("left join lateral (");
+    const fim = sql.indexOf(") ses on true", inicio);
+    expect(inicio, "0016 precisa ter o lateral da dedup").toBeGreaterThan(0);
+    const lateral = sql.slice(inicio, fim);
+    expect(lateral).toContain("s.sessao_id = f.session_id");
+    expect(lateral).toContain("s.custo_usd is not null");
+    expect(lateral).not.toContain("p_dia");
+    // E a contribuição é 0 ou o custo inteiro — nunca uma subtração (que fazia
+    // a estimativa virar PISO quando o real era menor).
+    expect(sql).toContain("case when ses.custo_usd is null then f.custo_usd else 0 end");
+    expect(sql).not.toContain("greatest(f.custo_usd - ses.custo_usd");
+  });
+
+  it("D32 — o limite de defasagem do SQL é LIMITE_DEFASAGEM_HORAS", () => {
+    const sql = SQL_0016();
+    const achados = [...sql.matchAll(/p_defasagem_horas\s*>\s*(\d+)/g)].map((m) =>
+      Number.parseInt(m[1] as string, 10),
+    );
+    expect(achados.length, "0016 precisa comparar a defasagem com o limite").toBeGreaterThan(0);
+    for (const horas of achados) expect(horas).toBe(LIMITE_DEFASAGEM_HORAS);
+    // E a coluna que liga a trava nasce DESLIGADA: nada muda até o operador querer.
+    expect(sql).toMatch(/exigir_medicao_recente boolean not null default false/);
+  });
+
+  it("D32 — nenhuma linha de 0016 mexe no VALOR do teto (isso é do operador)", () => {
+    const sql = SQL_0016().toLowerCase();
+    expect(sql).not.toMatch(/update\s+public\.painel_teto_diario\s+set\s+teto_usd/);
+    expect(sql).not.toMatch(/alter\s+column\s+teto_usd\s+set\s+default/);
+  });
+
+  it("MÉDIO 4/BAIXO 9 — medido ZERO é ajustável e o enum não chega à tela", () => {
+    const sql = SQL_0016();
+    expect(sql).toMatch(/not v_row\.custo_e_estimativa and coalesce\(v_row\.custo_usd, 0\) <> 0/);
+    expect(sql).toContain("public.painel_fila_estado_br(v_row.estado)");
+    // A recusa de estado não pode voltar a interpolar o enum cru.
+    expect(sql).not.toMatch(/\(este está %\)[\s\S]{0,40}v_row\.estado\s*$/m);
+  });
+
+  it("os blocos novos do teste SQL existem, e cada decisão de dinheiro tem DOIS", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    for (const marca of [
+      "T21 · D31",
+      "T22 · D31",
+      "T23 · D26 POSSE, SEGUNDO CAMINHO",
+      "T24 · MÉDIO 3 + ALTO 1, SEGUNDO CAMINHO",
+      "T25 · D31/D41, SEGUNDO CAMINHO",
+      "T26 · D32a/D32b",
+      "T27 · D32c",
+      "T28 · D32d",
+      "T29 · MÉDIO 4 + BAIXO 9",
+    ]) {
+      expect(teste, `caso ausente: ${marca}`).toContain(marca);
+    }
+    const oks = teste.match(/RESULTADO: ok —/g) ?? [];
+    expect(oks.length).toBeGreaterThanOrEqual(29);
+  });
+});
+
+/**
+ * ═══ RODADA 8 — o que 0018 tem que dizer, e o que ela NÃO pode ter ═══
+ *
+ * Mesmo aviso dos dois blocos acima, sem eufemismo: ESTES testes são de
+ * ORTOGRAFIA. Quem prova COMPORTAMENTO é `supabase/tests/fila_prompts.test.sql`
+ * — T30/T22 (D33, ALTO 1), T31/T37 (D34a, ALTO 2), T32/T38 (D34b, ALTO 2),
+ * T33/T39 (D35, ALTO 3), T24/T40 (MÉDIO 3), T34/T41 (MÉDIO 4), T35 (BAIXO 4 e
+ * 5) e T36 (BAIXO 1) — rodados contra o Postgres de verdade. Cada ALTO e cada
+ * MÉDIO desta rodada tem DOIS blocos, por caminhos diferentes: o crítico da
+ * rodada 7 mediu 3 mutações que não derrubaram bloco nenhum, e foi assim que
+ * os ALTOS passaram.
+ */
+describe("D33/D34/D35 — 0018 (a migration da rodada 8)", () => {
+  const SQL_0018 = () => semComentarios(ler("0018_lifeboard_v3_caixa_auditavel.sql"));
+
+  it("é ADITIVA — nenhuma remoção de função, tabela, coluna ou índice", () => {
+    const sql = SQL_0018().toLowerCase();
+    expect(sql).not.toContain("drop table");
+    expect(sql).not.toContain("drop column");
+    expect(sql).not.toContain("drop index");
+    expect(sql).not.toContain("drop function");
+    expect(sql).not.toContain("drop view");
+    expect(sql).toContain("add column if not exists custo_origem");
+    expect(sql).toContain("create or replace function");
+    expect(sql).toContain("create or replace view");
+  });
+
+  it("D33 — o dia de cobrança é o do FECHAMENTO do item, e a view o usa", () => {
+    const sql = SQL_0018();
+    expect(sql).toContain("create or replace function public.painel_sessao_dia_de_cobranca");
+    // o dia do ITEM entra na conta, e é `concluido_em` que o define:
+    expect(sql).toMatch(/painel_dia_operador\(f\.concluido_em\)[\s\S]{0,400}f\.session_id = p_sessao_id/);
+    // e a view de consumo por dia passou a chamar a função (não mais o instante cru):
+    expect(sql).toMatch(/as dia[\s\S]{0,200}from public\.painel_frentes_sessoes s/);
+    expect(sql).toContain("public.painel_sessao_dia_de_cobranca(\n    s.sessao_id");
+  });
+
+  it("D34b — `and s.conta = f.conta` NÃO está mais no lateral da dedup", () => {
+    const sql = SQL_0018();
+    const inicio = sql.indexOf("left join lateral (");
+    const fim = sql.indexOf(") ses on true", inicio);
+    expect(inicio, "0018 precisa ter o lateral da dedup").toBeGreaterThan(0);
+    const lateral = sql.slice(inicio, fim);
+    expect(lateral).toContain("s.sessao_id = f.session_id");
+    expect(lateral).not.toContain("s.conta = f.conta");
+    // BAIXO 7: a linha morta saiu, e a ordenação deixa a equivalência explícita.
+    expect(lateral).not.toContain("s.custo_usd is not null");
+    expect(lateral).toContain("order by s.custo_usd desc nulls last");
+    // A contribuição continua sendo 0 ou o custo inteiro — nunca uma subtração.
+    expect(sql).toContain("case when ses.custo_usd is null then f.custo_usd else 0 end");
+  });
+
+  it("D35 — `painel_fila_medido_ate` só olha sessão COM custo", () => {
+    const sql = SQL_0018();
+    const inicio = sql.indexOf("create or replace function public.painel_fila_medido_ate");
+    const fim = sql.indexOf("$$;", inicio);
+    expect(inicio).toBeGreaterThan(0);
+    expect(sql.slice(inicio, fim)).toContain("s.custo_usd is not null");
+  });
+
+  it("BAIXO 4 — o 150 fantasma NÃO existe mais no caminho do dinheiro", () => {
+    const sql = SQL_0018();
+    expect(sql).not.toMatch(/v_teto\s*:=\s*150/);
+    expect(sql).toMatch(/não tem teto diário declarado no painel/);
+  });
+
+  it("BAIXO 5 — todo `headroom_usd` do pull sai clampado em 0", () => {
+    const sql = SQL_0018();
+    const saidas = [...sql.matchAll(/'headroom_usd',\s*round\(([^)]*\)?[^,]*),\s*2\)/g)].map((m) => m[1]);
+    expect(saidas.length, "o pull precisa devolver headroom_usd").toBeGreaterThanOrEqual(3);
+    for (const expr of saidas) expect(expr).toContain("greatest(");
+  });
+
+  it("MÉDIO 4 — a trava do ajuste olha a ORIGEM, não o valor", () => {
+    const sql = SQL_0018();
+    expect(sql).toMatch(/v_row\.custo_origem = 'medido' and coalesce\(v_row\.custo_usd, 0\) <> 0/);
+    expect(sql).not.toMatch(/not v_row\.custo_e_estimativa and coalesce\(v_row\.custo_usd, 0\) <> 0/);
+    // e o ajuste GRAVA a origem do operador:
+    expect(sql).toContain("custo_origem = 'operador'");
+    // o fechamento grava a da sessão, o lançamento da casa grava a dela:
+    expect(sql).toContain("custo_origem = 'medido'");
+    expect(sql).toContain("custo_origem = 'estimativa'");
+  });
+
+  it("MÉDIO 3 — `itens` conta o que a fila rodou, sem filtro de contribuição", () => {
+    const sql = SQL_0018();
+    expect(sql).toMatch(/'itens', \(select count\(\*\) from public\.painel_fila_itens_do_dia\(t\.conta, v_dia\) d\)/);
+    expect(sql).toContain("'itens_com_contribuicao'");
+  });
+
+  it("D34a — as três portas que vinculam sessão consultam a conta dona", () => {
+    const sql = SQL_0018();
+    expect(sql).toContain("create or replace function public.painel_sessao_dona");
+    const chamadas = sql.match(/v_dona := public\.painel_sessao_dona\(v_sess\);/g) ?? [];
+    expect(chamadas, "heartbeat + fechar + ajustar_custo").toHaveLength(3);
+    const recusas = sql.match(/Esta sessão é da conta % — não dá para vinculá-la a um item da conta %\./g) ?? [];
+    expect(recusas).toHaveLength(3);
+  });
+
+  it("NENHUMA linha de 0018 mexe no VALOR do teto (isso é do operador)", () => {
+    const sql = SQL_0018().toLowerCase();
+    expect(sql).not.toMatch(/update\s+public\.painel_teto_diario\s+set\s+teto_usd/);
+    expect(sql).not.toMatch(/alter\s+column\s+teto_usd\s+set\s+default/);
+    expect(sql).not.toMatch(/insert\s+into\s+public\.painel_teto_diario/);
+  });
+
+  it("os blocos novos do teste SQL existem, e cada ALTO/MÉDIO tem DOIS", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    for (const marca of [
+      "T30 · D33",
+      "T31 · D34a",
+      "T32 · D34b",
+      "T33 · D35",
+      "T34 · MÉDIO 4",
+      "T35 · BAIXO 4 + BAIXO 5",
+      "T36 · BAIXO 1",
+      "T37 · D34a, SEGUNDO CAMINHO",
+      "T38 · D34b, SEGUNDO CAMINHO",
+      "T39 · D35, SEGUNDO CAMINHO",
+      "T40 · MÉDIO 3, TERCEIRO CAMINHO",
+      "T41 · MÉDIO 4, SEGUNDO CAMINHO",
+    ]) {
+      expect(teste, `caso ausente: ${marca}`).toContain(marca);
+    }
+    const oks = teste.match(/RESULTADO: ok —/g) ?? [];
+    expect(oks.length).toBeGreaterThanOrEqual(41);
+  });
+
+  it("BAIXO 8 — todo bloco que MEDE dinheiro limpa a conta de prova antes", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    const blocos = teste.match(/(?:^|\n)do \$\$/g) ?? [];
+    const limpezas = teste.match(/delete from public\.painel_frentes_sessoes where conta/g) ?? [];
+    expect(blocos.length).toBeGreaterThanOrEqual(51);
+    // D43 (rodada 9): a suíte ganhou blocos que NÃO tocam a conta de prova —
+    // T42 roda o chooser como função pura sobre uma tabela de casos, e T51 só
+    // olha os gatilhos do catálogo. Eles não limpam porque não medem dinheiro.
+    // A régua deixou de ser "um delete por bloco" e virou "quase todo bloco
+    // limpa"; quem garante que NADA persiste não é mais o `delete`, é a
+    // barreira diferida de D43, provada por T51.
+    expect(limpezas.length).toBeGreaterThanOrEqual(blocos.length - 3);
+  });
+});
+
+/**
+ * ═══ RODADA 9 — O LIVRO-RAZÃO (0019) ═══
+ *
+ * Mesmo aviso de sempre, sem eufemismo: ESTES testes são de ORTOGRAFIA. Quem
+ * prova COMPORTAMENTO é `supabase/tests/fila_prompts.test.sql` — T43 (ALTO 1),
+ * T44 (ALTO 2), T46 (ALTO 3), T47 (ALTO 4), T42 (MÉDIO 1), T50/T24/T40
+ * (MÉDIO 3), T49 (MÉDIO 5), T45 (D12/M23), T48 (a imutabilidade) e T51 (a
+ * barreira) — rodados contra o Postgres de verdade.
+ */
+describe("D37–D43 — 0019 (a migration do livro-razão)", () => {
+  const SQL_0019 = () => semComentarios(ler("0019_lifeboard_v3_livro_razao.sql"));
+
+  it("é ADITIVA — nenhuma remoção de função, tabela, coluna, índice ou view", () => {
+    const sql = SQL_0019().toLowerCase();
+    expect(sql).not.toContain("drop table");
+    expect(sql).not.toContain("drop column");
+    expect(sql).not.toContain("drop index");
+    expect(sql).not.toContain("drop function");
+    expect(sql).not.toContain("drop view");
+    expect(sql).toContain("create table if not exists public.painel_caixa_lancamentos");
+    expect(sql).toContain("create or replace function");
+    expect(sql).toContain("create or replace view");
+  });
+
+  it("D37 — o livro é IMUTÁVEL e o gatilho que recusa existe", () => {
+    const sql = SQL_0019();
+    expect(sql).toContain("create or replace function public.painel_caixa_imutavel");
+    expect(sql).toMatch(/before update or delete on public\.painel_caixa_lancamentos/);
+    expect(sql).toContain("O livro-razão do caixa é imutável");
+  });
+
+  it("D37 — nenhum lançamento novo cai num dia passado (o dia é sempre hoje)", () => {
+    const sql = SQL_0019();
+    const inicio = sql.indexOf("create or replace function public.painel_caixa_lancar(");
+    const fim = sql.indexOf("$$;", inicio);
+    expect(inicio).toBeGreaterThan(0);
+    const corpo = sql.slice(inicio, fim);
+    // A ÚNICA atribuição de `v_dia` dentro da porta de escrita é o dia de hoje.
+    const atribuicoes = [...corpo.matchAll(/v_dia\s*:=\s*([^;]+);/g)].map((m) => m[1]);
+    expect(atribuicoes).toEqual(["public.painel_dia_operador()"]);
+  });
+
+  it("D40 — zero é NÃO-LANÇAMENTO, e isso é um `check` da tabela", () => {
+    const sql = SQL_0019();
+    expect(sql).toMatch(/valor_usd\s+numeric not null check \(valor_usd <> 0\)/);
+    // e a sessão sem custo (ou com custo zero) não estorna o que o item lançou
+    expect(sql).toMatch(/if new\.custo_usd is null or new\.custo_usd = 0 then\n\s*return null;/);
+  });
+
+  it("D41 — as leituras do dia saem TODAS do livro", () => {
+    const sql = SQL_0019();
+    expect(sql).toMatch(/create or replace view public\.painel_consumo_por_conta_dia as[\s\S]{0,600}from public\.painel_caixa_lancamentos l/);
+    expect(sql).toMatch(/create or replace function public\.painel_fila_consumo_do_dia[\s\S]{0,400}public\.painel_caixa_do_dia\(p_conta, p_dia\)/);
+    expect(sql).toMatch(/create or replace function public\.painel_fila_itens_do_dia[\s\S]{0,600}from public\.painel_caixa_lancamentos l/);
+    expect(sql).toMatch(/create or replace function public\.painel_fila_medido_ate[\s\S]{0,400}max\(l\.medido_em\)/);
+  });
+
+  it("D42 — o chooser é função PURA e `enfileirar` chama ELE (não um laço próprio)", () => {
+    const sql = SQL_0019();
+    expect(sql).toContain("create or replace function public.painel_fila_escolher_conta");
+    expect(sql).toContain("public.painel_fila_escolher_conta(coalesce(v_consumos, '[]'::jsonb), v_estimado)");
+    // o limite de defasagem do chooser é o mesmo LIMITE_DEFASAGEM_HORAS do TS
+    const limites = [...sql.matchAll(/v_limite_defasagem constant numeric := (\d+)/g)].map((m) =>
+      Number.parseInt(m[1] as string, 10),
+    );
+    expect(limites.length).toBeGreaterThan(0);
+    for (const limite of limites) expect(limite).toBe(LIMITE_DEFASAGEM_HORAS);
+  });
+
+  it("MÉDIO 5 — o relatório é a UNIÃO (conta sem teto não some)", () => {
+    const sql = SQL_0019();
+    expect(sql).toContain("'sem_teto_declarado', (c.teto_usd is null)");
+    expect(sql).toMatch(/select t\.conta, t\.teto_usd from public\.painel_teto_diario t\n\s*union/);
+  });
+
+  it("D43 — a barreira é DIFERIDA e cobre as quatro tabelas de dinheiro", () => {
+    const sql = SQL_0019();
+    const gatilhos = sql.match(/create constraint trigger \w+_barreira_teste/g) ?? [];
+    expect(gatilhos).toHaveLength(4);
+    const diferidos = sql.match(/deferrable initially deferred/g) ?? [];
+    expect(diferidos).toHaveLength(4);
+    // e a suíte arma o parâmetro UMA vez, para a sessão inteira do psql
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    expect(teste).toContain("select set_config('lifeboard.teste', 'on', false)");
+  });
+
+  it("NENHUMA linha de 0019 mexe no VALOR do teto (isso é do operador)", () => {
+    const sql = SQL_0019().toLowerCase();
+    expect(sql).not.toMatch(/update\s+public\.painel_teto_diario\s+set\s+teto_usd/);
+    expect(sql).not.toMatch(/alter\s+column\s+teto_usd\s+set\s+default/);
+    expect(sql).not.toMatch(/insert\s+into\s+public\.painel_teto_diario/);
+    expect(sql).not.toContain("150");
+  });
+
+  it("os blocos da rodada 9 existem no teste SQL", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    for (const marca of [
+      "T42 · MÉDIO 1",
+      "T43 · ALTO 1 (M14)",
+      "T44 · ALTO 2 (M19)",
+      "T45 · D12 (M23)",
+      "T46 · ALTO 3",
+      "T47 · ALTO 4 (M21)",
+      "T48 · D37",
+      "T49 · MÉDIO 5",
+      "T50 · MÉDIO 3",
+      "T51 · D43",
+    ]) {
+      expect(teste, `caso ausente: ${marca}`).toContain(marca);
+    }
+    const oks = teste.match(/RESULTADO: ok —/g) ?? [];
+    expect(oks.length).toBeGreaterThanOrEqual(51);
+  });
+});
+
+/**
+ * BAIXO 3 (rodada 9) — `CUSTO_ESTIMADO_POR_COMPLEXIDADE` duplicava
+ * `public.painel_custo_estimado` SEM teste de deriva: os dois coincidiam por
+ * sorte. O custo por complexidade aparece em TRÊS lugares do SQL (a seed da
+ * tabela em 0009, o fallback do trigger de admissão em 0018 e o fallback de
+ * `fila_prompts_enfileirar`) e num só do TS. Agora eles se olham.
+ */
+describe("BAIXO 3 — o custo por complexidade é o MESMO no TS e no SQL", () => {
+  it("a seed de painel_custo_estimado (0009) bate com a tabela do TS", () => {
+    const sql = semComentarios(ler("0009_lifeboard_v3_fila_ajustes.sql"));
+    const inicio = sql.indexOf("insert into public.painel_custo_estimado");
+    expect(inicio, "0009 precisa semear painel_custo_estimado").toBeGreaterThan(0);
+    const trecho = sql.slice(inicio, sql.indexOf(";", inicio));
+    const pares = [...trecho.matchAll(/\('(baixa|media|alta|maxima)',\s*(\d+)\)/g)];
+    expect(pares.length, "a seed precisa ter as 4 complexidades").toBe(4);
+    for (const par of pares) {
+      const complexidade = par[1] as Complexidade;
+      expect(
+        CUSTO_ESTIMADO_POR_COMPLEXIDADE[complexidade],
+        `seed de ${complexidade}`,
+      ).toBe(Number.parseInt(par[2] as string, 10));
+    }
+  });
+
+  it("o fallback do trigger de admissão (0018) bate com a tabela do TS", () => {
+    const sql = semComentarios(ler("0018_lifeboard_v3_caixa_auditavel.sql"));
+    const achado = /when 'baixa' then (\d+) when 'media' then (\d+) when 'alta' then (\d+) when 'maxima' then (\d+)/.exec(
+      sql,
+    );
+    expect(achado, "0018 precisa ter o fallback de custo por complexidade").not.toBeNull();
+    const valores = (achado as RegExpExecArray).slice(1).map((n) => Number.parseInt(n, 10));
+    expect(valores).toEqual([
+      CUSTO_ESTIMADO_POR_COMPLEXIDADE.baixa,
+      CUSTO_ESTIMADO_POR_COMPLEXIDADE.media,
+      CUSTO_ESTIMADO_POR_COMPLEXIDADE.alta,
+      CUSTO_ESTIMADO_POR_COMPLEXIDADE.maxima,
+    ]);
   });
 });

@@ -27,6 +27,22 @@ function menosMin(minutos: number): string {
  * `naFilaUsd` é o que espera: item-3 (baixa, 5) no Lucas; item-7 (maxima, 120)
  * na Alma Petra.
  */
+/**
+ * MÉDIO 2 (rodada 8) · OS DOIS ESTADOS QUE FALTAVAM.
+ *
+ * O crítico mediu: nenhuma das 3 contas do fixture tinha `medidoAteEm: null`
+ * nem `exigeMedicaoRecente: true` — ou seja, o estado MAJORITÁRIO da produção
+ * (2 das 3 contas reais nunca tiveram sessão medida, e a trava de D32c existe
+ * desde a rodada 7) não entrava em screenshot nenhum, e os dois ramos de
+ * `conta-card.tsx` que mais mudaram nesta rodada não tinham retrato.
+ *
+ * Como as contas são exatamente 3 (`CONTAS`, o contrato do banco), os estados
+ * foram REDISTRIBUÍDOS em vez de somados — e os quatro cabem:
+ *   · Lucas       → medição RECENTE (30 min);
+ *   · Pandora     → SEM MEDIÇÃO NENHUMA (`medidoAteEm: null`);
+ *   · Alma Petra  → medição ATRASADA (13 h) + `exigeMedicaoRecente: true`,
+ *     que é o par que faz o banco recusar 100% dos disparos (D36).
+ */
 export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
   {
     conta: "lucasscudeler@gmail.com",
@@ -34,7 +50,7 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     // (concluída hoje, US$ 3,42) entra por cima, calculado pela mesma regra do
     // banco — 38,68 + 3,42 = 42,10, o total que a tela mostrava antes como
     // constante. Agora ele MEXE quando a fila mexe, que era o defeito medido.
-    tetoUsd: 150,
+    tetoUsd: 500,
     consumoHojeUsd: 38.68,
     reservadoUsd: 0,
     naFilaUsd: 5,
@@ -42,34 +58,60 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     estimativaItens: 0,
     emEspera: 0,
     medidoAteEm: menosMin(30),
+    // D32a/d (rodada 7): a conta medida HÁ POUCO — a linha do card continua
+    // sendo "medido até há 30 min", e agora vem com a faixa real dos dias
+    // medidos ao lado do teto.
+    defasagemHoras: 0.5,
+    exigeMedicaoRecente: false,
+    historico: { dias: 9, minUsd: 155.72, maxUsd: 2513.29, medianaUsd: 391.7 },
   }, // ok (28,1% com o item da fila somado)
   {
     conta: "lsgpandora@gmail.com",
     // 48,50 publicadas + 50,00 do item-8 (morto sem fechar, D20) = 98,50 — o
     // mesmo total de antes, agora com uma parcela que a tela precisa marcar
     // como ESTIMATIVA da casa.
-    tetoUsd: 150,
+    tetoUsd: 500,
     consumoHojeUsd: 48.5,
     reservadoUsd: 15,
     naFilaUsd: 0,
     estimativaUsd: 0,
     estimativaItens: 0,
     emEspera: 0,
-    medidoAteEm: menosMin(80),
-  }, // warn (75,7%)
+    // MÉDIO 2 (rodada 8): a conta que NUNCA teve sessão medida — o estado de 2
+    // das 3 contas reais, e o que o card tem de dizer sem fingir que o zero
+    // não medido é zero gasto. O teto continua visível na linha do dinheiro.
+    medidoAteEm: null,
+    defasagemHoras: null,
+    exigeMedicaoRecente: false,
+    historico: null,
+  }, // sem medição nenhuma
   {
     conta: "almapetra.ltda@gmail.com",
     // O item-4 desta conta falhou ONTEM (13 h atrás, já em outro dia do
     // operador) — não conta hoje, como no SQL.
-    tetoUsd: 150,
-    consumoHojeUsd: 150,
+    tetoUsd: 500,
+    // BAIXO 1 (rodada 9): o teto subiu de 150 para 500 (decisão do operador em
+    // 14/09), e o consumo subiu junto para esta conta CONTINUAR sendo o retrato
+    // de "teto atingido". Sem isso o estado sumiria do fixture — e é ele que a
+    // prova de navegador fotografa.
+    consumoHojeUsd: 500,
     reservadoUsd: 0,
     naFilaUsd: 120,
     estimativaUsd: 0,
     estimativaItens: 0,
     emEspera: 0,
+    // D32a (rodada 7): 13 h de atraso — acima das 12 h, o card troca "medido
+    // até" por "última medição há 13 h" e a linha inteira sai em amarelo. É o
+    // caso que o crítico mediu na conta real (37 h) e que a tela escondia.
     medidoAteEm: menosMin(13 * 60),
-  }, // crit — teto atingido
+    defasagemHoras: 13,
+    // MÉDIO 2 + D36 (rodada 8): a trava do operador LIGADA, com a medição
+    // velha — o par exato em que o banco recusa todo disparo desta conta. Sem
+    // este retrato, o selo "sem autorização agora" e a recusa do roteador não
+    // apareciam em screenshot nenhum.
+    exigeMedicaoRecente: true,
+    historico: { dias: 1, minUsd: 500, maxUsd: 500, medianaUsd: 500 },
+  }, // crit — teto atingido E sem autorização (medição de 13 h com a trava ligada)
 ];
 
 export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
@@ -93,6 +135,8 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     sessionId: "session_01FILHA000000000000000001",
     motivoFalha: null,
     custoEEstimativa: false,
+    // MÉDIO 4 (rodada 8): a origem é explícita no fixture, como no banco.
+    custoOrigem: "medido",
     custoAjustadoEm: null,
     disponivelEm: null,
     sessaoUrl: "https://claude.ai/code/session_01FILHA000000000000000001",
@@ -174,6 +218,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     sessionId: "session_01FILHA000000000000000004",
     motivoFalha: null,
     custoEEstimativa: false,
+    custoOrigem: "medido",
     custoAjustadoEm: null,
     disponivelEm: null,
     sessaoUrl: "https://claude.ai/code/session_01FILHA000000000000000004",
@@ -262,6 +307,7 @@ export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
     sessionId: null,
     motivoFalha: "expirou 3 vezes sem fechamento",
     custoEEstimativa: true,
+    custoOrigem: "estimativa",
     custoAjustadoEm: null,
     disponivelEm: null,
     sessaoUrl: null,

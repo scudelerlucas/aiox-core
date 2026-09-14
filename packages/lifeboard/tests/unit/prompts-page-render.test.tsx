@@ -47,7 +47,16 @@ describe("PaginaPrompts (fixture)", () => {
     expect(html).toContain("Lucas");
     expect(html).toContain("Pandora");
     expect(html).toContain("Alma Petra");
-    expect(html).toContain("teto atingido — próximo espaço amanhã"); // Alma Petra está a 150 de 150
+    // MÉDIO 2 (rodada 9): a Alma Petra do fixture está no teto E com a trava de
+    // medição ligada. Os DOIS selos aparecem (eram um `else if`, e o segundo
+    // nunca renderizava), e o rodapé para de prometer "próximo espaço amanhã"
+    // sobre uma conta que amanhã continua sem autorização.
+    expect(html).toContain("teto atingido");
+    expect(html).toContain("sem autorização agora");
+    expect(html).toContain(
+      "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada",
+    );
+    expect(html).not.toContain("teto atingido — próximo espaço amanhã");
 
     // os 5 estados da fila (fixture cobre um de cada).
     expect(html).toContain("na fila");

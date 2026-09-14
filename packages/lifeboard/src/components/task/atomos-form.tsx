@@ -2,12 +2,10 @@
 
 import { useRef, useState } from "react";
 
-import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
-import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
-import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
+import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 import type { MotivoSemScore } from "@/core/prioritize/assimetria-motivo";
 import type { HerancaResultado, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { AssimetriaDeclarada } from "@/types/canonical";
@@ -95,9 +93,6 @@ export function AtomosForm({
   const [esforco, setEsforco] = useState<number | null>(assimetriaAtual?.esforco ?? null);
   const [custo, setCusto] = useState<number | null>(assimetriaAtual?.custo ?? null);
   const todosEscolhidos = opcionalidade !== null && esforco !== null && custo !== null;
-  // Distingue, no callback de sucesso ÚNICO do hook, se o disparo em curso
-  // era "salvar" ou "limpar" — os dois usam a mesma `disparar()`.
-  const ultimaAcaoRef = useRef<"salvar" | "limpar" | null>(null);
   /**
    * [MÉDIO #2, rodada 5] "Limpar átomos" SOME no sucesso (só existe quando
    * `assimetriaAtual !== null`) — e o foco caía no `<body>`. O grupo
@@ -107,16 +102,52 @@ export function AtomosForm({
    */
   const grupoOpcionalidadeRef = useRef<HTMLDivElement | null>(null);
   const botaoSalvarRef = useRef<HTMLButtonElement | null>(null);
-  const [aviso, setAviso] = useState<string | undefined>(undefined);
   /**
    * [MÉDIO #3, rodada 6] o trio que o SERVIDOR confirmou — salvar de novo o
    * mesmo trio não gasta rede (a região viva responde "nada mudou"). Começa
    * no que veio do servidor; `null` = nada declarado.
    */
   const confirmadoRef = useRef<string>(chaveDoTrio(assimetriaAtual));
-  const { mensagem, mostrar } = useMensagemSucesso();
-  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(atomosSetAction, () => {
-    if (ultimaAcaoRef.current === "limpar") {
+  /** O trio submetido — lido no `aoSucesso`, depois do `await`. */
+  const trioRef = useRef<string>(confirmadoRef.current);
+
+  /**
+   * [ALTO #1, rodada 9] DUAS portas, uma por operação — e nenhuma delas
+   * devolve despacho cru. Antes era um hook só, com um `ultimaAcaoRef` para
+   * adivinhar no sucesso qual das duas escritas tinha acontecido; agora a
+   * `op` viaja com o pedido e o servidor sabe qual é.
+   */
+  /**
+   * [P2 do Codex, rodada 10] UMA trava de voo para as DUAS portas. Salvar e
+   * limpar escrevem o MESMO campo; com uma trava cada, começar a gravação por
+   * uma deixava a outra apenas `aria-disabled` no visual, e a porta dela ainda
+   * despachava. O valor final passava a depender da ordem das respostas.
+   */
+  const travaDeVooDosAtomos = useRef(false);
+
+  const portaSalvar = usarPortaDeEscrita({
+    op: "atomos_salvar",
+    travaDeVoo: travaDeVooDosAtomos,
+    alvo: () => botaoSalvarRef.current,
+    aoSucesso: () => {
+      confirmadoRef.current = trioRef.current;
+    },
+  });
+
+  const portaLimpar = usarPortaDeEscrita({
+    op: "atomos_limpar",
+    travaDeVoo: travaDeVooDosAtomos,
+    // "Limpar átomos" SOME no sucesso: o foco vai para o 1º botão do grupo
+    // Opcionalidade (de onde a declaração recomeça) e, se ele já não estiver
+    // lá, para "Salvar átomos" — nunca para o `<body>`.
+    alvo: () => grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"),
+    alternativa: () => botaoSalvarRef.current,
+    regiao: {
+      mensagem: portaSalvar.mensagem,
+      mostrar: (t, o) => { portaSalvar.anunciar(t, o); },
+      limpar: () => { portaSalvar.limparAnuncio(); },
+    },
+    aoSucesso: () => {
       // [MÉDIO #2] devolve os 3 grupos ao estado SEM seleção — sem isto, o
       // `useState` local (só lido no mount) continuava mostrando os últimos
       // valores escolhidos mesmo depois do servidor apagar `assimetria`.
@@ -124,66 +155,32 @@ export function AtomosForm({
       setEsforco(null);
       setCusto(null);
       confirmadoRef.current = chaveDoTrio(null);
-      // "Limpar átomos" SOME no sucesso: o foco vai para o 1º botão do grupo
-      // Opcionalidade (de onde a declaração recomeça) e, se ele já não estiver
-      // lá, para "Salvar átomos" — nunca para o `<body>`.
-      concluirEscrita(
-        "atomos_limpar",
-        grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"),
-        botaoSalvarRef.current,
-        (t) => mostrar(t),
-      );
-    } else {
-      confirmadoRef.current = trioRef.current;
-      concluirEscrita("atomos_salvar", botaoSalvarRef.current, null, (t) => mostrar(t));
-    }
+    },
   });
-  /** O trio submetido — lido no `aoSucesso`, depois do `await`. */
-  const trioRef = useRef<string>(confirmadoRef.current);
+
+  const pendente = portaSalvar.pendente || portaLimpar.pendente;
+
+  function aoMudarCampo(): void {
+    portaSalvar.aoMudarCampo();
+    portaLimpar.aoMudarCampo();
+  }
 
   function salvar(): void {
-    const trio = chaveDoTrio(
-      todosEscolhidos ? { opcionalidade, esforco, custo } : null,
-    );
-    const decisao = decidirEscrita({
-      pendente: pendente || emVooAgora(),
-      valido: todosEscolhidos,
-      mudou: trio !== confirmadoRef.current,
-    });
-    if (decisao !== "gravar") {
-      // [ALTO #1, rodada 6] era um botão `disabled` que não explicava nada; o
-      // texto de ajuda embaixo continua, e agora a recusa também fala.
-      recusarEscrita("atomos_salvar", decisao, {
-        anunciar: (t) => mostrar(t),
-        alertar: setAviso,
-      });
-      return;
-    }
-    setAviso(undefined);
+    const trio = chaveDoTrio(todosEscolhidos ? { opcionalidade, esforco, custo } : null);
     trioRef.current = trio;
-    ultimaAcaoRef.current = "salvar";
-    const form = new FormData();
-    form.set("task_id", taskId);
-    form.set("opcionalidade", String(opcionalidade));
-    form.set("esforco", String(esforco));
-    form.set("custo", String(custo));
-    disparar(form);
+    portaSalvar.escrever(
+      {
+        task_id: taskId,
+        opcionalidade: String(opcionalidade),
+        esforco: String(esforco),
+        custo: String(custo),
+      },
+      { valido: todosEscolhidos, mudou: trio !== confirmadoRef.current },
+    );
   }
 
   function limpar(): void {
-    const decisao = decidirEscrita({ pendente: pendente || emVooAgora() });
-    if (decisao !== "gravar") {
-      recusarEscrita("atomos_limpar", decisao, {
-        anunciar: (t) => mostrar(t),
-        alertar: setAviso,
-      });
-      return;
-    }
-    ultimaAcaoRef.current = "limpar";
-    const form = new FormData();
-    form.set("task_id", taskId);
-    form.set("limpar", "true");
-    disparar(form);
+    portaLimpar.escrever({ task_id: taskId });
   }
 
   return (
@@ -194,7 +191,10 @@ export function AtomosForm({
           rotuloGrupo="Opcionalidade"
           opcoes={OPCOES_OPCIONALIDADE}
           valorAtual={opcionalidade}
-          aoMudar={setOpcionalidade}
+          aoMudar={(v) => {
+            setOpcionalidade(v);
+            aoMudarCampo();
+          }}
           desabilitado={pendente}
         />
       </div>
@@ -204,7 +204,10 @@ export function AtomosForm({
           rotuloGrupo="Esforço"
           opcoes={OPCOES_ESFORCO_CUSTO}
           valorAtual={esforco}
-          aoMudar={setEsforco}
+          aoMudar={(v) => {
+            setEsforco(v);
+            aoMudarCampo();
+          }}
           desabilitado={pendente}
         />
       </div>
@@ -214,7 +217,10 @@ export function AtomosForm({
           rotuloGrupo="Custo"
           opcoes={OPCOES_ESFORCO_CUSTO}
           valorAtual={custo}
-          aoMudar={setCusto}
+          aoMudar={(v) => {
+            setCusto(v);
+            aoMudarCampo();
+          }}
           desabilitado={pendente}
         />
       </div>
@@ -232,10 +238,16 @@ export function AtomosForm({
           // botão da página que virava `disabled` sozinho (ao limpar os
           // átomos, o trio some e o botão trocava de estado com o foco
           // dentro dele). A recusa mora em `salvar()` e diz o porquê.
+          //
+          // [MÉDIO #3, rodada 7] E sem `aria-disabled` por VALIDADE: ele
+          // anunciava "indisponível" e a tecnologia assistiva recusava o
+          // clique. O texto "Escolha os três…" abaixo já existia; agora ele é
+          // o `aria-describedby` deste botão, que fica plenamente habilitado.
           aria-busy={pendente ? true : undefined}
-          aria-disabled={pendente || !todosEscolhidos ? true : undefined}
+          aria-disabled={pendente ? true : undefined}
+          aria-describedby={!todosEscolhidos ? "dica-atomos" : undefined}
           className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 ${
-            pendente || !todosEscolhidos ? "opacity-50" : ""
+            pendente ? "opacity-50" : ""
           }`}
         >
           Salvar átomos
@@ -255,13 +267,16 @@ export function AtomosForm({
         ) : null}
       </div>
       {!todosEscolhidos ? (
-        // [MÉDIO #2, rodada 4] o botão nasce `disabled` — este texto diz o
-        // PORQUÊ, em vez de deixar o operador adivinhar por que "Salvar
-        // átomos" não responde ao clique.
-        <p className="text-xs text-bone-400">Escolha os três para calcular o score.</p>
+        // [MÉDIO #2, rodada 4] este texto diz o PORQUÊ, em vez de deixar o
+        // operador adivinhar. [MÉDIO #3, rodada 7] e agora é o
+        // `aria-describedby` do botão — quem ouve recebe a exigência junto
+        // com o nome do controle, em vez de um "[disabled]" sem explicação.
+        <p id="dica-atomos" className="text-xs text-bone-400">
+          Escolha os três para calcular o score.
+        </p>
       ) : null}
-      <CampoErro mensagem={estado.erro ?? aviso} />
-      <MensagemSucesso mensagem={mensagem} />
+      <CampoErro mensagem={portaSalvar.erroDoCampo ?? portaLimpar.erroDoCampo} />
+      <MensagemSucesso mensagem={portaSalvar.mensagem} />
 
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">
         {score ? (

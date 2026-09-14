@@ -39,9 +39,16 @@ import type { Ref } from "react";
  *    (`tabIndex={-1}` quando tem texto) e um `ref`, para quem dispara a ação
  *    ENTREGAR o foco ao texto da resposta em vez de largá-lo no documento.
  *
- * Os botões de produção (`cancelar-botao.tsx`, `ajustar-custo-botao.tsx`)
- * montam ESTE componente — é o par que a produção realmente forma, e é esse
- * par que `tests/unit/prompts-mensagem-live.test.tsx` renderiza.
+ * RODADA 7 — BAIXO 10: quem monta ESTE componente na fila deixou de ser cada
+ * botão e passou a ser a LINHA (`AcoesDaLinha`, em `fila-tabela.tsx`). Eram 4
+ * regiões `role="status"` por linha — 2 ações × 2 breakpoints, 33 num fixture
+ * de 8 itens; agora é 1 por linha visível (17 no HTML de produção: 8 itens × 2
+ * breakpoints + 1 do formulário, e só um breakpoint está `display:block` de
+ * cada vez). O formulário de novo prompt continua montando o seu.
+ *
+ * O par que a produção realmente forma — ação de verdade → componente que a
+ * tela monta — é o que `tests/unit/prompts-mensagem-live.test.tsx` renderiza,
+ * e desde esta rodada isso quer dizer renderizar a `FilaTabela` inteira.
  */
 export type TomDaMensagem = "sucesso" | "atencao";
 

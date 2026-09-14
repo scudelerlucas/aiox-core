@@ -43,6 +43,34 @@ import type { TaskEdge } from "@/types/canonical";
  */
 export const ALTURA_DO_CARTAO = 180;
 
+/**
+ * Altura do cartão no MODO MAPA (achado MÉDIO #6 do crítico hostil ROUND 6).
+ *
+ * O que ele mediu: abaixo de 0,85 de zoom o cartão vira pastilha — uma linha
+ * com ponto de estado, META e título — mas continuava com `height: 180`. "O
+ * modo mapa esconde o conteúdo e mantém o tamanho": 40 tarefas em 7 linhas
+ * pediam 7 × 264 = 1.764px de mundo, e nenhum zoom acima do piso enquadra
+ * isso. Com a pastilha de 44px a mesma grade pede 812px e "Ver tudo" cabe
+ * inteiro em 1280×800 sem encostar no piso de zoom.
+ *
+ * 44 não é estético: é o alvo de toque mínimo da régua de UI/UX da casa — a
+ * pastilha continua clicável com o dedo.
+ */
+export const ALTURA_DA_PASTILHA = 44;
+
+/** Modo de desenho do cartão — decidido pelo ZOOM (`tipografia-do-cartao.ts`). */
+export type ModoDoCartao = "cartao" | "mapa";
+
+/**
+ * A altura do cartão no modo dado. FONTE ÚNICA: `task-node.tsx` desenha com
+ * ela, `layout-do-grafo.ts` espaça as linhas com ela e `dependency-graph.tsx`
+ * enquadra com ela. Antes o layout usava 180 sempre — inclusive quando a tela
+ * mostrava pastilhas de 44.
+ */
+export function alturaDoCartao(modo: ModoDoCartao): number {
+  return modo === "mapa" ? ALTURA_DA_PASTILHA : ALTURA_DO_CARTAO;
+}
+
 export interface GrafoV3Props {
   /** Arestas declaradas v3 (predecessor · correlação · sinergia · obsolescência). */
   edges: TaskEdge[];

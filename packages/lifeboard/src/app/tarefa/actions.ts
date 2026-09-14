@@ -9,31 +9,31 @@
  *  2. valida em português, com a MESMA régua do banco (`atomosDeclaradosValidos`,
  *     `pesoValido`, `FAIXAS_ESFORCO_CUSTO`) — pega o erro ANTES de gastar uma
  *     chamada de rede, mas nunca reimplementa o que o CHECK/gatilho já garante;
- *  3. despacha para o modo certo — RPC live (`mutateLifeboard`) ou o store em
- *     memória do fixture (`tasks.fixture-store`) — e nunca lança: sempre
+ *  3. despacha por `mutar` (`@/app/tarefa/despachante`) e nunca lança: sempre
  *     devolve `{ erro }` ou `{ ok: true, id? }`, o par que `useFormState` espera;
  *  4. em sucesso, revalida as 3 rotas que podem ter mudado.
  *
- * Nenhuma ação chama a RPC em modo fixture, e nenhuma toca o store em modo
- * live — `env.LIFEBOARD_DATA_MODE` decide uma vez, no topo de `mutar()`.
+ * [Achado MAIOR, CodeRabbit + rodada 10] Este módulo é `"use server"`, então
+ * TUDO que ele exporta vira uma Server Action pública, chamável pela rede por
+ * qualquer cliente autenticado. Por isso o despachante `mutar` foi movido para
+ * `@/app/tarefa/despachante`, que não é `"use server"`: exportado daqui, ele
+ * era uma porta dos fundos que pulava a porta de escrita inteira.
+ *
+ * **A regra que fica: este arquivo exporta APENAS `escreverTarefaAction`.**
+ * Qualquer export novo aqui é um endpoint novo na internet — pense duas vezes.
  */
 
 import { revalidatePath } from "next/cache";
 
-import { env } from "@/config/env";
-import { mutateLifeboard } from "@/lib/supabase/live-client";
 import {
-  arestaAddFixture,
-  arestaDelFixture,
-  atomosSetFixture,
-  estimativaSetFixture,
-  goalSetFixture,
-  notaAddFixture,
-  notaDelFixture,
-  parentSetFixture,
-  statusSetFixture,
-  subtarefaAddFixture,
-} from "@/lib/repositories/tasks.fixture-store";
+  ehOperacaoDeEscrita,
+  type CamposDeEscrita,
+  type EstadoAcaoTarefa,
+  type PedidoDeEscrita,
+} from "@/app/tarefa/pedido";
+
+import { mutar } from "@/app/tarefa/despachante";
+import { dataOriginalValidaOuErro } from "@/lib/fuso";
 import {
   atomosDeclaradosValidos,
   AUTOR_MAXIMO,
@@ -41,9 +41,9 @@ import {
   pesoValido,
   TITULO_MAXIMO,
 } from "@/core/prioritize/tipos-v3";
-import type { AssimetriaDeclarada, EdgeTipo, TaskStatus } from "@/types/canonical";
+import type { EdgeTipo, TaskStatus } from "@/types/canonical";
 
-export type EstadoAcaoTarefa = { erro?: string; ok?: true; id?: string };
+export type { EstadoAcaoTarefa } from "@/app/tarefa/pedido";
 
 const TIPOS_DE_ARESTA: readonly EdgeTipo[] = [
   "predecessor",
@@ -91,89 +91,24 @@ function revalidar(taskId: string): void {
   revalidatePath("/linha-do-tempo");
 }
 
-function textoOu(form: FormData, campo: string): string {
-  const v = form.get(campo);
+function textoOu(campos: CamposDeEscrita, campo: string): string {
+  const v = campos[campo];
   return typeof v === "string" ? v : "";
 }
 
-function textoOuNulo(form: FormData, campo: string): string | null {
-  const v = textoOu(form, campo).trim();
+function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
+  const v = textoOu(campos, campo).trim();
   return v.length > 0 ? v : null;
 }
 
-/** Dispatcher único: live chama a RPC secret-gated; fixture, o store em memória. */
-type ResultadoMutar = { ok: true; id?: string } | { erro: string };
-
-/**
- * Exportado só para teste (achado BAIXO #6, rodada 4): nenhuma action pública
- * chama `mutar` com um `op` fora da lista abaixo — o ramo `default` do
- * `switch` é morto em produção por construção, e só é alcançável chamando
- * `mutar` diretamente com um valor inválido. Sem export, esse ramo nunca
- * ganhava teste (o crítico apontou isso: "Operação desconhecida." sem
- * cobertura).
- */
-export async function mutar(op: string, payload: Record<string, unknown>): Promise<ResultadoMutar> {
-  if (env.LIFEBOARD_DATA_MODE === "live") {
-    return mutateLifeboard(op, payload);
-  }
-  switch (op) {
-    case "nota_add":
-      return notaAddFixture(
-        payload.task_id as string,
-        payload.texto as string,
-        (payload.autor as string | null) ?? null,
-      );
-    case "nota_del":
-      return notaDelFixture(payload.id as string);
-    case "subtarefa_add":
-      return subtarefaAddFixture(
-        payload.parent_id as string,
-        payload.title as string,
-        (payload.estimativa_dias as number | null) ?? null,
-      );
-    case "parent_set":
-      return parentSetFixture(payload.task_id as string, (payload.parent_id as string | null) ?? null);
-    case "goal_set":
-      return goalSetFixture(payload.task_id as string, payload.is_goal as boolean);
-    case "atomos_set":
-      return atomosSetFixture(
-        payload.task_id as string,
-        (payload.assimetria as AssimetriaDeclarada | null) ?? null,
-      );
-    case "estimativa_set":
-      return estimativaSetFixture(
-        payload.task_id as string,
-        (payload.estimativa_dias as number | null) ?? null,
-      );
-    case "status_set":
-      return statusSetFixture(payload.task_id as string, payload.status as TaskStatus);
-    case "aresta_add":
-      return arestaAddFixture(
-        payload.origem as string,
-        payload.destino as string,
-        payload.tipo as EdgeTipo,
-        (payload.peso as number | undefined) ?? 1,
-        (payload.nota as string | null) ?? null,
-      );
-    case "aresta_del":
-      return arestaDelFixture(payload.id as string);
-    default:
-      // [BAIXO #5, rodada 3] a mensagem não ecoa mais `op` (valor recebido,
-      // não confiável) — texto fixo em português; o valor real ainda vai
-      // para o log do servidor, nunca para a tela.
-      console.error("[tarefa/actions] operação desconhecida no dispatcher fixture:", op);
-      return { erro: "Operação desconhecida." };
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════ nota_add ═
-export async function notaAddAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
+async function notaAdd(
+  campos: CamposDeEscrita,
+  permiteDataOriginal: boolean,
 ): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const texto = textoOu(form, "texto");
-  const autor = textoOuNulo(form, "autor");
+  const taskId = textoOu(campos, "task_id");
+  const texto = textoOu(campos, "texto");
+  const autor = textoOuNulo(campos, "autor");
 
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (texto.trim().length === 0) return { erro: "Escreva algo antes de salvar a nota." };
@@ -185,19 +120,33 @@ export async function notaAddAction(
     return { erro: `O nome do autor não pode passar de ${AUTOR_MAXIMO} caracteres.` };
   }
 
-  const r = await mutar("nota_add", { task_id: taskId, texto, autor });
+  // [MÉDIO #4, rodada 7 + P2 do Codex, rodada 10] só o DESFAZER manda
+  // `criado_em`. Na rodada 7 isso era CONVENÇÃO — `nota_criar` e
+  // `nota_desfazer` caem no mesmo handler, e ele aceitava a data em qualquer
+  // um dos dois. O selo do pedido é só do compilador: um cliente autenticado
+  // monta o objeto na mão e retrodata uma nota NOVA, com a tela omitindo o
+  // campo. Agora quem decide é a OPERAÇÃO, não a presença do campo.
+  const criadoEmBruto = textoOuNulo(campos, "criado_em");
+  let criadoEm: string | null = null;
+  if (criadoEmBruto !== null) {
+    if (!permiteDataOriginal) {
+      return { erro: "Uma nota nova não escolhe a própria data." };
+    }
+    const v = dataOriginalValidaOuErro(criadoEmBruto);
+    if ("erro" in v) return { erro: v.erro };
+    criadoEm = v.iso;
+  }
+
+  const r = await mutar("nota_add", { task_id: taskId, texto, autor, criado_em: criadoEm });
   if ("erro" in r) return { erro: r.erro };
   revalidar(taskId);
   return { ok: true, id: r.id };
 }
 
 // ═══════════════════════════════════════════════════════════════ nota_del ═
-export async function notaDelAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const id = textoOu(form, "id");
-  const taskId = textoOu(form, "task_id");
+async function notaDel(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const id = textoOu(campos, "id");
+  const taskId = textoOu(campos, "task_id");
   if (id.length === 0) return { erro: "Nota não identificada." };
 
   const r = await mutar("nota_del", { id });
@@ -207,13 +156,10 @@ export async function notaDelAction(
 }
 
 // ═══════════════════════════════════════════════════════════ subtarefa_add ═
-export async function subtarefaAddAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const parentId = textoOu(form, "parent_id");
-  const title = textoOu(form, "title");
-  const estimativaBruta = textoOu(form, "estimativa_dias").trim();
+async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const parentId = textoOu(campos, "parent_id");
+  const title = textoOu(campos, "title");
+  const estimativaBruta = textoOu(campos, "estimativa_dias").trim();
 
   if (parentId.length === 0) return { erro: "Tarefa mãe não identificada." };
   if (title.trim().length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
@@ -241,12 +187,9 @@ export async function subtarefaAddAction(
 }
 
 // ═══════════════════════════════════════════════════════════════ parent_set ═
-export async function parentSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const parentId = textoOuNulo(form, "parent_id");
+async function parentSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const parentId = textoOuNulo(campos, "parent_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (parentId === taskId) return { erro: "Uma tarefa não pode ser mãe de si mesma." };
 
@@ -257,12 +200,9 @@ export async function parentSetAction(
 }
 
 // ═════════════════════════════════════════════════════════════════ goal_set ═
-export async function goalSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const isGoal = textoOu(form, "is_goal") === "true";
+async function goalSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const isGoal = textoOu(campos, "is_goal") === "true";
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
   const r = await mutar("goal_set", { task_id: taskId, is_goal: isGoal });
@@ -272,14 +212,10 @@ export async function goalSetAction(
 }
 
 // ══════════════════════════════════════════════════════════════ atomos_set ═
-export async function atomosSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
+async function atomosSet(campos: CamposDeEscrita, limpar: boolean): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
-  const limpar = textoOu(form, "limpar") === "true";
   if (limpar) {
     const r = await mutar("atomos_set", { task_id: taskId, assimetria: null });
     if ("erro" in r) return { erro: r.erro };
@@ -287,9 +223,9 @@ export async function atomosSetAction(
     return { ok: true };
   }
 
-  const opcionalidade = Number(textoOu(form, "opcionalidade"));
-  const esforco = Number(textoOu(form, "esforco"));
-  const custo = Number(textoOu(form, "custo"));
+  const opcionalidade = Number(textoOu(campos, "opcionalidade"));
+  const esforco = Number(textoOu(campos, "esforco"));
+  const custo = Number(textoOu(campos, "custo"));
   const candidato = { opcionalidade, esforco, custo };
   if (!atomosDeclaradosValidos(candidato)) {
     return {
@@ -312,14 +248,11 @@ export async function atomosSetAction(
 }
 
 // ══════════════════════════════════════════════════════════ estimativa_set ═
-export async function estimativaSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
+async function estimativaSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
-  const bruta = textoOu(form, "estimativa_dias").trim();
+  const bruta = textoOu(campos, "estimativa_dias").trim();
   let estimativaDias: number | null = null;
   if (bruta.length > 0) {
     const n = Number(bruta);
@@ -336,12 +269,9 @@ export async function estimativaSetAction(
 }
 
 // ══════════════════════════════════════════════════════════════ status_set ═
-export async function statusSetAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const taskId = textoOu(form, "task_id");
-  const status = textoOu(form, "status");
+async function statusSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const taskId = textoOu(campos, "task_id");
+  const status = textoOu(campos, "status");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
   if (!STATUS_VALIDOS.includes(status as TaskStatus)) {
     return { erro: "status precisa ser um de: aberta, em progresso, bloqueada, concluída." };
@@ -354,15 +284,15 @@ export async function statusSetAction(
 }
 
 // ══════════════════════════════════════════════════════════════ aresta_add ═
-export async function arestaAddAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
+async function arestaAdd(
+  campos: CamposDeEscrita,
+  permiteDataOriginal: boolean,
 ): Promise<EstadoAcaoTarefa> {
-  const origem = textoOu(form, "origem");
-  const destino = textoOu(form, "destino");
-  const tipo = textoOu(form, "tipo") as EdgeTipo;
-  const nota = textoOuNulo(form, "nota");
-  const pesoBruto = textoOu(form, "peso").trim();
+  const origem = textoOu(campos, "origem");
+  const destino = textoOu(campos, "destino");
+  const tipo = textoOu(campos, "tipo") as EdgeTipo;
+  const nota = textoOuNulo(campos, "nota");
+  const pesoBruto = textoOu(campos, "peso").trim();
 
   if (origem.length === 0 || destino.length === 0) {
     return { erro: "Escolha a tarefa de destino da relação." };
@@ -382,7 +312,28 @@ export async function arestaAddAction(
     return { erro: `A nota da relação não pode passar de ${ARESTA_NOTA_MAX} caracteres.` };
   }
 
-  const r = await mutar("aresta_add", { origem, destino, tipo, peso, nota });
+  // [MÉDIO #4, rodada 7 + P2 do Codex, rodada 10] mesma régua da nota, e pelo
+  // mesmo motivo: `relacao_criar` e `relacao_desfazer_exclusao` compartilham
+  // este handler, então a presença do campo não pode ser o critério.
+  const criadoEmBruto = textoOuNulo(campos, "criado_em");
+  let criadoEm: string | null = null;
+  if (criadoEmBruto !== null) {
+    if (!permiteDataOriginal) {
+      return { erro: "Uma relação nova não escolhe a própria data." };
+    }
+    const v = dataOriginalValidaOuErro(criadoEmBruto);
+    if ("erro" in v) return { erro: v.erro };
+    criadoEm = v.iso;
+  }
+
+  const r = await mutar("aresta_add", {
+    origem,
+    destino,
+    tipo,
+    peso,
+    nota,
+    criado_em: criadoEm,
+  });
   if ("erro" in r) return { erro: r.erro };
   revalidar(origem);
   revalidar(destino);
@@ -390,16 +341,83 @@ export async function arestaAddAction(
 }
 
 // ══════════════════════════════════════════════════════════════ aresta_del ═
-export async function arestaDelAction(
-  _estado: EstadoAcaoTarefa,
-  form: FormData,
-): Promise<EstadoAcaoTarefa> {
-  const id = textoOu(form, "id");
-  const taskId = textoOu(form, "task_id");
+async function arestaDel(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
+  const id = textoOu(campos, "id");
+  const taskId = textoOu(campos, "task_id");
   if (id.length === 0) return { erro: "Aresta não identificada." };
 
   const r = await mutar("aresta_del", { id });
   if ("erro" in r) return { erro: r.erro };
   if (taskId.length > 0) revalidar(taskId);
   return { ok: true };
+}
+
+// ══════════════════════════════════════════════════════ a PORTA do servidor ═
+/**
+ * [ALTO #1, rodada 9] A ÚNICA função de escrita que o cliente consegue
+ * chamar. As dez funções acima deixaram de ser exportadas: quem quiser
+ * gravar tem de trazer um `PedidoDeEscrita`, e um `PedidoDeEscrita` só
+ * nasce dentro de `porta-de-escrita.ts` (o selo é um `unique symbol`
+ * ambiente e não exportado — ver `pedido.ts`).
+ *
+ * Consequências que a rodada 8 não tinha:
+ *  - `<form action={zerarDuracaoDireto}>` (forma M6) entrega um `FormData`;
+ *    `FormData` não é `PedidoDeEscrita` → não compila;
+ *  - um 2º hook despachando cru (forma M8) não tem o que despachar: a porta
+ *    não devolve `disparar`, e a ação não aceita nada além do pedido selado;
+ *  - a `op` viaja DENTRO do pedido, então o servidor sabe qual escrita está
+ *    executando — não é mais uma string que um handler de cliente "declara".
+ *
+ * Nunca lança: devolve `{ erro }` em português ou `{ ok: true, id? }`.
+ */
+export async function escreverTarefaAction(
+  _estado: EstadoAcaoTarefa,
+  pedido: PedidoDeEscrita,
+): Promise<EstadoAcaoTarefa> {
+  // O pedido cruza a fronteira serializado: o selo é só do compilador, e o
+  // servidor nunca confia no formato de nada que chega do cliente.
+  const op: unknown = (pedido as { op?: unknown } | null)?.op;
+  const brutos: unknown = (pedido as { campos?: unknown } | null)?.campos;
+  if (!ehOperacaoDeEscrita(op)) return { erro: "Operação desconhecida." };
+  const campos: CamposDeEscrita =
+    typeof brutos === "object" && brutos !== null
+      ? Object.fromEntries(
+          Object.entries(brutos as Record<string, unknown>).map(([k, v]) => [
+            k,
+            typeof v === "string" ? v : "",
+          ]),
+        )
+      : {};
+
+  switch (op) {
+    // A DATA ORIGINAL só viaja no desfazer, e quem diz isso é a operação —
+    // nunca a presença do campo (P2 do Codex, rodada 10).
+    case "nota_criar":
+      return notaAdd(campos, false);
+    case "nota_desfazer":
+      return notaAdd(campos, true);
+    case "nota_excluir":
+      return notaDel(campos);
+    case "subtarefa_criar":
+      return subtarefaAdd(campos);
+    case "relacao_criar":
+      return arestaAdd(campos, false);
+    case "relacao_desfazer_exclusao":
+      return arestaAdd(campos, true);
+    case "relacao_excluir":
+    case "relacao_desfazer_criacao":
+      return arestaDel(campos);
+    case "status":
+      return statusSet(campos);
+    case "mae":
+      return parentSet(campos);
+    case "meta":
+      return goalSet(campos);
+    case "duracao":
+      return estimativaSet(campos);
+    case "atomos_salvar":
+      return atomosSet(campos, false);
+    case "atomos_limpar":
+      return atomosSet(campos, true);
+  }
 }

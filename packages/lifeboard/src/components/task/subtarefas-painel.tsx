@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 
-import { subtarefaAddAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
-import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
-import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import { MENSAGEM_INVALIDO } from "@/components/task/escrita";
+import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
+import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { Task } from "@/types/canonical";
 
@@ -53,40 +52,28 @@ export function SubtarefasPainel({ parentId, filhas }: SubtarefasPainelProps): J
 function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Element {
   const [title, setTitle] = useState("");
   const [estimativa, setEstimativa] = useState("");
-  const [aviso, setAviso] = useState<string | undefined>(undefined);
   const tituloRef = useRef<HTMLInputElement | null>(null);
   // [MÉDIO #2, rodada 6] "Subtarefa criada." — este formulário não tinha
   // nenhuma região viva; para quem não enxerga a lista crescer, adicionar uma
   // subtarefa era mudo.
-  const { mensagem, mostrar } = useMensagemSucesso();
-  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(subtarefaAddAction, () => {
-    setTitle("");
-    setEstimativa("");
-    // [ALTO #1, rodada 6] o campo que ficou vazio recebe o foco — antes, o
-    // botão virava `disabled` (título vazio) no instante do sucesso e o
-    // navegador jogava o foco no `<body>`.
-    concluirEscrita("subtarefa_criar", tituloRef.current, null, (t) => mostrar(t));
+  // [ALTO #1, rodada 9] uma porta, e nada mais: sem despacho cru a obter, e
+  // com o foco entregue ao campo que acabou de esvaziar (era ele que o
+  // `disabled` por validade mandava para o `<body>`).
+  const porta = usarPortaDeEscrita({
+    op: "subtarefa_criar",
+    alvo: () => tituloRef.current,
+    aoSucesso: () => {
+      setTitle("");
+      setEstimativa("");
+    },
   });
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    const decisao = decidirEscrita({
-      pendente: pendente || emVooAgora(),
-      valido: title.trim().length > 0,
-    });
-    if (decisao !== "gravar") {
-      recusarEscrita("subtarefa_criar", decisao, {
-        anunciar: (t) => mostrar(t),
-        alertar: setAviso,
-      });
-      return;
-    }
-    setAviso(undefined);
-    const form = new FormData();
-    form.set("parent_id", parentId);
-    form.set("title", title);
-    form.set("estimativa_dias", estimativa);
-    disparar(form);
+    porta.escrever(
+      { parent_id: parentId, title, estimativa_dias: estimativa },
+      { valido: title.trim().length > 0 },
+    );
   }
 
   const semTitulo = title.trim().length === 0;
@@ -102,7 +89,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
-            setAviso(undefined);
+            porta.aoMudarCampo();
           }}
           placeholder="ex.: Escrever os testes de borda"
           className="min-h-[44px] rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
@@ -115,7 +102,15 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           min={0.25}
           step={0.25}
           value={estimativa}
-          onChange={(e) => setEstimativa(e.target.value)}
+          // [Minor do CodeRabbit, rodada 10] o campo do título já limpava o
+          // erro velho do servidor ao mudar; este não. Quando a recusa vinha
+          // POR CAUSA da duração, o operador corrigia a duração e continuava
+          // lendo a acusação antiga — a mesma contradição que a porta existe
+          // para remover.
+          onChange={(e) => {
+            setEstimativa(e.target.value);
+            porta.aoMudarCampo();
+          }}
           placeholder="opcional"
           className="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         />
@@ -124,16 +119,24 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
         type="submit"
         // [ALTO #1, rodada 6] SEM `disabled` — nem por validade (ver
         // `notas-painel.tsx`). A recusa mora em `aoEnviar` e diz o motivo.
-        aria-busy={pendente ? true : undefined}
-        aria-disabled={pendente || semTitulo ? true : undefined}
-        className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${
-          pendente || semTitulo ? "opacity-50" : ""
-        }`}
+        // [MÉDIO #3, rodada 7] `aria-disabled` só enquanto grava — por
+        // validade ele anunciava "indisponível" e a tecnologia assistiva
+        // recusava o clique que mouse e teclado faziam. A exigência é o texto
+        // abaixo, ligado por `aria-describedby`.
+        aria-busy={porta.pendente ? true : undefined}
+        aria-disabled={porta.pendente ? true : undefined}
+        aria-describedby={semTitulo ? "dica-nova-subtarefa" : undefined}
+        className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${porta.pendente ? "opacity-50" : ""}`}
       >
         Adicionar subtarefa
       </button>
-      <CampoErro mensagem={estado.erro ?? aviso} />
-      <MensagemSucesso mensagem={mensagem} />
+      {semTitulo ? (
+        <p id="dica-nova-subtarefa" className="w-full text-xs text-bone-400">
+          {MENSAGEM_INVALIDO.subtarefa_criar}
+        </p>
+      ) : null}
+      <CampoErro mensagem={porta.erroDoCampo} />
+      <MensagemSucesso mensagem={porta.mensagem} />
     </form>
   );
 }
