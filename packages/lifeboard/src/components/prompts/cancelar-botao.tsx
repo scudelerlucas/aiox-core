@@ -3,6 +3,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
 import { focar } from "@/components/task/foco";
+import { formatarUsd } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — botão "cancelar". Desde a rodada 3 (D7) ele aparece
@@ -45,6 +46,7 @@ export function CancelarBotao({
   podeCancelar = true,
   pendente = false,
   confirmando = false,
+  custoAoCancelarUsd = 0,
   aoMudarConfirmando,
   aoConfirmar,
 }: {
@@ -52,6 +54,13 @@ export function CancelarBotao({
   emExecucao?: boolean;
   podeCancelar?: boolean;
   pendente?: boolean;
+  /**
+   * MÉDIO 6 (rodada 9) · QUANTO ESTE CANCELAMENTO VAI LANÇAR NO GASTO DE HOJE.
+   * Zero quando não lança nada. A linha calcula pela MESMA régua do banco
+   * (`fila_prompts_cancelar`, D12): item que já teve dono — em execução OU
+   * devolvido para a fila depois de uma tentativa — lança o custo estimado.
+   */
+  custoAoCancelarUsd?: number;
   /** BAIXO 2: o passo da confirmação mora na LINHA — as duas instâncias o compartilham. */
   confirmando?: boolean;
   aoMudarConfirmando?: (id: string, armado: boolean) => void;
@@ -104,9 +113,23 @@ export function CancelarBotao({
 
   if (!podeCancelar) return null;
 
-  const consequencia = emExecucao
-    ? "A sessão que está rodando vai ser interrompida no próximo sinal de vida. Esc cancela."
-    : "Ele sai da fila e não vai rodar. Esc cancela.";
+  /*
+    MÉDIO 6 (rodada 9) · A CONFIRMAÇÃO ESCONDIA O DINHEIRO. Ela decidia a frase
+    SÓ por `emExecucao`: um item `na_fila` com `tentativas > 0` (pego, morto,
+    devolvido) lança até US$ 120 ao ser cancelado — e a confirmação dizia, com
+    todas as letras, "Ele sai da fila e não vai rodar". O texto certo
+    (`fraseDoCancelamento` → `cancelado_apos_devolucao`) só aparecia DEPOIS,
+    quando o dinheiro já tinha entrado. A pergunta que destrói trabalho e gasta
+    dinheiro agora diz as duas coisas ANTES.
+  */
+  const lanca = custoAoCancelarUsd > 0;
+  const oQueAcontece = emExecucao
+    ? "A sessão que está rodando vai ser interrompida no próximo sinal de vida."
+    : "Ele sai da fila e não vai rodar.";
+  const oQueCusta = lanca
+    ? ` ${formatarUsd(custoAoCancelarUsd)} entram no gasto de hoje como estimativa — dá para ajustar na linha depois.`
+    : " Não entra nada no gasto de hoje.";
+  const consequencia = `${oQueAcontece}${oQueCusta} Esc cancela.`;
 
   return (
     <div className="flex flex-col items-end gap-1">

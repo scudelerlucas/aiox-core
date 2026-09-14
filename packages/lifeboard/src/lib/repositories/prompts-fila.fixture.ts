@@ -50,7 +50,7 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     // (concluída hoje, US$ 3,42) entra por cima, calculado pela mesma regra do
     // banco — 38,68 + 3,42 = 42,10, o total que a tela mostrava antes como
     // constante. Agora ele MEXE quando a fila mexe, que era o defeito medido.
-    tetoUsd: 150,
+    tetoUsd: 500,
     consumoHojeUsd: 38.68,
     reservadoUsd: 0,
     naFilaUsd: 5,
@@ -70,7 +70,7 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     // 48,50 publicadas + 50,00 do item-8 (morto sem fechar, D20) = 98,50 — o
     // mesmo total de antes, agora com uma parcela que a tela precisa marcar
     // como ESTIMATIVA da casa.
-    tetoUsd: 150,
+    tetoUsd: 500,
     consumoHojeUsd: 48.5,
     reservadoUsd: 15,
     naFilaUsd: 0,
@@ -89,8 +89,12 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     conta: "almapetra.ltda@gmail.com",
     // O item-4 desta conta falhou ONTEM (13 h atrás, já em outro dia do
     // operador) — não conta hoje, como no SQL.
-    tetoUsd: 150,
-    consumoHojeUsd: 150,
+    tetoUsd: 500,
+    // BAIXO 1 (rodada 9): o teto subiu de 150 para 500 (decisão do operador em
+    // 14/09), e o consumo subiu junto para esta conta CONTINUAR sendo o retrato
+    // de "teto atingido". Sem isso o estado sumiria do fixture — e é ele que a
+    // prova de navegador fotografa.
+    consumoHojeUsd: 500,
     reservadoUsd: 0,
     naFilaUsd: 120,
     estimativaUsd: 0,
@@ -106,7 +110,7 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     // este retrato, o selo "sem autorização agora" e a recusa do roteador não
     // apareciam em screenshot nenhum.
     exigeMedicaoRecente: true,
-    historico: { dias: 1, minUsd: 150, maxUsd: 150, medianaUsd: 150 },
+    historico: { dias: 1, minUsd: 500, maxUsd: 500, medianaUsd: 500 },
   }, // crit — teto atingido E sem autorização (medição de 13 h com a trava ligada)
 ];
 

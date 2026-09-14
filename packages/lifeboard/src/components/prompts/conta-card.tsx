@@ -39,9 +39,14 @@ import { formatRelativeTime } from "@/lib/format-relative-time";
  * frase da medição aparece UMA vez.
  *
  * D36 (rodada 8): conta que o banco RECUSARIA agora (medição velha com
- * `exigir_medicao_recente`) ganha o selo "sem autorização agora" — ele vem
- * ANTES de "escolhida agora", porque um cartão não pode dizer que foi
- * escolhido para um disparo que o banco vai recusar.
+ * `exigir_medicao_recente`) ganha o selo "sem autorização agora" — ele exclui
+ * "escolhida agora", porque um cartão não pode dizer que foi escolhido para um
+ * disparo que o banco vai recusar.
+ *
+ * MÉDIO 2 (rodada 9): os selos deixaram de ser um `else if`. Dois estados
+ * verdadeiros ao mesmo tempo (teto atingido E sem autorização) agora aparecem
+ * os dois, e o rodapé para de prometer "próximo espaço amanhã" quando amanhã
+ * não resolve o que trava a conta.
  *
  * D13/D20 (rodada 4): o cartão NUNCA mostra número negativo (o crítico mediu
  * "US$ -20,00 livres" nesta linha) — passou do teto vira "sem espaço livre
@@ -93,6 +98,34 @@ export function ContaCard({
   // D36: o banco recusaria QUALQUER disparo desta conta agora.
   const travada = bancoRecusaria(consumo, agora);
 
+  // MÉDIO 2 (rodada 9): a lista de selos. `escolhida agora` é o único que
+  // convida, e ele só aparece quando NENHUM bloqueio aparece — nenhuma
+  // superfície convida para o que o banco vai recusar (D9 estendido por D36).
+  const selos: { texto: string; tom: "bloqueio" | "convite" }[] = [];
+  if (atingiu) selos.push({ texto: "teto atingido", tom: "bloqueio" });
+  if (travada) selos.push({ texto: "sem autorização agora", tom: "bloqueio" });
+  if (esperaHoje) selos.push({ texto: "não cabe hoje", tom: "bloqueio" });
+  if (selos.length === 0 && seriaEscolhida === true) {
+    selos.push({ texto: "escolhida agora", tom: "convite" });
+  }
+
+  /*
+    MÉDIO 2 (rodada 9) · O RODAPÉ PARAVA DE SER VERDADE QUANDO OS DOIS ESTADOS
+    SE ENCONTRAVAM. Ele dizia "teto atingido — próximo espaço amanhã" DUAS
+    LINHAS ABAIXO de "nenhum disparo é autorizado agora". Amanhã o teto zera e
+    o banco continua recusando: a promessa era falsa, e era a única frase de
+    prazo do cartão. Agora, quando os dois valem, a frase diz os dois — e diz
+    qual deles amanhã NÃO resolve.
+  */
+  const rodape =
+    atingiu && travada
+      ? "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada"
+      : atingiu
+        ? "teto atingido — próximo espaço amanhã"
+        : travada
+          ? "sem autorização agora — volta a rodar quando a medição desta conta for atualizada"
+          : null;
+
   return (
     <section
       className={`rounded-lg border bg-navy-850 p-4 ${
@@ -103,25 +136,32 @@ export function ContaCard({
             : "border-navy-700"
       }`}
     >
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-start justify-between gap-2">
         <h2 className="text-sm font-semibold text-bone-50">{ROTULO_CONTA[consumo.conta]}</h2>
-        {atingiu ? (
-          <span className="rounded-full border border-state-blocked/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-state-blocked">
-            teto atingido
-          </span>
-        ) : travada ? (
-          <span className="rounded-full border border-state-blocked/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-state-blocked">
-            sem autorização agora
-          </span>
-        ) : esperaHoje ? (
-          <span className="rounded-full border border-state-blocked/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-state-blocked">
-            não cabe hoje
-          </span>
-        ) : seriaEscolhida ? (
-          <span className="rounded-full border border-gold-500/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-gold-300">
-            escolhida agora
-          </span>
-        ) : null}
+        {/*
+          MÉDIO 2 (rodada 9) · DOIS ESTADOS VERDADEIROS NÃO SE ESCONDEM.
+          Era um `atingiu ? … : travada ? …` — um `else if`. O crítico mediu a
+          consequência na conta real: Alma Petra mostrava só "teto atingido"
+          enquanto o card, logo abaixo, dizia "nenhum disparo é autorizado
+          agora". E, como a única conta com a trava ligada no fixture também
+          estava no teto, "sem autorização agora" NÃO RENDERIZAVA NENHUMA VEZ —
+          o estado que a rodada 8 diz ter adicionado nunca era exercido.
+          Agora os selos são uma LISTA: cada estado verdadeiro ganha o seu.
+        */}
+        <div className="flex flex-wrap justify-end gap-1">
+          {selos.map((selo) => (
+            <span
+              key={selo.texto}
+              className={`rounded-full border bg-navy-800 px-2 py-0.5 text-[11px] font-medium ${
+                selo.tom === "bloqueio"
+                  ? "border-state-blocked/70 text-state-blocked"
+                  : "border-gold-500/70 text-gold-300"
+              }`}
+            >
+              {selo.texto}
+            </span>
+          ))}
+        </div>
       </div>
       <p className="mt-0.5 text-[11px] text-bone-400">{consumo.conta}</p>
 
@@ -213,14 +253,10 @@ export function ContaCard({
         ) : null}
       </div>
 
-      {atingiu ? (
-        <p className="mt-3 text-xs text-state-blocked">teto atingido — próximo espaço amanhã</p>
-      ) : travada ? (
-        /* D9 estendido (D36): conta que o banco recusa não sugere modelo — sugerir
+      {rodape ? (
+        /* D9 estendido (D36): conta bloqueada não sugere modelo — sugerir
            "próximo modelo: Fable" aqui seria convidar para o disparo recusado. */
-        <p className="mt-3 text-xs text-state-blocked">
-          sem autorização agora — volta a rodar quando a medição desta conta for atualizada
-        </p>
+        <p className="mt-3 text-xs text-state-blocked">{rodape}</p>
       ) : proximoModelo ? (
         <p className="mt-3 text-xs text-bone-300">
           próximo modelo sugerido: <span className="font-semibold text-bone-100">{proximoModelo}</span>

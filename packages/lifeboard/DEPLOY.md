@@ -147,7 +147,38 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
   4, porque duas assinaturas com default deixariam a chamada ambígua no PostgREST) →
   **`0016_lifeboard_v3_consumo_por_entidade.sql`** (a rodada 7, D31–D32 — aditiva e
   re-aplicável; a única remoção é a assinatura de 13 argumentos de
-  `painel_fila_motivo_do_pull`, trocada pela de 15, pelo mesmo motivo de ambiguidade).
+  `painel_fila_motivo_do_pull`, trocada pela de 15, pelo mesmo motivo de ambiguidade) →
+  `0018_lifeboard_v3_caixa_auditavel.sql` (a rodada 8, D33–D35 + `custo_origem`) →
+  **`0019_lifeboard_v3_livro_razao.sql`** (a rodada 9 — o caixa vira LIVRO-RAZÃO).
+
+### O caixa é um livro-razão (migration 0019, rodada 9)
+
+O crítico da rodada 8 reprovou com 4 ALTO e um diagnóstico único: **o caixa
+recalculava o dia a cada leitura, então o passado mudava.** O valor de um dia era
+uma expressão sobre linhas vivas (`painel_frentes_sessoes` × `painel_fila_prompts`)
+reavaliada a cada `select`; qualquer coluna que mexesse — `concluido_em`,
+`atualizado_em`, `conta`, `session_id` — reescrevia dias já encerrados e já
+relatados. A 0019 troca o modelo:
+
+| Decisão | O que passou a valer |
+|---|---|
+| **D37** | `public.painel_caixa_lancamentos` — lançamentos IMUTÁVEIS de (dia de competência, conta, valor, origem, entidade). O `dia` é carimbado no instante do lançamento; um `before update or delete` recusa edição e apagamento. **Consumo de um dia = soma dos lançamentos daquele dia**, e nada mais. |
+| **D38** | Correção nunca edita: `painel_caixa_lancar` grava duas linhas novas, as duas datadas de HOJE — o estorno do líquido anterior e o valor novo. O dia antigo fica como foi relatado. |
+| **D39** | A entidade é canônica: item COM sessão vinculada e a sessão são **a mesma entidade** (`sessao:<id>`). E a **conta é fixada no primeiro lançamento** — publicação posterior sob outra conta não remaneja dinheiro. `painel_caixa_lancar_item` funde a entidade órfã quando o item lançou antes de ganhar sessão. |
+| **D40** | `check (valor_usd <> 0)`: "sem valor" e "valor zero" são o mesmo não-lançamento. Uma sessão que fechou sem ler o usage não tem como desarmar `exigir_medicao_recente`, porque não deixa linha. |
+| **D41** | Uma definição só de "quanto a conta gastou no dia X": a view `painel_consumo_por_conta_dia`, `painel_fila_consumo_do_dia`, `painel_fila_itens_do_dia`, `painel_fila_estimativa_usd` e `painel_fila_historico_medido` leem **todas** o livro. |
+| **D42** | O chooser virou função PURA (`painel_fila_escolher_conta(jsonb, numeric)`), com a recusa por medição velha e o descarte de conta cujo teto não comporta o item. A paridade com `escolherConta` (TS) é provada caso a caso: o bloco **T42** roda a tabela de casos no SQL e `tests/unit/prompts-paridade-chooser.test.ts` lê **o mesmo literal** do disco e roda o TS. |
+| **D43** | Barreira de teste: `constraint trigger … deferrable initially deferred` nas quatro tabelas de dinheiro. Com `lifeboard.teste = on` (armado uma vez no topo da suíte), qualquer transação que escreva nelas **aborta no commit** — um bloco que esqueça o `raise` não persiste nada. |
+
+**Abertura dos dados:** as 215 sessões e os itens existentes viraram lançamentos de
+abertura, cada um na data que a leitura anterior já lhes atribuía. O §8 da migration
+compara, conta a conta e dia a dia, a fórmula velha (escrita inline) com a soma do
+livro e **aborta a migration se um único dia mudar de valor**. Medido na aplicação:
+194 lançamentos, 54 dias, US$ 11.374,9695 — o mesmo total de antes, e 12/09 continua
+em US$ 2.513,29.
+
+**Leitura do livro pelo operador:** `fila_prompts_extrato_do_dia(secret, conta, dia)`
+devolve o dia lançamento a lançamento, com a origem e o estorno de cada um.
 
 ### Teste da fila de prompts (o que guarda o COMPORTAMENTO)
 
@@ -155,9 +186,13 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f supabase/tests/fila_prompts.test.sql
 ```
 
-São **29 blocos** desde a rodada 7 (T01–T29). Cada bloco é um `do $$ … $$;` que **termina em `raise exception`** — `RESULTADO: ok — <caso>`
+São **51 blocos** desde a rodada 9 (T01–T51). O arquivo arma, na primeira linha,
+`select set_config('lifeboard.teste', 'on', false)` — a barreira de D43, que vale para
+a sessão inteira do psql. Cada bloco é um `do $$ … $$;` que **termina em `raise exception`** — `RESULTADO: ok — <caso>`
 quando a asserção passa, `FALHA: <caso> esperado X obteve Y` quando não. O `raise` É o
-mecanismo de rollback: nenhum bloco deixa linha no banco, passe ou falhe. Por isso
+mecanismo de rollback; e desde a rodada 9 ele deixou de ser o ÚNICO: se um bloco
+esquecer o `raise`, o gatilho diferido de D43 aborta a transação no commit e nada
+persiste (provado por T51 e pela própria mensagem da barreira). Por isso
 `ON_ERROR_STOP=0`: cada bloco aborta sozinho e o arquivo continua até o fim. **Nunca rodar com
 `ON_ERROR_STOP=1`** — o primeiro "ok" pararia a suíte.
 

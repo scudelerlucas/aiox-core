@@ -87,6 +87,20 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
 }
 
 /**
+ * MÉDIO 6 (rodada 9): quanto o cancelamento DESTE item vai lançar no gasto de
+ * hoje. Espelho literal de `fila_prompts_cancelar` (0019 §13, cláusula D12):
+ * item que JÁ TEVE DONO — está em execução, ou voltou para a fila depois de
+ * pelo menos uma tentativa — lança o custo estimado, limitado a 500. Item que
+ * nunca foi pego não lança nada; item que já tem custo gravado também não.
+ */
+function custoAoCancelar(item: ItemFilaPrompt): number {
+  const jaTeveDono = item.estado === "pega" || item.tentativas > 0;
+  if (!jaTeveDono) return 0;
+  if (item.custoUsd !== null) return 0;
+  return Math.min(item.custoEstimadoUsd, 500);
+}
+
+/**
  * D20: só item cujo custo é ESTIMATIVA DA CASA ganha o botão de ajuste —
  * `falhou` por expiração ou `cancelada` em execução. MÉDIO 3 (rodada 5) + D25
  * (rodada 6): e só item FECHADO HOJE (o ajuste de um item de ontem era aceito
@@ -262,6 +276,7 @@ function AcoesDaLinha({
         id={item.id}
         emExecucao={item.estado === "pega"}
         podeCancelar={podeCancelar(item)}
+        custoAoCancelarUsd={custoAoCancelar(item)}
         pendente={acaoCancelar.pendente}
         confirmando={confirmandoCancelar}
         aoMudarConfirmando={aoMudarConfirmarCancelar}

@@ -1,13 +1,29 @@
 /**
  * OS-LIFEBOARD · P7 — roteador de conta (função PURA, camada O).
  *
- * ═══ FONTE ÚNICA DA REGRA DE ROTEAMENTO ═══
- * Este arquivo é o lugar onde a regra mora. O laço de `fila_prompts_enfileirar`
- * (`supabase/migrations/0012_lifeboard_v3_fila_posse_e_tentativas.sql`) é um
- * ESPELHO DECLARADO dele — o `case` de ordem das contas lá cita este caminho
- * em comentário. A versão viva do laço está em
- * `supabase/migrations/0015_lifeboard_v3_fila_dia_e_dono.sql` §11.
- * Mudou aqui? Muda lá, no mesmo commit.
+ * ═══ FONTE ÚNICA DA REGRA DE ROTEAMENTO, E A PARIDADE É PROVADA ═══
+ * Este arquivo é o lugar onde a regra mora. O lado SQL dela é a função PURA
+ * `public.painel_fila_escolher_conta(jsonb, numeric)`
+ * (`supabase/migrations/0019_lifeboard_v3_livro_razao.sql` §15), que
+ * `fila_prompts_enfileirar` passou a chamar.
+ *
+ * MÉDIO 1 (rodada 9) · POR QUE ISSO MUDOU. Até a rodada 8 o espelho era um
+ * LAÇO dentro de `fila_prompts_enfileirar` que se autodeclarava "ESPELHO
+ * DECLARADO de escolherConta" e divergia em dois pontos medidos pelo crítico:
+ *   · ele não filtrava `exigir_medicao_recente`, e como o `<select name="conta">`
+ *     manda `""` no modo automático, QUEM DECIDE É O SQL — ele escolhia
+ *     `lsgpandora@gmail.com` (exige medição, sem medição nenhuma) e o pull
+ *     daquela conta recusava: "não autorizo contra saldo nenhum…";
+ *   · o teste de "nunca vai caber" era `max(tetos)` aqui e o teto da conta
+ *     ESCOLHIDA lá (BAIXO 4).
+ * E o teste que deveria pegar isso (`prompts-espelho-sql.test.ts:334-338`)
+ * conferia o número `12`, nunca a escolha.
+ *
+ * AGORA a paridade é caso a caso: `supabase/tests/fila_prompts.test.sql` (bloco
+ * T42) carrega uma tabela de casos em JSON e roda a função SQL sobre ela;
+ * `tests/unit/prompts-paridade-chooser.test.ts` LÊ O MESMO LITERAL do disco e
+ * roda ESTA função sobre os mesmos casos. Divergir em qualquer um dos dois
+ * lados — ou mexer na tabela de casos — pinta um dos dois de vermelho.
  *
  * A REGRA (D5, rodada 3; D29, rodada 6):
  *   1. espaço livre de uma conta = teto − medido − em_execucao − na_fila dela.
@@ -108,9 +124,17 @@ export function escolherConta(
     };
   }
 
-  // Mesma recusa do trigger (D3): o item nunca caberia, em nenhum dia.
+  // BAIXO 4 (rodada 9) · A MESMA RECUSA DO TRIGGER, CONTA A CONTA.
+  // Aqui havia `custoEstimado > Math.max(...tetos)`: um teste de EXISTÊNCIA
+  // ("alguma conta comporta?") enquanto o trigger de admissão compara o
+  // estimado com o teto da conta ESCOLHIDA, uma a uma. Com os três tetos iguais
+  // os dois davam o mesmo resultado — e essa coincidência era a única coisa
+  // segurando a paridade. Agora a conta cujo teto não comporta o item SAI DA
+  // DISPUTA (ela nunca poderia recebê-lo), e a recusa só acontece quando não
+  // sobra nenhuma. Espelho exato de `painel_fila_escolher_conta` (0019 §15).
   const maiorTeto = Math.max(...ordenadas.map((c) => c.tetoUsd));
-  if (custoEstimado > maiorTeto) {
+  const candidatas = ordenadas.filter((c) => c.tetoUsd >= custoEstimado);
+  if (candidatas.length === 0) {
     return {
       conta: null,
       motivo:
@@ -134,8 +158,8 @@ export function escolherConta(
   // continua existindo na tela (o card diz por que ela está fora), mas não
   // ganha o item e não é apresentada como "a mais folgada": espaço livre num
   // saldo que o banco não autoriza a gastar não é espaço livre.
-  const autorizadas = ordenadas.filter((c) => !bancoRecusaria(c, agora));
-  const disputa = autorizadas.length > 0 ? autorizadas : ordenadas;
+  const autorizadas = candidatas.filter((c) => !bancoRecusaria(c, agora));
+  const disputa = autorizadas.length > 0 ? autorizadas : candidatas;
   const todasRecusadas = autorizadas.length === 0;
 
   let melhor = disputa[0] as ConsumoConta;

@@ -575,6 +575,154 @@ describe("MÉDIO 5 (rodada 8) — a consequência do cancelamento é ANUNCIADA",
   });
 });
 
+/**
+ * MÉDIO 6 (rodada 9) — A CONFIRMAÇÃO ESCONDIA O DINHEIRO.
+ * Medido pelo crítico: `cancelar-botao.tsx` decidia a frase SÓ por `emExecucao`.
+ * Para um item `na_fila` com `tentativas > 0` — pego, morto, devolvido — cancelar
+ * lança até US$ 120 no gasto do dia (D12), e a confirmação dizia, com todas as
+ * letras, "Ele sai da fila e não vai rodar". O texto certo só aparecia DEPOIS,
+ * quando o dinheiro já tinha entrado.
+ */
+describe("MÉDIO 6 (rodada 9) — a confirmação diz o DINHEIRO antes, não depois", () => {
+  it("item que já rodou: a pergunta nomeia o valor que vai entrar no gasto de hoje", () => {
+    const html = renderToStaticMarkup(
+      <CancelarBotao
+        id="i-3"
+        confirmando
+        custoAoCancelarUsd={120}
+        aoMudarConfirmando={() => {}}
+      />,
+    );
+    expect(html).toContain("Ele sai da fila e não vai rodar.");
+    expect(html).toContain("US$ 120,00 entram no gasto de hoje como estimativa");
+    expect(html).not.toContain("Não entra nada no gasto de hoje");
+  });
+
+  it("item que nunca foi pego: a pergunta diz que NADA entra (e não fica muda)", () => {
+    const html = renderToStaticMarkup(
+      <CancelarBotao id="i-4" confirmando aoMudarConfirmando={() => {}} />,
+    );
+    expect(html).toContain("Não entra nada no gasto de hoje.");
+    expect(html).not.toContain("entram no gasto de hoje como estimativa");
+  });
+
+  it("em execução também nomeia o dinheiro — as duas coisas na mesma frase", () => {
+    const html = renderToStaticMarkup(
+      <CancelarBotao
+        id="i-5"
+        emExecucao
+        confirmando
+        custoAoCancelarUsd={50}
+        aoMudarConfirmando={() => {}}
+      />,
+    );
+    expect(html).toContain("A sessão que está rodando vai ser interrompida");
+    expect(html).toContain("US$ 50,00 entram no gasto de hoje como estimativa");
+  });
+
+  it("a LINHA calcula pela mesma régua do banco (D12), e passa o número ao botão", () => {
+    const fonte = FONTE("fila-tabela.tsx");
+    expect(fonte).toContain("function custoAoCancelar(item: ItemFilaPrompt): number");
+    expect(fonte).toContain('item.estado === "pega" || item.tentativas > 0');
+    expect(fonte).toContain("custoAoCancelarUsd={custoAoCancelar(item)}");
+  });
+});
+
+/**
+ * MÉDIO 2 (rodada 9) — DOIS ESTADOS VERDADEIROS NÃO SE ESCONDEM, E O RODAPÉ
+ * PARA DE PROMETER O QUE O BANCO NÃO CUMPRE.
+ * Medido pelo crítico: `conta-card.tsx` decidia os selos com `atingiu ? … :
+ * travada ? …`. Alma Petra mostrava só "teto atingido" e, duas linhas abaixo de
+ * "nenhum disparo é autorizado agora", o rodapé prometia "próximo espaço
+ * amanhã" — amanhã o teto zera e o banco continua recusando. E "sem autorização
+ * agora" não renderizava NENHUMA vez, porque a única conta com a trava também
+ * estava no teto.
+ */
+describe("MÉDIO 2 (rodada 9) — os selos do cartão e o rodapé que não mente", () => {
+  const base = {
+    conta: "almapetra.ltda@gmail.com" as const,
+    tetoUsd: 500,
+    reservadoUsd: 0,
+    naFilaUsd: 0,
+    estimativaUsd: 0,
+    estimativaItens: 0,
+    emEspera: 0,
+    historico: null,
+  };
+
+  it("teto atingido E sem autorização: os DOIS selos aparecem", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard
+        consumo={{
+          ...base,
+          consumoHojeUsd: 500,
+          medidoAteEm: new Date(AGORA - 13 * 3_600_000).toISOString(),
+          defasagemHoras: 13,
+          exigeMedicaoRecente: true,
+        }}
+        agora={AGORA}
+      />,
+    );
+    expect(html).toContain("teto atingido");
+    expect(html).toContain("sem autorização agora");
+  });
+
+  it("os dois juntos: o rodapé diz que amanhã NÃO resolve o que trava a conta", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard
+        consumo={{
+          ...base,
+          consumoHojeUsd: 500,
+          medidoAteEm: new Date(AGORA - 13 * 3_600_000).toISOString(),
+          defasagemHoras: 13,
+          exigeMedicaoRecente: true,
+        }}
+        agora={AGORA}
+      />,
+    );
+    expect(html).toContain(
+      "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada",
+    );
+    expect(html).not.toContain("teto atingido — próximo espaço amanhã");
+  });
+
+  it("só o teto: a promessa de amanhã volta a ser verdade", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard
+        consumo={{
+          ...base,
+          consumoHojeUsd: 500,
+          medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+          defasagemHoras: 0.5,
+          exigeMedicaoRecente: false,
+        }}
+        agora={AGORA}
+      />,
+    );
+    expect(html).toContain("teto atingido — próximo espaço amanhã");
+    expect(html).not.toContain("sem autorização agora");
+  });
+
+  it("nenhum bloqueio: só aí o cartão convida (\u201cescolhida agora\u201d)", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard
+        consumo={{
+          ...base,
+          consumoHojeUsd: 10,
+          medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+          defasagemHoras: 0.5,
+          exigeMedicaoRecente: false,
+        }}
+        seriaEscolhida
+        agora={AGORA}
+      />,
+    );
+    expect(html).toContain("escolhida agora");
+    expect(html).not.toContain("teto atingido");
+    expect(html).not.toContain("sem autorização agora");
+  });
+});
+
 describe("BAIXO 2 (rodada 8) — a confirmação de cancelar não mora mais no botão", () => {
   it("`cancelar-botao.tsx` não tem estado próprio: ele é controlado pela linha", () => {
     const fonte = FONTE("cancelar-botao.tsx");

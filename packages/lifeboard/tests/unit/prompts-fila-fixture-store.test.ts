@@ -172,8 +172,13 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 
   it("um item caro na frente não bloqueia o barato atrás dele (pula o que não cabe)", () => {
     resetarFilaFixtureStore();
-    // Alma Petra está a 150/150 medido. Baixa o medido para 40 usando outra conta
-    // limpa: Pandora (98,50 medido) não serve; usa-se a semente do Lucas (42,10).
+    // BAIXO 1 (rodada 9): o TETO DESTE CENÁRIO é declarado aqui, não herdado do
+    // fixture. O fixture nasce com o teto de produção (500 desde 14/09) e este
+    // bloco precisa de um teto em que a `maxima` NÃO caiba e a `baixa` caiba —
+    // com 42,10 já medidos, 150 é esse teto. Antes o bloco dependia, em
+    // silêncio, de o fixture valer 150; quando o operador trocou o número, o
+    // cenário virou outro sem ninguém perceber.
+    ajustarTetoFixture(LUCAS, 150);
     enfileirarFixture({ prompt: "cara", complexidade: "maxima", conta: LUCAS, agora: AGORA + 1 });
     enfileirarFixture({ prompt: "barata", complexidade: "baixa", conta: LUCAS, agora: AGORA + 2 });
 
@@ -238,7 +243,10 @@ describe("D3 — admissão só recusa o impossível", () => {
     // Com os tetos de produção (150 nas 3) nenhuma complexidade estoura, então
     // a admissão nunca recusa — é o desenho D3. O caso só existe com um teto
     // menor: os MESMOS números do bloco SQL provado ao vivo (teto 10 + máxima).
-    expect(listarConsumoFixture(AGORA).every((c) => c.tetoUsd === 150)).toBe(true);
+    // BAIXO 1 (rodada 9): o fixture está no teto de produção — 500 nas três
+    // contas, a decisão do operador de 14/09. Nenhuma complexidade estoura 500,
+    // então a recusa de admissão só existe com um teto declarado aqui.
+    expect(listarConsumoFixture(AGORA).every((c) => c.tetoUsd === 500)).toBe(true);
     ajustarTetoFixture(ALMA, 10);
     const r = enfileirarFixture({
       prompt: "a mais cara possível",
@@ -378,6 +386,10 @@ describe("D16 — o consumo do fixture MEXE (não é mais constante)", () => {
 
   it("o teto barra o pull DE VERDADE: gastar 140 no Lucas impede a próxima tarefa alta", () => {
     resetarFilaFixtureStore();
+    // BAIXO 1 (rodada 9): o teto do CENÁRIO é declarado aqui. Este bloco prova
+    // que o teto barra o pull — para isso o gasto tem de encostar no teto, e é
+    // o bloco que escolhe os dois números, não o fixture de produção.
+    ajustarTetoFixture(LUCAS, 150);
     const item = pegarFixture(LUCAS, "W1", AGORA).item as { id: string };
     fecharFixture({
       id: item.id,
@@ -567,7 +579,10 @@ describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => 
     // A Alma Petra da semente está exatamente no teto; sobe-se o teto ANTES de
     // enfileirar, para o pull conseguir liberar o item e o cenário ser sobre a
     // MORTE do item, não sobre o teto.
-    ajustarTetoFixture(ALMA, 400);
+    // BAIXO 1 (rodada 9): com o teto de produção em 500 e a semente da Alma
+    // Petra EM CIMA dele, o teto do cenário sobe para 800 — o bloco é sobre a
+    // MORTE do item, e ele precisa de espaço para o pull chegar lá.
+    ajustarTetoFixture(ALMA, 800);
     const base = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd ?? 0;
     const novo = enfileirarFixture({
       prompt: "vai morrer",
@@ -749,7 +764,10 @@ describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
     // existir em screenshot). Este bloco prova outra coisa — a trava sai de
     // cena aqui, em voz alta, e T-blocos próprios provam a trava.
     definirExigirMedicaoFixture(ALMA, false);
-    ajustarTetoFixture(ALMA, 400);
+    // BAIXO 1 (rodada 9): com o teto de produção em 500 e a semente da Alma
+    // Petra EM CIMA dele, o teto do cenário sobe para 800 — o bloco é sobre a
+    // MORTE do item, e ele precisa de espaço para o pull chegar lá.
+    ajustarTetoFixture(ALMA, 800);
     const novo = enfileirarFixture({
       prompt: "vai morrer na 3a",
       complexidade: "alta",
