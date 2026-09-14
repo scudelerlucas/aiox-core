@@ -1,5 +1,6 @@
 "use client";
 import { ArrowRight, Info, Maximize2, Route, ZoomIn, ZoomOut } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Background,
@@ -10,7 +11,6 @@ import {
   useViewport,
   type Edge,
   type EdgeTypes,
-  type FitViewOptions,
   type Node,
   type NodeTypes,
 } from "reactflow";
@@ -24,7 +24,7 @@ import {
   type UseCamadasDoGrafo,
 } from "@/components/graph/layer-toggle-panel";
 import { TaskNode, type TaskNodeData } from "@/components/graph/task-node";
-import { ZOOM_MINIMO } from "@/components/graph/tipografia-do-cartao";
+import { tipografiaDoCartao, ZOOM_MINIMO } from "@/components/graph/tipografia-do-cartao";
 import { V3Edge, type V3EdgeData } from "@/components/graph/v3-edge";
 import { SourceIcon } from "@/components/ui/source-icon";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -35,11 +35,26 @@ import {
   filtrarArestasPorCamada,
   type CamadaGrafo,
 } from "@/lib/camadas-do-grafo";
+import {
+  caixaDosCartoes,
+  cartoesForaDaTela,
+  enquadramentoComModo,
+  type Caixa,
+  type CartaoNaTela,
+  type EnquadramentoComModo,
+  type Pane,
+} from "@/lib/enquadramento";
 import { handlesDaConexao, zIndexDaAresta } from "@/lib/geometria-da-aresta";
 import { layoutDoGrafo, type Ponto } from "@/lib/layout-do-grafo";
+import { caixaEstimadaDoTexto, colocarRotulos, type Retangulo } from "@/lib/rotulo-da-aresta";
 import { useFecharPopover } from "@/lib/use-fechar-popover";
 import type { Source, SourceKind, Task, TaskEdge } from "@/types/canonical";
-import { ALTURA_DO_CARTAO, type GrafoV3Props } from "@/types/grafo-v3";
+import {
+  alturaDoCartao,
+  ALTURA_DO_CARTAO,
+  type GrafoV3Props,
+  type ModoDoCartao,
+} from "@/types/grafo-v3";
 
 export interface DependencyGraphProps {
   /** Universo de tarefas (modelo canônico). Arestas derivadas de
@@ -77,26 +92,43 @@ const GRAFO_V3_VAZIO: GrafoV3Props = {
 const BG_DOTS = "#13253D"; // navy-800
 
 /**
- * P4f (decisão D1, achado ALTO #1 do crítico hostil ROUND 4): DOIS
- * enquadramentos, com os nomes do que fazem — e nada além deles.
+ * P4g (decisão D1 do crítico hostil ROUND 6): DOIS enquadramentos, com os
+ * nomes do que fazem — e **nenhum deles usa `fitView`**.
  *
- * Na rodada 4 havia um "Ajustar à tela" com cadeia de fallback (bbox cheio →
- * críticos → goal → maior score) que o crítico mediu ser INERTE: com caminho
- * crítico presente, o objeto "cheio" e o objeto "fallback" eram o MESMO
- * objeto — os dois enquadravam só os nós críticos. Com 40 tarefas o grafo
- * abria mostrando 3 e o chip prometia 33 que nunca vinham. Código que não faz
- * o que o nome diz é pior do que código ausente: ele engana a próxima rodada.
+ * O que ele mediu na rodada 6: `fitView({ padding: 0,3, minZoom: 0,85, nodes:
+ * críticos })`. No ReactFlow `minZoom` é PISO, não teto — quando a cadeia
+ * crítica precisava de MENOS que 0,85 a lib aproximava ALÉM do enquadramento e
+ * as pontas saíam: `task-setup` a −13px do topo, `task-deploy` a 813px num
+ * pane de 800, **1 de 3 cartões críticos na tela** em 390, 768, 1280 e 1440.
+ * Pior: a 1280 nenhum chip aparecia para contar o que faltava.
  *
- *   • "Caminho crítico" — enquadra os nós críticos, com piso de zoom 0,85
- *     (abaixo disso o cartão vira pastilha e a cadeia perderia o detalhe que
- *     justifica olhar só para ela).
- *   • "Ver tudo" — enquadra o bbox INTEIRO, em qualquer zoom até o piso do
- *     canvas (`ZOOM_MINIMO`, onde a compensação de fonte do modo mapa satura).
- *     É o botão que o chip "N tarefas fora da tela" oferece, e a conta do chip
- *     depois do clique é a REAL.
+ * Agora o enquadramento é uma função PURA (`@/lib/enquadramento`) aplicada com
+ * `setViewport`: o zoom é CLAMPADO entre o piso do canvas e um TETO, e a
+ * função devolve, no mesmo objeto, se a caixa coube inteira. Quando não coube,
+ * o chip é obrigatório e diz quantos ficaram fora.
+ *
+ *   • "Caminho crítico" — enquadra a caixa dos nós críticos (teto 1,2× para
+ *     não virar lupa quando a cadeia é curta).
+ *   • "Ver tudo" — enquadra a caixa INTEIRA (teto 1×, nunca ampliar). Quando
+ *     nem no piso de zoom ela cabe, o botão passa a se chamar "Ver o máximo
+ *     possível" — porque é o que ele faz.
  */
-const PISO_DE_ZOOM_DO_CARTAO = 0.85;
-const OPCOES_VER_TUDO: FitViewOptions = { padding: 0.05, minZoom: ZOOM_MINIMO };
+/** Folga de cada lado do pane, em px de TELA. */
+const PADDING_DO_ENQUADRAMENTO_PX = 24;
+const ZOOM_MAXIMO_DO_CRITICO = 1.2;
+const ZOOM_MAXIMO_DO_TUDO = 1;
+/** Teto do canvas (o mesmo `maxZoom` do `<ReactFlow>`). */
+const ZOOM_MAXIMO_DO_CANVAS = 1.8;
+
+/** O que o operador escolheu enquadrar — lembrado entre refluxos (achado MÉDIO #10). */
+export type AlvoDoEnquadramento = "critico" | "tudo";
+
+export function opcoesDoAlvo(alvo: AlvoDoEnquadramento): { padding: number; zoomMax: number } {
+  return {
+    padding: PADDING_DO_ENQUADRAMENTO_PX,
+    zoomMax: alvo === "critico" ? ZOOM_MAXIMO_DO_CRITICO : ZOOM_MAXIMO_DO_TUDO,
+  };
+}
 
 /**
  * Colunas por linha dentro de um rank (decisão D2), pela largura REAL do pane.
@@ -190,53 +222,80 @@ function computeDepths(
 }
 
 /**
- * P4f (decisão D1): os DOIS enquadramentos do grafo, e mais nenhum. Toda
- * chamada à API de enquadramento da lib no arquivo inteiro passa por aqui —
- * chip, botões, fit inicial e refit de resize/filtro.
+ * Quem sabe medir o pane e aplicar o enquadramento. Vive dentro do
+ * `ReactFlowProvider` (é de lá que `setViewport` vem) e devolve, pelo
+ * callback, a PREVISÃO que aplicou — quem desenha o chip precisa saber se a
+ * caixa coube inteira.
  */
-function useEnquadramentos(criticoIds: readonly string[]): {
-  verCaminhoCritico: (duracaoMs?: number) => void;
-  verTudo: (duracaoMs?: number) => void;
-} {
-  const { fitView } = useReactFlow();
-  const chaveCritico = criticoIds.join(",");
-  const verCaminhoCritico = useCallback(
-    (duracaoMs = 200) => {
-      const ids = chaveCritico ? chaveCritico.split(",") : [];
-      if (ids.length === 0) return;
-      void fitView({
-        duration: duracaoMs,
-        padding: 0.3,
-        minZoom: PISO_DE_ZOOM_DO_CARTAO,
-        nodes: ids.map((id) => ({ id })),
+function useEnquadramentos({
+  paneRef,
+  caixaParaAltura,
+  alturaDeCartao,
+  alturaDeMapa,
+  aoEnquadrar,
+}: {
+  paneRef: RefObject<HTMLDivElement>;
+  caixaParaAltura: (altura: number, alvo: AlvoDoEnquadramento) => Caixa;
+  alturaDeCartao: number;
+  alturaDeMapa: number;
+  aoEnquadrar: (alvo: AlvoDoEnquadramento, previsao: EnquadramentoComModo) => void;
+}): (alvo: AlvoDoEnquadramento, duracaoMs?: number) => void {
+  const { setViewport } = useReactFlow();
+  return useCallback(
+    (alvo: AlvoDoEnquadramento, duracaoMs = 200) => {
+      const el = paneRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      const previsao = enquadramentoComModo({
+        caixaParaAltura: (altura) => caixaParaAltura(altura, alvo),
+        pane: { largura: r.width, altura: r.height },
+        opcoes: opcoesDoAlvo(alvo),
+        alturaCartao: alturaDeCartao,
+        alturaMapa: alturaDeMapa,
       });
+      aoEnquadrar(alvo, previsao);
+      void setViewport(
+        { x: previsao.x, y: previsao.y, zoom: previsao.zoom },
+        { duration: duracaoMs },
+      );
     },
-    [fitView, chaveCritico],
+    [paneRef, caixaParaAltura, alturaDeCartao, alturaDeMapa, aoEnquadrar, setViewport],
   );
-  const verTudo = useCallback(
-    (duracaoMs = 200) => void fitView({ duration: duracaoMs, ...OPCOES_VER_TUDO }),
-    [fitView],
-  );
-  return { verCaminhoCritico, verTudo };
+}
+
+/** Lê o zoom real do canvas e entrega ao pai — é ele que decide o MODO do cartão. */
+function ObservadorDeZoom({ onZoom }: { onZoom: (zoom: number) => void }): null {
+  const { zoom } = useViewport();
+  useEffect(() => {
+    onZoom(zoom);
+  }, [zoom, onZoom]);
+  return null;
 }
 
 function ControlesDoGrafo({
-  verCaminhoCritico,
-  verTudo,
+  enquadrar,
   temCritico,
+  rotuloDoVerTudo,
 }: {
-  verCaminhoCritico: (duracaoMs?: number) => void;
-  verTudo: (duracaoMs?: number) => void;
+  enquadrar: (alvo: AlvoDoEnquadramento) => void;
   temCritico: boolean;
+  rotuloDoVerTudo: string;
 }): JSX.Element {
   const { zoomIn, zoomOut } = useReactFlow();
+  // P4g (achado MÉDIO #8): 44px é o alvo mínimo da régua de UI/UX da casa, e
+  // nenhum controle do grafo chegava lá a 390 (zoom 32×32, "Caminho crítico"
+  // 136×32) enquanto o resto do app já usava 44/48.
   const icone =
-    "pointer-events-auto flex h-8 w-8 items-center justify-center rounded-md border border-navy-600 bg-navy-850/95 text-bone-300 hover:bg-navy-700 hover:text-bone-100";
+    "flex h-11 w-11 items-center justify-center rounded-md border border-navy-600 bg-navy-850/95 text-bone-300 hover:bg-navy-700 hover:text-bone-100";
+  // Abaixo de 640px o RÓTULO recolhe (o nome acessível continua no
+  // `aria-label`): a barra inteira cabe numa linha a 390 em vez de comer
+  // 200px de canvas com três linhas de botão.
   const comTexto =
-    "pointer-events-auto flex min-h-[32px] items-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/95 px-2.5 text-xs font-medium text-bone-200 hover:bg-navy-700 hover:text-bone-100";
+    "flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/95 px-3 text-xs font-medium text-bone-200 hover:bg-navy-700 hover:text-bone-100";
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex items-center gap-1.5">
       <button type="button" className={icone} aria-label="Diminuir zoom" onClick={() => void zoomOut()}>
         <ZoomOut size={16} />
       </button>
@@ -244,14 +303,29 @@ function ControlesDoGrafo({
         <ZoomIn size={16} />
       </button>
       {temCritico ? (
-        <button type="button" className={comTexto} onClick={() => verCaminhoCritico()}>
-          <Route size={14} aria-hidden="true" />
-          Caminho crítico
+        <button
+          type="button"
+          className={comTexto}
+          aria-label="Caminho crítico"
+          data-acao="caminho-critico"
+          onClick={() => enquadrar("critico")}
+        >
+          <Route size={16} aria-hidden="true" />
+          <span className="hidden sm:inline">Caminho crítico</span>
         </button>
       ) : null}
-      <button type="button" className={comTexto} onClick={() => verTudo()}>
-        <Maximize2 size={14} aria-hidden="true" />
-        Ver tudo
+      <button
+        type="button"
+        className={comTexto}
+        aria-label={rotuloDoVerTudo}
+        // Gancho estável para ferramenta de medição: o RÓTULO muda (decisão
+        // D2) e um seletor por texto deixaria de achar o botão exatamente no
+        // caso em que ele mais importa.
+        data-acao="ver-tudo"
+        onClick={() => enquadrar("tudo")}
+      >
+        <Maximize2 size={16} aria-hidden="true" />
+        <span className="hidden sm:inline">{rotuloDoVerTudo}</span>
       </button>
     </div>
   );
@@ -318,10 +392,12 @@ function GraphLegend({ fecharSinal }: { fecharSinal: number }): JSX.Element {
         onClick={() => setExpandido((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={expandido}
-        className="flex min-h-[36px] items-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/90 px-2.5 text-xs font-medium text-bone-200 shadow-panel"
+        // P4g (achado MÉDIO #8): 44px, como todo controle do grafo.
+        aria-label="Legenda"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/90 px-3 text-xs font-medium text-bone-200 shadow-panel"
       >
-        <Info size={14} aria-hidden="true" />
-        Legenda
+        <Info size={16} aria-hidden="true" />
+        <span className="hidden sm:inline">Legenda</span>
       </button>
       {expandido ? (
         <div
@@ -357,61 +433,92 @@ function GraphLegend({ fecharSinal }: { fecharSinal: number }): JSX.Element {
 }
 
 /**
- * Quantas tarefas estão FORA do retângulo do pane, e o atalho honesto para
- * trazê-las: "Ver tudo".
+ * Quantas tarefas NÃO cabem inteiras no pane, e o atalho honesto para trazê-las.
  *
- * P4f (decisão D1): o botão do chip é o MESMO "Ver tudo" dos controles — que
- * enquadra o bbox inteiro. Na rodada 4 o chip oferecia "Ajustar à tela", que
- * (com caminho crítico presente) reenquadrava os MESMOS 3 nós críticos: o
- * número que o chip anuncia nunca chegava a zero, e a promessa era falsa. A
- * conta reage ao viewport (`x`, `y`, `zoom`), então depois do clique o número
- * mostrado é sempre o real.
+ * P4g (decisão D2, achado ALTO #2 do crítico hostil ROUND 6): o teste era de
+ * INTERSEÇÃO (`telaX + w*zoom > 0 && telaX < rect.width`) — meio cartão
+ * contava como visível. Medido: 40 tarefas a 1280 com 30 cartões inteiros, 10
+ * CORTADOS (um deles a META) e o chip AUSENTE; a 390 o chip dizia 16 enquanto
+ * 22 não estavam inteiros. Agora o teste é de CONTENÇÃO
+ * (`cartoesForaDaTela`), com a mesma tolerância de 0,5px da medição — o chip
+ * nunca some enquanto existir cartão cortado.
  *
- * P4f (decisão D10): o chip é irmão dos pills numa COLUNA (nunca por cima
- * deles). A 390px o pill "Camadas" cobria 15,5px do chip e ganhava o
- * hit-test — clicar no chip abria o painel de camadas.
+ * E quando o enquadramento bateu no PISO do zoom (`cabeInteiro: false`), o
+ * chip para de prometer o impossível e diz o que está acontecendo: "6 de 200
+ * na tela; o zoom mínimo é o limite".
  */
 function ChipForaDaTela({
-  containerRef,
-  verTudo,
+  paneRef,
+  cartoes,
+  criticoIds,
+  alvo,
+  cabeInteiro,
+  enquadrar,
+  rotuloDoVerTudo,
 }: {
-  containerRef: RefObject<HTMLDivElement>;
-  verTudo: (duracaoMs?: number) => void;
+  paneRef: RefObject<HTMLDivElement>;
+  /**
+   * Os cartões em px de MUNDO, vindos do LAYOUT — não de `getNodes()` da lib.
+   * Medido: quando o modo do cartão vira mapa, o layout muda de posição sem o
+   * viewport mudar, e o store da lib só é atualizado DEPOIS dos efeitos desta
+   * camada — a conta do chip congelava no estado anterior e anunciava "3 de 5
+   * do caminho crítico fora" com 0 de fato fora. A fonte certa é a mesma que
+   * desenhou os nós.
+   */
+  cartoes: readonly CartaoNaTela[];
+  criticoIds: readonly string[];
+  alvo: AlvoDoEnquadramento;
+  cabeInteiro: boolean;
+  enquadrar: (alvo: AlvoDoEnquadramento) => void;
+  /** O MESMO texto do botão — o chip nunca oferece "Ver tudo" quando o botão já sabe que não cabe. */
+  rotuloDoVerTudo: string;
 }): JSX.Element | null {
-  const { getNodes } = useReactFlow();
   const { x, y, zoom } = useViewport();
-  const [foraDaTela, setForaDaTela] = useState(0);
+  const [conta, setConta] = useState({ fora: 0, total: 0, foraCriticos: 0, totalCriticos: 0 });
+  const chaveCritico = criticoIds.join(",");
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = paneRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
-    let fora = 0;
-    for (const n of getNodes()) {
-      const w = n.width ?? NODE_W;
-      const h = n.height ?? NODE_H;
-      const telaX = n.position.x * zoom + x;
-      const telaY = n.position.y * zoom + y;
-      const dentro =
-        telaX + w * zoom > 0 && telaX < rect.width && telaY + h * zoom > 0 && telaY < rect.height;
-      if (!dentro) fora++;
-    }
-    setForaDaTela(fora);
-    // Reavalia sempre que o viewport muda (fit, pan, zoom) ou os nós mudam
-    // de posição/quantidade (filtro, novo dado).
-  }, [containerRef, getNodes, x, y, zoom]);
+    const criticos = new Set(chaveCritico ? chaveCritico.split(",") : []);
+    const fora = cartoesForaDaTela(
+      cartoes,
+      { x, y, zoom },
+      { largura: rect.width, altura: rect.height },
+    );
+    setConta({
+      fora: fora.length,
+      total: cartoes.length,
+      foraCriticos: fora.filter((id) => criticos.has(id)).length,
+      totalCriticos: cartoes.filter((c) => criticos.has(c.id)).length,
+    });
+    // Reavalia sempre que o viewport muda (fit, pan, zoom) ou os nós mudam de
+    // posição/quantidade (filtro, modo do cartão, novo dado).
+  }, [paneRef, cartoes, x, y, zoom, chaveCritico]);
 
-  if (foraDaTela === 0) return null;
+  if (conta.fora === 0) return null;
+
+  const texto =
+    alvo === "tudo" && !cabeInteiro
+      ? `${conta.total - conta.fora} de ${conta.total} na tela; o zoom mínimo é o limite`
+      : alvo === "critico" && conta.foraCriticos > 0
+        ? `${conta.foraCriticos} de ${conta.totalCriticos} do caminho crítico fora da tela · ${rotuloDoVerTudo}`
+        : `${conta.fora} ${conta.fora === 1 ? "tarefa fora" : "tarefas fora"} da tela · ${rotuloDoVerTudo}`;
 
   return (
     <button
       type="button"
-      data-chip-fora-da-tela={foraDaTela}
-      onClick={() => verTudo()}
-      className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-gold-500/60 bg-navy-850/95 px-3 py-1.5 text-xs font-medium text-gold-300 shadow-panel"
+      data-chip-fora-da-tela={conta.fora}
+      onClick={() => enquadrar("tudo")}
+      title={texto}
+      // Uma LINHA só: a 390px a mensagem inteira quebrava em três e a barra
+      // comia 200px de canvas. O texto recortado mantém o número na frente (é
+      // ele que importa) e o resto continua no `title`.
+      className="flex min-h-[44px] max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full border border-gold-500/60 bg-navy-850/95 px-3 text-xs font-medium text-gold-300 shadow-panel"
     >
-      {foraDaTela} {foraDaTela === 1 ? "tarefa fora" : "tarefas fora"} da tela · Ver tudo
+      <span className="truncate">{texto}</span>
     </button>
   );
 }
@@ -443,89 +550,117 @@ function MedirAlturaReal({ onAltura }: { onAltura: (altura: number) => void }): 
 }
 
 /**
- * P4f (decisões D1, D9 e D10): a camada de CONTROLE do grafo — pills
- * "Legenda"/"Camadas", chip de fora-da-tela e os botões — desenhada como
- * irmã do canvas e ANTES dele na ordem do DOM.
+ * P4g (decisões D9/D10 + achados MÉDIO #8 e BAIXO #14): a BARRA de controle do
+ * grafo — pills "Legenda"/"Camadas", chip de fora-da-tela e os botões.
  *
- * Por que sair de dentro do `<ReactFlow>` (onde eram `<Panel>`): a ordem de
- * tabulação segue o DOM, e os painéis da lib são renderizados DEPOIS do
- * renderer — a 1280px o crítico contou os pills só na 37ª parada de Tab,
- * depois de atravessar 2 paradas por cartão. Aqui eles vêm primeiro, e com
- * `nodesFocusable={false}` cada cartão passa a valer UMA parada (a interna,
- * que tem `role="button"` e `aria-label`).
+ * Ela saiu de cima do canvas. Na rodada 6 o crítico mediu o chip COBRINDO um
+ * cartão na rota `/` a 1280: qualquer camada flutuante sobre o canvas tapa
+ * conteúdo em algum enquadramento, e "reposicionar" só troca qual cartão é
+ * tapado. Agora a barra é irmã do canvas no fluxo normal — 0px² contra cartões
+ * por construção, não por sorte —, e o canvas recebe a altura que sobra.
  *
- * Tudo isto vive dentro do `ReactFlowProvider` (não do `<ReactFlow>`), que é
- * de onde os hooks da lib leem o estado — o canvas continua abaixo, e a
- * camada é transparente ao ponteiro (`pointer-events-none`) exceto nos
- * próprios controles.
+ * Continua ANTES do canvas na ordem do DOM (é isso que põe os controles nas
+ * primeiras paradas de Tab) e continua dentro do `ReactFlowProvider`, que é de
+ * onde os hooks da lib leem o estado.
  */
-function SobreposicaoDoGrafo({
-  containerRef,
+function BarraDoGrafo({
+  paneRef,
   assinaturaDoFiltro,
   criticoIds,
   fecharPaineisSinal,
   larguraDoPane,
+  alturaDoPane,
   onAltura,
+  onZoom,
   camadas,
+  caixaParaAltura,
+  alturaDeCartao,
+  alturaDeMapa,
+  alvo,
+  cabeInteiro,
+  aoEnquadrar,
+  rotuloDoVerTudo,
+  cartoes,
 }: {
-  containerRef: RefObject<HTMLDivElement>;
+  paneRef: RefObject<HTMLDivElement>;
   assinaturaDoFiltro: string;
   criticoIds: readonly string[];
   fecharPaineisSinal: number;
   larguraDoPane: number;
+  alturaDoPane: number;
   onAltura: (altura: number) => void;
+  onZoom: (zoom: number) => void;
   camadas: UseCamadasDoGrafo;
+  caixaParaAltura: (altura: number, alvo: AlvoDoEnquadramento) => Caixa;
+  alturaDeCartao: number;
+  alturaDeMapa: number;
+  alvo: AlvoDoEnquadramento;
+  cabeInteiro: boolean;
+  aoEnquadrar: (alvo: AlvoDoEnquadramento, previsao: EnquadramentoComModo) => void;
+  rotuloDoVerTudo: string;
+  cartoes: readonly CartaoNaTela[];
 }): JSX.Element {
   const { ativas: camadasAtivas, alternar: alternarCamada } = camadas;
-  const { verCaminhoCritico, verTudo } = useEnquadramentos(criticoIds);
+  const enquadrar = useEnquadramentos({
+    paneRef,
+    caixaParaAltura,
+    alturaDeCartao,
+    alturaDeMapa,
+    aoEnquadrar,
+  });
   const nodesInitialized = useNodesInitialized();
   const temCritico = criticoIds.length > 0;
 
   /**
-   * Fit inicial (assim que os nós têm tamanho medido) e reenquadramento
-   * quando o filtro de fontes, a largura do pane (que muda o número de
-   * colunas — D2) ou a altura medida mudam. Abre pelo caminho crítico quando
-   * existe um; sem meta, por "Ver tudo" — nunca por um terceiro caminho.
+   * Fit inicial e reenquadramento quando o filtro de fontes ou o tamanho do
+   * pane mudam (o tamanho muda o número de colunas — D2).
+   *
+   * P4g (achado MÉDIO #10): o alvo reenquadrado é o que o OPERADOR escolheu
+   * por último, lido de um ref para não realimentar o efeito. Na rodada 6,
+   * redimensionar de 1280 para 390 com "Ver tudo" aplicado voltava para
+   * "Caminho crítico" — quem tinha 30 cartões inteiros ficava com 3.
    */
+  const alvoRef = useRef(alvo);
+  alvoRef.current = alvo;
   useEffect(() => {
     if (!nodesInitialized) return;
-    const id = window.setTimeout(() => {
-      if (temCritico) verCaminhoCritico(200);
-      else verTudo(200);
-    }, 60);
+    const id = window.setTimeout(() => enquadrar(alvoRef.current, 200), 60);
     return () => window.clearTimeout(id);
-  }, [nodesInitialized, assinaturaDoFiltro, larguraDoPane, temCritico, verCaminhoCritico, verTudo]);
+  }, [nodesInitialized, assinaturaDoFiltro, larguraDoPane, alturaDoPane, enquadrar]);
 
   return (
     <>
       <MedirAlturaReal onAltura={onAltura} />
-      <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-between p-2">
-        <div className="flex flex-col gap-1.5">
-          {/* Linha dos pills. `pointer-events-auto` em cada um: o resto da
-              camada continua transparente ao ponteiro, e o canvas debaixo
-              recebe pan/zoom normalmente. */}
-          <div className="flex items-start justify-between gap-2">
-            <div className="pointer-events-auto">
-              <GraphLegend fecharSinal={fecharPaineisSinal} />
-            </div>
-            <div className="pointer-events-auto">
-              <LayerTogglePanel
-                ativas={camadasAtivas}
-                alternar={alternarCamada}
-                fecharSinal={fecharPaineisSinal}
-              />
-            </div>
-          </div>
-          {/* D10: o chip mora ABAIXO dos pills, numa linha só dele — 0px de
-              sobreposição em qualquer largura. */}
-          <div className="flex justify-center">
-            <ChipForaDaTela containerRef={containerRef} verTudo={verTudo} />
-          </div>
-        </div>
+      <ObservadorDeZoom onZoom={onZoom} />
+      {/* Uma fila só, que quebra sozinha: agrupar em duas colunas com
+          `justify-between` fazia o grupo da direita descer INTEIRO quando o
+          chip não cabia — três linhas de barra a 390px (157px de canvas
+          comidos). Plana, os seis controles cabem numa linha a 390 e só o chip
+          desce. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-navy-700 bg-navy-900/60 px-2 py-1.5">
+        <GraphLegend fecharSinal={fecharPaineisSinal} />
+        <LayerTogglePanel
+          ativas={camadasAtivas}
+          alternar={alternarCamada}
+          fecharSinal={fecharPaineisSinal}
+        />
         <ControlesDoGrafo
-          verCaminhoCritico={verCaminhoCritico}
-          verTudo={verTudo}
+          enquadrar={enquadrar}
           temCritico={temCritico}
+          rotuloDoVerTudo={rotuloDoVerTudo}
+        />
+        {/* O chip vem DEPOIS dos botões na ordem do DOM de propósito: o texto
+            dele cita "caminho crítico" e "Ver tudo", e um seletor por texto (o
+            que toda ferramenta de medição usa) pegaria o chip em vez do botão
+            se ele viesse antes. */}
+        <ChipForaDaTela
+          paneRef={paneRef}
+          criticoIds={criticoIds}
+          alvo={alvo}
+          cabeInteiro={cabeInteiro}
+          enquadrar={enquadrar}
+          cartoes={cartoes}
+          rotuloDoVerTudo={rotuloDoVerTudo}
         />
       </div>
     </>
@@ -606,35 +741,62 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
 
   const camadas = useCamadasDoGrafo();
   const camadasAtivas = camadas.ativas;
-  /** Container real (fora do ReactFlow) — observado para largura e reenquadramento. */
-  const containerRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  /**
+   * O CANVAS (o retângulo que o ReactFlow ocupa), observado para largura,
+   * altura e reenquadramento. P4g: a barra de controle saiu de cima dele
+   * (achado BAIXO #14), então "o pane" não é mais o container inteiro — e a
+   * conta do chip e do enquadramento tem de usar o retângulo real, senão o
+   * cartão de cima "cabe" no papel e fica atrás da barra na tela.
+   */
+  const paneRef = useRef<HTMLDivElement>(null);
 
   /**
    * P4f (decisão D2): a largura REAL do pane decide quantas colunas cabem numa
    * linha do rank. Observada aqui (e não dentro do `<ReactFlow>`) porque a
    * aba "Grafo" no celular monta a `section` com `display:none` — o container
-   * existe com 0×0 e nada reenquadraria quando ele vira visível; o
-   * `ResizeObserver` no wrapper que o PAI controla pega a mudança real,
-   * inclusive resize de janela e o painel "Camadas" recolhendo.
+   * existe com 0×0 e nada reenquadraria quando ele vira visível.
    */
-  const [larguraDoPane, setLarguraDoPane] = useState(1024);
+  const [pane, setPane] = useState<Pane>({ largura: 1024, altura: 600 });
   useEffect(() => {
-    const el = containerRef.current;
+    const el = paneRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
-      const { width } = entry.contentRect;
-      if (width > 0) {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
         // Só reage a mudança de verdade (>1px): ruído de sub-pixel do próprio
         // enquadramento reentraria em loop.
-        setLarguraDoPane((atual) => (Math.abs(atual - width) > 1 ? width : atual));
+        setPane((atual) =>
+          Math.abs(atual.largura - width) > 1 || Math.abs(atual.altura - height) > 1
+            ? { largura: width, altura: height }
+            : atual,
+        );
       }
     });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  const larguraDoPane = pane.largura;
   const maxColunas = maxColunasParaLargura(larguraDoPane);
+
+  /**
+   * P4g (achado MÉDIO #6): o MODO do cartão sai do zoom real do canvas, e é
+   * ele que decide a ALTURA — que decide o layout, que decide a caixa que o
+   * enquadramento usa. Uma cadeia só, com uma fonte só.
+   */
+  const [zoomAtual, setZoomAtual] = useState(1);
+  const aoMudarZoom = useCallback((z: number) => setZoomAtual(z), []);
+  const modo: ModoDoCartao = tipografiaDoCartao(zoomAtual).modo;
+
+  /** Alvo escolhido pelo operador + se a última tentativa coube (achados #10 e D1/D2). */
+  const [alvoDoEnquadramento, setAlvoDoEnquadramento] = useState<AlvoDoEnquadramento>("critico");
+  const [cabeInteiro, setCabeInteiro] = useState(true);
+  const aoEnquadrar = useCallback((alvo: AlvoDoEnquadramento, previsao: EnquadramentoComModo) => {
+    setAlvoDoEnquadramento(alvo);
+    setCabeInteiro(previsao.cabeInteiro);
+  }, []);
 
   const criticoSet = useMemo(() => new Set(grafoV3.critico), [grafoV3.critico]);
   const semDuracaoSet = useMemo(() => new Set(grafoV3.semDuracao), [grafoV3.semDuracao]);
@@ -711,7 +873,16 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     (altura: number) => setAlturaMedida((atual) => (altura > atual ? altura : atual)),
     [],
   );
-  const nodeHEfetivo = Math.max(alturaMedida, NODE_H);
+  /**
+   * Altura do cartão no modo dado. No modo cartão vale a maior entre o token e
+   * a medida real (cinto e suspensório do achado CRÍTICO #1b); no modo mapa
+   * vale a pastilha — a medida real do modo cartão não se aplica a ela.
+   */
+  const alturaDoModo = useCallback(
+    (m: ModoDoCartao): number => (m === "mapa" ? alturaDoCartao("mapa") : Math.max(alturaMedida, NODE_H)),
+    [alturaMedida],
+  );
+  const nodeHEfetivo = alturaDoModo(modo);
 
   // ── As 6 arestas (P4 §5): construídas a partir de tasks+edges+critico —
   //    movido pra ANTES do layout (era depois) porque o layout agora também
@@ -729,31 +900,90 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     [tasks, grafoV3.edges, criticoSet, selectedTaskId],
   );
 
-  const layout = useMemo(
-    () =>
-      layoutDoGrafo({
-        ids: tasks.map((t) => t.id),
-        edges: precedenceEdges.map((e) => ({ origem: e.from, destino: e.to })),
-        criticoIds: criticoSet,
-        nodeW: NODE_W,
-        nodeH: nodeHEfetivo,
-        gapX: GAP_X,
-        gapY: Math.max(GAP_Y, GAP_Y_MINIMO),
-        // D2: quantas colunas cabem numa linha do rank, pela largura do pane.
-        maxColunas,
-        // O RANK continua preso só à precedência (`edges`, acima) — misturar
-        // sinergia/correlação ali criaria precedência falsa. Mas o
-        // ROTEAMENTO vale para as 6 camadas: é ele que dá canal e faixa
-        // próprios a cada aresta (D5). Passa o `id` visual: duas arestas
-        // entre o mesmo par são duas rotas, nunca uma só.
-        todasArestas: arestasVisuais.map((a) => ({
-          id: a.id,
-          origem: a.origem,
-          destino: a.destino,
-        })),
-      }),
-    [tasks, precedenceEdges, criticoSet, nodeHEfetivo, arestasVisuais, maxColunas],
+  const paramsDoLayout = useMemo(
+    () => ({
+      ids: tasks.map((t) => t.id),
+      edges: precedenceEdges.map((e) => ({ origem: e.from, destino: e.to })),
+      criticoIds: criticoSet,
+      nodeW: NODE_W,
+      gapX: GAP_X,
+      gapY: Math.max(GAP_Y, GAP_Y_MINIMO),
+      // D2: quantas colunas cabem numa linha do rank, pela largura do pane.
+      maxColunas,
+      // O RANK continua preso só à precedência (`edges`, acima) — misturar
+      // sinergia/correlação ali criaria precedência falsa. Mas o
+      // ROTEAMENTO vale para as 6 camadas: é ele que dá canal e faixa
+      // próprios a cada aresta (D5). Passa o `id` visual: duas arestas
+      // entre o mesmo par são duas rotas, nunca uma só.
+      todasArestas: arestasVisuais.map((a) => ({
+        id: a.id,
+        origem: a.origem,
+        destino: a.destino,
+      })),
+    }),
+    [tasks, precedenceEdges, criticoSet, arestasVisuais, maxColunas],
   );
+  const layout = useMemo(
+    () => layoutDoGrafo({ ...paramsDoLayout, nodeH: nodeHEfetivo }),
+    [paramsDoLayout, nodeHEfetivo],
+  );
+
+  /**
+   * A caixa (px de mundo) do alvo pedido, PARA UMA ALTURA DE CARTÃO — é o que
+   * `enquadramentoComModo` precisa para resolver o ponto fixo "altura → caixa
+   * → zoom → modo → altura". Reusa o layout vivo quando a altura é a atual;
+   * só recalcula quando o enquadramento pergunta pelo outro modo (um clique,
+   * nunca um frame de render).
+   */
+  const caixaParaAltura = useCallback(
+    (altura: number, alvo: AlvoDoEnquadramento): Caixa => {
+      const daAltura =
+        Math.abs(altura - nodeHEfetivo) < 0.5
+          ? layout
+          : layoutDoGrafo({ ...paramsDoLayout, nodeH: altura });
+      const querCritico = alvo === "critico" && criticoSet.size > 0;
+      const nos = [...daAltura.nodes.values()].filter((n) => !querCritico || criticoSet.has(n.id));
+      return caixaDosCartoes(
+        (nos.length > 0 ? nos : [...daAltura.nodes.values()]).map((n) => ({
+          id: n.id,
+          x: n.x,
+          y: n.y,
+          largura: NODE_W,
+          altura,
+        })),
+      );
+    },
+    [layout, paramsDoLayout, nodeHEfetivo, criticoSet],
+  );
+
+  /** Os cartões em px de mundo — a MESMA fonte que desenha os nós. */
+  const cartoes = useMemo<CartaoNaTela[]>(
+    () =>
+      [...layout.nodes.values()].map((n) => ({
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        largura: NODE_W,
+        altura: nodeHEfetivo,
+      })),
+    [layout, nodeHEfetivo],
+  );
+
+  /**
+   * P4g (decisão D2): o rótulo do botão é PREVISTO, não descoberto depois. Se
+   * nem no piso do zoom a caixa inteira cabe, o botão não promete "Ver tudo" —
+   * ele diz o que faz.
+   */
+  const rotuloDoVerTudo = useMemo(() => {
+    const previsao = enquadramentoComModo({
+      caixaParaAltura: (altura) => caixaParaAltura(altura, "tudo"),
+      pane,
+      opcoes: opcoesDoAlvo("tudo"),
+      alturaCartao: alturaDoModo("cartao"),
+      alturaMapa: alturaDoModo("mapa"),
+    });
+    return previsao.cabeInteiro ? "Ver tudo" : "Ver o máximo possível";
+  }, [caixaParaAltura, pane, alturaDoModo]);
 
   const nodes = useMemo<Node<TaskNodeData>[]>(() => {
     return tasks.map((task) => {
@@ -819,6 +1049,34 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     return m;
   }, [layout]);
 
+  /**
+   * P4g (achado MÉDIO #5): onde cada rótulo de % da sinergia pode ficar,
+   * decidido por UM colocador que conhece todos os rótulos e todos os cartões
+   * — nunca "no meio do segmento mais longo e que o resto se vire". A fonte
+   * entra arredondada em 1/4 de px: o colocador não precisa refazer a conta a
+   * cada frame de uma animação de zoom.
+   */
+  const fonteDoRotuloPx = Math.round(tipografiaDoCartao(zoomAtual).dadoPx * 4) / 4;
+  const rotulos = useMemo(() => {
+    const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
+    const pedidos = visiveis.flatMap((a) => {
+      const pontos = rotaPorAresta.get(a.id);
+      if (!pontos || camadaBaseDeAresta(a) !== "sinergia" || typeof a.pesoPercent !== "number") {
+        return [];
+      }
+      const caixa = caixaEstimadaDoTexto(`${a.pesoPercent}%`, fonteDoRotuloPx);
+      return [{ id: a.id, pontos, largura: caixa.largura, altura: caixa.altura }];
+    });
+    if (pedidos.length === 0) return new Map<string, Ponto | null>();
+    const cartoes: Retangulo[] = [...layout.nodes.values()].map((n) => ({
+      x0: n.x,
+      y0: n.y,
+      x1: n.x + NODE_W,
+      y1: n.y + nodeHEfetivo,
+    }));
+    return colocarRotulos(pedidos, cartoes);
+  }, [arestasVisuais, camadasAtivas, rotaPorAresta, layout, nodeHEfetivo, fonteDoRotuloPx]);
+
   const edges = useMemo<Edge<V3EdgeData>[]>(() => {
     const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
     const mapeadas = visiveis.flatMap((aresta) => {
@@ -855,6 +1113,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             destacadaPeloSelecionado: aresta.destacadaPeloSelecionado,
             pesoPercent: aresta.pesoPercent,
             pontos,
+            rotulo: rotulos.get(aresta.id),
           },
         },
       ];
@@ -871,11 +1130,21 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
       return 1;
     };
     return [...mapeadas].sort((a, b) => prioridade(a) - prioridade(b));
-  }, [arestasVisuais, camadasAtivas, byId, sourceById, isOut, rotaPorAresta, layout]);
+  }, [arestasVisuais, camadasAtivas, byId, sourceById, isOut, rotaPorAresta, layout, rotulos]);
+
+  /**
+   * P4g (achado BAIXO #15): Enter abre `/tarefa/[id]`. A navegação é injetada
+   * aqui (não dentro do cartão) para `TaskNode` seguir puro de apresentação —
+   * e para o cartão continuar valendo UMA parada de Tab, sem um link extra.
+   */
+  const handleAbrir = useCallback(
+    (id: string) => router.push(`/tarefa/${id}`),
+    [router],
+  );
 
   const selectionValue = useMemo(
-    () => ({ selectedTaskId, onSelectTask: handleSelect }),
-    [selectedTaskId, handleSelect],
+    () => ({ selectedTaskId, onSelectTask: handleSelect, onAbrirTarefa: handleAbrir }),
+    [selectedTaskId, handleSelect, handleAbrir],
   );
 
   if (accessibleFallback) {
@@ -897,54 +1166,65 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
   return (
     <GraphSelectionContext.Provider value={selectionValue}>
       <div
-        ref={containerRef}
-        className="relative h-full w-full bg-navy-950"
+        className="relative flex h-full w-full flex-col bg-navy-950"
         role="application"
         aria-label="Grafo de dependências de tarefas"
       >
         <ReactFlowProvider>
-          {/* P4f (decisão D9): a camada de controle vem ANTES do canvas na
-              ordem do DOM — é isso, e só isso, que põe os pills nas primeiras
-              paradas de Tab. Fica dentro do Provider (de onde os hooks da lib
-              leem o estado), fora do `<ReactFlow>`. */}
-          <SobreposicaoDoGrafo
-            containerRef={containerRef}
+          {/* P4g (decisão D9 + achado BAIXO #14): a barra de controle vem
+              ANTES do canvas na ordem do DOM (é isso que põe os controles nas
+              primeiras paradas de Tab) e FORA dele no layout — nenhum controle
+              fica plantado sobre um cartão. Fica dentro do Provider, de onde
+              os hooks da lib leem o estado. */}
+          <BarraDoGrafo
+            paneRef={paneRef}
             assinaturaDoFiltro={filterSignature}
             criticoIds={grafoV3.critico}
             fecharPaineisSinal={fecharPaineisSinal}
-            larguraDoPane={larguraDoPane}
+            larguraDoPane={pane.largura}
+            alturaDoPane={pane.altura}
             onAltura={aoMedirAltura}
+            onZoom={aoMudarZoom}
             camadas={camadas}
+            caixaParaAltura={caixaParaAltura}
+            alturaDeCartao={alturaDoModo("cartao")}
+            alturaDeMapa={alturaDoModo("mapa")}
+            alvo={alvoDoEnquadramento}
+            cabeInteiro={cabeInteiro}
+            aoEnquadrar={aoEnquadrar}
+            rotuloDoVerTudo={rotuloDoVerTudo}
+            cartoes={cartoes}
           />
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            // P4f (decisão D9): cada cartão vale UMA parada de Tab. O wrapper
-            // `.react-flow__node` da lib também é focável por padrão — eram
-            // duas paradas por cartão, e a de fora não tinha nome nenhum. A
-            // parada que fica é a de dentro (`role="button"` + `aria-label`
-            // com título, estado, fonte e bloqueio).
-            nodesFocusable={false}
-            elementsSelectable
-            // P4f (achado BAIXO #9): o piso do canvas é o piso do modo mapa —
-            // abaixo de `ZOOM_MINIMO` a compensação de fonte satura e o texto
-            // voltaria a encolher (o crítico chegou a 0,30 com fonte de
-            // 3,6px de tela).
-            minZoom={ZOOM_MINIMO}
-            maxZoom={1.8}
-            // Sem o prop de enquadramento automático da lib: o fit inicial é o
-            // MESMO "Caminho crítico"/"Ver tudo" dos botões
-            // (`SobreposicaoDoGrafo`) — nunca um terceiro caminho.
-            proOptions={{ hideAttribution: true }}
-            onNodeClick={(_, node) => handleSelect(node.id)}
-            onPaneClick={handlePaneClick}
-          >
-            <Background color={BG_DOTS} gap={22} size={1} />
-          </ReactFlow>
+          <div ref={paneRef} className="relative min-h-0 w-full flex-1">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              // P4f (decisão D9): cada cartão vale UMA parada de Tab. O wrapper
+              // `.react-flow__node` da lib também é focável por padrão — eram
+              // duas paradas por cartão, e a de fora não tinha nome nenhum. A
+              // parada que fica é a de dentro (`role="button"` + `aria-label`
+              // com título, estado, folga, META e caminho crítico).
+              nodesFocusable={false}
+              elementsSelectable
+              // P4f (achado BAIXO #9): o piso do canvas é o piso do modo mapa —
+              // abaixo de `ZOOM_MINIMO` a compensação de fonte satura e o texto
+              // voltaria a encolher.
+              minZoom={ZOOM_MINIMO}
+              maxZoom={ZOOM_MAXIMO_DO_CANVAS}
+              // Sem o prop de enquadramento automático da lib: o fit inicial é
+              // o MESMO "Caminho crítico"/"Ver tudo" dos botões — nunca um
+              // terceiro caminho, e nunca `fitView` (decisão D1).
+              proOptions={{ hideAttribution: true }}
+              onNodeClick={(_, node) => handleSelect(node.id)}
+              onPaneClick={handlePaneClick}
+            >
+              <Background color={BG_DOTS} gap={22} size={1} />
+            </ReactFlow>
+          </div>
         </ReactFlowProvider>
       </div>
     </GraphSelectionContext.Provider>

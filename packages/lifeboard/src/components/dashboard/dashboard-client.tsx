@@ -251,38 +251,20 @@ function DashboardInner({
       </nav>
 
       {/* ── CORPO ─────────────────────────────────────────────────────────
-          Celular: um painel por vez. Desktop (≥1024): fontes · HOJE · grafo.
-          "Hoje" vem antes do grafo porque é a resposta à única pergunta da
-          tela ("o que eu faço agora?"); o grafo explica o porquê. */}
-      <div className="flex min-h-0 flex-1">
-        <aside
-          className={`${visivel("fontes")} min-h-0 w-full shrink-0 flex-col overflow-y-auto border-navy-700 bg-navy-900 lg:w-60 lg:border-r xl:w-64`}
-        >
-          <SourceFilter
-            options={filterOptions}
-            selected={selected}
-            onChange={setSelected}
-          />
-        </aside>
+          Celular: um painel por vez (as abas acima).
 
-        <section
-          aria-label="Prioridades de hoje"
-          className={`${visivel("hoje")} min-h-0 w-full min-w-0 flex-col bg-navy-950 lg:w-[24rem] lg:shrink-0 lg:border-r lg:border-navy-700 xl:w-[27rem]`}
-        >
-          <TodayList
-            items={todayItems}
-            excludedCycleIds={excludedCycles}
-            isLoading={today.isLoading}
-            error={today.error}
-            selectedTaskId={selectedTaskId}
-            onSelectTask={setSelectedTaskId}
-            sources={sources}
-          />
-        </section>
-
+          Desktop (≥1024): o GRAFO ocupa a largura inteira do conteúdo e as
+          duas colunas que dividiam espaço com ele descem para baixo do canvas.
+          P4g (achado MÉDIO #7 do crítico hostil ROUND 6): a 1280 real o pane
+          do grafo media 592px — o ramo de 6 colunas do layout estava MORTO
+          (390→3, 1280→3, 1440→4, 1920→6 colunas). Um grafo que só existe em
+          1920 não é um grafo: é uma promessa. "Hoje" continua sendo a resposta
+          da tela, e continua a um rolar de distância — mas quem precisa do
+          grafo precisa dele inteiro. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         <section
           aria-label="Grafo de dependências"
-          className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900`}
+          className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900 lg:min-h-[26rem]`}
         >
           <div className="flex min-h-[44px] shrink-0 items-center justify-between gap-2 border-b border-navy-700 px-3">
             <span className="text-sm font-semibold text-bone-300">
@@ -292,7 +274,7 @@ function DashboardInner({
               type="button"
               onClick={() => setShowFallback((v) => !v)}
               aria-pressed={showFallback}
-              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-navy-600 px-2.5 text-xs font-medium text-bone-200 transition hover:bg-navy-800"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-navy-600 px-3 text-xs font-medium text-bone-200 transition hover:bg-navy-800"
             >
               {showFallback ? <Network size={14} /> : <List size={14} />}
               {showFallback ? "ver grafo" : "ver como lista"}
@@ -312,6 +294,41 @@ function DashboardInner({
             />
           </div>
         </section>
+
+        {/* No celular a linha de baixo só DISPUTA altura quando tem conteúdo
+            visível: com a aba "Grafo" aberta, os dois painéis estão `hidden` e
+            um `flex-1` aqui roubaria metade da tela para uma faixa vazia
+            (medido: pane do grafo com 145px de altura a 390). */}
+        <div
+          className={`flex min-h-0 ${
+            aba === "grafo" ? "" : "flex-1"
+          } lg:h-[38%] lg:flex-none lg:border-t lg:border-navy-700`}
+        >
+          <aside
+            className={`${visivel("fontes")} min-h-0 w-full shrink-0 flex-col overflow-y-auto border-navy-700 bg-navy-900 lg:w-60 lg:border-r xl:w-64`}
+          >
+            <SourceFilter
+              options={filterOptions}
+              selected={selected}
+              onChange={setSelected}
+            />
+          </aside>
+
+          <section
+            aria-label="Prioridades de hoje"
+            className={`${visivel("hoje")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-950`}
+          >
+            <TodayList
+              items={todayItems}
+              excludedCycleIds={excludedCycles}
+              isLoading={today.isLoading}
+              error={today.error}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={setSelectedTaskId}
+              sources={sources}
+            />
+          </section>
+        </div>
       </div>
     </div>
   );

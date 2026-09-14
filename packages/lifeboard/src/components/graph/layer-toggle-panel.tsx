@@ -230,10 +230,15 @@ export function LayerTogglePanel({ ativas, alternar, fecharSinal }: LayerToggleP
         onClick={() => setExpandido((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={expandido}
-        className="flex min-h-[36px] items-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/90 px-2.5 text-xs font-medium text-bone-200 shadow-panel"
+        // P4g (achado MÉDIO #8): 44px é o alvo de toque da régua da casa — o
+        // pill media 36 e era o MAIOR controle do grafo a 390. Abaixo de 640px
+        // o rótulo recolhe para a barra caber numa linha; o nome acessível
+        // continua no `aria-label`.
+        aria-label="Camadas"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-md border border-navy-600 bg-navy-850/90 px-3 text-xs font-medium text-bone-200 shadow-panel"
       >
-        <Layers size={14} aria-hidden="true" />
-        Camadas
+        <Layers size={16} aria-hidden="true" />
+        <span className="hidden sm:inline">Camadas</span>
       </button>
 
       {expandido && !mobile ? (
@@ -270,7 +275,7 @@ export function LayerTogglePanel({ ativas, alternar, fecharSinal }: LayerToggleP
                 type="button"
                 aria-label="Fechar"
                 onClick={fechar}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-bone-400 hover:bg-navy-800 hover:text-bone-100"
+                className="flex h-11 w-11 items-center justify-center rounded-md text-bone-400 hover:bg-navy-800 hover:text-bone-100"
               >
                 <X size={16} aria-hidden="true" />
               </button>

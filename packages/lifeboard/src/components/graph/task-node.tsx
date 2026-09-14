@@ -10,7 +10,7 @@ import { corDaFonte } from "@/lib/cor-da-fonte";
 import { configDoEstado, StatusChip } from "@/components/ui/status-chip";
 import type { JanelaCPM, ScoreAssimetria } from "@/core/prioritize/tipos-v3";
 import type { SourceKind, Task } from "@/types/canonical";
-import { ALTURA_DO_CARTAO } from "@/types/grafo-v3";
+import { alturaDoCartao } from "@/types/grafo-v3";
 
 /** Estado DERIVADO do grafo (não persistido na Task). spec §8.1. */
 export interface TaskNodeData {
@@ -86,7 +86,7 @@ export function fundoDoEstado(status: string): string {
 
 export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
   const { task, sourceKind, sourceLabel } = data;
-  const { selectedTaskId, onSelectTask } = useContext(GraphSelectionContext);
+  const { selectedTaskId, onSelectTask, onAbrirTarefa } = useContext(GraphSelectionContext);
   const cor = corDaFonte(sourceKind);
   const { s1, s2, s3 } = task.priorityHierarq;
   const score = s1 * s2 * s3;
@@ -113,14 +113,33 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
     ? "border-[1.5px] border-state-error"
     : bordaDoEstado(task.status);
 
-  const ariaLabel =
-    `${task.title}, status ${task.status}, fonte ${sourceLabel}` +
-    (isBlockedByPred && data.blockingPredecessorTitle
-      ? `, bloqueada por ${data.blockingPredecessorTitle}`
-      : "") +
-    (data.inCycle ? ", em ciclo de dependência" : "") +
-    (!data.janela && data.temMeta ? ", fora do caminho da meta" : "") +
-    (data.semDuracao ? ", estimativa faltando" : "");
+  /**
+   * P4g (achado MÉDIO #9 do crítico hostil ROUND 6): o rótulo acessível dizia
+   * `"Configurar ambiente, status done, fonte Agenda Lucas"` — o estado em
+   * INGLÊS numa página em português, sem folga, sem META e sem dizer que o
+   * cartão está no caminho crítico. Quem ouve a tela recebia menos do que quem
+   * olha. Agora ele diz, em português, TUDO o que está visível no cartão — e a
+   * tradução do estado é a MESMA string do chip (`configDoEstado().label`),
+   * nunca uma segunda lista livre para divergir.
+   */
+  const partesDoRotulo: string[] = [task.title];
+  if (task.isGoal) partesDoRotulo.push("META");
+  partesDoRotulo.push(estado.label);
+  if (data.isCritico) partesDoRotulo.push("no caminho crítico");
+  partesDoRotulo.push(`prioridade S ${score}`);
+  if (data.score) partesDoRotulo.push(`assimetria A ${data.score.valor}`);
+  if (data.janela) {
+    partesDoRotulo.push(`folga ${data.semDuracao ? "aproximada " : ""}${data.janela.folga} dias`);
+  }
+  partesDoRotulo.push(`fonte ${sourceLabel}`);
+  if (isBlockedByPred && data.blockingPredecessorTitle) {
+    partesDoRotulo.push(`bloqueada por ${data.blockingPredecessorTitle}`);
+  }
+  if (data.inCycle) partesDoRotulo.push("em ciclo de dependência");
+  if (!data.janela && data.temMeta) partesDoRotulo.push("fora do caminho da meta");
+  if (data.semDuracao) partesDoRotulo.push("estimativa faltando");
+  partesDoRotulo.push("Enter abre a tarefa");
+  const ariaLabel = partesDoRotulo.join(", ");
 
   /**
    * P4f (decisão D4 + D11): linha 1 do rodapé é UM texto só, montado por
@@ -143,17 +162,28 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
       tabIndex={data.isFilteredOut ? -1 : 0}
       aria-label={ariaLabel}
       aria-pressed={isSelected}
+      // P4g (achado BAIXO #15): Enter ABRE a tarefa (é o caminho de teclado até
+      // o nome inteiro, que o `title` só entregava ao mouse); Espaço
+      // seleciona, como sempre.
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onAbrirTarefa(task.id);
+          return;
+        }
+        if (e.key === " " || e.key === "Spacebar") {
           e.preventDefault();
           onSelectTask(task.id);
         }
       }}
-      style={{ height: ALTURA_DO_CARTAO }}
+      // P4g (achado MÉDIO #6): a altura vem do MODO. No modo mapa o cartão é
+      // uma pastilha — esconder o conteúdo e manter 180px de altura era pedir
+      // 1.764px de mundo para mostrar 40 pastilhas de 44.
+      style={{ height: alturaDoCartao(tipo.modo) }}
       className={[
-        // Altura FIXA vinda de `ALTURA_DO_CARTAO` (`@/types/grafo-v3`) — o
-        // ÚNICO número, lido também por `layout-do-grafo.ts` e
-        // `dependency-graph.tsx`. `overflow-hidden` é cinto de segurança do
+        // Altura vinda de `alturaDoCartao(modo)` (`@/types/grafo-v3`) — a
+        // ÚNICA fonte, lida também por `layout-do-grafo.ts` (passo de linha) e
+        // `dependency-graph.tsx` (enquadramento). `overflow-hidden` é cinto de segurança do
         // CARTÃO (não do rodapé: nenhum span de dado do rodapé corta — D4).
         "relative flex w-[200px] flex-col overflow-hidden rounded-lg py-2 pl-3.5 pr-3 shadow-node transition-[opacity,box-shadow] duration-200 ease-almapetra",
         borderClass,
