@@ -27,11 +27,24 @@
 /**
  * Multiplier applied to wall-clock budgets when running on CI.
  *
- * Chosen from the measurements above: the worst observed overshoot was 1.55x
- * (31ms against a 20ms budget), so 3x leaves headroom for a bad day while still
- * failing on a real regression — a pipeline that doubles in cost on CI is caught.
+ * WHAT THIS DOES AND DOES NOT CATCH — the first version of this comment claimed
+ * that "a pipeline that doubles in cost on CI is caught". That was FALSE, and
+ * the Codex review on PR #22 measured why: with a 3x factor, a pipeline p95 of
+ * 69ms (passing under the 70ms dev target) can regress to 138ms and still sit
+ * comfortably under the 210ms CI budget. The multiplier does not detect a
+ * doubling; it detects crossing the scaled ceiling, and nothing finer.
+ *
+ * So the factor is stated for what it is: everything above `factor x` the dev
+ * budget fails on CI, and everything below it passes. The narrower the factor,
+ * the smaller that blind window.
+ *
+ * 2x is what the measurements justify. The worst overshoot observed across four
+ * heads was 1.55x (31ms against a 20ms budget) and the other was 1.10x (110ms
+ * against 100ms), so 2x clears the worst real noise by ~29% and keeps the blind
+ * window as small as the data allows. 3x was headroom nobody had measured a
+ * need for, and it bought that comfort by hiding regressions.
  */
-const CI_BUDGET_FACTOR = 3;
+const CI_BUDGET_FACTOR = 2;
 
 /** True when running inside a CI runner (GitHub Actions sets both). */
 const IS_CI = process.env.CI === 'true' || process.env.CI === '1' || !!process.env.GITHUB_ACTIONS;
