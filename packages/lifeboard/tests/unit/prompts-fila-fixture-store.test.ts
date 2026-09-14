@@ -72,7 +72,7 @@ describe("D1 — posse (fencing) e heartbeat", () => {
       sessionId: "sessao-filha",
       agora: AGORA,
     });
-    expect(deW1).toEqual({ ok: true, jaFechado: false, estado: "concluida" });
+    expect(deW1).toEqual({ ok: true, jaFechado: false, reabertoEFechado: false, estado: "concluida" });
 
     // D8: o worker pode repetir o passo de fechamento depois de um timeout.
     const deNovo = fecharFixture({
@@ -83,7 +83,7 @@ describe("D1 — posse (fencing) e heartbeat", () => {
       custoUsd: 1.5,
       agora: AGORA,
     });
-    expect(deNovo).toEqual({ ok: true, jaFechado: true, estado: "concluida" });
+    expect(deNovo).toEqual({ ok: true, jaFechado: true, reabertoEFechado: false, estado: "concluida" });
   });
 
   it("custo fora de 0..500 é recusado (negativo zerava o freio do teto)", () => {
@@ -198,7 +198,9 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
     const r = pegarFixture(ALMA, "W1", AGORA);
     expect(r.item).toBeNull();
     expect(r.pulados).toBeGreaterThan(0);
-    expect(r.motivo).toContain("o mais barato da fila custa US$ 5,00");
+    // D27 (rodada 6): "disponível", não "da fila" — o mais barato da FILA pode
+    // estar em backoff, e dizer que ele é o mais barato disponível era falso.
+    expect(r.motivo).toContain("o mais barato disponível custa US$ 5,00");
   });
 
   it("fila vazia devolve motivo próprio (não é o mesmo caso de 'nada cabe')", () => {
@@ -383,11 +385,11 @@ describe("D16 — o consumo do fixture MEXE (não é mais constante)", () => {
     enfileirarFixture({ prompt: "alta", complexidade: "alta", conta: LUCAS, agora: AGORA + 1 });
     const r = pegarFixture(LUCAS, "W2", AGORA);
     expect(r.item).toBeNull();
-    expect(r.motivo).toContain("o mais barato da fila custa US$ 50,00");
+    expect(r.motivo).toContain("o mais barato disponível custa US$ 50,00");
   });
 });
 
-describe("D10 — publicar a sessão SUBTRAI, nunca apaga", () => {
+describe("D30 — a medição publicada SUBSTITUI a estimativa (supersede D10)", () => {
   function prepara(): string {
     resetarFilaFixtureStore();
     const item = pegarFixture(LUCAS, "W1", AGORA).item as { id: string };
@@ -406,7 +408,18 @@ describe("D10 — publicar a sessão SUBTRAI, nunca apaga", () => {
     return listarConsumoFixture(AGORA).find((c) => c.conta === LUCAS)?.consumoHojeUsd ?? 0;
   }
 
-  it("os 4 números do bloco SQL: 118,40 → 118,40 → 118,40 → 130,00", () => {
+  /**
+   * RODADA 6 — este teste mudou de veredito, e o motivo está medido:
+   * a rodada 4 (D10) fazia `greatest(custo do item − custo da sessão, 0)`.
+   * Quando o número real era MENOR que a estimativa, a subtração garantia que
+   * a conta fosse cobrada pela ESTIMATIVA — o crítico mediu um item morto de
+   * US$ 120 com sessão publicada de US$ 30 dando consumo 120. D30 troca a
+   * subtração por substituição: item com sessão vinculada que publicou custo
+   * contribui ZERO, e a sessão responde por si. A metade de D10 que continua
+   * valendo (e está no 2º passo abaixo): sessão publicada SEM custo não abate
+   * nada — 21 das 215 sessões reais são assim.
+   */
+  it("os 4 números, agora: 118,40 → 118,40 → 100,00 → 130,00", () => {
     prepara();
     const base = 38.68 + 3.42; // publicadas + o item concluído da semente
     expect(medido() - base).toBeCloseTo(118.4, 5);
@@ -415,8 +428,9 @@ describe("D10 — publicar a sessão SUBTRAI, nunca apaga", () => {
     publicarSessaoFixture(LUCAS, "session_FILHA_D10", null);
     expect(medido() - base).toBeCloseTo(118.4, 5);
 
+    // D30: a medição real, MENOR que a estimativa, passa a valer.
     publicarSessaoFixture(LUCAS, "session_FILHA_D10", 100);
-    expect(medido() - base).toBeCloseTo(118.4, 5);
+    expect(medido() - base).toBeCloseTo(100, 5);
 
     publicarSessaoFixture(LUCAS, "session_FILHA_D10", 130);
     expect(medido() - base).toBeCloseTo(130, 5);
@@ -482,7 +496,7 @@ describe("D12 — cancelar não perdoa, e a medição real corrige depois", () =
       custoUsd: 33,
       agora: AGORA,
     });
-    expect(fechado).toEqual({ ok: true, jaFechado: false, estado: "cancelada" });
+    expect(fechado).toEqual({ ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" });
     const depoisDoFechar =
       (listarConsumoFixture(AGORA).find((c) => c.conta === LUCAS)?.consumoHojeUsd ?? 0) - base;
     expect(depoisDoFechar).toBeCloseTo(33, 5);
@@ -518,14 +532,16 @@ describe("D19 — backoff: quem volta cumpre castigo antes de ser re-pego", () =
     expect(primeiro.devolvidos).toBe(1);
     expect(primeiro.item).toBeNull();
     // #11: "fila vazia" seria mentira — havia um item, acabou de voltar.
+    // D27 (rodada 6): o motivo é ADITIVO — o item devolvido ESTÁ de castigo, e
+    // as duas verdades aparecem, na ordem (em espera, depois devolvidos).
     expect(primeiro.motivo).toBe(
-      "1 item(ns) devolvido(s) para a fila, aguardando nova tentativa",
+      "1 item de US$ 5,00 volta em 15 min; 1 item voltou para a fila e aguarda nova tentativa",
     );
 
     const segundo = pegarFixture(LUCAS, "W3", AGORA);
     expect(segundo.item).toBeNull();
     expect(segundo.emEspera).toBe(1);
-    expect(segundo.motivo).toBe("1 item(ns) em espera de nova tentativa");
+    expect(segundo.motivo).toBe("1 item de US$ 5,00 volta em 15 min");
 
     vencerBackoffFixture(a.id, AGORA);
     const terceiro = pegarFixture(LUCAS, "W4", AGORA);
@@ -560,7 +576,7 @@ describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => 
     }
     const morte = pegarFixture(ALMA, "W9", AGORA);
     expect(morte.mortos).toBe(1);
-    expect(morte.motivo).toContain("do consumo são estimativa de 1 item(ns) que morreram sem fechar");
+    expect(morte.motivo).toContain("do consumo de hoje são estimativa de 1 item que morreu sem fechar");
 
     const conta = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA) as {
       consumoHojeUsd: number;
@@ -572,7 +588,7 @@ describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => 
     expect(conta.estimativaItens).toBe(1);
     expect(listarFilaFixture(200).find((i) => i.id === id)?.custoEEstimativa).toBe(true);
 
-    expect(ajustarCustoFixture(id, 12.34, AGORA)).toEqual({ ok: true });
+    expect(ajustarCustoFixture(id, 12.34, null, AGORA)).toEqual({ ok: true });
     const depois = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA) as {
       consumoHojeUsd: number;
       estimativaUsd: number;
@@ -585,7 +601,7 @@ describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => 
   it("ajustar custo só vale para item falhou/cancelada — nunca para o que foi medido", () => {
     resetarFilaFixtureStore();
     const concluida = listarFilaFixture(200).find((i) => i.estado === "concluida") as { id: string };
-    expect(ajustarCustoFixture(concluida.id, 1, AGORA)).toEqual({
+    expect(ajustarCustoFixture(concluida.id, 1, null, AGORA)).toEqual({
       erro: "Só dá para ajustar o custo de item que falhou ou foi cancelado.",
     });
   });
@@ -669,7 +685,10 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
     // 50 inseridos aqui + 1 `maxima` que a semente já tinha na_fila nesta conta
     // (o bloco SQL, com a fila vazia, deu exatamente 50).
     expect(r.pulados).toBe(51);
-    expect(r.motivo).toBeNull();
+    // D27 (rodada 6): o disparo que PEGA algo também tem frase — antes o
+    // relatório da Routine recebia `motivo: null` e ficava mudo sobre o que
+    // acabara de acontecer.
+    expect(r.motivo).toBe("peguei o item mais antigo que cabe: US$ 5,00 de US$ 110,00 livres");
   });
 
   it("quando nada cabe, o menor custo vem da fila INTEIRA (não dos 50 primeiros)", () => {
@@ -689,7 +708,7 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
     const r = pegarFixture(PANDORA, "W-r5b", AGORA);
     expect(r.item).toBeNull();
     expect(r.pulados).toBe(51);
-    expect(r.motivo).toContain("o mais barato da fila custa US$ 50,00");
+    expect(r.motivo).toContain("o mais barato disponível custa US$ 50,00");
     expect(r.motivo).not.toContain("US$ 120,00");
   });
 });
@@ -783,7 +802,7 @@ describe("#7 — só custo ESTIMADO pela casa pode ser ajustado", () => {
       workerId: "w-medido",
       tentativas: 1,
     });
-    expect(ajustarCustoFixture(novo.id, 1, AGORA)).toEqual({
+    expect(ajustarCustoFixture(novo.id, 1, null, AGORA)).toEqual({
       erro: "Só custo estimado pela casa pode ser ajustado; este foi medido.",
     });
   });

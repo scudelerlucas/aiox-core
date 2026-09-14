@@ -171,6 +171,16 @@ const PARES = [
   // que envolve esses formulários — `state-done` já media 4,5:1+ sobre
   // navy-850 (linha acima); aqui o par que faltava.
   ["state-done", "navy-900", 4.5, "mensagem de sucesso dos formulários da tarefa (mãe/status/meta/duração/relação, BAIXO #5)"],
+  // ── Fila de prompts, rodada 6 do crítico hostil (P7, 13/09/2026) ──
+  // Achado MÉDIO 4: a frase que LANÇA dinheiro no teto do dia ("US$ 120,00
+  // entram no gasto de hoje…") saía em `text-state-done` — o mesmo verde de
+  // "enfileirado com sucesso". Ela passou a ser `text-state-progress`, e o par
+  // precisa valer nas DUAS superfícies em que a linha da fila é desenhada: a
+  // tabela (fundo da página, `navy-950`) e o cartão do mobile (`navy-850`,
+  // já na régua acima).
+  ["state-progress", "navy-950", 4.5, "aviso 'isto entrou no gasto de hoje' na linha da fila (P7 MÉDIO 4)"],
+  ["state-done", "navy-950", 4.5, "sucesso mudo da fila (cancelamento sem custo) na tabela (P7 MÉDIO 4)"],
+  ["state-blocked", "navy-950", 4.5, "recusa em português da fila, role=alert, na tabela (P7)"],
 ];
 
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */

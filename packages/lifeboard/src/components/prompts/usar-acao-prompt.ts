@@ -23,6 +23,15 @@ export interface AcaoPromptControlada {
 export function useAcaoPrompt(
   acao: AcaoServidor,
   aoSucesso?: (estado: EstadoAcaoPrompt) => void,
+  /**
+   * BAIXO 4 (crítico da rodada 5): cada ação da linha existe DUAS vezes no DOM
+   * (tabela `sm:block` + cartão `sm:hidden`), com `useState` próprio em cada
+   * instância — a frase de cancelamento clicada em 390 px não existia ao
+   * redimensionar para 1280 px. Este callback devolve a resposta para a LINHA
+   * (`fila-tabela.tsx`), que a guarda uma vez só e a passa para as duas
+   * instâncias. Opcional: quem não precisa compartilhar não passa nada.
+   */
+  aoResponder?: (estado: EstadoAcaoPrompt) => void,
 ): AcaoPromptControlada {
   const [estado, setEstado] = useState<EstadoAcaoPrompt>({});
   const [pendente, startTransition] = useTransition();
@@ -33,6 +42,7 @@ export function useAcaoPrompt(
       void (async () => {
         const resultado = await acao(estado, form);
         setEstado(resultado);
+        aoResponder?.(resultado);
         if (resultado.ok === true) {
           aoSucesso?.(resultado);
           router.refresh();

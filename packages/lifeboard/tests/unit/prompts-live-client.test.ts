@@ -255,7 +255,7 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
   });
 
   // ── D20 (rodada 4): a porta de saída do operador ─────────────────────────
-  it("ajustarCustoPrompt POSTa em .../rpc/fila_prompts_ajustar_custo com p_secret, p_id e p_custo_usd", async () => {
+  it("ajustarCustoPrompt POSTa com p_secret, p_id, p_custo_usd e p_session_id (D26)", async () => {
     fetchMock.mockResolvedValueOnce(respostaOk({ ok: true, custo_usd: 12.34 }));
 
     const r = await ajustarCustoPrompt("fila-9", 12.34);
@@ -264,9 +264,26 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/rest\/v1\/rpc\/fila_prompts_ajustar_custo$/);
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["p_custo_usd", "p_id", "p_secret"]);
+    // D26 (rodada 6): a aridade de 4 é a única viva no banco (a de 3 saiu para
+    // a chamada não ficar ambígua no PostgREST). Sem vínculo, `p_session_id`
+    // vai nulo — e a RPC trata nulo como "não mexer no vínculo".
+    expect(Object.keys(body).sort()).toEqual([
+      "p_custo_usd",
+      "p_id",
+      "p_secret",
+      "p_session_id",
+    ]);
     expect(body.p_id).toBe("fila-9");
     expect(body.p_custo_usd).toBe(12.34);
+    expect(body.p_session_id).toBeNull();
+  });
+
+  it("ajustarCustoPrompt com sessão: o vínculo vai no corpo (D26)", async () => {
+    fetchMock.mockResolvedValueOnce(respostaOk({ ok: true, custo_usd: 30 }));
+    await ajustarCustoPrompt("fila-9", 30, "session_abc");
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.p_session_id).toBe("session_abc");
   });
 
   it("ajustarCustoPrompt: item de outro dia -> a mensagem em português da RPC atravessa", async () => {

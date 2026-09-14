@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import type { EstadoAcaoPrompt } from "@/app/prompts/actions";
 import { AjustarCustoBotao } from "@/components/prompts/ajustar-custo-botao";
 import { CancelarBotao } from "@/components/prompts/cancelar-botao";
 import { EstadoFilaChip } from "@/components/prompts/estado-fila-chip";
 import { formatRelativeTime } from "@/lib/format-relative-time";
+import { hojeNoFusoDoOperador } from "@/lib/fuso";
 import type { ItemFilaPrompt } from "@/core/prompts/tipos";
 import {
   ROTULO_COMPLEXIDADE,
@@ -78,9 +80,21 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
  * D20: só item cujo custo é ESTIMATIVA DA CASA ganha o botão de ajuste —
  * `falhou` por expiração ou `cancelada` em execução. Item fechado por worker
  * já tem número medido; oferecer "ajustar" ali seria convidar a inventar.
+ *
+ * MÉDIO 3 (crítico da rodada 5) + D25 (rodada 6): e só item FECHADO HOJE. O
+ * botão aparecia para qualquer `falhou`/`cancelada` da página, inclusive de
+ * dias passados — e o ajuste de um item de ontem era aceito sem mover número
+ * nenhum, coroado com "Custo ajustado — o gasto de hoje já considera o número
+ * real." O dia aqui é o MESMO de `painel_fila_itens_do_dia` (o do fechamento) e
+ * sai da MESMA função de fuso que o resto do app usa (`src/lib/fuso.ts`).
  */
-function podeAjustarCusto(item: ItemFilaPrompt): boolean {
-  return item.custoEEstimativa && (item.estado === "falhou" || item.estado === "cancelada");
+function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
+  if (!item.custoEEstimativa) return false;
+  if (item.estado !== "falhou" && item.estado !== "cancelada") return false;
+  if (item.concluidoEm === null) return false;
+  const dia = Date.parse(item.concluidoEm);
+  if (Number.isNaN(dia)) return false;
+  return hojeNoFusoDoOperador(new Date(dia)) === hojeNoFusoDoOperador(new Date(agora));
 }
 
 /** D20: a célula de custo diz de onde o número veio. */
@@ -108,18 +122,37 @@ function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
  * as duas montadas, a região viva de cada uma sobrevive ao refresh e o
  * operador lê o que aconteceu.
  */
-function AcoesDaLinha({ item }: { item: ItemFilaPrompt }): JSX.Element {
+interface RespostasDaLinha {
+  cancelar?: EstadoAcaoPrompt;
+  ajustar?: EstadoAcaoPrompt;
+}
+
+function AcoesDaLinha({
+  item,
+  agora,
+  respostas,
+  aoResponder,
+}: {
+  item: ItemFilaPrompt;
+  agora: number;
+  respostas: RespostasDaLinha | undefined;
+  aoResponder: (id: string, qual: keyof RespostasDaLinha, estado: EstadoAcaoPrompt) => void;
+}): JSX.Element {
   return (
     <div className="flex flex-col items-end gap-1">
       <CancelarBotao
         id={item.id}
         emExecucao={item.estado === "pega"}
         podeCancelar={podeCancelar(item)}
+        resposta={respostas?.cancelar}
+        aoResponder={(estado) => aoResponder(item.id, "cancelar", estado)}
       />
       <AjustarCustoBotao
         id={item.id}
         custoAtualUsd={item.custoUsd}
-        podeAjustar={podeAjustarCusto(item)}
+        podeAjustar={podeAjustarCusto(item, agora)}
+        resposta={respostas?.ajustar}
+        aoResponder={(estado) => aoResponder(item.id, "ajustar", estado)}
       />
     </div>
   );
@@ -150,6 +183,24 @@ export function FilaTabela({
   /** D15: já estamos numa página seguinte (há um "voltar ao começo" a oferecer). */
   emPaginaSeguinte?: boolean;
 }): JSX.Element {
+  /**
+   * BAIXO 4 (crítico da rodada 5): cada ação da linha é renderizada DUAS vezes
+   * — a tabela (`hidden sm:block`) e o cartão (`sm:hidden`) —, e cada instância
+   * tinha o seu próprio `useState`. Medido: a frase de cancelamento clicada em
+   * 390 px não existia ao redimensionar para 1280 px, porque quem a guardava
+   * era a outra instância. A resposta passa a morar AQUI, uma por item, e as
+   * duas instâncias leem a mesma. (Um `useState` dentro do `.map()` seria
+   * violação da regra dos hooks — por isso um mapa só, por id.)
+   */
+  const [respostas, setRespostas] = useState<Record<string, RespostasDaLinha>>({});
+  function registrarResposta(
+    id: string,
+    qual: keyof RespostasDaLinha,
+    estado: EstadoAcaoPrompt,
+  ): void {
+    setRespostas((atual) => ({ ...atual, [id]: { ...atual[id], [qual]: estado } }));
+  }
+
   const limite = limiteAtual ?? 50;
   // D15: o link do "mostrar mais" carrega o CURSOR, não um limite maior. Com
   // `?limite=` crescendo, uma fila de 205 itens tinha 5 inalcançáveis (a RPC
@@ -237,7 +288,12 @@ export function FilaTabela({
                   )}
                 </td>
                 <td className="px-3 py-2.5 align-top text-right">
-                  <AcoesDaLinha item={item} />
+                  <AcoesDaLinha
+                    item={item}
+                    agora={agora}
+                    respostas={respostas[item.id]}
+                    aoResponder={registrarResposta}
+                  />
                 </td>
               </tr>
             ))}
@@ -278,7 +334,12 @@ export function FilaTabela({
                   </>
                 ) : null}
               </p>
-              <AcoesDaLinha item={item} />
+              <AcoesDaLinha
+                item={item}
+                agora={agora}
+                respostas={respostas[item.id]}
+                aoResponder={registrarResposta}
+              />
             </div>
           </div>
         ))}

@@ -127,7 +127,7 @@ os passos abaixo.
   mesmas ações mutam um store em memória (`src/lib/repositories/
   tasks.fixture-store.ts`) para a página funcionar em dev/teste sem Supabase.
 
-## Fila de prompts entre as 3 contas (P7 · rodada 5, 13/09/2026)
+## Fila de prompts entre as 3 contas (P7 · rodada 6, 13/09/2026)
 
 Pedido do operador: "poder promptar soluções pelo painel na conta que tem mais tokens
 disponíveis para a complexidade da tarefa". Arquitetura decidida pelo mapa `!4z` do hub
@@ -141,8 +141,62 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
   `teto-de-gasto-diario`) → `0009_lifeboard_v3_fila_ajustes.sql` → `0011_lifeboard_v3_fila_ajustes_2.sql`
   → `0012_lifeboard_v3_fila_posse_e_tentativas.sql` (rodada 3: posse, tentativa com fim,
   elegibilidade por item) → `0013_lifeboard_v3_fila_contabilidade.sql` (rodada 4, D10–D20) →
-  **`0014_lifeboard_v3_fila_pull_e_mensagens.sql`** (a rodada 5, aditiva e re-aplicável — nem
-  `drop`, nem assinatura nova; o cabeçalho do arquivo traz D21–D24 por extenso).
+  `0014_lifeboard_v3_fila_pull_e_mensagens.sql` (rodada 5, D21–D24) →
+  **`0015_lifeboard_v3_fila_dia_e_dono.sql`** (a rodada 6, D25–D30 — aditiva e re-aplicável; a
+  única remoção é a assinatura de 3 argumentos de `fila_prompts_ajustar_custo`, trocada pela de
+  4, porque duas assinaturas com default deixariam a chamada ambígua no PostgREST).
+
+### Teste da fila de prompts (o que guarda o COMPORTAMENTO)
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -f supabase/tests/fila_prompts.test.sql
+```
+
+Cada bloco é um `do $$ … $$;` que **termina em `raise exception`** — `RESULTADO: ok — <caso>`
+quando a asserção passa, `FALHA: <caso> esperado X obteve Y` quando não. O `raise` É o
+mecanismo de rollback: nenhum bloco deixa linha no banco, passe ou falhe. Por isso
+`ON_ERROR_STOP=0`: cada bloco aborta sozinho e o arquivo continua até o fim. **Nunca rodar com
+`ON_ERROR_STOP=1`** — o primeiro "ok" pararia a suíte.
+
+Por que este arquivo existe: o crítico da rodada 5 aplicou a mutação
+`and f.custo_estimado_usd <= v_headroom + 100000` na migration — o pull passa a ignorar o teto
+diário inteiro — e **775/775 testes do vitest passaram**. A suíte de TS lê o `.sql` do disco e
+compara REGEX; ela não distingue um pull que respeita o orçamento de um que o estoura. Na
+rodada 6 a mesma mutação foi reaplicada e o bloco **T16** deste arquivo devolveu FALHA. O
+vitest (`tests/unit/prompts-espelho-sql.test.ts`) passou a guardar só o **contrato mínimo**:
+toda função chamada pelo teste SQL existe numa migration versionada.
+
+**Concorrência, dita por inteiro:** `fila_prompts_pegar_interno` faz
+`perform 1 from painel_teto_diario where conta = p_conta for update` — isso **serializa dois
+pulls da MESMA conta por desenho** (contas diferentes nunca se bloqueiam). É a arquitetura
+pretendida: há **1 Routine por conta**. O `for update skip locked` da linha do item protege
+contra `cancelar`/`fechar`/`ajustar` concorrentes, nunca contra outro worker da mesma conta —
+esse nem chega no `select`. Consequência assumida: o `skip locked` não é exercitável a partir
+de uma conexão só (o projeto não tem `dblink` nem `pg_background`, e `pegar_interno` é revogada
+para `anon`/`authenticated`), e por isso a FRASE do caso "item elegível travado" (B5) mora numa
+função pura, `painel_fila_motivo_do_pull`, testada ramo a ramo no bloco **T13**.
+
+### O que a rodada 6 mudou — o dia que reconhece paga, e o dono do morto entrega o número
+
+> **O princípio:** **dinheiro cai no dia em que alguém o reconhece, e quem gastou é quem
+> reporta.** Os dois ALTO do crítico eram a mesma doença em dois lugares: um número real
+> (US$ 42 medidos, US$ 80 medidos) chegando à casa e sendo recusado — uma vez por um dia que
+> nenhuma função sabia abrir, outra por uma guarda de posse que a própria morte tinha apagado.
+
+| | Decisão | Efeito |
+|---|---|---|
+| **D25** | **o dia que RECONHECE paga** (revoga D24) | D24 atribuía o item ao dia de `pego_em`. Medido pelo crítico: item pego 12/09 23h50, fechado hoje com US$ 42 MEDIDOS → consumo de hoje 0 e headroom 30 → **150**; e nenhuma função sabia ler o dia 12. Agora: item FECHADO conta no dia de `concluido_em`; item `pega` em voo conta como RESERVA do dia CORRENTE, sempre (`painel_fila_reservado`, que nunca teve filtro de dia); e **qualquer dia é consultável** — `painel_fila_itens_do_dia(conta, dia)`, `painel_fila_consumo_do_dia(conta, dia)` e a RPC secret-gated `fila_prompts_consumo_do_dia(p_secret, p_dia default null)`. Provado (T01/T02/T03): 42 medidos na virada → **consumo hoje 42, headroom 108**; item em voo na virada → **reservado 120, headroom 30**; item fechado ontem → hoje 0 **e ontem 42**. |
+| **D26** | **a morte não apaga a posse** | `mor` zerava `worker_id` e o fencing vinha ANTES da idempotência: o worker que de fato rodou era recusado com *"Item pertence a outro worker (nenhum)"*, e sem `session_id` vinculado o dia somava estimativa (120) + custo real (80) = **200**. Coluna nova `ultimo_worker_id` (a MEMÓRIA da posse; `worker_id` continua sendo a posse VIVA, que a morte precisa zerar para liberar a fila). O último dono fecha o item morto e recebe `{ok:true, reaberto_e_fechado:true}` — grava o custo medido, apaga a marca de estimativa, vincula a sessão e carimba `concluido_em = now()`. `fila_prompts_ajustar_custo` ganhou `p_session_id` pelo mesmo motivo. Provado (T04/T05/T06/T07): dono fecha com 80 → **consumo 80**; intruso → recusado; 2ª chamada do dono → `ja_fechado`; ajuste com sessão → vínculo gravado. |
+| **D27** | **o `motivo` é ADITIVO** | era um `case` de ramo único: a primeira frase verdadeira calava as outras. Medido: 3 itens de US$ 5 em backoff + 5 de US$ 120 → *"o mais barato da fila custa US$ 120.00"* (falso); 1 morto + 1 caro → a morte sumia. Agora toda verdade não-zero vira uma oração, coladas por `"; "`, nesta ordem: **mortos · escolhido/nada cabe · em espera · devolvidos · travados · parcela estimada**. `menor_custo_fila` (inclui backoff) e `menor_custo_elegivel_agora` saem como campos numéricos. Formatação em `painel_usd_br` (vírgula decimal, acento) e headroom negativo vira *"não há espaço livre agora"* — nunca um número negativo (BAIXO 1). A frase mora numa função PURA, `painel_fila_motivo_do_pull`, espelhada texto a texto por `montarMotivoDoPull` (`core/prompts/tipos.ts`) e amarrada pelos dois lados em `tests/unit/prompts-motivo-do-pull.test.ts`. Provado (T11/T12/T13/T14/T20). |
+| **D28** | **teste de COMPORTAMENTO, não de ortografia** | `supabase/tests/fila_prompts.test.sql` (20 blocos) — ver a seção acima. A mutação `+ 100000` derruba o bloco T16. |
+| **D29** | **uma régua no roteamento** | `escolherConta` escolhia a conta pelo ESPAÇO LIVRE e decidia `cabe_hoje` pelo HEADROOM — duas réguas, e a frase saía da segunda: *"Nenhuma conta tem US$ 50,00 livres hoje"* com uma conta de US$ 150 de headroom e US$ 140 na fila. Agora o espaço livre escolhe, decide e fala; o headroom vira EXPLICAÇÃO dentro da frase (*"Pandora tem US$ 150,00 livres agora, mas US$ 140,00 já na fila"*) e o empate é dito (*"Empate no espaço livre; vale a ordem da casa."*). `fila_prompts_enfileirar` foi atualizada no MESMO commit — o espelho declarado continua espelho. |
+| **D30** | **a medição publicada SUBSTITUI a estimativa** | era `greatest(custo do item − custo da sessão, 0)`: com o real MENOR que a estimativa, a conta era cobrada pela estimativa (item morto de 120 + sessão de 30 → **120**). Agora o item com sessão vinculada que publicou custo naquele dia contribui **ZERO** e a sessão responde por si. A metade de D10 que continua valendo: sessão publicada SEM custo (21 das 215 reais) não abate nada. Provado (T08/T09/T10): 30 sobre 120 → **30**; 100 sobre 42 → **100**; sessão sem custo sobre 42 → **42**. |
+| **MÉDIO 3** | **o botão de ajuste que prometia e não movia nada** | `podeAjustarCusto` (tela) passou a exigir `concluidoEm` = hoje no fuso do operador (`src/lib/fuso.ts`, a MESMA função do resto do app), e a régua do banco (`concluido_em`) virou a mesma de `painel_fila_itens_do_dia` (D25). Provado no render e no bloco T17. |
+| **MÉDIO 4** | **dinheiro não sai em verde** | `MensagemDaFila` ganhou `tom: 'sucesso' \| 'atencao'`; o cancelamento que LANÇA estimativa usa `atencao` (`text-state-progress`), e, cinto e suspensório, a própria frase denuncia o lançamento se o caller esquecer o tom. Medido no navegador: `text-state-progress`, `rgb(255, 193, 69)`. Pares novos na régua de contraste (61 no total, todos ≥ 4,5:1). |
+| **BAIXO 2** | **recusa sem UUID** | as mensagens de `fila_prompts_cancelar`/`ajustar_custo` ganharam acento e pararam de ecoar o id (*"Este item não está mais na fila — ele já foi concluído, falhou ou foi cancelado."*); `traduzirErroFila` ficou como segunda trava, removendo UUID de qualquer `23514` (o texto inteiro continua indo para o log do servidor). Provado no bloco T18. |
+| **BAIXO 3** | **o foco não cai no `<body>`** | depois de cancelar, o foco vai para a região `role="status"` da linha (`tabIndex={-1}`); depois de salvar o ajuste, para o gatilho "ajustar custo" e, quando ele some com o `router.refresh()`, para a frase da resposta. Reusa `focarComAlternativa` da peça P6. Medido em 1280 e em 390: `activeElement` = `P[role=status]` nos dois casos, nas duas larguras. |
+| **BAIXO 4** | **a frase sobrevive ao redimensionar** | as duas instâncias da linha (tabela `sm:block` + cartão `sm:hidden`) tinham `useState` próprio; a resposta passou a morar na LINHA (`FilaTabela`), uma por item. Medido: clicar em 390 e redimensionar para 1280 → **2 regiões com a frase, 1 visível**, nos dois lados. |
+| **B5** | **item travado não é "fila vazia"** | contagem de elegíveis SEM lock; se o escolhido é nulo e ela é > 0, o motivo diz *"N item(ns) elegível(is) está(ão) em uso por outra operação; tente no próximo disparo"*. |
 
 ### O que a rodada 5 mudou — o pull decide no `where`, e a frase chega à tela
 
@@ -156,7 +210,7 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 | **D21** | **elegibilidade no `where`** | `fila_prompts_pegar_interno` iterava `limit 50 for update skip locked` e testava o teto DENTRO do laço: com 50 `maxima` (US$ 120) na frente, um `baixa` (US$ 5) na posição 51 era **invisível**, e o motivo mentia ("o mais barato da fila custa US$ 120,00"). Agora o item sai de `where … custo_estimado_usd <= headroom order by criado_em, id limit 1 for update skip locked`; `pulados` = `count(*)` dos disponíveis que não cabem e "o mais barato" = `min(custo_estimado_usd)` — os dois **sem limite**, sobre a fila inteira. Índice parcial novo: `painel_fila_prompts_na_fila_ordem_idx (conta, criado_em, id) where estado = 'na_fila'`. Provado ao vivo: 51 itens, headroom 110 → item = o `baixa`, `pulados: 50`, motivo `null`; e o inverso (50 `maxima` + 1 `alta`, headroom 40) → "o mais barato da fila custa US$ 50.00", nunca 120. |
 | **D22** | **a frase calculada chega à tela** | `CancelarBotao` e `AjustarCustoBotao` (os componentes que a tabela monta) renderizam a MESMA `MensagemDaFila` do formulário, com `role="status"` que existe **antes** do texto (vazio = `sr-only`) e `erro` na mesma região. A frase de #11/D12 ("US$ 50,00 entram no gasto de hoje como estimativa") nunca era mostrada por ninguém e o sucesso do ajuste era mudo. As duas ações da linha ficam **sempre montadas** (`podeCancelar`/`podeAjustar` só escondem o gatilho): o `router.refresh()` do sucesso desmontava o componente e levava a frase junto. |
 | **D23** | **pull que mata não diz "fila vazia"** | o `case` do motivo ganhou o ramo `mortos > 0` antes de "fila vazia": "1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia" (+ o sufixo de estimativa do dia). Provado: item na 3ª expiração → motivo começa por "1 item morreu", `mortos_usd: 50.00`. |
-| **D24** | **o dia que reservou paga** | `painel_fila_itens_do_dia` atribuía o item ao dia de `concluido_em`: um item pego 23h50 e fechado 00h10 gastava o headroom do dia 13 e era cobrado do dia 14 — o dia 13 fechava com buraco e o dia 14 nascia devendo. A atribuição passa a ser `painel_dia_operador(coalesce(pego_em, criado_em))` (`coalesce` porque a expiração zera `pego_em`). Provado: item pego 23h50 do dia 13 e fechado 00h10 do dia 14 → **+US$ 120 no dia 13**; o mesmo desenho um dia antes → **+US$ 0 no dia 13** (pela regra velha era exatamente o contrário). |
+| **D24** | ~~o dia que reservou paga~~ **REVOGADA por D25 (rodada 6)** | `painel_fila_itens_do_dia` atribuía o item ao dia de `concluido_em`: um item pego 23h50 e fechado 00h10 gastava o headroom do dia 13 e era cobrado do dia 14 — o dia 13 fechava com buraco e o dia 14 nascia devendo. A atribuição passa a ser `painel_dia_operador(coalesce(pego_em, criado_em))` (`coalesce` porque a expiração zera `pego_em`). Provado: item pego 23h50 do dia 13 e fechado 00h10 do dia 14 → **+US$ 120 no dia 13**; o mesmo desenho um dia antes → **+US$ 0 no dia 13** (pela regra velha era exatamente o contrário). |
 | **#3** | **`raise` usa `%`, não `%s`** | "(este está concluidas)" / "(este está na_filas)" — o `%s` consumia o `%` e deixava o `s` colado no valor. Corrigido em 0014 (e o mesmo caractere em 0013, para a varredura fechar em zero). Prova: `(este está concluida)` e `(este está na_fila)`; teste `prompts-espelho-sql` varre as 6 migrations por `raise … %s` e exige lista vazia. |
 | **#6** | **o backoff entrou no espelho** | `prompts-espelho-sql.test.ts` extrai `disponivel_em = now() + (interval '15 minutes' * …)` de 0013/0014 e compara com `BACKOFF_POR_TENTATIVA_MIN`. Mutação 15→99 no arquivo **falha** o teste (medido). |
 | **#7** | **`ajustar_custo` checa a estimativa** | o comentário dizia "só o que a casa estimou" e o código nunca checava — um custo MEDIDO pelo worker podia ser reescrito pela tela. Agora: "Só custo estimado pela casa pode ser ajustado; este foi medido." |
@@ -205,11 +259,12 @@ Routine diária de cada conta é o WORKER que pega o que é dela.
 |---|---|---|
 | `fila_prompts_enfileirar` | painel (segredo) | `(p_secret text, p_payload jsonb)` → `{ok, id, conta, complexidade, modelo_sugerido, motivo_codigo, cabe_hoje, headroom_usd, espaco_livre_usd, custo_estimado_usd, na_fila_usd, itens_na_frente}` — **sem `motivo`**: nenhuma frase atravessa o banco (D14) |
 | `fila_prompts_cancelar` | painel (segredo) | `(p_secret text, p_id uuid)` → `{ok, motivo_codigo, tentativas, custo_lancado_usd}` — aceita `na_fila` e `pega` |
-| `fila_prompts_ajustar_custo` | painel (segredo) | `(p_secret text, p_id uuid, p_custo_usd numeric)` — só `falhou`/`cancelada` fechados hoje (D20) |
+| `fila_prompts_ajustar_custo` | painel (segredo) | `(p_secret text, p_id uuid, p_custo_usd numeric, p_session_id text default null)` — só `falhou`/`cancelada` fechados hoje (D20/D25); `p_session_id` vincula a sessão que rodou (D26). **A de 3 argumentos foi removida** (duas assinaturas com default = "function is not unique") |
+| `fila_prompts_consumo_do_dia` | painel (segredo) | `(p_secret text, p_dia date default null)` → `{ok, dia, contas:[{conta, teto_usd, consumo_usd, itens}]}` — **novidade da rodada 6 (D25)**: qualquer dia é legível, não só hoje |
 | `fila_prompts_listar` | painel (segredo) | `(p_secret text, p_limite integer default 50, p_antes_de timestamptz default null, p_antes_id uuid default null)` — **as versões de 1 e de 3 argumentos foram removidas** (duas assinaturas com default dariam "function is not unique") |
 | `fila_prompts_pegar_interno` | worker (sem segredo) | `(p_conta text, p_worker_id text)` — **a de 1 argumento foi removida**: sem ela, um worker pegaria item sem gravar posse nem tentativa. Devolve, desde a rodada 5, `mortos_usd` (quanto os mortos deste disparo lançaram) e `headroom_usd` (a régua que decidiu quem cabia), além de `devolvidos`/`mortos`/`pulados`/`em_espera`/`estimativa_*` |
 | `fila_prompts_heartbeat_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_session_id text default null)` — nunca levanta exceção por ESTADO (devolve `{ok:false, motivo}`); levanta, sim, quando o `session_id` é o do worker ou já é de outro item (D11). Devolve `expira_em` (D18) |
-| `fila_prompts_fechar_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_estado text, p_custo_usd numeric, p_session_id text default null, p_sessao_url text default null, p_resultado text default null)` — **a de 6 argumentos foi removida** |
+| `fila_prompts_fechar_interno` | worker (sem segredo) | `(p_id uuid, p_conta text, p_worker_id text, p_estado text, p_custo_usd numeric, p_session_id text default null, p_sessao_url text default null, p_resultado text default null)` — **a de 6 argumentos foi removida**. Desde a rodada 6 devolve `reaberto_e_fechado` e aceita o fechamento do item MORTO feito pelo seu ÚLTIMO dono (D26) |
 
 As três `_interno` são `SECURITY DEFINER` com `revoke all from public, anon, authenticated` — só
 dono/`postgres` executa, que é o papel do MCP Supabase da PRÓPRIA conta
@@ -217,7 +272,11 @@ dono/`postgres` executa, que é o papel do MCP Supabase da PRÓPRIA conta
 `has_function_privilege('anon'|'authenticated', …)` = `false` nas 3, e nas 4 funções auxiliares
 (`painel_fila_consumo_hoje`, `painel_fila_reservado`, `painel_fila_na_fila`,
 `painel_fila_medido_ate`) — e, desde a rodada 4, também em `painel_fila_itens_do_dia`,
-`painel_fila_estimativa_usd`, `painel_fila_estimativa_itens` e `painel_fila_em_espera`.
+`painel_fila_estimativa_usd`, `painel_fila_estimativa_itens` e `painel_fila_em_espera`. Na
+rodada 6 entram na mesma disciplina `painel_fila_itens_do_dia(text, date)`,
+`painel_fila_consumo_do_dia`, `painel_fila_motivo_do_pull` e `painel_usd_br` — o bloco **T19**
+do teste SQL varre `pg_proc` e falha se qualquer uma delas virar executável por
+`anon`/`authenticated` (funções de TRIGGER ficam de fora: não são chamáveis como RPC).
 `fila_prompts_ajustar_custo` é secret-gated como as demais RPCs do painel: chamada sem o segredo
 (ou com o errado) devolve `fila_prompts_ajustar_custo: acesso negado`.
 

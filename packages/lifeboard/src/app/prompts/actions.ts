@@ -43,8 +43,14 @@ export type EstadoAcaoPrompt = {
    * hoje (US$ 150.00)"), sem acento e com ponto decimal.
    */
   mensagem?: string;
-  /** D3: entrou na fila mas não cabe no teto de hoje — roda quando houver espaço. */
+  /** D3/D29: entrou na fila mas não cabe hoje contando a fila parada. */
   cabeHoje?: boolean;
+  /**
+   * MÉDIO 4 (crítico da rodada 5): a única frase que avisa "acabei de lançar
+   * US$ 120,00 no seu teto" saía no MESMO verde de "deu tudo certo". `atencao`
+   * é o tom de toda mensagem que LANÇA dinheiro no dia.
+   */
+  tom?: "sucesso" | "atencao";
 };
 
 function revalidar(): void {
@@ -155,11 +161,15 @@ async function mutarCancelar(id: string): Promise<ResultadoMutar> {
   return cancelarFixture(id);
 }
 
-async function mutarAjustarCusto(id: string, custoUsd: number): Promise<ResultadoMutar> {
+async function mutarAjustarCusto(
+  id: string,
+  custoUsd: number,
+  sessionId: string | null,
+): Promise<ResultadoMutar> {
   if (env.LIFEBOARD_DATA_MODE === "live") {
-    return ajustarCustoPrompt(id, custoUsd);
+    return ajustarCustoPrompt(id, custoUsd, sessionId);
   }
-  return ajustarCustoFixture(id, custoUsd);
+  return ajustarCustoFixture(id, custoUsd, sessionId);
 }
 
 /**
@@ -256,7 +266,11 @@ export async function cancelarPromptAction(
   revalidar();
   // #11: cancelar não é sempre a mesma coisa — "nunca foi pego" é de graça,
   // "já rodou e voltou" custa o estimado. A frase diz qual dos dois foi.
-  return { ok: true, mensagem: frasePraTela(r) };
+  // MÉDIO 4 (rodada 6): quando LANÇA dinheiro, o tom é de atenção, não de
+  // sucesso — a frase que avisa "US$ 120,00 entram no gasto de hoje" saía no
+  // mesmo verde de "enfileirado com sucesso".
+  const lancou = (r.custoLancadoUsd ?? 0) > 0;
+  return { ok: true, mensagem: frasePraTela(r), tom: lancou ? "atencao" : "sucesso" };
 }
 
 // ═════════════════════════════════════════════════════ ajustar custo ═════
@@ -273,14 +287,24 @@ export async function ajustarCustoPromptAction(
   const id = textoOu(form, "id");
   if (id.length === 0) return { erro: "Item não identificado." };
 
+  const sessionId = textoOuNulo(form, "session_id");
   const bruto = textoOu(form, "custo_usd").trim().replace(",", ".");
   const custo = Number.parseFloat(bruto);
   if (bruto.length === 0) return { erro: "Escreva o custo real antes de salvar." };
   if (!Number.isFinite(custo)) return { erro: "O custo precisa ser um número (ex.: 12,30)." };
   if (custo < 0 || custo > 500) return { erro: "O custo precisa ficar entre 0 e 500." };
 
-  const r = await mutarAjustarCusto(id, custo);
+  const r = await mutarAjustarCusto(id, custo, sessionId);
   if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };
   revalidar();
-  return { ok: true, mensagem: "Custo ajustado — o gasto de hoje já considera o número real." };
+  // MÉDIO 3 (rodada 6): esta frase só pode ser dita porque agora ela é
+  // VERDADE — a régua do dia do ajuste (`concluido_em`) virou a mesma régua do
+  // dia do consumo (D25). Antes, o botão aparecia para item de qualquer dia e
+  // a frase prometia um movimento que não acontecia.
+  const vinculo = sessionId === null ? "" : " A sessão ficou vinculada ao item.";
+  return {
+    ok: true,
+    mensagem: `Custo ajustado — o gasto de hoje já considera o número real.${vinculo}`,
+    tom: "sucesso",
+  };
 }

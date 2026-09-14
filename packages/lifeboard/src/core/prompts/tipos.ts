@@ -347,6 +347,13 @@ export interface NumerosDoEnfileiramento {
  * complexidade por extenso e vírgula decimal. Antes, em modo live, o texto vinha
  * cru do Postgres ("roteamento automatico: maior espaco livre hoje (US$ 150.00)"):
  * sem acento, com ponto decimal e com o vocabulário do banco.
+ *
+ * D29 (rodada 6): UMA RÉGUA. Estas frases falavam do HEADROOM enquanto a conta
+ * era escolhida pelo ESPAÇO LIVRE (headroom − fila parada). O crítico mediu o
+ * resultado: "nenhuma conta tem US$ 50,00 livres hoje" com uma conta de US$ 150
+ * de headroom e US$ 140 já na fila. Agora o número da frase é o espaço livre, e
+ * a frase diz `contando a fila parada` — o headroom aparece ao lado, como
+ * explicação, nunca como o veredito.
  */
 export function fraseDoEnfileiramento(
   codigo: MotivoEnfileirar,
@@ -354,37 +361,39 @@ export function fraseDoEnfileiramento(
 ): string {
   const conta = ROTULO_CONTA[n.conta];
   const complexidade = ROTULO_COMPLEXIDADE[n.complexidade];
-  const espacoDepois =
+  const espaco = Math.max(0, n.espacoLivreUsd);
+  const detalheDaFila =
     n.naFilaUsd > 0
-      ? ` ${n.itensNaFrente === 1 ? "1 item na frente soma" : `${n.itensNaFrente} itens na frente somam`}` +
-        ` ${formatarUsd(n.naFilaUsd)}.`
+      ? ` (headroom de ${formatarUsd(Math.max(0, n.headroomUsd))} menos ` +
+        `${n.itensNaFrente === 1 ? "1 item" : `${n.itensNaFrente} itens`} de ` +
+        `${formatarUsd(n.naFilaUsd)} já na fila)`
       : "";
 
   switch (codigo) {
     case "auto_maior_espaco":
       return (
-        `Enfileirado para ${conta}: é a conta com maior espaço livre hoje ` +
-        `(${formatarUsd(Math.max(0, n.headroomUsd))} para uma tarefa ${complexidade} de ` +
-        `${formatarUsd(n.custoEstimadoUsd)}).${espacoDepois}`
+        `Enfileirado para ${conta}: é a conta com maior espaço livre hoje contando a fila ` +
+        `parada (${formatarUsd(espaco)} para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}.`
       );
     case "manual_cabe":
       return (
-        `Enfileirado para ${conta} (escolha manual): cabe hoje — ` +
-        `${formatarUsd(Math.max(0, n.headroomUsd))} livres para uma tarefa ${complexidade} de ` +
-        `${formatarUsd(n.custoEstimadoUsd)}.${espacoDepois}`
+        `Enfileirado para ${conta} (escolha manual): cabe hoje contando a fila parada — ` +
+        `${formatarUsd(espaco)} livres para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)}${detalheDaFila}.`
       );
     case "auto_nao_cabe_hoje":
       return (
-        `Enfileirado para ${conta}: nenhuma conta tem ${formatarUsd(n.custoEstimadoUsd)} livres hoje ` +
-        `para uma tarefa ${complexidade} — a mais folgada tem ` +
-        `${n.headroomUsd > 0 ? formatarUsd(n.headroomUsd) : "nenhum espaço livre"}. ` +
+        `Enfileirado para ${conta}: nenhuma conta tem ${formatarUsd(n.custoEstimadoUsd)} livres ` +
+        `para uma tarefa ${complexidade} contando a fila parada — a mais folgada tem ` +
+        `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. ` +
         `Entra na fila e roda quando houver espaço.`
       );
     case "manual_nao_cabe_hoje":
       return (
-        `Enfileirado para ${conta} (escolha manual): não cabe hoje — ` +
-        `${n.headroomUsd > 0 ? `só ${formatarUsd(n.headroomUsd)} livres` : "sem espaço livre agora"} ` +
-        `para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)}. ` +
+        `Enfileirado para ${conta} (escolha manual): não cabe hoje contando a fila parada — ` +
+        `${espaco > 0 ? `só ${formatarUsd(espaco)} livres` : "sem espaço livre agora"} ` +
+        `para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)}${detalheDaFila}. ` +
         `Entra na fila e roda quando houver espaço.`
       );
   }
@@ -423,4 +432,114 @@ export function fraseDoCancelamento(
         `estimativa (a sessão estava rodando) — ajuste na linha se souber o valor real.`
       );
   }
+}
+
+// ── D27 · o motivo do pull, ADITIVO — espelho texto a texto do SQL ──────────
+
+/**
+ * Os números que o pull mede antes de escrever a frase. Nomes em TS, um a um
+ * na ordem dos parâmetros de `public.painel_fila_motivo_do_pull` (migration
+ * 0015) — quem mexer em um lado tem que mexer no outro, e
+ * `tests/unit/prompts-motivo-do-pull.test.ts` compara os DOIS textos contra as
+ * mesmas quatro frases literais que `supabase/tests/fila_prompts.test.sql`
+ * afirma contra o banco.
+ */
+export interface NumerosDoPull {
+  /** Itens que morreram NESTE disparo (3ª expiração sem sinal). */
+  mortos: number;
+  /** Quanto esses mortos lançaram no gasto do dia. */
+  mortosUsd: number;
+  /** Custo do item que o pull pegou — `null` quando não pegou nenhum. */
+  custoEscolhidoUsd: number | null;
+  /** `teto − medido − em execução`. Pode ser negativo; a frase nunca o mostra. */
+  headroomUsd: number;
+  /** O mais barato DISPONÍVEL agora (fora do backoff) — `null` se não há nenhum. */
+  menorDisponivelUsd: number | null;
+  /** Quantos itens disponíveis CABEM no headroom (sem travar linha nenhuma). */
+  elegiveis: number;
+  /** Quantos estão de castigo (backoff). */
+  emEspera: number;
+  /** O mais barato entre os que estão de castigo. */
+  menorEmEsperaUsd: number | null;
+  /** Em quantos minutos o primeiro deles volta a ser elegível. */
+  voltaEmMin: number | null;
+  /** Itens devolvidos para a fila NESTE disparo. */
+  devolvidos: number;
+  /** Itens elegíveis em uso por outra transação (B5). */
+  travados: number;
+  /** D20: parcela do consumo de hoje que ninguém mediu. */
+  estimativaUsd: number;
+  estimativaItens: number;
+}
+
+/**
+ * A frase do disparo. **Aditiva**: todo fato não-zero vira uma oração, coladas
+ * por "; ", nesta ordem — mortos · escolhido/nada cabe · em espera ·
+ * devolvidos · travados · parcela estimada.
+ *
+ * Era um `case` de ramo único no SQL, e o crítico mediu as duas mentiras que
+ * isso produzia: "o mais barato da fila custa US$ 120,00" com três itens de
+ * US$ 5,00 em backoff, e uma morte de US$ 120,00 que o motivo calava porque
+ * havia um item caro na frente. Nenhuma oração cala outra.
+ */
+export function montarMotivoDoPull(n: NumerosDoPull): string {
+  const frases: string[] = [];
+
+  if (n.mortos === 1) {
+    frases.push(
+      `1 item morreu sem fechar neste disparo e lançou ${formatarUsd(n.mortosUsd)} no dia`,
+    );
+  } else if (n.mortos > 1) {
+    frases.push(
+      `${n.mortos} itens morreram sem fechar neste disparo e lançaram ${formatarUsd(n.mortosUsd)} no dia`,
+    );
+  }
+
+  if (n.custoEscolhidoUsd !== null) {
+    frases.push(
+      `peguei o item mais antigo que cabe: ${formatarUsd(n.custoEscolhidoUsd)} de ` +
+        `${formatarUsd(n.headroomUsd)} livres`,
+    );
+  } else if (n.menorDisponivelUsd !== null && n.elegiveis === 0) {
+    // Só é honesto dizer "nada cabe" quando NADA cabe; e headroom negativo
+    // nunca vira número (o crítico mediu "so ha US$ -3.00 livres").
+    const folga =
+      n.headroomUsd > 0 ? `há ${formatarUsd(n.headroomUsd)} livres` : "não há espaço livre agora";
+    frases.push(
+      `nada cabe agora: o mais barato disponível custa ${formatarUsd(n.menorDisponivelUsd)} e ${folga}`,
+    );
+  }
+
+  if (n.emEspera === 1) {
+    frases.push(`1 item de ${formatarUsd(n.menorEmEsperaUsd ?? 0)} volta em ${n.voltaEmMin ?? 1} min`);
+  } else if (n.emEspera > 1) {
+    frases.push(
+      `${n.emEspera} itens de ${formatarUsd(n.menorEmEsperaUsd ?? 0)} voltam em ${n.voltaEmMin ?? 1} min`,
+    );
+  }
+
+  if (n.devolvidos === 1) {
+    frases.push("1 item voltou para a fila e aguarda nova tentativa");
+  } else if (n.devolvidos > 1) {
+    frases.push(`${n.devolvidos} itens voltaram para a fila e aguardam nova tentativa`);
+  }
+
+  if (n.travados === 1) {
+    frases.push("1 item elegível está em uso por outra operação; tente no próximo disparo");
+  } else if (n.travados > 1) {
+    frases.push(
+      `${n.travados} itens elegíveis estão em uso por outra operação; tente no próximo disparo`,
+    );
+  }
+
+  if (n.estimativaUsd > 0) {
+    const itens =
+      n.estimativaItens === 1
+        ? "1 item que morreu sem fechar"
+        : `${n.estimativaItens} itens que morreram sem fechar`;
+    frases.push(`${formatarUsd(n.estimativaUsd)} do consumo de hoje são estimativa de ${itens}`);
+  }
+
+  if (frases.length === 0) return "fila vazia para esta conta";
+  return frases.join("; ");
 }
