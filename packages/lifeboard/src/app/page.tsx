@@ -2,13 +2,17 @@ import Link from "next/link";
 
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { buildTodayList } from "@/core/prioritize/server-only";
+import { caminhoCritico } from "@/core/prioritize/caminho-critico";
+import { scoreAssimetriaLote } from "@/core/prioritize/assimetria";
 import {
   getSourcesRepository,
   getTasksRepository,
 } from "@/lib/repositories/factory";
+import { serializaGrafoV3 } from "@/lib/serializa-grafo-v3";
 import { computeSourceStatuses } from "@/lib/source-status";
-import type { Source, SyncLog, Task } from "@/types/canonical";
+import type { Source, SyncLog, Task, TaskEdge } from "@/types/canonical";
 import type { TodayResponse } from "@/types/dashboard";
+import type { GrafoV3Props } from "@/types/grafo-v3";
 
 /**
  * OS-LIFEBOARD · E5 — Dashboard (Server Component, spec §2.3 / arch §3).
@@ -36,16 +40,32 @@ export default async function Page(): Promise<JSX.Element> {
   let tasks: Task[];
   let sources: Source[];
   let syncLogs: SyncLog[];
+  let edges: TaskEdge[];
   let hoje: ReturnType<typeof buildTodayList>;
+  let grafoV3: GrafoV3Props;
   try {
     const tasksRepo = getTasksRepository();
     const sourcesRepo = getSourcesRepository();
-    [tasks, sources, syncLogs] = await Promise.all([
+    [tasks, sources, syncLogs, edges] = await Promise.all([
       tasksRepo.listAll(),
       sourcesRepo.listAll(),
       sourcesRepo.listSyncLogs(),
+      tasksRepo.listEdges(),
     ]);
     hoje = buildTodayList(tasks);
+
+    // v3 (P4) — caminho crítico + score de assimetria (camada O, server-only).
+    // Goal: a primeira tarefa `isGoal`, por ordem determinística de id (nunca a
+    // ordem de chegada do repositório) — mesma escolha que `caminhoCritico`
+    // faria sozinho quando `goalId` não é informado, só que explícita aqui
+    // para o goal usado no CPM e o `goalId` de `GrafoV3Props` NUNCA divergirem.
+    const goalId =
+      [...tasks]
+        .filter((t) => t.isGoal === true)
+        .sort((a, b) => a.id.localeCompare(b.id))[0]?.id ?? null;
+    const cpm = caminhoCritico(tasks, edges, goalId);
+    const scores = scoreAssimetriaLote(tasks, edges, cpm);
+    grafoV3 = serializaGrafoV3(edges, cpm, scores);
   } catch (erro) {
     console.error("[home] falha ao ler o estado do dia:", erro);
     return <NaoConsegui />;
@@ -64,6 +84,7 @@ export default async function Page(): Promise<JSX.Element> {
       sources={sources}
       sourceStatuses={sourceStatuses}
       initialToday={initialToday}
+      grafoV3={grafoV3}
     />
   );
 }

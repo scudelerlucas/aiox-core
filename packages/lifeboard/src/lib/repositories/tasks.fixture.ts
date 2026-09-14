@@ -24,14 +24,32 @@
  *   4 task-triage S18 · 5 task-standup S8 · 6 task-notes-idea S6
  * Fora de "hoje": task-deploy e task-chat-followup (predecessor aberto);
  * task-setup e task-archive (done).
+ *
+ * v3 (P4, 13/09/2026) — caminho crítico: `task-deploy` é o único `isGoal`, com
+ * `estimativaDias` em `task-setup`/`task-build`/`task-deploy`. Isso já é
+ * suficiente para o CPM computar 2 arestas críticas (setup→build→deploy, folga
+ * zero) sem precisar de nenhuma aresta nova — checado rodando `caminhoCritico`
+ * contra este fixture (`critico = [task-setup, task-build, task-deploy]`).
+ * `task-review` (a única aresta `TaskEdge` tipo=predecessor, →task-deploy) fica
+ * com folga 2, então NÃO entra no crítico — mantido assim de propósito: prova
+ * que o grafo mostra caminho crítico e aresta "sucessão comum" lado a lado.
  */
 
 import { sourceIdFor } from "@/lib/repositories/sources.fixture";
-import { type HierarqScore, type Task } from "@/types/canonical";
+import {
+  type HierarqScore,
+  type Task,
+  type TaskEdge,
+  type TaskNote,
+} from "@/types/canonical";
 
 /** Port de leitura do modelo canônico de tasks (Repository Pattern, arch §2.5). */
 export interface TasksRepository {
   listAll(): Promise<Task[]>;
+  /** v3 — arestas declaradas (predecessor · correlação · sinergia · obsolescência). */
+  listEdges(): Promise<TaskEdge[]>;
+  /** v3 — notas em lista, mais recente primeiro. */
+  listNotes(): Promise<TaskNote[]>;
 }
 
 function makeTask(
@@ -52,16 +70,24 @@ function makeTask(
     sourceId: sourceIdFor("calendar"),
     externalRef: id,
     updatedAt: "2026-07-09T00:00:00.000Z",
+    // v3
+    estimativaDias: null,
+    iniciadoEm: null,
+    parentId: null,
+    isGoal: false,
+    assimetria: null,
     ...overrides,
   };
 }
 
-const FIXTURE_TASKS: readonly Task[] = [
+export const FIXTURE_TASKS: readonly Task[] = [
   // ── Cadeia principal: setup → build → deploy ──────────────────────────────
   makeTask("task-setup", { s1: 4, s2: 4, s3: 4 }, {
     title: "Configurar ambiente",
     notes: "Provisionar Supabase local e variáveis",
     status: "done",
+    estimativaDias: 0.5,
+    iniciadoEm: "2026-07-08T09:00:00.000Z",
     sourceId: sourceIdFor("calendar"),
     successorIds: ["task-build"],
     updatedAt: "2026-07-08T12:00:00.000Z",
@@ -73,6 +99,9 @@ const FIXTURE_TASKS: readonly Task[] = [
     dueDate: "2026-07-10T00:00:00.000Z",
     sourceId: sourceIdFor("drive"),
     predecessorIds: ["task-setup"],
+    estimativaDias: 3,
+    iniciadoEm: "2026-07-08T12:00:00.000Z",
+    assimetria: { opcionalidade: 3, esforco: 3, custo: 2 },
     successorIds: ["task-deploy"],
   }),
   makeTask("task-deploy", { s1: 5, s2: 5, s3: 4 }, {
@@ -80,10 +109,16 @@ const FIXTURE_TASKS: readonly Task[] = [
     notes: "Bloqueada: aguarda o build concluir",
     sourceId: sourceIdFor("drive"),
     predecessorIds: ["task-build"],
+    // v3: é o GOAL do fixture — o caminho crítico corre daqui para trás.
+    isGoal: true,
+    estimativaDias: 1,
+    assimetria: { opcionalidade: 2, esforco: 1, custo: 1 },
   }),
 
   // ── Trabalho acionável de várias fontes ───────────────────────────────────
   makeTask("task-docs", { s1: 5, s2: 4, s3: 3 }, {
+    estimativaDias: 2,
+    assimetria: { opcionalidade: 1, esforco: 2, custo: 1 },
     title: "Escrever documentação",
     sourceId: sourceIdFor("gmail"),
     dueDate: "2026-07-12T00:00:00.000Z",
@@ -123,11 +158,109 @@ const FIXTURE_TASKS: readonly Task[] = [
     sourceId: sourceIdFor("drive"),
     updatedAt: "2026-07-07T09:00:00.000Z",
   }),
+
+  // ── P6 (13/09/2026) — subtarefa de demonstração da página da tarefa ───────
+  // Filha de task-build, SEM predecessor/successor: fica fora dos ancestrais
+  // do goal (task-deploy), então não entra no caminho crítico nem muda
+  // `duracaoTotal` (continua 4 — prova em caminho-critico.test.ts). Tem
+  // `estimativaDias` própria só para não aparecer em `semDuracao` à toa.
+  makeTask("task-build-sub1", { s1: 1, s2: 1, s3: 1 }, {
+    title: "Revisar testes do motor HIERARQ",
+    parentId: "task-build",
+    sourceId: sourceIdFor("notes"),
+    estimativaDias: 0.5,
+    assimetria: { opcionalidade: 1, esforco: 1, custo: 1 },
+  }),
+];
+
+/**
+ * v3 — uma aresta de cada tipo declarado, para o grafo e os testes exercitarem
+ * as quatro camadas. A cadeia setup → build → deploy continua vindo dos arrays
+ * (`predecessorIds`); aqui só o que os arrays não sabem dizer.
+ */
+export const FIXTURE_EDGES: readonly TaskEdge[] = [
+  {
+    id: "edge-review-antes-do-deploy",
+    origem: "task-review",
+    destino: "task-deploy",
+    tipo: "predecessor",
+    peso: 1,
+    nota: "Não sobe para produção sem o PR revisado.",
+    createdAt: "2026-07-09T10:00:00.000Z",
+  },
+  {
+    id: "edge-docs-correlaciona-build",
+    origem: "task-docs",
+    destino: "task-build",
+    tipo: "correlacao",
+    peso: 1,
+    nota: "Documentação e motor andam juntos, sem ordem.",
+    createdAt: "2026-07-09T10:01:00.000Z",
+  },
+  {
+    id: "edge-triage-barateia-notes",
+    origem: "task-triage-inbox",
+    destino: "task-notes-idea",
+    tipo: "sinergia",
+    peso: 0.5,
+    nota: "Triar a caixa de entrada deixa a ideia meio rascunhada.",
+    createdAt: "2026-07-09T10:02:00.000Z",
+  },
+  {
+    id: "edge-build-obsoleta-archive",
+    origem: "task-build",
+    destino: "task-archive",
+    tipo: "obsolescencia",
+    peso: 1,
+    nota: "Com o motor pronto, arquivar os docs antigos deixa de importar.",
+    createdAt: "2026-07-09T10:03:00.000Z",
+  },
+];
+
+export const FIXTURE_NOTES: readonly TaskNote[] = [
+  {
+    id: "note-build-1",
+    taskId: "task-build",
+    texto: "Desempate s1 > s3 > s2 confirmado com o operador.",
+    autor: "Lucas",
+    createdAt: "2026-07-09T11:00:00.000Z",
+  },
+  {
+    id: "note-build-2",
+    taskId: "task-build",
+    texto: "Falta o teste do empate total.",
+    autor: "Claude",
+    createdAt: "2026-07-09T11:30:00.000Z",
+  },
+  {
+    id: "note-deploy-1",
+    taskId: "task-deploy",
+    texto: "Goal do ciclo: subir até sexta.",
+    autor: "Lucas",
+    createdAt: "2026-07-09T12:00:00.000Z",
+  },
+  // P6 (13/09/2026) — 3ª nota de task-build, para a página da tarefa ter mais
+  // de uma nota de origens diferentes na tela de demonstração.
+  {
+    id: "note-build-3",
+    taskId: "task-build",
+    texto: "Página da tarefa (P6) testada contra este fixture.",
+    autor: "Claude",
+    createdAt: "2026-07-09T12:30:00.000Z",
+  },
 ];
 
 export class FixtureTasksRepository implements TasksRepository {
   async listAll(): Promise<Task[]> {
     // Cópia defensiva (rasa) para que o consumidor não mute a fixture.
     return FIXTURE_TASKS.map((t) => ({ ...t }));
+  }
+
+  async listEdges(): Promise<TaskEdge[]> {
+    return FIXTURE_EDGES.map((e) => ({ ...e }));
+  }
+
+  async listNotes(): Promise<TaskNote[]> {
+    return FIXTURE_NOTES.map((n) => ({ ...n }));
   }
 }

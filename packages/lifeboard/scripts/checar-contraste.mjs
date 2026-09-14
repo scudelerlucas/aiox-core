@@ -26,6 +26,28 @@ function tokens() {
 
 const T = tokens();
 
+/**
+ * P5c (13/09/2026, achado BAIXO #13 do crítico hostil, rodada 2): duas cores
+ * na tela NÃO são um token puro — são o PIXEL JÁ COMPOSTO que o navegador
+ * pinta depois de somar opacidade + `background-image` sobre o canvas
+ * (`navy-950`): a hachura de folga (listra opaca do `repeating-linear-
+ * gradient` × a `opacity-70` do elemento) e a barra cinza de "fechado sem
+ * merge" (`bone-500` a 90% de opacidade, achado ALTO #9 da rodada 1). Nenhum
+ * dos dois é achável lendo só `tailwind.config.ts` — o crítico mediu o PIXEL
+ * de um screenshot real. `RESOLVIDAS` guarda esse resultado já composto (hex
+ * literal, não nome de token) para as duas entradas correspondentes em
+ * `PARES` — a mesma disciplina de "nenhum hex fora de um arquivo
+ * documentado", só que aqui o arquivo é ESTE comentário, não o tema.
+ */
+const RESOLVIDAS = {
+  // 0,7×folga.tracado(#57C9C0) + 0,3×navy-950(#05070F) — a listra OPACA do
+  // gradiente por cima do fundo a 30%+70% de opacidade. Medido pelo crítico: 5,28:1.
+  "hatch-folga-composta": "#3E8F8B",
+  // 0,9×bone-500(#6C7A99) + 0,1×navy-950(#05070F) — a barra "fechado sem
+  // merge" (cinza, `opacity-90`) sobre o canvas. Medido pelo crítico: 3,94:1.
+  "barra-fechada-composta": "#626E8B",
+};
+
 const canal = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 function luminancia(hex) {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -45,6 +67,13 @@ const PARES = [
   ["bone-300", "navy-850", 4.5, "texto secundário do cartão"],
   ["bone-300", "navy-900", 4.5, "texto secundário do painel"],
   ["bone-400", "navy-950", 4.5, "texto terciário / ajuda"],
+  // P6b (achado MÉDIO #15, crítico 13/09): o botão primário único da tela da
+  // tarefa ("Salvar nota") é texto navy-950 sobre um degradê gold-400→gold-600
+  // — as duas pontas do degradê contra o fundo/painel escuro, mais o texto
+  // dourado do radio SELECIONADO do controle segmentado (navy-800).
+  ["gold-400", "navy-950", 4.5, "topo do degradê do botão primário (Salvar nota)"],
+  ["gold-600", "navy-950", 4.5, "base do degradê do botão primário (Salvar nota)"],
+  ["gold-300", "navy-800", 4.5, "opção selecionada do controle segmentado (radio ativo)"],
   ["bone-400", "navy-850", 4.5, "motivo da ordem no cartão"],
   ["gold-300", "navy-850", 4.5, "rótulo da ação"],
   ["gold-400", "navy-900", 4.5, "marca e destaque do 1º lugar"],
@@ -63,17 +92,103 @@ const PARES = [
   ["fonte-neutra", "navy-850", 4.5, "rótulo de fonte desconhecida"],
   ["navy-700", "navy-950", 3, "borda de cartão (só borda: 3:1)"],
   ["navy-600", "navy-850", 3, "borda forte (só borda: 3:1)"],
+  ["state-warning", "navy-850", 4.5, "aviso 'estimativa faltando' no cartão do grafo (P4)"],
+  // ── Arestas do grafo v3 (P4, 13/09/2026) — traço sobre o fundo do canvas (navy-950) ──
+  ["aresta-sucessao", "navy-950", 3, "aresta de sucessão — verde contínua (P4 §5)"],
+  ["aresta-predecessor", "navy-950", 3, "aresta destacada ao selecionar — amarela (P4 §5)"],
+  ["aresta-correlacao", "navy-950", 3, "aresta de correlação — pontilhada (P4 §5)"],
+  ["aresta-sinergia", "navy-950", 3, "aresta de sinergia — pontilhada roxa + rótulo % (P4 §5)"],
+  ["aresta-obsolescencia", "navy-950", 3, "aresta de obsolescência — ❌ no destino (P4 §5)"],
+  ["aresta-critico", "navy-950", 3, "traço triplo do caminho crítico (P4 §5)"],
+  // P4b (achado ALTO #4): obsolescência ganhou matiz própria — antes idêntica ao crítico.
+  ["aresta-obsolescenciaHue", "navy-950", 3, "aresta de obsolescência — matiz própria, traço (P4b #4)"],
+  ["aresta-obsolescenciaHue", "navy-950", 4.5, "aresta de obsolescência — matiz própria, se usada como texto (P4b #4)"],
+  // ── Linha do tempo / Gantt (P5, 13/09/2026) — barras sólidas sobre o canvas (navy-950) ──
+  ["state-open", "navy-950", 3, "barra de assunto/tarefa 'aberta' no Gantt (P5)"],
+  ["state-done", "navy-950", 3, "barra de assunto/tarefa 'concluída' no Gantt (P5)"],
+  // SUBSTITUÍDO (P5c, rodada 2, achado BAIXO #13): "fechado sem merge" não usa
+  // mais `state-error` desde o achado ALTO #9 da rodada 1 (cinza + traço,
+  // nunca o vermelho — ver `corDoAssunto` em `linha-do-tempo.tsx`). O par
+  // "aresta-sucessaoAtiva" abaixo é quem cobre o Gantt daqui em diante; esta
+  // linha fica só como registro de por que o par sumiu, não reentra na régua.
+  // ["state-error", "navy-950", 3, "barra de assunto 'fechado sem merge' no Gantt (P5) — SUBSTITUÍDO"],
+  ["state-progress", "navy-950", 3, "barra de tarefa 'em progresso' no Gantt (P5)"],
+  ["state-blocked", "navy-950", 3, "barra de tarefa 'bloqueada' no Gantt (P5)"],
+  ["aresta-sucessaoAtiva", "navy-950", 3, "conector de sucessora destacada na seleção do Gantt (P5c #9)"],
+  // P5b (13/09/2026, achado ALTO #7): token dedicado da FOLGA — antes reusava
+  // `aresta-critico` a 25% (2,71:1, abaixo da régua) e o mesmo matiz do crítico
+  // para o conceito oposto. Checado contra o canvas (navy-950) E a base da
+  // barra (navy-850) — a hachura aparece sobre os dois.
+  ["folga-tracado", "navy-950", 3, "hachura de folga do Gantt sobre o canvas (P5b #7)"],
+  ["folga-tracado", "navy-850", 3, "hachura de folga do Gantt sobre a base da barra (P5b #7)"],
+  // ── Pares de PIXEL JÁ COMPOSTO (P5c, rodada 2, achado BAIXO #13) ──
+  ["hatch-folga-composta", "navy-950", 3, "listra opaca da hachura de folga, já composta com a opacidade — pixel real medido pelo crítico"],
+  ["barra-fechada-composta", "navy-950", 3, "barra cinza 'fechado sem merge' a 90% de opacidade, já composta — pixel real medido pelo crítico"],
+  // P5f (rodada 5, achado BAIXO A9): a barra de "início não definido" é
+  // borda TRACEJADA + preenchimento a 30% do mesmo tom do estado. O pixel
+  // composto do preenchimento (0,3×state-open #7FB8FF + 0,7×navy-950) dá
+  // #2A3C57 = 1,80:1 contra o canvas — e isso é PROPOSITAL: o preenchimento
+  // ali é textura ("não confie nesta data"), não é a fronteira do elemento.
+  // Quem carrega o significado, e quem a WCAG 1.4.11 mede, é a BORDA — e ela
+  // é o token cheio, já na régua acima (`state-open`/`state-progress`/
+  // `state-blocked`/`state-done`/`aresta-critico` sobre navy-950, ≥ 3:1).
+  // Registrado aqui para o próximo leitor não "consertar" o 1,80 sem saber.
+  // ── Fila de prompts (P7, 13/09/2026, rodada de correção do crítico) ──
+  // Achado MÉDIO #12: `bone-500` sobre navy-850 (4,01:1) e navy-900 (4,41:1)
+  // — os dois abaixo de 4,5:1. Trocado por `bone-400` nos dois usos
+  // (placeholder do textarea e legenda de complexidades do formulário).
+  ["bone-400", "navy-900", 4.5, "placeholder do textarea de novo prompt (P7, corrigido de bone-500 4,41:1)"],
+  ["bone-400", "navy-850", 4.5, "legenda de complexidades no rodapé do formulário (P7, corrigido de bone-500 4,01:1)"],
+  // Achado BAIXO #16: o trilho da barra de progresso do cartão de conta era
+  // `navy-800` sobre `navy-850` (1,14:1 — invisível). `navy-600` mede 4,01:1
+  // sobre o mesmo cartão (o mínimo aqui é 3:1, decorativo/UI, não texto).
+  ["navy-600", "navy-850", 3, "trilho da barra de progresso do cartão de conta (P7 #16, era navy-800 1,14:1)"],
+  // ── Linha do tempo / Gantt, rodada 4 do crítico hostil (P5e, 13/09/2026) ──
+  // Achado BAIXO #8: o marcador de atraso era SEMPRE vermelho (`state-error`)
+  // — sobre a barra crítica (preenchimento `aresta-critico`, também vermelho)
+  // ficava invisível. 1ª tentativa (`gold-400`) mediu 1,70:1 — pior que o
+  // problema original. `navy-950` pontilhado quando `row.critico` mede
+  // 7,90:1; par decorativo (só borda/marcador, nunca texto corrido) — régua 3:1.
+  ["navy-950", "aresta-critico", 3, "marcador pontilhado de atraso sobre a barra crítica do Gantt (P5e #8)"],
+  // ── Linha do tempo / Gantt, rodada 6 do crítico hostil (P5g, 13/09/2026) ──
+  // Achado ALTO A3: a barra cortada pelo teto de dias ganhou "▶" DENTRO dela
+  // (fora, o glifo esticava o `scrollWidth` do painel — achado BAIXO A6). O
+  // glifo é `navy-950` sobre o preenchimento da barra, qualquer que ele seja;
+  // carrega significado (não é enfeite), então vale a régua de texto, 4,5:1.
+  ["navy-950", "state-open", 4.5, "▶ 'continua além da janela' sobre a barra aberta (P5g A3)"],
+  ["navy-950", "state-done", 4.5, "▶ 'continua além da janela' sobre a barra concluída (P5g A3)"],
+  ["navy-950", "state-progress", 4.5, "▶ 'continua além da janela' sobre a barra em progresso (P5g A3)"],
+  ["navy-950", "state-blocked", 4.5, "▶ 'continua além da janela' sobre a barra bloqueada (P5g A3)"],
+  ["navy-950", "aresta-critico", 4.5, "▶ 'continua além da janela' sobre a barra crítica (P5g A3)"],
+  // Sobre o cinza de "fechado sem merge" o glifo escuro mede só 3,95:1 — ali
+  // (e só ali) ele é CLARO. Sobre as barras translúcidas ("sem data", "início
+  // não definido") o fundo real é o canvas: `bone-300` sobre `navy-950`.
+  ["bone-50", "barra-fechada-composta", 4.5, "▶ claro sobre a barra cinza 'fechado sem merge' já composta (P5g A3)"],
+  ["bone-300", "navy-950", 4.5, "▶ sobre barra translúcida do Gantt — o fundo real é o canvas (P5g A3)"],
+  // ── Página da tarefa, rodada 4 do crítico hostil (13/09/2026) ──
+  // Achado BAIXO #5: mensagem de sucesso ("Duração salva." e o mesmo padrão
+  // em mãe/status/meta/átomos/relação) sobre o `<section class="bg-navy-900">`
+  // que envolve esses formulários — `state-done` já media 4,5:1+ sobre
+  // navy-850 (linha acima); aqui o par que faltava.
+  ["state-done", "navy-900", 4.5, "mensagem de sucesso dos formulários da tarefa (mãe/status/meta/duração/relação, BAIXO #5)"],
 ];
+
+/** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */
+function resolveCor(nome) {
+  return T[nome] ?? RESOLVIDAS[nome];
+}
 
 let falhou = 0;
 const linhas = [];
 for (const [t, f, min, onde] of PARES) {
-  if (!T[t] || !T[f]) {
+  const corT = resolveCor(t);
+  const corF = resolveCor(f);
+  if (!corT || !corF) {
     console.error(`token ausente: ${t} ou ${f}`);
     falhou++;
     continue;
   }
-  const r = razao(T[t], T[f]);
+  const r = razao(corT, corF);
   const ok = r >= min;
   if (!ok) falhou++;
   linhas.push(

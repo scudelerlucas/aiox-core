@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectCycleIds, resolveActionable } from "@/core/prioritize/dag";
 import { buildTodayList } from "@/core/prioritize/today";
-import type { HierarqScore, Task, TaskStatus } from "@/types/canonical";
+import type { HierarqScore, Task, TaskEdge, TaskStatus } from "@/types/canonical";
 
 interface TaskInput {
   id: string;
@@ -114,6 +114,35 @@ describe("detectCycleIds — detecção de ciclo (PRD §11 stress-1, espelha tri
       task({ id: "c", predecessorIds: ["b"] }),
     ];
     expect(detectCycleIds(tasks).size).toBe(0);
+  });
+});
+
+describe("detectCycleIds — terceira fonte: task_edges tipo predecessor (v3, migration 0005)", () => {
+  const edge = (origem: string, destino: string, tipo: TaskEdge["tipo"] = "predecessor"): TaskEdge => ({
+    id: `${origem}-${destino}`, origem, destino, tipo, peso: 1, nota: null, createdAt: "",
+  });
+
+  it("ciclo misto — aresta A→B em task_edges e successor_ids B→A — é detectado", () => {
+    const tasks = [task({ id: "A" }), task({ id: "B", successorIds: ["A"] })];
+    expect(detectCycleIds(tasks)).toEqual(new Set()); // só os arrays: sem ciclo
+    expect(detectCycleIds(tasks, [edge("A", "B")])).toEqual(new Set(["A", "B"]));
+  });
+
+  it("ciclo só por arestas (A→B, B→A) é detectado", () => {
+    const tasks = [task({ id: "A" }), task({ id: "B" })];
+    expect(detectCycleIds(tasks, [edge("A", "B"), edge("B", "A")])).toEqual(new Set(["A", "B"]));
+  });
+
+  it("aresta de outro tipo (correlacao/sinergia/obsolescencia) nunca forma ciclo", () => {
+    const tasks = [task({ id: "A", successorIds: ["B"] }), task({ id: "B" })];
+    const outras = [edge("B", "A", "correlacao"), edge("B", "A", "sinergia"), edge("B", "A", "obsolescencia")];
+    expect(detectCycleIds(tasks, outras)).toEqual(new Set());
+  });
+
+  it("aresta com ponta fora da lista é ignorada; auto-laço por aresta é ciclo", () => {
+    const tasks = [task({ id: "A" })];
+    expect(detectCycleIds(tasks, [edge("A", "fantasma"), edge("fantasma", "A")])).toEqual(new Set());
+    expect(detectCycleIds(tasks, [edge("A", "A")])).toEqual(new Set(["A"]));
   });
 });
 

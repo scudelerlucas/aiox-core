@@ -11,11 +11,21 @@ import "server-only";
 
 import { loadLifeboardState } from "@/lib/supabase/live-client";
 import type { TasksRepository } from "@/lib/repositories/tasks.fixture";
-import type { Task } from "@/types/canonical";
+import type { Task, TaskEdge, TaskNote } from "@/types/canonical";
 
 export class SupabaseTasksRepository implements TasksRepository {
   async listAll(): Promise<Task[]> {
     const { tasks } = await loadLifeboardState();
     return tasks;
+  }
+
+  async listEdges(): Promise<TaskEdge[]> {
+    const { edges } = await loadLifeboardState();
+    return edges;
+  }
+
+  async listNotes(): Promise<TaskNote[]> {
+    const { notes } = await loadLifeboardState();
+    return notes;
   }
 }

@@ -1,5 +1,6 @@
 "use client";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
 
 import { RankBadge } from "@/components/ui/rank-badge";
 import { SourceIcon } from "@/components/ui/source-icon";
@@ -110,7 +111,15 @@ export function TodayList({
               const due = task.dueDate ? formatDue(task.dueDate, now) : null;
               const primeiro = i === 0;
               return (
-                <li key={task.id}>
+                <li key={task.id} className="relative">
+                  <Link
+                    href={`/tarefa/${task.id}`}
+                    prefetch={false}
+                    aria-label={`Abrir a tarefa ${task.title}`}
+                    className="absolute right-3 top-3 z-10 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold text-bone-400 hover:bg-navy-800 hover:text-gold-300"
+                  >
+                    abrir
+                  </Link>
                   <button
                     type="button"
                     onClick={() => onSelectTask?.(task.id)}
