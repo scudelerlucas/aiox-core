@@ -11,9 +11,13 @@ import {
 import { notaAddAction, notaDelAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import {
+  anuncioComDesfazerPerdido,
   concluirEscrita,
   decidirEscrita,
+  MENSAGEM_INVALIDO,
   recusarEscrita,
+  transicaoDeConfirmacao,
+  useCampoDeErro,
   type SinaisDeEscrita,
 } from "@/components/task/escrita";
 import { alvoAposExclusaoDeNota } from "@/components/task/foco";
@@ -24,6 +28,7 @@ import {
   limparRascunhoNota,
 } from "@/components/task/rascunho-nota";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
+import { dataCurtaNoFusoDoOperador } from "@/lib/fuso";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import type { TaskNote } from "@/types/canonical";
 
@@ -63,7 +68,19 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
   /** Botões "excluir" por índice — o alvo do foco quando a nota some. */
   const botoesExcluirRef = useRef<Map<number, HTMLButtonElement>>(new Map());
   const botaoDesfazerRef = useRef<HTMLButtonElement | null>(null);
-  const [excluida, setExcluida] = useState<{ texto: string; autor: string | null } | null>(null);
+  const [excluida, setExcluida] = useState<{
+    texto: string;
+    autor: string | null;
+    /** [MÉDIO #4, rodada 7] a data ORIGINAL — é o que devolve a nota à posição. */
+    criadoEm: string;
+  } | null>(null);
+  /**
+   * [MÉDIO #5, rodada 7] Qual linha está em "confirmar exclusão?" — UMA por
+   * painel. Mora aqui, e não dentro da linha, porque "outra ação começou" é
+   * justamente uma linha vizinha entrar em confirmação: o estado único faz a
+   * anterior sair (e falar) sem nenhum temporizador.
+   */
+  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
   const [erroDesfazer, setErroDesfazer] = useState<string | undefined>(undefined);
   // A região viva do PAINEL: "Excluída." (persistente, junto do botão
   // Desfazer) e "Nota restaurada (como nova)." (4 s) saem daqui.
@@ -110,6 +127,18 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
     },
   );
 
+  /**
+   * [MÉDIO #5, rodada 7] A única porta da confirmação — as DUAS transições
+   * passam por aqui, e as duas anunciam. Não há mais `setTimeout`: o pedido
+   * fica de pé até Escape, até o foco sair do botão, ou até outra ação
+   * começar (outra linha confirmando, ou a exclusão indo em frente).
+   */
+  function mudarConfirmacao(id: string | null): void {
+    const t = transicaoDeConfirmacao("nota_excluir", confirmandoId, id);
+    if (t.anuncio !== null) mostrar(t.anuncio);
+    setConfirmandoId(t.confirmandoId);
+  }
+
   function aoExcluirComSucesso(nota: TaskNote, indice: number): void {
     // (1) FOCO primeiro: o `<li>` desta nota sai da árvore no `router.refresh()`
     // que vem logo em seguida. Alvo: a nota seguinte; se era a última, a
@@ -118,14 +147,23 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
     const alvoElemento =
       alvo.tipo === "nota" ? botoesExcluirRef.current.get(alvo.indice) : textareaRef.current;
     limparTimer();
+    setConfirmandoId(null);
     setErroDesfazer(undefined);
-    concluirEscrita("nota_excluir", alvoElemento, textareaRef.current, (t) =>
+    concluirEscrita(
+      "nota_excluir",
+      alvoElemento,
+      textareaRef.current,
       // Persistente: o texto tem de durar a janela inteira de 10 s, junto do
       // botão "Desfazer" que ele explica.
-      mostrar(t, { persistente: true }),
+      (t) => mostrar(t, { persistente: true }),
+      // [BAIXO #8, rodada 7] já havia um desfazer pendente? Ele acabou de ser
+      // atropelado — e some sem aviso. A frase entra JUNTO com "Excluída.",
+      // numa string só: duas chamadas de `mostrar` no mesmo manipulador
+      // viram um render só e a primeira nunca chega ao DOM (medido).
+      anuncioComDesfazerPerdido("nota_excluir", excluida !== null),
     );
     // (2) só então a janela de desfazer.
-    setExcluida({ texto: nota.texto, autor: nota.autor ?? null });
+    setExcluida({ texto: nota.texto, autor: nota.autor ?? null, criadoEm: nota.createdAt });
     timerRef.current = window.setTimeout(() => {
       setExcluida(null);
       limpar();
@@ -154,6 +192,10 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
     form.set("task_id", taskId);
     form.set("texto", excluida.texto);
     if (excluida.autor !== null) form.set("autor", excluida.autor);
+    // [MÉDIO #4, rodada 7] a data original vai junto: `nota_add` (migration
+    // 0017) recoloca a nota no instante em que ela nasceu, e a lista — que
+    // ordena por `created_at desc` — a devolve à posição de onde saiu.
+    form.set("criado_em", excluida.criadoEm);
     dispararDesfazer(form);
   }
 
@@ -202,11 +244,14 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
               nota={n}
               taskId={taskId}
               indice={indice}
+              total={notas.length}
               refDoBotao={(el) => {
                 if (el) botoesExcluirRef.current.set(indice, el);
                 else botoesExcluirRef.current.delete(indice);
               }}
               avisar={(t) => mostrar(t)}
+              confirmando={confirmandoId === n.id}
+              aoConfirmar={mudarConfirmacao}
               aoExcluir={aoExcluirComSucesso}
             />
           ))}
@@ -225,7 +270,6 @@ function FormularioNovaNota({
 }): JSX.Element {
   const [texto, setTexto] = useState("");
   const [autor, setAutor] = useState("");
-  const [aviso, setAviso] = useState<string | undefined>(undefined);
   // [MÉDIO #2, rodada 6] as 8 regiões vivas da página não incluíam ESTA — a
   // ação primária da tela salvava em silêncio para quem não vê a lista mudar.
   const { mensagem, mostrar } = useMensagemSucesso();
@@ -237,6 +281,9 @@ function FormularioNovaNota({
     // continua — e é o foco que o `disabled` levava para o `<body>`.
     concluirEscrita("nota_criar", textareaRef.current, null, (t) => mostrar(t));
   });
+  // [ALTO #2, rodada 7] quem decide o que o campo mostra — a recusa local
+  // vence o erro velho, e mexer no campo descarta os dois.
+  const campo = useCampoDeErro(estado);
 
   /**
    * [BAIXO #6, rodada 5] o rascunho volta ao voltar. Restaurado no EFEITO (não
@@ -251,7 +298,7 @@ function FormularioNovaNota({
 
   function aoDigitar(valor: string): void {
     setTexto(valor);
-    setAviso(undefined);
+    campo.aoMudarCampo();
     gravarRascunhoNota(taskId, valor);
   }
 
@@ -262,10 +309,10 @@ function FormularioNovaNota({
       valido: texto.trim().length > 0,
     });
     if (decisao !== "gravar") {
-      recusarEscrita("nota_criar", decisao, { anunciar: (t) => mostrar(t), alertar: setAviso });
+      recusarEscrita("nota_criar", decisao, { anunciar: (t) => mostrar(t), alertar: campo.avisar });
       return;
     }
-    setAviso(undefined);
+    campo.aoMudarCampo();
     const form = new FormData();
     form.set("task_id", taskId);
     form.set("texto", texto);
@@ -302,41 +349,92 @@ function FormularioNovaNota({
           // tirava o foco do botão no instante do sucesso (o campo esvazia →
           // o botão vira `disabled` → o navegador desfoca → `<body>`). A
           // recusa mora em `aoEnviar`, e explica.
+          //
+          // [MÉDIO #3, rodada 7] E SEM `aria-disabled` por VALIDADE: a árvore
+          // de acessibilidade anunciava `button "Salvar nota" [disabled]` —
+          // "indisponível" para quem usa leitor de tela — e o modelo de
+          // atuabilidade do Playwright (o mesmo mapeamento da tecnologia
+          // assistiva) recusava o clique, embora mouse, toque e teclado
+          // chegassem ao handler e a recusa falasse. `aria-disabled`/
+          // `aria-busy` ficam só enquanto a gravação está em curso, que é
+          // quando o controle está de fato ocupado; a exigência virou o texto
+          // abaixo, ligado por `aria-describedby`.
           aria-busy={pendente ? true : undefined}
-          aria-disabled={pendente || vazia ? true : undefined}
+          aria-disabled={pendente ? true : undefined}
+          aria-describedby={vazia ? "dica-nova-nota" : undefined}
           className={`inline-flex min-h-[44px] items-center rounded-lg bg-gradient-to-b from-gold-400 to-gold-600 px-4 text-sm font-semibold text-navy-950 ${
-            pendente || vazia ? "opacity-50" : ""
+            pendente ? "opacity-50" : ""
           }`}
         >
           Salvar nota
         </button>
       </div>
-      <CampoErro mensagem={estado.erro ?? aviso} />
+      {vazia ? (
+        <p id="dica-nova-nota" className="text-xs text-bone-400">
+          {MENSAGEM_INVALIDO.nota_criar}
+        </p>
+      ) : null}
+      <CampoErro mensagem={campo.mensagem} />
       <MensagemSucesso mensagem={mensagem} />
     </form>
   );
+}
+
+/**
+ * [MÉDIO #6, rodada 7] PURA — o nome acessível do botão "excluir" de UMA
+ * linha. Medido pelo crítico: depois de excluir, o foco aterrissava num botão
+ * chamado só "excluir", idêntico ao das outras linhas — quem ouve não sabia
+ * excluir O QUÊ.
+ *
+ * Três peças: a POSIÇÃO ("2 de 5"), o autor e a data curta. A posição existe
+ * porque autor + data não bastam: a medição desta rodada, contra o fixture
+ * semeado, achou DUAS notas do mesmo autor no mesmo dia — dois botões com o
+ * mesmo nome, que é exatamente o defeito que se está consertando. A data é
+ * curta (dd/mm/aaaa), nunca "há 67 dias": duas notas da mesma semana teriam
+ * o mesmo relativo.
+ */
+export function rotuloDoBotaoDeExcluir(
+  nota: Pick<TaskNote, "autor" | "createdAt">,
+  indice: number,
+  total: number,
+  confirmando: boolean,
+): string {
+  const quem = nota.autor ?? "sem autor";
+  const quando = dataCurtaNoFusoDoOperador(nota.createdAt);
+  const posicao = `a nota ${String(indice + 1)} de ${String(total)}`;
+  const alvo = quando === null ? `${posicao}, de ${quem}` : `${posicao}, de ${quem}, de ${quando}`;
+  // O texto VISÍVEL ("excluir" / "confirmar exclusão?") continua contido no
+  // nome acessível — é o que WCAG 2.5.3 (Label in Name) pede.
+  return confirmando ? `confirmar exclusão d${alvo}` : `excluir ${alvo}`;
 }
 
 function NotaLinha({
   nota,
   taskId,
   indice,
+  total,
   refDoBotao,
   avisar,
+  confirmando,
+  aoConfirmar,
   aoExcluir,
 }: {
   nota: TaskNote;
   taskId: string;
   indice: number;
+  /** Quantas notas a lista tem — o "de 5" do rótulo (MÉDIO #6). */
+  total: number;
   refDoBotao: (el: HTMLButtonElement | null) => void;
   /** A região viva do PAINEL — a linha não tem uma (ela some no sucesso). */
   avisar: (texto: string) => void;
+  /** [MÉDIO #5, rodada 7] quem manda na confirmação é o painel (uma por vez). */
+  confirmando: boolean;
+  aoConfirmar: (id: string | null) => void;
   aoExcluir: (nota: TaskNote, indice: number) => void;
 }): JSX.Element {
   const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(notaDelAction, () =>
     aoExcluir(nota, indice),
   );
-  const [confirmando, setConfirmando] = useState(false);
 
   function excluir(): void {
     const decisao = decidirEscrita({ pendente: pendente || emVooAgora() });
@@ -345,11 +443,12 @@ function NotaLinha({
       return;
     }
     if (!confirmando) {
-      setConfirmando(true);
-      window.setTimeout(() => setConfirmando(false), 3000);
+      // [MÉDIO #5, rodada 7] sem `setTimeout`: o pedido fica até Escape, até o
+      // foco sair, ou até outra ação começar — e a entrada é anunciada.
+      aoConfirmar(nota.id);
       return;
     }
-    setConfirmando(false);
+    aoConfirmar(null);
     const form = new FormData();
     form.set("id", nota.id);
     form.set("task_id", taskId);
@@ -364,8 +463,24 @@ function NotaLinha({
           ref={refDoBotao}
           type="button"
           onClick={excluir}
+          // [MÉDIO #5, rodada 7] as duas saídas da confirmação que não são o
+          // 2º clique: Escape, e o foco deixar o botão. Nenhum relógio.
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && confirmando) {
+              e.preventDefault();
+              aoConfirmar(null);
+            }
+          }}
+          onBlur={() => {
+            if (confirmando) aoConfirmar(null);
+          }}
           aria-busy={pendente ? true : undefined}
           aria-disabled={pendente ? true : undefined}
+          // [MÉDIO #6, rodada 7] o foco entregue depois de uma exclusão
+          // aterrissava num botão chamado só "excluir", igual em todas as
+          // linhas: quem ouve não sabia excluir O QUÊ. Agora cada linha diz o
+          // seu nome — autor e data da nota.
+          aria-label={rotuloDoBotaoDeExcluir(nota, indice, total, confirmando)}
           className={`inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md px-2 text-xs font-semibold ${
             pendente ? "opacity-50" : ""
           } ${

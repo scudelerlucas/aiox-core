@@ -4,7 +4,12 @@ import { useRef, useState } from "react";
 
 import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
+import {
+  concluirEscrita,
+  decidirEscrita,
+  recusarEscrita,
+  useCampoDeErro,
+} from "@/components/task/escrita";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
@@ -107,7 +112,6 @@ export function AtomosForm({
    */
   const grupoOpcionalidadeRef = useRef<HTMLDivElement | null>(null);
   const botaoSalvarRef = useRef<HTMLButtonElement | null>(null);
-  const [aviso, setAviso] = useState<string | undefined>(undefined);
   /**
    * [MÉDIO #3, rodada 6] o trio que o SERVIDOR confirmou — salvar de novo o
    * mesmo trio não gasta rede (a região viva responde "nada mudou"). Começa
@@ -138,6 +142,9 @@ export function AtomosForm({
       concluirEscrita("atomos_salvar", botaoSalvarRef.current, null, (t) => mostrar(t));
     }
   });
+  // [ALTO #2, rodada 7] a recusa local vence o erro velho do servidor, e
+  // mexer nos átomos descarta os dois.
+  const campo = useCampoDeErro(estado);
   /** O trio submetido — lido no `aoSucesso`, depois do `await`. */
   const trioRef = useRef<string>(confirmadoRef.current);
 
@@ -155,11 +162,11 @@ export function AtomosForm({
       // texto de ajuda embaixo continua, e agora a recusa também fala.
       recusarEscrita("atomos_salvar", decisao, {
         anunciar: (t) => mostrar(t),
-        alertar: setAviso,
+        alertar: campo.avisar,
       });
       return;
     }
-    setAviso(undefined);
+    campo.aoMudarCampo();
     trioRef.current = trio;
     ultimaAcaoRef.current = "salvar";
     const form = new FormData();
@@ -175,7 +182,7 @@ export function AtomosForm({
     if (decisao !== "gravar") {
       recusarEscrita("atomos_limpar", decisao, {
         anunciar: (t) => mostrar(t),
-        alertar: setAviso,
+        alertar: campo.avisar,
       });
       return;
     }
@@ -194,7 +201,10 @@ export function AtomosForm({
           rotuloGrupo="Opcionalidade"
           opcoes={OPCOES_OPCIONALIDADE}
           valorAtual={opcionalidade}
-          aoMudar={setOpcionalidade}
+          aoMudar={(v) => {
+            setOpcionalidade(v);
+            campo.aoMudarCampo();
+          }}
           desabilitado={pendente}
         />
       </div>
@@ -204,7 +214,10 @@ export function AtomosForm({
           rotuloGrupo="Esforço"
           opcoes={OPCOES_ESFORCO_CUSTO}
           valorAtual={esforco}
-          aoMudar={setEsforco}
+          aoMudar={(v) => {
+            setEsforco(v);
+            campo.aoMudarCampo();
+          }}
           desabilitado={pendente}
         />
       </div>
@@ -214,7 +227,10 @@ export function AtomosForm({
           rotuloGrupo="Custo"
           opcoes={OPCOES_ESFORCO_CUSTO}
           valorAtual={custo}
-          aoMudar={setCusto}
+          aoMudar={(v) => {
+            setCusto(v);
+            campo.aoMudarCampo();
+          }}
           desabilitado={pendente}
         />
       </div>
@@ -232,10 +248,16 @@ export function AtomosForm({
           // botão da página que virava `disabled` sozinho (ao limpar os
           // átomos, o trio some e o botão trocava de estado com o foco
           // dentro dele). A recusa mora em `salvar()` e diz o porquê.
+          //
+          // [MÉDIO #3, rodada 7] E sem `aria-disabled` por VALIDADE: ele
+          // anunciava "indisponível" e a tecnologia assistiva recusava o
+          // clique. O texto "Escolha os três…" abaixo já existia; agora ele é
+          // o `aria-describedby` deste botão, que fica plenamente habilitado.
           aria-busy={pendente ? true : undefined}
-          aria-disabled={pendente || !todosEscolhidos ? true : undefined}
+          aria-disabled={pendente ? true : undefined}
+          aria-describedby={!todosEscolhidos ? "dica-atomos" : undefined}
           className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 ${
-            pendente || !todosEscolhidos ? "opacity-50" : ""
+            pendente ? "opacity-50" : ""
           }`}
         >
           Salvar átomos
@@ -255,12 +277,15 @@ export function AtomosForm({
         ) : null}
       </div>
       {!todosEscolhidos ? (
-        // [MÉDIO #2, rodada 4] o botão nasce `disabled` — este texto diz o
-        // PORQUÊ, em vez de deixar o operador adivinhar por que "Salvar
-        // átomos" não responde ao clique.
-        <p className="text-xs text-bone-400">Escolha os três para calcular o score.</p>
+        // [MÉDIO #2, rodada 4] este texto diz o PORQUÊ, em vez de deixar o
+        // operador adivinhar. [MÉDIO #3, rodada 7] e agora é o
+        // `aria-describedby` do botão — quem ouve recebe a exigência junto
+        // com o nome do controle, em vez de um "[disabled]" sem explicação.
+        <p id="dica-atomos" className="text-xs text-bone-400">
+          Escolha os três para calcular o score.
+        </p>
       ) : null}
-      <CampoErro mensagem={estado.erro ?? aviso} />
+      <CampoErro mensagem={campo.mensagem} />
       <MensagemSucesso mensagem={mensagem} />
 
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">

@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { codigo as codigoDoArquivo } from "./tarefa-varredura-derivada";
+
 /**
  * OS-LIFEBOARD · P6 — achado MÉDIO #4 (rodada 5): 8 dos 9 componentes desta
  * página não tinham NENHUM teste. Este arquivo cobre o estado INICIAL de cada
@@ -43,6 +45,9 @@ vi.mock("@/app/tarefa/actions", () => ({
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
+const { MENSAGEM_INVALIDO } = await import("@/components/task/escrita");
+const { rotuloDoBotaoDeExcluir } = await import("@/components/task/notas-painel");
+const { rotuloDoBotaoDeExcluirRelacao } = await import("@/components/task/relacoes-painel");
 const { AtomosForm } = await import("@/components/task/atomos-form");
 const { ControleSegmentado } = await import("@/components/task/controle-segmentado");
 const { DuracaoForm } = await import("@/components/task/duracao-form");
@@ -53,6 +58,12 @@ const { NotasPainel } = await import("@/components/task/notas-painel");
 const { RelacoesPainel } = await import("@/components/task/relacoes-painel");
 const { StatusForm } = await import("@/components/task/status-form");
 const { SubtarefasPainel } = await import("@/components/task/subtarefas-painel");
+
+/** Candidatas a destino de relação — usadas em vários blocos deste arquivo. */
+const OPCOES_DESTINO = [
+  { id: "t2", title: "Outra tarefa" },
+  { id: "t3", title: "Mais uma" },
+];
 
 const HERANCA = {
   esforco: 2,
@@ -85,10 +96,15 @@ describe("AtomosForm — nasce sem seleção (regressão da rodada 4)", () => {
     expect(html).not.toContain('aria-checked="true"');
     expect(html).toContain("Escolha os três para calcular o score.");
     // [ALTO #1, rodada 6] "Salvar átomos" era o último `disabled` da árvore.
-    // Agora ele diz o estado por `aria-disabled` (leitor de tela sabe; o
-    // gerenciador de foco não se mete) e recusa no handler, explicando.
+    // [MÉDIO #3, rodada 7] e nem `aria-disabled` por VALIDADE: a árvore de
+    // acessibilidade anunciava `[disabled]` ("indisponível") e a tecnologia
+    // assistiva recusava um clique que mouse e teclado faziam. O botão fica
+    // plenamente habilitado; a exigência é o texto de ajuda, ligado por
+    // `aria-describedby`.
     expect(html).not.toContain('disabled=""');
-    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain('aria-disabled="true"');
+    expect(html).toContain('aria-describedby="dica-atomos"');
+    expect(html).toContain('id="dica-atomos"');
     // "Limpar átomos" só existe quando há átomos salvos.
     expect(html).not.toContain("Limpar átomos");
   });
@@ -139,10 +155,7 @@ describe("AtomosForm — nasce sem seleção (regressão da rodada 4)", () => {
 });
 
 describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da rodada 4)", () => {
-  const OPCOES = [
-    { id: "t2", title: "Outra tarefa" },
-    { id: "t3", title: "Mais uma" },
-  ];
+  const OPCOES = OPCOES_DESTINO;
 
   it("PRONTO QUANDO: o select nasce em '' (a opção 'Escolha a tarefa…') e 'Adicionar relação' nasce desabilitado", () => {
     const html = renderToStaticMarkup(
@@ -160,8 +173,11 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
     expect(html.match(/selected=""/g)?.length).toBe(1);
     // [ALTO #1, rodada 6] sem `disabled` — a guarda contra a aresta cega
     // mora em `aoEnviar` (e agora diz o motivo em português).
+    // [MÉDIO #3, rodada 7] e sem `aria-disabled` por validade.
     expect(html).not.toContain('disabled=""');
-    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain('aria-disabled="true"');
+    expect(html).toContain('aria-describedby="dica-nova-relacao"');
+    expect(html).toContain(MENSAGEM_INVALIDO.relacao_criar);
     expect(html).toContain("Adicionar relação");
     // Sem relação criada ainda: nenhum "Desfazer" na tela.
     expect(html).not.toContain("Desfazer");
@@ -305,11 +321,201 @@ describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2
     // instante do sucesso o `aoSucesso` esvazia a textarea, o botão vira
     // `disabled` e o navegador manda o foco para o `<body>` (medido em 5 de 5
     // criações, a 1280 e a 390).
+    // [MÉDIO #3, rodada 7] e nem `aria-disabled` por validade.
     expect(html).not.toContain('disabled=""');
-    expect(html).toContain('aria-disabled="true"');
+    expect(html).not.toContain('aria-disabled="true"');
+    expect(html).toContain('aria-describedby="dica-nova-nota"');
+    expect(html).toContain(MENSAGEM_INVALIDO.nota_criar);
     // Duas regiões vivas: a do formulário ("Nota salva.", achado MÉDIO #2 da
     // rodada 6) e a do painel ("Excluída. Desfazer").
     expect(regioesStatus(html)).toEqual({ total: 2, vazias: 2 });
     expect(html).toContain("Nova nota");
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * RODADA 7 — o que o crítico mediu e reprovou.
+ */
+describe("ALTO #2 — os 4 formulários passaram a decidir o campo por `useCampoDeErro`", () => {
+  it("PRONTO QUANDO: nenhum deles ainda escreve `estado.erro ?? aviso`", () => {
+    // Era esta expressão, nos 4 arquivos, que fazia o erro velho do servidor
+    // sobreviver à recusa nova: `estado.erro` só morre quando a ação SEGUINTE
+    // resolve, e `aoDigitar` limpava `aviso`, não `estado.erro`.
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/subtarefas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+      "components/task/atomos-form.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      expect(src, arquivo).not.toContain("estado.erro ?? aviso");
+      expect(src, arquivo).toContain("useCampoDeErro(estado)");
+      expect(src, arquivo).toContain("<CampoErro mensagem={campo.mensagem} />");
+      // E toda mudança de campo descarta os dois.
+      expect(src, arquivo).toContain("campo.aoMudarCampo()");
+      // A recusa local entra pelo `alertar`, que também aposenta o erro velho.
+      expect(src, arquivo).toContain("alertar: campo.avisar");
+    }
+  });
+});
+
+describe("MÉDIO #3 — `aria-disabled` só enquanto grava; a exigência vira texto descrito", () => {
+  it("PRONTO QUANDO: os 3 botões de criação nascem SEM aria-disabled, com aria-describedby", () => {
+    const telas: [string, string, string][] = [
+      [
+        renderToStaticMarkup(<NotasPainel taskId="t1" notas={[]} />),
+        "dica-nova-nota",
+        MENSAGEM_INVALIDO.nota_criar ?? "",
+      ],
+      [
+        renderToStaticMarkup(<SubtarefasPainel parentId="t1" filhas={[]} />),
+        "dica-nova-subtarefa",
+        MENSAGEM_INVALIDO.subtarefa_criar ?? "",
+      ],
+      [
+        renderToStaticMarkup(
+          <RelacoesPainel
+            taskId="t1"
+            saindo={[]}
+            entrando={[]}
+            opcoesDestino={OPCOES_DESTINO}
+            tituloPorId={new Map()}
+          />,
+        ),
+        "dica-nova-relacao",
+        MENSAGEM_INVALIDO.relacao_criar ?? "",
+      ],
+    ];
+    for (const [html, id, frase] of telas) {
+      expect(html, id).not.toContain('aria-disabled="true"');
+      expect(html, id).not.toContain('disabled=""');
+      expect(html, id).toContain(`aria-describedby="${id}"`);
+      expect(html, id).toContain(`id="${id}"`);
+      expect(html, id).toContain(frase);
+      // "Plenamente habilitado" também no olho: sem a opacidade de metade,
+      // que é como a tela dizia "morto" para quem enxerga.
+      expect(html, id).not.toContain("opacity-50");
+    }
+  });
+});
+
+describe("MÉDIO #6 — o botão excluir de cada linha diz QUAL item apaga", () => {
+  const NOTAS = [
+    {
+      id: "n1",
+      taskId: "t1",
+      texto: "primeira",
+      autor: "Claude",
+      createdAt: "2026-07-12T15:00:00.000Z",
+    },
+    {
+      id: "n2",
+      taskId: "t1",
+      texto: "segunda",
+      autor: "Lucas",
+      createdAt: "2026-09-01T15:00:00.000Z",
+    },
+  ] as const;
+
+  it("PRONTO QUANDO: os rótulos das duas linhas de NOTA são distintos e nomeiam a nota", () => {
+    const html = renderToStaticMarkup(<NotasPainel taskId="t1" notas={NOTAS} />);
+    const rotulos = [...html.matchAll(/aria-label="([^"]*excluir[^"]*)"/g)].map((m) => m[1]);
+    expect(rotulos).toEqual([
+      "excluir a nota 1 de 2, de Claude, de 12/07/2026",
+      "excluir a nota 2 de 2, de Lucas, de 01/09/2026",
+    ]);
+    expect(new Set(rotulos).size).toBe(rotulos.length);
+  });
+
+  it("PRONTO QUANDO: os rótulos das linhas de RELAÇÃO nomeiam tipo e outra ponta", () => {
+    const html = renderToStaticMarkup(
+      <RelacoesPainel
+        taskId="t1"
+        saindo={[
+          {
+            id: "e1",
+            origem: "t1",
+            destino: "t2",
+            tipo: "predecessor",
+            peso: 1,
+            nota: null,
+            createdAt: "2026-07-12T15:00:00.000Z",
+          },
+        ]}
+        entrando={[
+          {
+            id: "e2",
+            origem: "t3",
+            destino: "t1",
+            tipo: "sinergia",
+            peso: 0.5,
+            nota: null,
+            createdAt: "2026-07-13T15:00:00.000Z",
+          },
+        ]}
+        opcoesDestino={OPCOES_DESTINO}
+        tituloPorId={new Map([["t2", "Publicar"], ["t3", "Desenhar"]])}
+      />,
+    );
+    const rotulos = [...html.matchAll(/aria-label="([^"]*excluir[^"]*)"/g)].map((m) => m[1]);
+    expect(rotulos).toEqual([
+      "excluir a relação 1 de 2, de predecessor com Publicar",
+      "excluir a relação 2 de 2, de sinergia com Desenhar",
+    ]);
+  });
+
+  it("o rótulo em confirmação continua contendo o texto visível (Label in Name)", () => {
+    expect(rotuloDoBotaoDeExcluir(NOTAS[0], 0, 2, true)).toBe(
+      "confirmar exclusão da nota 1 de 2, de Claude, de 12/07/2026",
+    );
+    expect(rotuloDoBotaoDeExcluirRelacao("obsolescencia", "Publicar", 0, 2, true)).toBe(
+      "confirmar exclusão da relação 1 de 2, de obsolescência com Publicar",
+    );
+    // Sem autor e sem data legível, o rótulo ainda existe e ainda é uma frase.
+    expect(rotuloDoBotaoDeExcluir({ autor: null, createdAt: "nada" }, 4, 9, false)).toBe(
+      "excluir a nota 5 de 9, de sem autor",
+    );
+    // A POSIÇÃO é o que garante a distinção quando autor e data COINCIDEM —
+    // o caso que a medição desta rodada achou no fixture semeado.
+    const gemea = { autor: "Claude", createdAt: "2026-07-09T14:00:00.000Z" };
+    expect(rotuloDoBotaoDeExcluir(gemea, 0, 2, false)).not.toBe(
+      rotuloDoBotaoDeExcluir(gemea, 1, 2, false),
+    );
+  });
+});
+
+describe("MÉDIO #5 — a confirmação não tem mais temporizador", () => {
+  it("PRONTO QUANDO: nenhum dos dois painéis arma um setTimeout de 3 s", () => {
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      expect(src, arquivo).not.toContain("setConfirmando(false), 3000");
+      expect(src, arquivo).not.toContain(", 3000)");
+      // As duas saídas que substituem o relógio.
+      expect(src, arquivo).toContain('e.key === "Escape"');
+      expect(src, arquivo).toContain("onBlur={() =>");
+      expect(src, arquivo).toContain("transicaoDeConfirmacao(");
+    }
+  });
+});
+
+describe("BAIXO #7 — alvo de toque também na LARGURA", () => {
+  it("PRONTO QUANDO: todo botão do segmentado tem min-w de 44 px", () => {
+    const html = renderToStaticMarkup(
+      <ControleSegmentado
+        rotuloGrupo="Esforço"
+        opcoes={[
+          { valor: 1, rotulo: "1" },
+          { valor: 2, rotulo: "2" },
+        ]}
+        valorAtual={1}
+        aoMudar={() => undefined}
+      />,
+    );
+    expect(html.match(/min-w-\[44px\]/g)?.length).toBe(2);
+    expect(html.match(/min-h-\[44px\]/g)?.length).toBe(2);
   });
 });

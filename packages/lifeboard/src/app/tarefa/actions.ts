@@ -21,6 +21,7 @@
 import { revalidatePath } from "next/cache";
 
 import { env } from "@/config/env";
+import { dataOriginalValidaOuErro } from "@/lib/fuso";
 import { mutateLifeboard } from "@/lib/supabase/live-client";
 import {
   arestaAddFixture,
@@ -122,6 +123,7 @@ export async function mutar(op: string, payload: Record<string, unknown>): Promi
         payload.task_id as string,
         payload.texto as string,
         (payload.autor as string | null) ?? null,
+        (payload.criado_em as string | null) ?? null,
       );
     case "nota_del":
       return notaDelFixture(payload.id as string);
@@ -154,6 +156,7 @@ export async function mutar(op: string, payload: Record<string, unknown>): Promi
         payload.tipo as EdgeTipo,
         (payload.peso as number | undefined) ?? 1,
         (payload.nota as string | null) ?? null,
+        (payload.criado_em as string | null) ?? null,
       );
     case "aresta_del":
       return arestaDelFixture(payload.id as string);
@@ -185,7 +188,17 @@ export async function notaAddAction(
     return { erro: `O nome do autor não pode passar de ${AUTOR_MAXIMO} caracteres.` };
   }
 
-  const r = await mutar("nota_add", { task_id: taskId, texto, autor });
+  // [MÉDIO #4, rodada 7] só o DESFAZER manda `criado_em`; uma nota nova não
+  // manda nada e o banco usa `now()`, como sempre.
+  const criadoEmBruto = textoOuNulo(form, "criado_em");
+  let criadoEm: string | null = null;
+  if (criadoEmBruto !== null) {
+    const v = dataOriginalValidaOuErro(criadoEmBruto);
+    if ("erro" in v) return { erro: v.erro };
+    criadoEm = v.iso;
+  }
+
+  const r = await mutar("nota_add", { task_id: taskId, texto, autor, criado_em: criadoEm });
   if ("erro" in r) return { erro: r.erro };
   revalidar(taskId);
   return { ok: true, id: r.id };
@@ -382,7 +395,23 @@ export async function arestaAddAction(
     return { erro: `A nota da relação não pode passar de ${ARESTA_NOTA_MAX} caracteres.` };
   }
 
-  const r = await mutar("aresta_add", { origem, destino, tipo, peso, nota });
+  // [MÉDIO #4, rodada 7] mesma régua da nota — só o desfazer preenche.
+  const criadoEmBruto = textoOuNulo(form, "criado_em");
+  let criadoEm: string | null = null;
+  if (criadoEmBruto !== null) {
+    const v = dataOriginalValidaOuErro(criadoEmBruto);
+    if ("erro" in v) return { erro: v.erro };
+    criadoEm = v.iso;
+  }
+
+  const r = await mutar("aresta_add", {
+    origem,
+    destino,
+    tipo,
+    peso,
+    nota,
+    criado_em: criadoEm,
+  });
   if ("erro" in r) return { erro: r.erro };
   revalidar(origem);
   revalidar(destino);

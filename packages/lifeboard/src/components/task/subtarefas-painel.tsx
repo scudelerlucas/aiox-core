@@ -5,7 +5,13 @@ import { useRef, useState, type FormEvent } from "react";
 
 import { subtarefaAddAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
+import {
+  concluirEscrita,
+  decidirEscrita,
+  MENSAGEM_INVALIDO,
+  recusarEscrita,
+  useCampoDeErro,
+} from "@/components/task/escrita";
 import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -53,7 +59,6 @@ export function SubtarefasPainel({ parentId, filhas }: SubtarefasPainelProps): J
 function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Element {
   const [title, setTitle] = useState("");
   const [estimativa, setEstimativa] = useState("");
-  const [aviso, setAviso] = useState<string | undefined>(undefined);
   const tituloRef = useRef<HTMLInputElement | null>(null);
   // [MÉDIO #2, rodada 6] "Subtarefa criada." — este formulário não tinha
   // nenhuma região viva; para quem não enxerga a lista crescer, adicionar uma
@@ -67,6 +72,8 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
     // navegador jogava o foco no `<body>`.
     concluirEscrita("subtarefa_criar", tituloRef.current, null, (t) => mostrar(t));
   });
+  // [ALTO #2, rodada 7] o erro velho do servidor não engole mais a recusa nova.
+  const campo = useCampoDeErro(estado);
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
@@ -77,11 +84,11 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
     if (decisao !== "gravar") {
       recusarEscrita("subtarefa_criar", decisao, {
         anunciar: (t) => mostrar(t),
-        alertar: setAviso,
+        alertar: campo.avisar,
       });
       return;
     }
-    setAviso(undefined);
+    campo.aoMudarCampo();
     const form = new FormData();
     form.set("parent_id", parentId);
     form.set("title", title);
@@ -102,7 +109,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           value={title}
           onChange={(e) => {
             setTitle(e.target.value);
-            setAviso(undefined);
+            campo.aoMudarCampo();
           }}
           placeholder="ex.: Escrever os testes de borda"
           className="min-h-[44px] rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
@@ -124,15 +131,25 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
         type="submit"
         // [ALTO #1, rodada 6] SEM `disabled` — nem por validade (ver
         // `notas-painel.tsx`). A recusa mora em `aoEnviar` e diz o motivo.
+        // [MÉDIO #3, rodada 7] `aria-disabled` só enquanto grava — por
+        // validade ele anunciava "indisponível" e a tecnologia assistiva
+        // recusava o clique que mouse e teclado faziam. A exigência é o texto
+        // abaixo, ligado por `aria-describedby`.
         aria-busy={pendente ? true : undefined}
-        aria-disabled={pendente || semTitulo ? true : undefined}
+        aria-disabled={pendente ? true : undefined}
+        aria-describedby={semTitulo ? "dica-nova-subtarefa" : undefined}
         className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${
-          pendente || semTitulo ? "opacity-50" : ""
+          pendente ? "opacity-50" : ""
         }`}
       >
         Adicionar subtarefa
       </button>
-      <CampoErro mensagem={estado.erro ?? aviso} />
+      {semTitulo ? (
+        <p id="dica-nova-subtarefa" className="w-full text-xs text-bone-400">
+          {MENSAGEM_INVALIDO.subtarefa_criar}
+        </p>
+      ) : null}
+      <CampoErro mensagem={campo.mensagem} />
       <MensagemSucesso mensagem={mensagem} />
     </form>
   );

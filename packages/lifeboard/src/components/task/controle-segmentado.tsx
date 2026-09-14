@@ -171,7 +171,11 @@ export function ControleSegmentado<T extends string | number>({
             // [BAIXO #6, rodada 6] 44 px de altura mínima — o alvo de toque
             // que a régua de UI/UX pede a 390 px de largura (medido antes:
             // 36 px nos segmentados, 24 no "excluir", 20 nos links).
-            className={`min-h-[44px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra ${
+            //
+            // [BAIXO #7, rodada 7] e 44 px de LARGURA mínima: a rodada 6 só
+            // olhou a altura, e a medição do crítico achou 36 px de largura
+            // no rótulo mais curto ("2", "3") destes mesmos segmentados.
+            className={`min-h-[44px] min-w-[44px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra ${
               desabilitado ? "opacity-50" : ""
             } ${
               selecionado

@@ -131,6 +131,8 @@ export function notaAddFixture(
   taskId: string,
   texto: string,
   autor: string | null,
+  /** [MÉDIO #4, rodada 7] instante original (desfazer). `null` = agora. */
+  criadoEm: string | null = null,
 ): ResultadoMutacaoFixture {
   const estado = loja();
   if (!estado.tasks.has(taskId)) return { erro: "Tarefa não encontrada." };
@@ -149,7 +151,7 @@ export function notaAddFixture(
     taskId,
     texto: limpo,
     autor: autorLimpo,
-    createdAt: new Date().toISOString(),
+    createdAt: criadoEm ?? new Date().toISOString(),
   });
   return { ok: true, id };
 }
@@ -285,6 +287,8 @@ export function arestaAddFixture(
   tipo: EdgeTipo,
   peso: number,
   nota: string | null,
+  /** [MÉDIO #4, rodada 7] instante original (desfazer). `null` = agora. */
+  criadoEm: string | null = null,
 ): ResultadoMutacaoFixture {
   const estado = loja();
   if (!estado.tasks.has(origem)) return { erro: "A tarefa de origem não existe (ou não é sua)." };
@@ -335,7 +339,7 @@ export function arestaAddFixture(
     tipo,
     peso,
     nota,
-    createdAt: new Date().toISOString(),
+    createdAt: criadoEm ?? new Date().toISOString(),
   });
   return { ok: true, id };
 }

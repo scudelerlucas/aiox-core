@@ -4,6 +4,16 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  arquivosVarridos,
+  EXCECOES,
+  importamAction,
+  PASTAS_VARRIDAS,
+  quantosHooks,
+  codigo as codigoDoArquivo,
+  varrer,
+} from "./tarefa-varredura-derivada";
+
+import {
   ANUNCIO_DE_SUCESSO,
   concluirEscrita,
   decidirEscrita,
@@ -25,11 +35,24 @@ import {
  * — por um segundo caminho (`disabled` por VALIDADE + o `aoSucesso` que
  * esvazia o campo) que a amostra não cobria.
  *
- * Por isso este arquivo não testa uma amostra: a lista `OPERACOES` abaixo é
- * TODA operação de escrita da página, por extenso, e cada uma passa pelas
- * mesmas quatro provas. Operação nova que não entre na lista quebra o 1º
- * teste; operação da lista cujo componente não chame `decidirEscrita` +
- * `concluirEscrita` quebra o teste de fiação.
+ * [ALTO #1, rodada 7] A rodada 6 escreveu isto aqui e ficou satisfeita — mas
+ * a varredura NÃO VARRIA: ela comparava duas listas escritas à mão
+ * (`OPERACOES` abaixo × `OPERACOES_DE_ESCRITA` do código), e nenhuma das duas
+ * derivava do fonte. O crítico provou: acrescentou em `duracao-form.tsx` um
+ * botão "Zerar duração" com `useAcaoTarefa(estimativaSetAction)` +
+ * `disparar(form)` cru, sem `decidirEscrita` nem `concluirEscrita`, e
+ * 989/989 testes passaram (tsc 0, eslint 0, build 0) enquanto em runtime o
+ * campo era apagado no servidor, em silêncio, com a tela mostrando o valor
+ * velho.
+ *
+ * Agora a varredura DERIVA: `tarefa-varredura-derivada.ts` lê
+ * `src/components/task/**` e `src/app/tarefa/**`, acha TODO sítio de escrita
+ * (o que `useAcaoTarefa` devolve, as chamadas desse despacho, e quem importa
+ * `*Action`) e exige que cada um esteja dentro de um handler com
+ * `decidirEscrita` + `recusarEscrita("op")`, com `concluirEscrita("op")` no
+ * mesmo arquivo. `OPERACOES_DE_ESCRITA` deixou de ser fonte: é CONFERIDA
+ * contra o conjunto derivado, nos dois sentidos — acrescentar à constante sem
+ * fiar também falha.
  *
  * Ambiente: sem DOM. O repositório não tem jsdom nem `@testing-library`, e
  * `npm install` está proibido nesta rodada (regra de isolamento) — então o
@@ -166,9 +189,79 @@ function elementoFalso(nome: string, focavel: boolean, doc: { activeElement: unk
 
 const BODY = { nome: "<body>", focus: (): void => undefined };
 
-describe("a lista de escritas é a página inteira, não uma amostra", () => {
-  it("PRONTO QUANDO: as 14 operações da página estão na lista, sem sobra nem falta", () => {
-    expect(OPERACOES.map((c) => c.op)).toEqual([...OPERACOES_DE_ESCRITA]);
+describe("a varredura DERIVA do código — não compara duas listas escritas à mão (ALTO #1)", () => {
+  const sitios = varrer();
+
+  it("PRONTO QUANDO: todo sítio de escrita do fonte está fiado — nenhum órfão", () => {
+    // A prova de que isto morde: reproduzir a mutação (c) do crítico (um
+    // botão novo com `useAcaoTarefa(...)` + `disparar(form)` cru) põe o sítio
+    // NOVO nesta lista, com arquivo e linha, e o teste fica vermelho.
+    const orfaos = sitios
+      .filter((s) => s.op === null || !s.temDecidir || !s.temConcluir)
+      .map(
+        (s) =>
+          `${s.arquivo}:${String(s.linha)} — ${s.despacho}(…) ` +
+          `[op=${s.op ?? "NENHUMA"} decidirEscrita=${String(s.temDecidir)} concluirEscrita=${String(s.temConcluir)}]`,
+      );
+    expect(orfaos, `sítios de escrita sem porta única:\n${orfaos.join("\n")}`).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: todo `useAcaoTarefa(` do fonte tem pelo menos um despacho fiado", () => {
+    // Ligar a ação e nunca chamá-la é código morto; ligar e chamar por fora
+    // do handler é o achado do crítico. Os dois aparecem aqui.
+    const porArquivo = new Map<string, number>();
+    for (const s of sitios) porArquivo.set(s.arquivo, (porArquivo.get(s.arquivo) ?? 0) + 1);
+    const faltando: string[] = [];
+    for (const arquivo of arquivosVarridos()) {
+      if (EXCECOES.some((e) => e.arquivo === arquivo)) continue;
+      const hooks = quantosHooks(codigoDoArquivo(arquivo));
+      if (hooks === 0) continue;
+      const fiados = porArquivo.get(arquivo) ?? 0;
+      if (fiados < hooks) faltando.push(`${arquivo}: ${String(hooks)} hooks × ${String(fiados)} despachos fiados`);
+    }
+    expect(faltando, faltando.join("\n")).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: nenhum `*Action` é chamado fora de `useAcaoTarefa(`", () => {
+    const soltas: string[] = [];
+    for (const { arquivo, acoes } of importamAction()) {
+      const src = codigoDoArquivo(arquivo);
+      for (const acao of acoes) {
+        const usos = [...src.matchAll(new RegExp(`\\b${acao}\\b`, "g"))];
+        // 1 uso é o próprio import; os demais têm de estar logo depois de
+        // `useAcaoTarefa(` — chamar a Server Action na mão pula a porta toda.
+        const dentroDoHook = (src.match(new RegExp(`useAcaoTarefa\\(\\s*${acao}\\b`, "g")) ?? []).length;
+        if (usos.length - 1 !== dentroDoHook) {
+          soltas.push(`${arquivo}: ${acao} aparece ${String(usos.length - 1)}× fora do import, ${String(dentroDoHook)}× em useAcaoTarefa(`);
+        }
+      }
+    }
+    expect(soltas, soltas.join("\n")).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: OPERACOES_DE_ESCRITA é CONFERIDA contra o derivado, nos dois sentidos", () => {
+    const derivadas = [...new Set(sitios.map((s) => s.op).filter((o): o is string => o !== null))].sort();
+    const declaradas: string[] = [...OPERACOES_DE_ESCRITA].sort();
+    // Sentido 1 — operação no código e fora da constante.
+    expect(derivadas.filter((o) => !declaradas.includes(o))).toEqual([]);
+    // Sentido 2 — operação na constante sem nenhum sítio que a execute.
+    expect(declaradas.filter((o) => !derivadas.includes(o))).toEqual([]);
+    expect(derivadas).toHaveLength(14);
+  });
+
+  it("as exceções da varredura são explícitas, com motivo — e ficam impressas", () => {
+    console.log("Exceções da varredura (arquivo → motivo):");
+    for (const e of EXCECOES) console.log("  -", e.arquivo, "→", e.motivo);
+    console.log("Pastas varridas:", PASTAS_VARRIDAS.join(", "));
+    console.log("Arquivos varridos:", String(arquivosVarridos().length));
+    console.log("Sítios de escrita derivados do fonte:", String(sitios.length));
+    for (const e of EXCECOES) expect(e.motivo.length).toBeGreaterThan(30);
+    // A lista de exceções não pode crescer sem alguém reparar.
+    expect(EXCECOES).toHaveLength(3);
+  });
+
+  it("a lista humana deste arquivo bate com a derivada (documentação, não fonte)", () => {
+    expect(OPERACOES.map((c) => c.op).sort()).toEqual([...OPERACOES_DE_ESCRITA].sort());
     expect(OPERACOES).toHaveLength(14);
   });
 
@@ -300,26 +393,54 @@ describe("decidirEscrita — a porta única de toda escrita", () => {
   });
 });
 
-describe("desfazer não mente sobre o que restaurou (BAIXO #5)", () => {
-  it("PRONTO QUANDO: a frase do desfazer diz '(como nova)' — id novo, data de agora", () => {
-    // `nota_add`/`aresta_add` (migrations 0006/0008/0010) inserem uma linha
-    // NOVA: não há campo de data no payload. Enquanto isso for verdade no
-    // banco, a tela diz a verdade em vez de fingir que a linha voltou igual.
-    expect(ANUNCIO_DE_SUCESSO.nota_desfazer).toContain("como nova");
-    expect(ANUNCIO_DE_SUCESSO.relacao_desfazer_exclusao).toContain("como nova");
+describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4, rodada 7)", () => {
+  it("PRONTO QUANDO: a migration 0017 aceita `criado_em` em nota_add e aresta_add", () => {
+    // A rodada 6 escreveu aqui um teste que EXIGIA `not.toContain("criado_em")`
+    // — um teste que quebra no dia em que alguém conserta o defeito. Este
+    // exige o CAMINHO: `criado_em` opcional, `coalesce(v_criado_em, now())`
+    // no insert (payload sem data continua se comportando como antes) e a
+    // régua de data em português.
     const migration = readFileSync(
       fileURLToPath(
         new URL(
-          "../../supabase/migrations/0010_lifeboard_v3_escrita_ajustes_2.sql",
+          "../../supabase/migrations/0017_lifeboard_v3_restaurar_nota_e_aresta.sql",
           import.meta.url,
         ),
       ),
       "utf8",
     );
     const notaAdd = migration.slice(migration.indexOf("if p_op = 'nota_add'"));
-    const insert = notaAdd.slice(0, notaAdd.indexOf("nota_del"));
-    expect(insert).toContain("insert into public.task_notes (task_id, texto, autor, owner)");
-    expect(insert).not.toContain("criado_em");
-    expect(insert).not.toContain("created_at");
+    const insertNota = notaAdd.slice(0, notaAdd.indexOf("nota_del"));
+    expect(insertNota).toContain(
+      "insert into public.task_notes (task_id, texto, autor, owner, created_at)",
+    );
+    expect(insertNota).toContain("coalesce(v_criado_em, now())");
+
+    const arestaAdd = migration.slice(migration.indexOf("elsif p_op = 'aresta_add'"));
+    const insertAresta = arestaAdd.slice(0, arestaAdd.indexOf("aresta_del"));
+    expect(insertAresta).toContain(
+      "insert into public.task_edges (origem, destino, tipo, peso, nota, owner, created_at)",
+    );
+    expect(insertAresta).toContain("coalesce(v_criado_em, now())");
+
+    expect(migration).toContain("A data original não é uma data válida.");
+    expect(migration).toContain("A data original não pode estar no futuro.");
+  });
+
+  it("PRONTO QUANDO: a frase do desfazer parou de dizer '(como nova)'", () => {
+    expect(ANUNCIO_DE_SUCESSO.nota_desfazer).toBe("Nota restaurada.");
+    expect(ANUNCIO_DE_SUCESSO.relacao_desfazer_exclusao).toBe("Relação restaurada.");
+    expect(ANUNCIO_DE_SUCESSO.nota_desfazer).not.toContain("como nova");
+    expect(ANUNCIO_DE_SUCESSO.relacao_desfazer_exclusao).not.toContain("como nova");
+  });
+
+  it("PRONTO QUANDO: os dois painéis mandam a data original junto do desfazer", () => {
+    for (const arquivo of [
+      "components/task/notas-painel.tsx",
+      "components/task/relacoes-painel.tsx",
+    ]) {
+      const src = codigoDoArquivo(arquivo);
+      expect(src, arquivo).toContain('form.set("criado_em", excluida.criadoEm)');
+    }
   });
 });

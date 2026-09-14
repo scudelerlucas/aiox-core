@@ -13,7 +13,15 @@ import {
 import { arestaAddAction, arestaDelAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
-import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
+import {
+  anuncioComDesfazerPerdido,
+  concluirEscrita,
+  decidirEscrita,
+  MENSAGEM_INVALIDO,
+  recusarEscrita,
+  transicaoDeConfirmacao,
+  useCampoDeErro,
+} from "@/components/task/escrita";
 import { focarComAlternativa } from "@/components/task/foco";
 import { useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
@@ -58,6 +66,29 @@ interface ArestaExcluida {
   destino: string;
   tipo: EdgeTipo;
   peso: number;
+  /** [MÉDIO #4, rodada 7] a data ORIGINAL — devolve a relação à sua posição. */
+  criadoEm: string;
+}
+
+/**
+ * [MÉDIO #6, rodada 7] PURA — o nome acessível do "excluir" de UMA linha de
+ * relação. Medido: o foco entregue depois de excluir aterrissava num botão
+ * chamado só "excluir", idêntico em todas as linhas.
+ */
+export function rotuloDoBotaoDeExcluirRelacao(
+  tipo: EdgeTipo,
+  rotuloOutraPonta: string,
+  indice: number,
+  total: number,
+  confirmando: boolean,
+): string {
+  // A posição entra pelo mesmo motivo da nota: duas relações do MESMO tipo
+  // com a MESMA outra ponta existem (uma saindo, outra entrando) e teriam o
+  // mesmo nome sem ela.
+  const alvo =
+    `a relação ${String(indice + 1)} de ${String(total)}, de ${ROTULO_TIPO[tipo]} ` +
+    `com ${rotuloOutraPonta}`;
+  return confirmando ? `confirmar exclusão d${alvo}` : `excluir ${alvo}`;
 }
 
 export function RelacoesPainel({
@@ -74,6 +105,8 @@ export function RelacoesPainel({
   const botaoDesfazerRef = useRef<HTMLButtonElement | null>(null);
   const [excluida, setExcluida] = useState<ArestaExcluida | null>(null);
   const [erroDesfazer, setErroDesfazer] = useState<string | undefined>(undefined);
+  /** [MÉDIO #5, rodada 7] uma linha em confirmação por painel — sem relógio. */
+  const [confirmandoId, setConfirmandoId] = useState<string | null>(null);
   // Região viva do PAINEL: "Excluída." (persistente, ao lado do Desfazer) e
   // "Relação restaurada (como nova)." (4 s).
   const { mensagem, mostrar, limpar } = useMensagemSucesso();
@@ -116,16 +149,29 @@ export function RelacoesPainel({
     ...entrando.map((e) => ({ aresta: e, direcao: "entrando" as const, outraPonta: e.origem })),
   ];
 
+  /**
+   * [MÉDIO #5, rodada 7] a porta única da confirmação: as DUAS transições
+   * anunciam, e nenhuma delas depende de temporizador.
+   */
+  function mudarConfirmacao(id: string | null): void {
+    const t = transicaoDeConfirmacao("relacao_excluir", confirmandoId, id);
+    if (t.anuncio !== null) mostrar(t.anuncio);
+    setConfirmandoId(t.confirmandoId);
+  }
+
   function aoExcluirComSucesso(aresta: TaskEdge, indice: number): void {
     // (1) FOCO antes de a linha sair da árvore: a relação seguinte, ou o
     // seletor de destino do formulário quando era a última.
     limparTimer();
     setErroDesfazer(undefined);
+    setConfirmandoId(null);
     concluirEscrita(
       "relacao_excluir",
       botoesExcluirRef.current.get(indice + 1),
       selectDestinoRef.current,
       (t) => mostrar(t, { persistente: true }),
+      // [BAIXO #8, rodada 7] numa frase só — ver `notas-painel.tsx`.
+      anuncioComDesfazerPerdido("relacao_excluir", excluida !== null),
     );
     // (2) janela de desfazer, com o payload que recria a MESMA aresta.
     setExcluida({
@@ -133,6 +179,7 @@ export function RelacoesPainel({
       destino: aresta.destino,
       tipo: aresta.tipo,
       peso: aresta.peso,
+      criadoEm: aresta.createdAt,
     });
     timerRef.current = window.setTimeout(() => {
       setExcluida(null);
@@ -165,6 +212,9 @@ export function RelacoesPainel({
     form.set("destino", excluida.destino);
     form.set("tipo", excluida.tipo);
     form.set("peso", String(excluida.peso));
+    // [MÉDIO #4, rodada 7] a data original volta junto (migration 0017) — a
+    // lista de relações ordena por `created_at`, então a posição volta também.
+    form.set("criado_em", excluida.criadoEm);
     dispararDesfazer(form);
   }
 
@@ -180,6 +230,7 @@ export function RelacoesPainel({
               aresta={linha.aresta}
               taskId={taskId}
               indice={indice}
+              total={linhas.length}
               direcao={linha.direcao}
               rotuloOutraPonta={tituloPorId.get(linha.outraPonta) ?? linha.outraPonta}
               outraPontaId={linha.outraPonta}
@@ -188,6 +239,8 @@ export function RelacoesPainel({
                 else botoesExcluirRef.current.delete(indice);
               }}
               avisar={(t) => mostrar(t)}
+              confirmando={confirmandoId === linha.aresta.id}
+              aoConfirmar={mudarConfirmacao}
               aoExcluir={aoExcluirComSucesso}
             />
           ))}
@@ -237,31 +290,35 @@ function LinhaAresta({
   aresta,
   taskId,
   indice,
+  total,
   direcao,
   rotuloOutraPonta,
   outraPontaId,
   refDoBotao,
   avisar,
+  confirmando,
+  aoConfirmar,
   aoExcluir,
 }: {
   aresta: TaskEdge;
   taskId: string;
   indice: number;
+  /** Quantas relações a lista tem — o "de 2" do rótulo (MÉDIO #6). */
+  total: number;
   direcao: "saindo" | "entrando";
   rotuloOutraPonta: string;
   outraPontaId: string;
   refDoBotao: (el: HTMLButtonElement | null) => void;
   /** A região viva do PAINEL — a linha some no sucesso, então não pode ter uma. */
   avisar: (texto: string) => void;
+  /** [MÉDIO #5, rodada 7] a confirmação é do painel: uma linha por vez. */
+  confirmando: boolean;
+  aoConfirmar: (id: string | null) => void;
   aoExcluir: (aresta: TaskEdge, indice: number) => void;
 }): JSX.Element {
   const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(arestaDelAction, () =>
     aoExcluir(aresta, indice),
   );
-  // [MÉDIO #20, crítico 13/09] excluir nota já pedia confirmação em 2 passos
-  // (clique → "confirmar exclusão?" → clique de novo); excluir relação
-  // apagava direto no 1º clique. Mesma disciplina agora nos dois.
-  const [confirmando, setConfirmando] = useState(false);
 
   function excluir(): void {
     const decisao = decidirEscrita({ pendente: pendente || emVooAgora() });
@@ -272,11 +329,11 @@ function LinhaAresta({
       return;
     }
     if (!confirmando) {
-      setConfirmando(true);
-      window.setTimeout(() => setConfirmando(false), 3000);
+      // [MÉDIO #5, rodada 7] sem `setTimeout` — e a entrada é anunciada.
+      aoConfirmar(aresta.id);
       return;
     }
-    setConfirmando(false);
+    aoConfirmar(null);
     const form = new FormData();
     form.set("id", aresta.id);
     form.set("task_id", taskId);
@@ -306,8 +363,26 @@ function LinhaAresta({
         ref={refDoBotao}
         type="button"
         onClick={excluir}
+        // [MÉDIO #5, rodada 7] Escape e a saída do foco cancelam — sem relógio.
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && confirmando) {
+            e.preventDefault();
+            aoConfirmar(null);
+          }
+        }}
+        onBlur={() => {
+          if (confirmando) aoConfirmar(null);
+        }}
         aria-busy={pendente ? true : undefined}
         aria-disabled={pendente ? true : undefined}
+        // [MÉDIO #6, rodada 7] cada linha diz QUAL relação ela apaga.
+        aria-label={rotuloDoBotaoDeExcluirRelacao(
+          aresta.tipo,
+          rotuloOutraPonta,
+          indice,
+          total,
+          confirmando,
+        )}
         className={`inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md px-2 text-xs font-semibold ${
           pendente ? "opacity-50" : ""
         } ${
@@ -345,10 +420,16 @@ function FormularioNovaAresta({
   // [MÉDIO #3] a aresta recém-criada — sustenta o "Desfazer" por 10s (ou até
   // a próxima criação/desfazimento, o que vier primeiro).
   const [criada, setCriada] = useState<{ id: string } | null>(null);
+  /**
+   * [BAIXO #8, rodada 7] A verdade sobre "já existe um Desfazer pendente" no
+   * instante em que o `aoSucesso` roda (depois do `await`) — o estado lido
+   * pela closure seria o do render em que ela nasceu.
+   */
+  const criadaRef = useRef<{ id: string } | null>(null);
+  criadaRef.current = criada;
   // [MÉDIO #1, rodada 5] o desfazer que FALHA precisa dizer isso — em
   // português, `role="alert"`, ao lado do botão, que continua na tela.
   const [erroDesfazer, setErroDesfazer] = useState<string | undefined>(undefined);
-  const [aviso, setAviso] = useState<string | undefined>(undefined);
   // A região viva DESTE formulário — "Relação criada." (persistente, enquanto
   // o Desfazer existe), "Relação desfeita.", "Aguarde…".
   const { mensagem, mostrar, limpar } = useMensagemSucesso();
@@ -379,8 +460,15 @@ function FormularioNovaAresta({
     // (o backend devolveu o id); sem isso ele se comporta como os demais
     // sucessos da página e some sozinho em 4 s.
     const temDesfazer = typeof estadoSucesso.id === "string" && estadoSucesso.id.length > 0;
-    concluirEscrita("relacao_criar", selectDestinoRef.current, botaoAdicionarRef.current, (t) =>
-      mostrar(t, { persistente: temDesfazer }),
+    concluirEscrita(
+      "relacao_criar",
+      selectDestinoRef.current,
+      botaoAdicionarRef.current,
+      (t) => mostrar(t, { persistente: temDesfazer }),
+      // [BAIXO #8, rodada 7] havia um "Desfazer" pendente da criação
+      // anterior? Ele acabou de ser substituído, e some sem aviso — a frase
+      // entra JUNTO com "Relação criada.", numa string só.
+      anuncioComDesfazerPerdido("relacao_criar", criadaRef.current !== null),
     );
     // `id` só falta se o backend (RPC live) não devolver — degrada de forma
     // graciosa: a relação foi criada (a lista ao lado já mostra), só sem
@@ -443,6 +531,11 @@ function FormularioNovaAresta({
     },
   );
 
+  /**
+   * [ALTO #2, rodada 7] o erro velho do servidor não engole mais a recusa
+   * nova — a mesma porta dos outros 3 formulários.
+   */
+  const campo = useCampoDeErro(estado);
   const podeEnviar = destino !== "";
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
@@ -456,10 +549,13 @@ function FormularioNovaAresta({
       valido: podeEnviar,
     });
     if (decisao !== "gravar") {
-      recusarEscrita("relacao_criar", decisao, { anunciar: (t) => mostrar(t), alertar: setAviso });
+      recusarEscrita("relacao_criar", decisao, {
+        anunciar: (t) => mostrar(t),
+        alertar: campo.avisar,
+      });
       return;
     }
-    setAviso(undefined);
+    campo.aoMudarCampo();
     limparDesfazer();
     setCriada(null);
     setErroDesfazer(undefined);
@@ -511,7 +607,7 @@ function FormularioNovaAresta({
           value={destino}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => {
             setDestino(e.target.value);
-            setAviso(undefined);
+            campo.aoMudarCampo();
           }}
           className="min-h-[44px] w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         >
@@ -553,16 +649,27 @@ function FormularioNovaAresta({
           // é desfocado pelo navegador, e o foco cai no `<body>`: foi assim
           // que esta operação falhou a medição das 3 criações. A guarda
           // continua em `aoEnviar` (nenhuma aresta cega), e agora ela fala.
+          //
+          // [MÉDIO #3, rodada 7] `aria-disabled` por VALIDADE anunciava
+          // "indisponível" e travava o clique da tecnologia assistiva; agora
+          // ele só existe enquanto a gravação está em curso, e a exigência é
+          // o texto abaixo, ligado por `aria-describedby`.
           aria-busy={pendente ? true : undefined}
-          aria-disabled={pendente || !podeEnviar ? true : undefined}
+          aria-disabled={pendente ? true : undefined}
+          aria-describedby={!podeEnviar ? "dica-nova-relacao" : undefined}
           className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${
-            pendente || !podeEnviar ? "opacity-50" : ""
+            pendente ? "opacity-50" : ""
           }`}
         >
           Adicionar relação
         </button>
       </div>
-      <CampoErro mensagem={estado.erro ?? aviso} />
+      {!podeEnviar ? (
+        <p id="dica-nova-relacao" className="text-xs text-bone-400">
+          {MENSAGEM_INVALIDO.relacao_criar}
+        </p>
+      ) : null}
+      <CampoErro mensagem={campo.mensagem} />
       {/* [MÉDIO #3, rodada 5] região viva PERSISTENTE do formulário: nasce
           vazia no DOM e recebe o texto por troca de conteúdo.
           [MÉDIO #1, rodada 5] depois de um desfazer que FALHOU, a notícia

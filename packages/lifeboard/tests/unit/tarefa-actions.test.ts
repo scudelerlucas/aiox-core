@@ -283,6 +283,9 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
       task_id: "task-build",
       texto: "uma nota válida",
       autor: "Lucas",
+      // [MÉDIO #4, rodada 7] `criado_em` só vem preenchido no DESFAZER; uma
+      // nota nova manda `null` e o banco usa o `default now()` de sempre.
+      criado_em: null,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/");
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
@@ -375,6 +378,7 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
       tipo: "sinergia",
       peso: 0.5,
       nota: null,
+      criado_em: null,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-deploy");
@@ -424,6 +428,7 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
       "task-build",
       "uma nota válida",
       "Lucas",
+      null, // [MÉDIO #4, rodada 7] sem `criado_em`: a nota nasce agora.
     );
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
@@ -511,6 +516,7 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
       "sinergia",
       0.5,
       null,
+      null, // [MÉDIO #4, rodada 7] idem.
     );
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
