@@ -3003,3 +3003,52 @@ begin
   raise exception 'FALHA: T57 D47 % de % estorno(s) apontam para outro estorno — a cadeia do extrato quebrou',
     v_maus, v_estornos;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T58 · D44b — a parcela estimada não fica NEGATIVA quando a estimativa
+-- corrigida é de um dia anterior
+--
+-- [Achado MAIOR, CodeRabbit, rodada 11] T54 só prova o caso do MESMO dia
+-- (estimativa e correção na mesma chamada, logo mesmo `dia`). A checagem
+-- original do EXISTS (`a.id = l.estorna_id and a.origem = 'estimativa'`) não
+-- olhava o dia de `a`: uma estimativa de ONTEM corrigida HOJE soma o estorno
+-- de hoje (-valor) sozinho — a estimativa original nunca esteve no total de
+-- HOJE (o filtro `l.dia = hoje` já a exclui), só o estorno dela está — e a
+-- parcela ainda estimada de hoje ficava negativa, o que não tem sentido de
+-- negócio (não existe "estimativa negativa").
+--
+-- Este bloco insere a estimativa DIRETO no livro, datada de ONTEM (mesmo
+-- padrão da abertura/§4 da 0020: inserir é permitido, só update/delete são
+-- recusados pelo gatilho de imutabilidade), e corrige HOJE via
+-- painel_caixa_lancar — reproduzindo exatamente o caminho que uma estimativa
+-- aberta um dia e medida no seguinte percorre em produção.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T58-entidade-de-prova';
+  v_estimada numeric;
+  v_itens integer;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where entidade_id = v_ent;
+
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, nota)
+  values
+    (public.painel_dia_operador() - 1, v_conta, 80, 'estimativa', 'item', v_ent,
+     'T58: estimativa de ONTEM, inserida direto para simular abertura de dia anterior');
+
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 30, 'medido', null, null, now());
+
+  v_estimada := public.painel_fila_estimativa_usd(v_conta);
+  v_itens    := public.painel_fila_estimativa_itens(v_conta);
+
+  if v_estimada = 0 and v_itens = 0 then
+    raise exception 'RESULTADO: ok — T58 D44b estorno de estimativa de dia anterior não conta como estimativa de hoje: estimada=% itens=%',
+      v_estimada, v_itens;
+  end if;
+  raise exception 'FALHA: T58 D44b esperado estimada=0 itens=0 (nunca negativo), obteve estimada=% itens=%',
+    v_estimada, v_itens;
+end $$;
