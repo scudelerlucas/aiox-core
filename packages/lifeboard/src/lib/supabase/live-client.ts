@@ -283,6 +283,27 @@ async function chamarRpc(nome: string, corpo: Record<string, unknown>): Promise<
 }
 
 /** Traduz um `RpcError` para a mensagem que pode chegar à tela (achado MÉDIO #10). */
+/**
+ * BAIXO 2 (crítico da rodada 5): o `23514` é o único SQLSTATE cujo texto
+ * atravessa até a tela, e ele chegava assim —
+ * `Item nao encontrado: 937a3479-f3b3-4937-9a17-5374a251c7e0`. As mensagens do
+ * banco ganharam acento na migration 0015 e pararam de ecoar o id; esta função
+ * é a SEGUNDA trava, para uma RPC antiga (ou um `raise` novo escrito distraído)
+ * nunca pôr um UUID na cara do operador. O texto inteiro continua indo para o
+ * log do servidor — some da tela, não do registro.
+ */
+const UUID_CRU = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+export function semIdTecnico(texto: string): string {
+  if (!UUID_CRU.test(texto)) return texto;
+  UUID_CRU.lastIndex = 0;
+  return texto
+    .replace(UUID_CRU, "")
+    .replace(/\s*:\s*(?=[.,;]|$)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function traduzirErroFila(error: unknown): string {
   if (error instanceof RpcError) {
     if (error.code === CODIGO_PAINEL_NAO_CONFIGURADO) {
@@ -292,7 +313,8 @@ function traduzirErroFila(error: unknown): string {
       return MENSAGEM_ACESSO_NEGADO;
     }
     if (error.code && CODIGOS_MENSAGEM_SEGURA.has(error.code)) {
-      return error.message;
+      console.error("[prompts] recusa 23514 (texto bruto do banco):", error.message);
+      return semIdTecnico(error.message);
     }
     return MENSAGEM_GENERICA;
   }
@@ -451,12 +473,19 @@ export async function cancelarPromptFila(id: string): Promise<MutateFilaResult> 
  * fechado hoje cujo número era estimativa da casa. Sem esta porta, uma
  * estimativa inflada congelava a conta até a virada do dia.
  */
-export async function ajustarCustoPrompt(id: string, custoUsd: number): Promise<MutateFilaResult> {
+export async function ajustarCustoPrompt(
+  id: string,
+  custoUsd: number,
+  sessionId: string | null = null,
+): Promise<MutateFilaResult> {
   try {
     const body = (await chamarRpc("fila_prompts_ajustar_custo", {
       p_secret: env.LIFEBOARD_LOAD_SECRET,
       p_id: id,
       p_custo_usd: custoUsd,
+      // D26 (rodada 6): vincular a sessão que rodou é o que impede o dia de
+      // somar a estimativa do item MAIS o custo real dela.
+      p_session_id: sessionId,
     })) as { ok?: boolean };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };

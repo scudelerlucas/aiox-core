@@ -23,8 +23,27 @@
  * Quem chama: `relacoes-painel.tsx`, `atomos-form.tsx`, `notas-painel.tsx`.
  */
 
+/**
+ * Qualquer coisa que aceite foco. Estrutural de propósito: `HTMLElement`,
+ * `HTMLButtonElement` e `HTMLSelectElement` satisfazem, e o teste passa um
+ * objeto falso sem precisar de DOM (o repositório não tem jsdom).
+ */
+export interface Focavel {
+  focus: () => void;
+}
+
+/** O que `focarComAlternativa` precisa saber do documento — só quem está focado. */
+export interface DocumentoComFoco {
+  readonly activeElement: unknown;
+}
+
+/** O documento real quando existe (navegador); `null` no servidor e no teste. */
+export function documentoAtual(): DocumentoComFoco | null {
+  return typeof document === "undefined" ? null : document;
+}
+
 /** `focus()` sem estourar quando o nó já saiu da árvore (ou nunca entrou). */
-export function focar(alvo: { focus: () => void } | null | undefined): void {
+export function focar(alvo: Focavel | null | undefined): void {
   alvo?.focus();
 }
 
@@ -32,24 +51,26 @@ export function focar(alvo: { focus: () => void } | null | undefined): void {
  * Foco com alternativa — para o caso em que o alvo LÓGICO existe mas não
  * aceita foco.
  *
- * É exatamente o que acontece ao desfazer a criação de uma relação: o alvo é
- * o botão "Adicionar relação", e ele nasce `disabled` enquanto nenhum destino
- * está escolhido (regressão da rodada 4 que não pode voltar — um clique cego
- * criava aresta contra a 1ª tarefa da lista). Elemento `disabled` não recebe
- * foco: chamar `.focus()` nele é um no-op silencioso, e o foco fica onde
- * estava — no "Desfazer", que sai do DOM no instante seguinte. Resultado
- * medido antes desta função: `<body>`.
+ * Foi assim que o caso nasceu, na rodada 5: ao desfazer a criação de uma
+ * relação o alvo é o botão "Adicionar relação", que naquele momento estava
+ * `disabled` (nenhum destino escolhido). Elemento `disabled` não recebe foco:
+ * `.focus()` nele é um no-op silencioso, o foco fica onde estava — no
+ * "Desfazer", que sai do DOM no instante seguinte. Resultado medido: `<body>`.
+ *
+ * [ALTO #1, rodada 6] Nenhum controle desta página usa mais `disabled` (nem
+ * por validade — ver `escrita.ts`), então essa causa específica acabou. A
+ * alternativa continua valendo para o que sobra: um nó que JÁ saiu da árvore
+ * entre o clique e o `router.refresh()` também não aceita foco, e aí o plano
+ * B é o primeiro controle do mesmo formulário.
  *
  * A alternativa é o primeiro controle do MESMO formulário (o `<select>` de
  * destino): o foco continua onde o trabalho continua, nunca no documento.
  * `documento` é injetável só para o teste (sem jsdom aqui).
  */
 export function focarComAlternativa(
-  alvo: HTMLElement | null | undefined,
-  alternativa: HTMLElement | null | undefined,
-  documento: { activeElement: Element | null } | null = typeof document === "undefined"
-    ? null
-    : document,
+  alvo: Focavel | null | undefined,
+  alternativa: Focavel | null | undefined,
+  documento: DocumentoComFoco | null = documentoAtual(),
 ): void {
   focar(alvo);
   if (documento === null) return;

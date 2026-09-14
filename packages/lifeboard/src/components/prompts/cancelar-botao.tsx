@@ -1,8 +1,11 @@
 "use client";
 
-import { cancelarPromptAction } from "@/app/prompts/actions";
+import { useEffect, useRef, useState } from "react";
+
+import { cancelarPromptAction, type EstadoAcaoPrompt } from "@/app/prompts/actions";
 import { MensagemDaFila } from "@/components/prompts/mensagem-da-fila";
 import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
+import { focarComAlternativa } from "@/components/task/foco";
 
 /**
  * OS-LIFEBOARD · P7 — botão "cancelar". Desde a rodada 3 (D7) ele aparece
@@ -23,17 +26,46 @@ import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
  * cancelamento a ação chama `router.refresh()`, o item muda de estado e uma
  * renderização CONDICIONAL do botão o desmontaria — levando junto a frase que
  * acabara de nascer. O componente fica montado sempre; some só o botão.
+ *
+ * RODADA 6 — dois achados do crítico, os dois medidos:
+ *  · BAIXO 3 · o `<button>` some do DOM com o FOCO nele e o foco cai no
+ *    `<body>`. Agora, no sucesso, o foco vai para a frase da resposta (a
+ *    região `role="status"`, que aceita foco programático) e, se ela não
+ *    aceitar, para o próprio contêiner da linha. Mesma função da peça P6
+ *    (`focarComAlternativa`), reusada — não uma segunda implementação.
+ *  · BAIXO 4 · o estado da resposta agora pode vir DE FORA (`resposta`), para
+ *    as duas instâncias da linha (tabela e cartão) mostrarem a mesma frase.
  */
 export function CancelarBotao({
   id,
   emExecucao = false,
   podeCancelar = true,
+  resposta,
+  aoResponder,
 }: {
   id: string;
   emExecucao?: boolean;
   podeCancelar?: boolean;
+  /** BAIXO 4: a resposta guardada pela LINHA — sobrevive à troca de breakpoint. */
+  resposta?: EstadoAcaoPrompt;
+  aoResponder?: (estado: EstadoAcaoPrompt) => void;
 }): JSX.Element {
-  const { estado, pendente, disparar } = useAcaoPrompt(cancelarPromptAction);
+  const [pedidoDeFoco, setPedidoDeFoco] = useState(0);
+  const mensagemRef = useRef<HTMLParagraphElement>(null);
+  const caixaRef = useRef<HTMLDivElement>(null);
+  const { estado, pendente, disparar } = useAcaoPrompt(
+    cancelarPromptAction,
+    () => setPedidoDeFoco((n) => n + 1),
+    aoResponder,
+  );
+  const visivel = resposta ?? estado;
+
+  // BAIXO 3: o foco é entregue DEPOIS da renderização que traz a frase — antes
+  // dela, o alvo ainda é uma região `sr-only` sem `tabIndex`.
+  useEffect(() => {
+    if (pedidoDeFoco === 0) return;
+    focarComAlternativa(mensagemRef.current, caixaRef.current);
+  }, [pedidoDeFoco]);
 
   function aoClicar(): void {
     const pergunta = emExecucao
@@ -46,7 +78,7 @@ export function CancelarBotao({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div ref={caixaRef} tabIndex={-1} className="flex flex-col items-end gap-1 focus:outline-none">
       {podeCancelar ? (
         <button
           type="button"
@@ -57,7 +89,12 @@ export function CancelarBotao({
           {pendente ? "cancelando…" : "cancelar"}
         </button>
       ) : null}
-      <MensagemDaFila mensagem={estado.mensagem} erro={estado.erro} />
+      <MensagemDaFila
+        mensagem={visivel.mensagem}
+        erro={visivel.erro}
+        tom={visivel.tom}
+        refDaMensagem={mensagemRef}
+      />
     </div>
   );
 }

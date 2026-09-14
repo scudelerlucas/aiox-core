@@ -127,7 +127,8 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
         <Link
           href="/"
           prefetch={false}
-          className="text-xs font-semibold text-bone-400 hover:text-gold-300"
+          // [BAIXO #6, rodada 6] alvo de toque de 44 px (era 20 px a 390).
+          className="inline-flex min-h-[44px] items-center text-xs font-semibold text-bone-400 hover:text-gold-300"
         >
           ← painel
         </Link>

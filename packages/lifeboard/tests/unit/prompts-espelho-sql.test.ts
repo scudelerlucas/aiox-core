@@ -36,6 +36,7 @@ const ARQUIVOS = [
   "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
   "0013_lifeboard_v3_fila_contabilidade.sql",
   "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
+  "0015_lifeboard_v3_fila_dia_e_dono.sql",
 ] as const;
 
 /** As 6 migrations da fila — a varredura do `raise` (#3) vale para todas. */
@@ -46,7 +47,11 @@ const MIGRATIONS_DA_FILA = [
   "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
   "0013_lifeboard_v3_fila_contabilidade.sql",
   "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
+  "0015_lifeboard_v3_fila_dia_e_dono.sql",
 ] as const;
+
+/** O teste COMPORTAMENTAL da fila — o que este arquivo NÃO é (ver o bloco D28). */
+const TESTE_SQL = join(__dirname, "..", "..", "supabase", "tests", "fila_prompts.test.sql");
 
 function ler(arquivo: string): string {
   return readFileSync(join(DIR_MIGRATIONS, arquivo), "utf8");
@@ -189,5 +194,90 @@ describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
     // E nenhuma janela de 50 sobrou no caminho do pull.
     expect(sql).not.toContain("limit 50");
     expect(sql).not.toContain("for rec in");
+  });
+});
+
+/**
+ * ═══ D28 (rodada 6) — O QUE ESTE ARQUIVO É, E O QUE ELE NÃO É ═══
+ *
+ * O crítico da rodada 5 mediu, e está certo: **os testes deste arquivo são de
+ * ORTOGRAFIA.** Ele aplicou a mutação `and f.custo_estimado_usd <= v_headroom +
+ * 100000` na migration — o pull passa a ignorar o teto diário inteiro — e
+ * 775/775 testes do vitest passaram. Um `expect(sql).toMatch(/regex/)` não
+ * distingue um pull que respeita o orçamento de um que o estoura.
+ *
+ * A guarda COMPORTAMENTAL é `supabase/tests/fila_prompts.test.sql`, rodado
+ * contra um Postgres de verdade (ver DEPLOY.md § "Teste da fila de prompts").
+ * Nesta rodada a mesma mutação foi reaplicada e o bloco T16 daquele arquivo
+ * devolveu FALHA — é ele que a pega, não este.
+ *
+ * O que ESTE arquivo passa a guardar é o CONTRATO MÍNIMO entre os dois: toda
+ * função que o teste SQL chama precisa existir numa migration versionada. Sem
+ * isto, alguém pode renomear uma função na migration e o teste SQL vira um
+ * arquivo que falha por "função não existe" sem ninguém notar em CI.
+ */
+describe("D28 — contrato mínimo: o teste SQL só chama função que existe nas migrations", () => {
+  it("toda `public.<fn>(` citada em fila_prompts.test.sql é criada numa migration", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    const citadas = new Set<string>();
+    // `\(` COLADO no nome: é assim que se chama função. `insert into
+    // public.painel_frentes_sessoes (…)` tem espaço/quebra de linha antes do
+    // parêntese — é tabela, e tabela não entra nesta conta.
+    const regex = /public\.([a-z0-9_]+)\(/g;
+    let achado: RegExpExecArray | null = regex.exec(teste);
+    while (achado !== null) {
+      citadas.add(achado[1] as string);
+      achado = regex.exec(teste);
+    }
+    expect(citadas.size, "o teste SQL precisa chamar alguma função").toBeGreaterThan(5);
+
+    const todasAsMigrations = MIGRATIONS_DA_FILA.map((a) => ler(a)).join("\n");
+    const faltando = [...citadas].filter(
+      (fn) =>
+        !todasAsMigrations.includes(`create or replace function public.${fn}`) &&
+        // tabelas e views citadas com o mesmo prefixo não são função
+        !todasAsMigrations.includes(`create table if not exists public.${fn}`),
+    );
+    expect(faltando, "funções citadas no teste SQL sem definição nas migrations").toEqual([]);
+  });
+
+  it("os cinco casos que o crítico pediu estão NOMEADOS no teste SQL", () => {
+    const teste = readFileSync(TESTE_SQL, "utf8");
+    for (const marca of [
+      "T01 D25 virada do dia",
+      "T04 D26 dono do morto",
+      "T08 D30",
+      "T11 D27",
+      "T16 o teto do dia barra o pull",
+    ]) {
+      expect(teste, `caso ausente: ${marca}`).toContain(marca);
+    }
+    // e cada bloco termina em veredito explícito, nunca em silêncio:
+    const oks = teste.match(/RESULTADO: ok —/g) ?? [];
+    const falhas = teste.match(/FALHA: /g) ?? [];
+    expect(oks.length).toBeGreaterThanOrEqual(19);
+    expect(falhas.length).toBeGreaterThanOrEqual(oks.length);
+  });
+
+  it("0015 é aditiva — a única remoção é a assinatura de 3 args do ajustar_custo", () => {
+    const sql = semComentarios(ler("0015_lifeboard_v3_fila_dia_e_dono.sql")).toLowerCase();
+    expect(sql).not.toContain("drop table");
+    expect(sql).not.toContain("drop column");
+    expect(sql).not.toContain("drop index");
+    const drops = sql.match(/drop function[^;]*;/g) ?? [];
+    expect(drops).toEqual([
+      "drop function if exists public.fila_prompts_ajustar_custo(text, uuid, numeric);",
+    ]);
+    expect(sql).toContain("add column if not exists ultimo_worker_id");
+    expect(sql).toContain("create or replace function");
+  });
+
+  it("D25 — o dia do item no SQL é o do FECHAMENTO (a régua de painel_fila_itens_do_dia)", () => {
+    const sql = semComentarios(ler("0015_lifeboard_v3_fila_dia_e_dono.sql"));
+    expect(sql).toMatch(/painel_dia_operador\(f\.concluido_em\)\s*=\s*p_dia/);
+    // e a régua de `ajustar_custo` é a MESMA (era `pego_em` de um lado e
+    // `concluido_em` do outro — o botão prometia e não movia número nenhum):
+    expect(sql).toMatch(/painel_dia_operador\(v_row\.concluido_em\)\s*<>\s*public\.painel_dia_operador\(\)/);
+    expect(sql).not.toContain("coalesce(f.pego_em, f.criado_em)");
   });
 });

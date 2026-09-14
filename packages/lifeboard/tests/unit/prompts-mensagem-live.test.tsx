@@ -96,8 +96,10 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
 
     const estado = await novoPromptAction({}, form({ prompt: "listar PRs", complexidade: "baixa" }));
 
+    // D29 (rodada 6): a frase passou a falar do ESPAÇO LIVRE (a régua que
+    // escolhe a conta), não do headroom, e diz "contando a fila parada".
     expect(estado.mensagem).toBe(
-      "Enfileirado para Lucas: é a conta com maior espaço livre hoje " +
+      "Enfileirado para Lucas: é a conta com maior espaço livre hoje contando a fila parada " +
         "(US$ 30,00 para uma tarefa baixa de US$ 5,00).",
     );
 
@@ -105,7 +107,7 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
       <MensagemDaFila mensagem={estado.mensagem} cabeHoje={estado.cabeHoje} />,
     );
     expect(html).toContain(
-      "Enfileirado para Lucas: é a conta com maior espaço livre hoje (US$ 30,00 para uma tarefa baixa de US$ 5,00).",
+      "Enfileirado para Lucas: é a conta com maior espaço livre hoje contando a fila parada (US$ 30,00 para uma tarefa baixa de US$ 5,00).",
     );
     // O que NUNCA pode aparecer: o texto cru do banco.
     expect(html).not.toContain("roteamento automatico");
@@ -136,9 +138,13 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
       form({ prompt: "reescrever a carta", complexidade: "maxima" }),
     );
 
+    // D29: com espaco_livre_usd = −10 a frase diz "nenhum espaço livre" (nunca
+    // o número negativo) e revela o headroom ao lado, como explicação.
     expect(estado.mensagem).toBe(
-      "Enfileirado para Pandora: nenhuma conta tem US$ 120,00 livres hoje para uma tarefa máxima — " +
-        "a mais folgada tem US$ 30,00. Entra na fila e roda quando houver espaço.",
+      "Enfileirado para Pandora: nenhuma conta tem US$ 120,00 livres para uma tarefa máxima " +
+        "contando a fila parada — a mais folgada tem nenhum espaço livre " +
+        "(headroom de US$ 30,00 menos 2 itens de US$ 40,00 já na fila). " +
+        "Entra na fila e roda quando houver espaço.",
     );
 
     const html = renderToStaticMarkup(
@@ -181,9 +187,13 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
     const html = renderToStaticMarkup(
       <MensagemDaFila mensagem={estado.mensagem} cabeHoje={estado.cabeHoje} />,
     );
-    expect(html).toContain("Enfileirado para Alma Petra (escolha manual): cabe hoje");
-    expect(html).toContain("US$ 100,00 livres para uma tarefa alta de US$ 50,00.");
-    expect(html).toContain("1 item na frente soma US$ 20,00.");
+    expect(html).toContain(
+      "Enfileirado para Alma Petra (escolha manual): cabe hoje contando a fila parada",
+    );
+    // D29: o número da frase é o ESPAÇO LIVRE (80), e o headroom (100) e a fila
+    // (1 item de US$ 20,00) aparecem juntos, como explicação.
+    expect(html).toContain("US$ 80,00 livres para uma tarefa alta de US$ 50,00");
+    expect(html).toContain("(headroom de US$ 100,00 menos 1 item de US$ 20,00 já na fila)");
   });
 
   it("D22 — `NovoPromptForm` (produção) mostra a frase do enfileiramento", async () => {
@@ -227,7 +237,7 @@ describe("D14 — modo live: a frase final na tela (fetch mockado)", () => {
 
     expect(html).toContain('role="status"');
     expect(html).toContain(
-      "Enfileirado para Lucas: é a conta com maior espaço livre hoje (US$ 30,00 para uma tarefa baixa de US$ 5,00).",
+      "Enfileirado para Lucas: é a conta com maior espaço livre hoje contando a fila parada (US$ 30,00 para uma tarefa baixa de US$ 5,00).",
     );
   });
 

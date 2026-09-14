@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 import { atomosSetAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import { focar } from "@/components/task/foco";
+import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
@@ -66,6 +66,19 @@ function filhasSemAtomosTexto(n: number): string {
   return n === 1 ? "1 subtarefa sem átomos" : `${n} subtarefas sem átomos`;
 }
 
+/**
+ * A assinatura do trio declarado, para comparar "o que está na tela" com "o
+ * que o servidor confirmou" sem depender da ordem dos campos. `null` (nada
+ * declarado) tem a sua própria assinatura — limpar duas vezes seguidas também
+ * é uma escrita repetida.
+ */
+function chaveDoTrio(
+  trio: { opcionalidade: number | null; esforco: number | null; custo: number | null } | null,
+): string {
+  if (trio === null) return "sem-atomos";
+  return `${String(trio.opcionalidade)}/${String(trio.esforco)}/${String(trio.custo)}`;
+}
+
 export function AtomosForm({
   taskId,
   assimetriaAtual,
@@ -93,8 +106,16 @@ export function AtomosForm({
    * `router.refresh()`, que só acontece depois deste callback).
    */
   const grupoOpcionalidadeRef = useRef<HTMLDivElement | null>(null);
+  const botaoSalvarRef = useRef<HTMLButtonElement | null>(null);
+  const [aviso, setAviso] = useState<string | undefined>(undefined);
+  /**
+   * [MÉDIO #3, rodada 6] o trio que o SERVIDOR confirmou — salvar de novo o
+   * mesmo trio não gasta rede (a região viva responde "nada mudou"). Começa
+   * no que veio do servidor; `null` = nada declarado.
+   */
+  const confirmadoRef = useRef<string>(chaveDoTrio(assimetriaAtual));
   const { mensagem, mostrar } = useMensagemSucesso();
-  const { estado, pendente, disparar } = useAcaoTarefa(atomosSetAction, () => {
+  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(atomosSetAction, () => {
     if (ultimaAcaoRef.current === "limpar") {
       // [MÉDIO #2] devolve os 3 grupos ao estado SEM seleção — sem isto, o
       // `useState` local (só lido no mount) continuava mostrando os últimos
@@ -102,16 +123,44 @@ export function AtomosForm({
       setOpcionalidade(null);
       setEsforco(null);
       setCusto(null);
-      focar(grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"));
-      mostrar("Átomos limpos.");
+      confirmadoRef.current = chaveDoTrio(null);
+      // "Limpar átomos" SOME no sucesso: o foco vai para o 1º botão do grupo
+      // Opcionalidade (de onde a declaração recomeça) e, se ele já não estiver
+      // lá, para "Salvar átomos" — nunca para o `<body>`.
+      concluirEscrita(
+        "atomos_limpar",
+        grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"),
+        botaoSalvarRef.current,
+        (t) => mostrar(t),
+      );
     } else {
-      mostrar("Átomos salvos.");
+      confirmadoRef.current = trioRef.current;
+      concluirEscrita("atomos_salvar", botaoSalvarRef.current, null, (t) => mostrar(t));
     }
   });
+  /** O trio submetido — lido no `aoSucesso`, depois do `await`. */
+  const trioRef = useRef<string>(confirmadoRef.current);
 
   function salvar(): void {
-    if (pendente) return; // [MÉDIO #2, rodada 5] 2º clique recusado sem `disabled`.
-    if (!todosEscolhidos) return; // defensivo — o botão já nasce `disabled` neste caso.
+    const trio = chaveDoTrio(
+      todosEscolhidos ? { opcionalidade, esforco, custo } : null,
+    );
+    const decisao = decidirEscrita({
+      pendente: pendente || emVooAgora(),
+      valido: todosEscolhidos,
+      mudou: trio !== confirmadoRef.current,
+    });
+    if (decisao !== "gravar") {
+      // [ALTO #1, rodada 6] era um botão `disabled` que não explicava nada; o
+      // texto de ajuda embaixo continua, e agora a recusa também fala.
+      recusarEscrita("atomos_salvar", decisao, {
+        anunciar: (t) => mostrar(t),
+        alertar: setAviso,
+      });
+      return;
+    }
+    setAviso(undefined);
+    trioRef.current = trio;
     ultimaAcaoRef.current = "salvar";
     const form = new FormData();
     form.set("task_id", taskId);
@@ -122,7 +171,14 @@ export function AtomosForm({
   }
 
   function limpar(): void {
-    if (pendente) return; // [MÉDIO #2, rodada 5]
+    const decisao = decidirEscrita({ pendente: pendente || emVooAgora() });
+    if (decisao !== "gravar") {
+      recusarEscrita("atomos_limpar", decisao, {
+        anunciar: (t) => mostrar(t),
+        alertar: setAviso,
+      });
+      return;
+    }
     ultimaAcaoRef.current = "limpar";
     const form = new FormData();
     form.set("task_id", taskId);
@@ -169,15 +225,17 @@ export function AtomosForm({
             (notas-painel.tsx) já é essa. Rebaixado ao estilo outline, igual
             aos demais botões secundários da tela (duração, subtarefa…). */}
         <button
+          ref={botaoSalvarRef}
           type="button"
           onClick={salvar}
-          // `disabled` SÓ pela validade (os três átomos) — o `pendente` saiu
-          // daqui na rodada 5 (MÉDIO #2): era ele que mandava o foco ao body.
-          disabled={!todosEscolhidos}
+          // [ALTO #1, rodada 6] SEM `disabled`, nem por validade: era o último
+          // botão da página que virava `disabled` sozinho (ao limpar os
+          // átomos, o trio some e o botão trocava de estado com o foco
+          // dentro dele). A recusa mora em `salvar()` e diz o porquê.
           aria-busy={pendente ? true : undefined}
           aria-disabled={pendente || !todosEscolhidos ? true : undefined}
-          className={`inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 disabled:opacity-50 ${
-            pendente ? "opacity-50" : ""
+          className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 transition hover:border-gold-600 ${
+            pendente || !todosEscolhidos ? "opacity-50" : ""
           }`}
         >
           Salvar átomos
@@ -188,7 +246,7 @@ export function AtomosForm({
             onClick={limpar}
             aria-busy={pendente ? true : undefined}
             aria-disabled={pendente ? true : undefined}
-            className={`inline-flex min-h-[36px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm text-bone-300 hover:border-navy-600 ${
+            className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm text-bone-300 hover:border-navy-600 ${
               pendente ? "opacity-50" : ""
             }`}
           >
@@ -202,7 +260,7 @@ export function AtomosForm({
         // átomos" não responde ao clique.
         <p className="text-xs text-bone-400">Escolha os três para calcular o score.</p>
       ) : null}
-      <CampoErro mensagem={estado.erro} />
+      <CampoErro mensagem={estado.erro ?? aviso} />
       <MensagemSucesso mensagem={mensagem} />
 
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">

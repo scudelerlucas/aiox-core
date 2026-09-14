@@ -137,7 +137,9 @@ describe("prompts/actions — validação", () => {
 
   it("cancelarPromptAction: com id chama cancelarFixture em modo fixture", async () => {
     const r = await cancelarPromptAction({}, form({ id: "fila-x" }));
-    expect(r).toEqual({ ok: true, mensagem: undefined });
+    // MÉDIO 4 (rodada 6): o `tom` acompanha toda resposta de cancelamento —
+    // `sucesso` quando nada foi lançado no dia, `atencao` quando foi.
+    expect(r).toEqual({ ok: true, mensagem: undefined, tom: "sucesso" });
     expect(fixtureStore.cancelarFixture).toHaveBeenCalledWith("fila-x");
     expect(cancelarPromptFila).not.toHaveBeenCalled();
   });
@@ -165,6 +167,6 @@ describe("prompts/actions — validação", () => {
   it("ajustarCustoPromptAction: aceita vírgula decimal (o operador digita em português)", async () => {
     const r = await ajustarCustoPromptAction({}, form({ id: "fila-x", custo_usd: "12,34" }));
     expect(r).toMatchObject({ ok: true });
-    expect(fixtureStore.ajustarCustoFixture).toHaveBeenCalledWith("fila-x", 12.34);
+    expect(fixtureStore.ajustarCustoFixture).toHaveBeenCalledWith("fila-x", 12.34, null);
   });
 });

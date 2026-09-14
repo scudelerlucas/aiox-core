@@ -7,7 +7,7 @@ import {
   CUSTO_ESTIMADO_POR_COMPLEXIDADE,
   MODELO_POR_COMPLEXIDADE,
   custoEstimadoParaComplexidade,
-  headroomUsd,
+  espacoLivreUsd,
   textoEspacoLivre,
 } from "@/core/prompts/tipos";
 
@@ -95,28 +95,55 @@ describe("escolherConta", () => {
     expect(r.cabeHoje).toBe(false);
     // D9: frase gramatical, rótulo da conta, complexidade por extenso, vírgula decimal.
     expect(r.motivo).toBe(
-      "Nenhuma conta tem US$ 120,00 livres hoje para uma tarefa máxima. " +
+      "Nenhuma conta tem US$ 120,00 livres para uma tarefa máxima contando a fila parada. " +
         "A mais folgada (Pandora) tem US$ 102,90.",
     );
   });
 
-  // ── D13 (rodada 4): UMA RÉGUA — quem decide `cabeHoje` é o HEADROOM ───────
-  it("D13 — a fila parada escolhe a conta, mas NÃO decide se cabe hoje", () => {
-    // Pandora: headroom 150 (nada medido, nada em execução) e 149 esperando na
-    // fila. Antes, `cabeHoje` olhava o espaço COM a fila (1) e dizia "não cabe"
-    // sobre uma conta que não gastou um centavo. Agora o veredito é o headroom.
+  // ── D29 (rodada 6): UMA RÉGUA — o espaço livre decide E fala ──────────────
+  /**
+   * Este bloco mudou de veredito na rodada 6, e o motivo está medido. D13
+   * (rodada 4) mandou o HEADROOM decidir `cabeHoje` enquanto o ESPAÇO LIVRE
+   * escolhia a conta. O crítico mostrou o preço disso: a frase saía do
+   * headroom e dizia "nenhuma conta tem US$ 50,00 livres" com uma conta de US$
+   * 150,00 de headroom e US$ 140,00 já na fila. D29: uma régua só — o espaço
+   * livre escolhe, decide e fala; o headroom vira a EXPLICAÇÃO dentro da frase,
+   * nunca o veredito. A metade de D13 que continua valendo (nada de número
+   * negativo na tela) está no último bloco deste describe.
+   */
+  it("D29 — a fila parada escolhe a conta E decide se cabe hoje", () => {
     const r = escolherConta([consumo(LUCAS, 150), consumo(PANDORA, 0, 0, 149)], "alta");
     expect(r.conta).toBe(PANDORA);
     expect(r.headroomUsd).toBe(150);
     expect(r.espacoLivreUsd).toBe(1);
-    expect(r.cabeHoje).toBe(true);
-    // e a previsão aparece na frase, sem virar veredito:
-    expect(r.motivo).toContain("US$ 149,00 já esperando na fila");
+    expect(r.cabeHoje).toBe(false);
+    // e o headroom aparece como explicação, sem virar veredito:
+    expect(r.motivo).toBe(
+      "Nenhuma conta tem US$ 50,00 livres para uma tarefa alta contando a fila parada. " +
+        "A mais folgada (Pandora) tem US$ 1,00 (headroom de US$ 150,00 menos US$ 149,00 já na fila).",
+    );
   });
 
-  it("D13 — headroom 30 e uma tarefa de 5: cabe_hoje true (o caso do banco)", () => {
+  it("D29 — o cenário exato do crítico: a frase revela a conta folgada que não ganhou", () => {
+    // Lucas: teto 150, medido 140, fila 0   -> headroom 10,  espaço 10
+    // Pandora: teto 150, medido 0, fila 140 -> headroom 150, espaço 10
+    // Empate no espaço; a ordem da casa entrega a Lucas. A frase antiga dizia
+    // "Nenhuma conta tem US$ 50,00 livres hoje. A mais folgada (Lucas) tem
+    // US$ 10,00." — e Pandora tinha US$ 150,00 livres agora.
+    const r = escolherConta([consumo(LUCAS, 140), consumo(PANDORA, 0, 0, 140)], "alta");
+    expect(r.conta).toBe(LUCAS);
+    expect(r.cabeHoje).toBe(false);
+    expect(r.motivo).toBe(
+      "Nenhuma conta tem US$ 50,00 livres para uma tarefa alta contando a fila parada. " +
+        "A mais folgada (Lucas) tem US$ 10,00; Pandora tem US$ 150,00 livres agora, " +
+        "mas US$ 140,00 já na fila. Empate no espaço livre; vale a ordem da casa.",
+    );
+  });
+
+  it("D29 — espaço 30 e uma tarefa de 5: cabe hoje (o caso do banco)", () => {
     const r = escolherConta([consumo(LUCAS, 0, 120)], "baixa"); // 150 − 120 = 30
     expect(r.headroomUsd).toBe(30);
+    expect(r.espacoLivreUsd).toBe(30);
     expect(r.cabeHoje).toBe(true);
   });
 
@@ -151,15 +178,17 @@ describe("escolherConta", () => {
   });
 });
 
-describe("contaTemEspacoPara — o que o PULL realmente checa", () => {
-  it("usa HEADROOM (teto − medido − em execução); a fila parada não conta", () => {
-    // 150 − 50 − 20 = 80 de headroom, e 999 esperando na fila: cabe alta (50).
-    expect(contaTemEspacoPara(consumo(LUCAS, 50, 20, 999), "alta")).toBe(true);
+describe("contaTemEspacoPara — a mesma régua de escolherConta (D29)", () => {
+  it("usa o ESPAÇO LIVRE: 999 parados na fila fazem a conta NÃO ter espaço hoje", () => {
+    // 150 − 50 − 20 = 80 de headroom, mas 999 esperando: espaço livre negativo.
+    expect(contaTemEspacoPara(consumo(LUCAS, 50, 20, 999), "alta")).toBe(false);
+    // sem fila parada, o mesmo headroom de 80 cabe uma alta (50):
+    expect(contaTemEspacoPara(consumo(LUCAS, 50, 20, 0), "alta")).toBe(true);
   });
-  it("false quando o headroom não cobre", () => {
+  it("false quando nem o headroom cobre", () => {
     expect(contaTemEspacoPara(consumo(LUCAS, 100, 40), "alta")).toBe(false); // 10 < 50
   });
-  it("aceita no EMPATE exato (medido + em_execucao + estimado == teto)", () => {
+  it("aceita no EMPATE exato (medido + em_execucao + na_fila + estimado == teto)", () => {
     expect(contaTemEspacoPara(consumo(LUCAS, 100, 0), "alta")).toBe(true); // 50 == 50
     expect(contaTemEspacoPara(consumo(LUCAS, 100.01, 0), "alta")).toBe(false);
   });
@@ -261,15 +290,14 @@ const CENARIOS: readonly Cenario[] = [
     cabeHojeNoBanco: true,
   },
   {
-    // Rodada 4 (D13): a fila parada continua ESCOLHENDO a conta, mas o veredito
-    // "cabe hoje" é do headroom. Provado ao vivo no mesmo dia: com headroom 30
-    // e estimado 20, `fila_prompts_enfileirar` devolveu `cabe_hoje=true` mesmo
-    // com `espaco_livre_usd=-10,00` (fila maior que o headroom).
-    rotulo: "D13 — fila de 149 na Pandora não impede uma tarefa alta de entrar hoje",
+    // Rodada 6 (D29): a fila parada escolhe a conta E decide o veredito — uma
+    // régua só. Provado ao vivo contra `fila_prompts_enfileirar` da migration
+    // 0015 no mesmo dia (ver o bloco de cenários logo acima).
+    rotulo: "D29 — fila de 149 na Pandora tira a tarefa alta do dia (uma régua só)",
     consumos: [consumo(LUCAS, 150), consumo(PANDORA, 0, 0, 149), consumo(ALMA, 150)],
     complexidade: "alta",
     contaNoBanco: PANDORA,
-    cabeHojeNoBanco: true,
+    cabeHojeNoBanco: false,
   },
 ];
 
@@ -303,10 +331,10 @@ describe("paridade com o roteamento SQL (fila_prompts_enfileirar, migration 0012
       const noTs = escolherConta(consumos, complexidade);
       expect(noTs.conta).toBe(espelhoDoSql(consumos));
       const escolhida = consumos.find((c) => c.conta === noTs.conta) as ConsumoConta;
-      // D13: a régua é o headroom da conta ESCOLHIDA (a mesma comparação que
-      // `fila_prompts_enfileirar` faz depois de escolher).
+      // D29: a régua é o ESPAÇO LIVRE da conta escolhida — a mesma comparação
+      // que `fila_prompts_enfileirar` (migration 0015) faz depois de escolher.
       expect(noTs.cabeHoje).toBe(
-        custoEstimadoParaComplexidade(complexidade) <= headroomUsd(escolhida),
+        custoEstimadoParaComplexidade(complexidade) <= espacoLivreUsd(escolhida),
       );
     }
   });
