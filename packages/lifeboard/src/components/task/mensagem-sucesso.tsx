@@ -21,8 +21,18 @@ const DURACAO_MS = 4000;
 
 export interface MensagemSucessoControlada {
   mensagem: string | null;
-  /** Mostra `texto` e agenda o próprio desaparecimento — chamar de novo reinicia o relógio. */
-  mostrar: (texto: string) => void;
+  /**
+   * Mostra `texto` e agenda o próprio desaparecimento — chamar de novo
+   * reinicia o relógio.
+   *
+   * [rodada 6] `persistente: true` = sem relógio: o texto fica até alguém
+   * chamar `limpar()`. É o caso do "Excluída. Desfazer" e do "Relação criada.
+   * Desfazer", cuja janela de desfazer dura 10 s — o texto sumir aos 4 s
+   * deixaria um botão "Desfazer" solto, sem dizer desfazer O QUÊ.
+   */
+  mostrar: (texto: string, opcoes?: { persistente?: boolean }) => void;
+  /** Apaga o texto agora (e cancela o relógio, se houver). */
+  limpar: () => void;
 }
 
 export function useMensagemSucesso(): MensagemSucessoControlada {
@@ -37,10 +47,21 @@ export function useMensagemSucesso(): MensagemSucessoControlada {
   // `window.clearTimeout` espera).
   const timeoutRef = useRef<number | null>(null);
 
-  function mostrar(texto: string): void {
+  function cancelarRelogio(): void {
     if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }
+
+  function mostrar(texto: string, opcoes?: { persistente?: boolean }): void {
+    cancelarRelogio();
     setMensagem(texto);
+    if (opcoes?.persistente === true) return;
     timeoutRef.current = window.setTimeout(() => setMensagem(null), DURACAO_MS);
+  }
+
+  function limpar(): void {
+    cancelarRelogio();
+    setMensagem(null);
   }
 
   // Limpa o timer se o componente sair da árvore antes dos 4s (revalidação
@@ -51,7 +72,7 @@ export function useMensagemSucesso(): MensagemSucessoControlada {
     };
   }, []);
 
-  return { mensagem, mostrar };
+  return { mensagem, mostrar, limpar };
 }
 
 /**

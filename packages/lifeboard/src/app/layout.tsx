@@ -55,7 +55,11 @@ export default function RootLayout({
               key={l.href}
               href={l.href}
               prefetch={false}
-              className="text-bone-300 hover:text-bone-100"
+              // [BAIXO #6, rodada 6 do crítico] a barra já tinha 44 px de
+              // altura, mas o LINK dentro dela tinha 20 — e o alvo de toque é
+              // o link, não a barra. `inline-flex` + `min-h-[44px]` fazem a
+              // área clicável ocupar a faixa inteira, sem mudar o visual.
+              className="inline-flex min-h-[44px] items-center text-bone-300 hover:text-bone-100"
             >
               {l.label}
             </Link>

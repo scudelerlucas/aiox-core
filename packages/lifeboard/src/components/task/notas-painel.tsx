@@ -10,7 +10,14 @@ import {
 
 import { notaAddAction, notaDelAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
-import { alvoAposExclusaoDeNota, focar } from "@/components/task/foco";
+import {
+  concluirEscrita,
+  decidirEscrita,
+  recusarEscrita,
+  type SinaisDeEscrita,
+} from "@/components/task/escrita";
+import { alvoAposExclusaoDeNota } from "@/components/task/foco";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import {
   gravarRascunhoNota,
   lerRascunhoNota,
@@ -42,9 +49,14 @@ const JANELA_DESFAZER_MS = 10_000;
  * [BAIXO #5 + MÉDIO #2, rodada 5] O painel — não a linha — é quem guarda o
  * "Excluída. Desfazer" e quem entrega o FOCO depois de uma exclusão: a linha
  * excluída SOME do DOM (junto com o botão que o operador acabou de apertar),
- * então nem a mensagem nem o foco podem morar dentro dela. A exclusão era, até
- * esta rodada, a única operação irreversível e silenciosa da página — a
- * criação é que tinha ganhado "Desfazer".
+ * então nem a mensagem nem o foco podem morar dentro dela.
+ *
+ * [ALTO #1 + MÉDIO #2, rodada 6] Nenhum botão daqui usa mais `disabled`, nem
+ * por validade: era o `disabled={texto vazio}` de "Salvar nota" que, no
+ * instante do sucesso (quando o `aoSucesso` esvazia a textarea), fazia o
+ * navegador desfocar o botão e o foco cair no `<body>` — medido em 5 de 5
+ * criações, a 1280 e a 390. Agora toda escrita passa por `decidirEscrita`
+ * (antes) e `concluirEscrita` (depois), que entrega o foco e anuncia.
  */
 export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -53,6 +65,9 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
   const botaoDesfazerRef = useRef<HTMLButtonElement | null>(null);
   const [excluida, setExcluida] = useState<{ texto: string; autor: string | null } | null>(null);
   const [erroDesfazer, setErroDesfazer] = useState<string | undefined>(undefined);
+  // A região viva do PAINEL: "Excluída." (persistente, junto do botão
+  // Desfazer) e "Nota restaurada (como nova)." (4 s) saem daqui.
+  const { mensagem, mostrar, limpar } = useMensagemSucesso();
   // `number` (não `ReturnType<typeof window.setTimeout>`) — mesma nota de
   // `mensagem-sucesso.tsx`: neste tsconfig o TIPO da propriedade discorda da
   // CHAMADA, e é a chamada que devolve o valor real no navegador.
@@ -65,14 +80,24 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
 
   useEffect(() => limparTimer, []);
 
-  const { pendente: desfazendo, disparar: dispararDesfazer } = useAcaoTarefa(
+  const sinais: SinaisDeEscrita = { anunciar: (t) => mostrar(t), alertar: setErroDesfazer };
+
+  const {
+    pendente: desfazendo,
+    disparar: dispararDesfazer,
+    emVooAgora: desfazerEmVoo,
+  } = useAcaoTarefa(
     notaAddAction,
     () => {
       limparTimer();
       setErroDesfazer(undefined);
       setExcluida(null);
-      // O botão "Desfazer" some agora — entrega o foco antes de sair.
-      focar(textareaRef.current);
+      // O botão "Desfazer" some agora — entrega o foco antes de sair, e diz o
+      // que aconteceu. [BAIXO #5, rodada 6] "(como nova)": o desfazer INSERE
+      // uma nota nova (id novo, data de agora) porque é só isso que a RPC
+      // `nota_add` sabe fazer — ela não aceita `criado_em`. Por isso a nota
+      // restaurada aparece no TOPO da lista, e por isso a frase avisa.
+      concluirEscrita("nota_desfazer", textareaRef.current, null, (t) => mostrar(t));
     },
     () => {
       // [MÉDIO #1, rodada 5] falha do desfazer NUNCA é silenciosa: frase em
@@ -80,6 +105,7 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
       // para uma segunda tentativa (a nota segue excluída no banco, e é isso
       // que a lista acima mostra).
       limparTimer();
+      limpar(); // a notícia velha ("Excluída.") sai da região viva.
       setErroDesfazer("Não foi possível desfazer — a nota continua excluída.");
     },
   );
@@ -89,27 +115,41 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
     // que vem logo em seguida. Alvo: a nota seguinte; se era a última, a
     // textarea da nota nova (`alvoAposExclusaoDeNota`, função pura testada).
     const alvo = alvoAposExclusaoDeNota(indice, notas.length);
-    if (alvo.tipo === "nota") focar(botoesExcluirRef.current.get(alvo.indice));
-    else focar(textareaRef.current);
-    // (2) só então a janela de desfazer.
+    const alvoElemento =
+      alvo.tipo === "nota" ? botoesExcluirRef.current.get(alvo.indice) : textareaRef.current;
     limparTimer();
     setErroDesfazer(undefined);
+    concluirEscrita("nota_excluir", alvoElemento, textareaRef.current, (t) =>
+      // Persistente: o texto tem de durar a janela inteira de 10 s, junto do
+      // botão "Desfazer" que ele explica.
+      mostrar(t, { persistente: true }),
+    );
+    // (2) só então a janela de desfazer.
     setExcluida({ texto: nota.texto, autor: nota.autor ?? null });
     timerRef.current = window.setTimeout(() => {
       setExcluida(null);
+      limpar();
       // Se o foco estava no "Desfazer" que acabou de sumir, devolve à textarea.
       if (
         typeof document !== "undefined" &&
         botaoDesfazerRef.current !== null &&
         document.activeElement === botaoDesfazerRef.current
       ) {
-        focar(textareaRef.current);
+        textareaRef.current?.focus();
       }
     }, JANELA_DESFAZER_MS);
   }
 
   function desfazerExclusao(): void {
-    if (!excluida || desfazendo) return;
+    const decisao = decidirEscrita({
+      pendente: desfazendo || desfazerEmVoo(),
+      valido: excluida !== null,
+    });
+    if (decisao !== "gravar") {
+      recusarEscrita("nota_desfazer", decisao, sinais);
+      return;
+    }
+    if (!excluida) return; // defensivo: `valido` acima já garante.
     const form = new FormData();
     form.set("task_id", taskId);
     form.set("texto", excluida.texto);
@@ -128,27 +168,25 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
         aria-live="polite"
         aria-atomic="true"
         className={
-          excluida ? "text-xs font-medium text-state-done" : "m-0 min-h-0 text-xs text-state-done"
+          mensagem || excluida
+            ? "text-xs font-medium text-state-done"
+            : "m-0 min-h-0 text-xs text-state-done"
         }
       >
+        {mensagem ? `${mensagem} ` : ""}
         {excluida ? (
-          <>
-            {/* [MÉDIO #1, rodada 5] desfazer que falhou: a notícia velha sai
-                da região viva; ficam o botão (para tentar de novo) e o alerta. */}
-            {erroDesfazer ? "" : "Excluída. "}
-            <button
-              ref={botaoDesfazerRef}
-              type="button"
-              onClick={desfazerExclusao}
-              aria-busy={desfazendo ? true : undefined}
-              aria-disabled={desfazendo ? true : undefined}
-              className={`underline underline-offset-2 hover:text-gold-300 ${
-                desfazendo ? "opacity-50" : ""
-              }`}
-            >
-              Desfazer
-            </button>
-          </>
+          <button
+            ref={botaoDesfazerRef}
+            type="button"
+            onClick={desfazerExclusao}
+            aria-busy={desfazendo ? true : undefined}
+            aria-disabled={desfazendo ? true : undefined}
+            className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-2 underline underline-offset-2 hover:text-gold-300 ${
+              desfazendo ? "opacity-50" : ""
+            }`}
+          >
+            Desfazer
+          </button>
         ) : (
           ""
         )}
@@ -168,6 +206,7 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
                 if (el) botoesExcluirRef.current.set(indice, el);
                 else botoesExcluirRef.current.delete(indice);
               }}
+              avisar={(t) => mostrar(t)}
               aoExcluir={aoExcluirComSucesso}
             />
           ))}
@@ -186,18 +225,24 @@ function FormularioNovaNota({
 }): JSX.Element {
   const [texto, setTexto] = useState("");
   const [autor, setAutor] = useState("");
-  const { estado, pendente, disparar } = useAcaoTarefa(notaAddAction, () => {
+  const [aviso, setAviso] = useState<string | undefined>(undefined);
+  // [MÉDIO #2, rodada 6] as 8 regiões vivas da página não incluíam ESTA — a
+  // ação primária da tela salvava em silêncio para quem não vê a lista mudar.
+  const { mensagem, mostrar } = useMensagemSucesso();
+  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(notaAddAction, () => {
     setTexto("");
     // [BAIXO #6, rodada 5] salvou: o rascunho deixou de existir.
     limparRascunhoNota(taskId);
+    // [ALTO #1, rodada 6] o campo que ficou vazio é para onde o trabalho
+    // continua — e é o foco que o `disabled` levava para o `<body>`.
+    concluirEscrita("nota_criar", textareaRef.current, null, (t) => mostrar(t));
   });
 
   /**
    * [BAIXO #6, rodada 5] o rascunho volta ao voltar. Restaurado no EFEITO (não
    * no `useState` inicial) de propósito: `sessionStorage` não existe no
    * servidor, e ler no render faria o HTML do servidor divergir do primeiro
-   * render do cliente (hidratação quebrada). Nada de `beforeunload` — decisão
-   * do operador.
+   * render do cliente (hidratação quebrada).
    */
   useEffect(() => {
     const rascunho = lerRascunhoNota(taskId);
@@ -206,18 +251,29 @@ function FormularioNovaNota({
 
   function aoDigitar(valor: string): void {
     setTexto(valor);
+    setAviso(undefined);
     gravarRascunhoNota(taskId, valor);
   }
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    if (pendente) return; // [MÉDIO #2, rodada 5] duplo envio recusado sem `disabled`.
+    const decisao = decidirEscrita({
+      pendente: pendente || emVooAgora(),
+      valido: texto.trim().length > 0,
+    });
+    if (decisao !== "gravar") {
+      recusarEscrita("nota_criar", decisao, { anunciar: (t) => mostrar(t), alertar: setAviso });
+      return;
+    }
+    setAviso(undefined);
     const form = new FormData();
     form.set("task_id", taskId);
     form.set("texto", texto);
     form.set("autor", autor);
     disparar(form);
   }
+
+  const vazia = texto.trim().length === 0;
 
   return (
     <form onSubmit={aoEnviar} className="space-y-2">
@@ -237,23 +293,26 @@ function FormularioNovaNota({
           value={autor}
           onChange={(e) => setAutor(e.target.value)}
           placeholder="autor (opcional)"
-          className="w-40 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+          aria-label="Autor da nota (opcional)"
+          className="min-h-[44px] w-40 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         />
         <button
           type="submit"
-          // `disabled` SÓ pela validade (nota vazia) — nunca pelo `pendente`
-          // (MÉDIO #2, rodada 5: era ele que mandava o foco para o `<body>`).
-          disabled={texto.trim().length === 0}
+          // [ALTO #1, rodada 6] SEM `disabled` — nem por validade. Era ele que
+          // tirava o foco do botão no instante do sucesso (o campo esvazia →
+          // o botão vira `disabled` → o navegador desfoca → `<body>`). A
+          // recusa mora em `aoEnviar`, e explica.
           aria-busy={pendente ? true : undefined}
-          aria-disabled={pendente || texto.trim().length === 0 ? true : undefined}
-          className={`inline-flex min-h-[40px] items-center rounded-lg bg-gradient-to-b from-gold-400 to-gold-600 px-4 text-sm font-semibold text-navy-950 disabled:opacity-50 ${
-            pendente ? "opacity-50" : ""
+          aria-disabled={pendente || vazia ? true : undefined}
+          className={`inline-flex min-h-[44px] items-center rounded-lg bg-gradient-to-b from-gold-400 to-gold-600 px-4 text-sm font-semibold text-navy-950 ${
+            pendente || vazia ? "opacity-50" : ""
           }`}
         >
           Salvar nota
         </button>
       </div>
-      <CampoErro mensagem={estado.erro} />
+      <CampoErro mensagem={estado.erro ?? aviso} />
+      <MensagemSucesso mensagem={mensagem} />
     </form>
   );
 }
@@ -263,21 +322,28 @@ function NotaLinha({
   taskId,
   indice,
   refDoBotao,
+  avisar,
   aoExcluir,
 }: {
   nota: TaskNote;
   taskId: string;
   indice: number;
   refDoBotao: (el: HTMLButtonElement | null) => void;
+  /** A região viva do PAINEL — a linha não tem uma (ela some no sucesso). */
+  avisar: (texto: string) => void;
   aoExcluir: (nota: TaskNote, indice: number) => void;
 }): JSX.Element {
-  const { estado, pendente, disparar } = useAcaoTarefa(notaDelAction, () =>
+  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(notaDelAction, () =>
     aoExcluir(nota, indice),
   );
   const [confirmando, setConfirmando] = useState(false);
 
   function excluir(): void {
-    if (pendente) return; // [MÉDIO #2, rodada 5]
+    const decisao = decidirEscrita({ pendente: pendente || emVooAgora() });
+    if (decisao !== "gravar") {
+      recusarEscrita("nota_excluir", decisao, { anunciar: avisar, alertar: avisar });
+      return;
+    }
     if (!confirmando) {
       setConfirmando(true);
       window.setTimeout(() => setConfirmando(false), 3000);
@@ -300,7 +366,7 @@ function NotaLinha({
           onClick={excluir}
           aria-busy={pendente ? true : undefined}
           aria-disabled={pendente ? true : undefined}
-          className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold ${
+          className={`inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-md px-2 text-xs font-semibold ${
             pendente ? "opacity-50" : ""
           } ${
             confirmando

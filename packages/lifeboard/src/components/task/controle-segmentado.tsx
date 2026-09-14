@@ -109,13 +109,18 @@ export function ControleSegmentado<T extends string | number>({
   }
 
   /**
-   * [MÉDIO #2, rodada 5] O commit é recusado enquanto a gravação anterior não
-   * volta — a mesma proteção que o `disabled` dava, só que sem tirar o foco
-   * do botão que o operador acabou de apertar. (`useAcaoTarefa` tem a mesma
-   * trava por dentro; esta aqui evita até a chamada.)
+   * [MÉDIO #2, rodada 5 → BAIXO #4, rodada 6] O clique SEMPRE chega ao
+   * `aoMudar`. Até a rodada 5 este componente engolia o clique quando
+   * `desabilitado` (gravação em curso) — a proteção funcionava, mas era
+   * exatamente o "descartado em silêncio" que o crítico mediu na rodada 6: o
+   * operador clicava, nada acontecia e nada explicava.
+   *
+   * Quem recusa agora é o handler de quem usa (`decidirEscrita`), que recusa
+   * E FALA na região viva ("Aguarde: a gravação anterior ainda está em
+   * andamento."). `desabilitado` continua valendo para `aria-busy`/
+   * `aria-disabled`/opacidade — o leitor de tela e o olho seguem sabendo.
    */
   function aoClicar(valor: T): void {
-    if (desabilitado) return;
     aoMudar(valor);
   }
 
@@ -163,7 +168,10 @@ export function ControleSegmentado<T extends string | number>({
             aria-disabled={desabilitado ? true : undefined}
             onClick={() => aoClicar(op.valor)}
             onKeyDown={(e) => aoTeclar(e, indice)}
-            className={`min-h-[36px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra ${
+            // [BAIXO #6, rodada 6] 44 px de altura mínima — o alvo de toque
+            // que a régua de UI/UX pede a 390 px de largura (medido antes:
+            // 36 px nos segmentados, 24 no "excluir", 20 nos links).
+            className={`min-h-[44px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra ${
               desabilitado ? "opacity-50" : ""
             } ${
               selecionado

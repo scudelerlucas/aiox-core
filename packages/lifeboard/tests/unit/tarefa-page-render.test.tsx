@@ -86,8 +86,12 @@ describe("PaginaTarefa (fixture)", () => {
    * texto entra por troca de conteúdo. Este teste conta as regiões no HTML
    * inicial e exige que todas estejam vazias.
    *
+   * [MÉDIO #2, rodada 6] eram 8 e nenhuma pertencia aos DOIS formulários de
+   * criação — salvar nota (a ação primária da página!) e adicionar subtarefa
+   * não anunciavam nada. Agora são 10: cada formulário da página tem a sua.
+   *
    * Reverter para ver falhar: em `src/components/task/mensagem-sucesso.tsx`,
-   * voltar o `if (!mensagem) return null;` — a contagem cai de 8 para 3.
+   * voltar o `if (!mensagem) return null;` — a contagem cai de 10 para 3.
    */
   it("PRONTO QUANDO: as regiões vivas (role=status) já nascem no DOM, todas vazias", async () => {
     const elemento = await PaginaTarefa({ params: Promise.resolve({ id: "task-build" }) });
@@ -95,11 +99,12 @@ describe("PaginaTarefa (fixture)", () => {
 
     const total = html.match(/role="status"/g)?.length ?? 0;
     const vazias = html.match(/role="status"[^>]*><\/p>/g)?.length ?? 0;
-    // 5 formulários (duração, mãe, meta, status, átomos) + a região "Relação
-    // criada." do formulário de relação + as duas de "Excluída." (notas e
-    // relações). A régua do crítico é ≥ 5 — a página entrega 8.
+    // 7 formulários (nota nova, subtarefa nova, duração, mãe, meta, status,
+    // átomos) + a região "Relação criada." do formulário de relação + as duas
+    // de "Excluída." (notas e relações). A régua do crítico é ≥ 5 — a página
+    // entrega 10.
     expect(total).toBeGreaterThanOrEqual(5);
-    expect(total).toBe(8);
+    expect(total).toBe(10);
     expect(vazias).toBe(total); // nenhuma nasce com texto
     expect(html).toContain('aria-atomic="true"');
   });

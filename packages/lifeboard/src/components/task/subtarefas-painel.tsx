@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import { subtarefaAddAction } from "@/app/tarefa/actions";
 import { CampoErro } from "@/components/task/campo-erro";
+import { concluirEscrita, decidirEscrita, recusarEscrita } from "@/components/task/escrita";
+import { MensagemSucesso, useMensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { useAcaoTarefa } from "@/components/task/usar-acao-tarefa";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { Task } from "@/types/canonical";
@@ -26,10 +28,12 @@ export function SubtarefasPainel({ parentId, filhas }: SubtarefasPainelProps): J
               key={f.id}
               className="flex items-center justify-between gap-2 rounded-lg border border-navy-700 bg-navy-850 p-3"
             >
+              {/* [BAIXO #6, rodada 6] alvo de toque: o link ocupa a altura
+                  inteira da linha (≥ 44 px), não só a altura do texto. */}
               <Link
                 href={`/tarefa/${f.id}`}
                 prefetch={false}
-                className="flex-1 text-sm font-medium text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
+                className="inline-flex min-h-[44px] flex-1 items-center text-sm font-medium text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
               >
                 {f.title}
               </Link>
@@ -49,20 +53,43 @@ export function SubtarefasPainel({ parentId, filhas }: SubtarefasPainelProps): J
 function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Element {
   const [title, setTitle] = useState("");
   const [estimativa, setEstimativa] = useState("");
-  const { estado, pendente, disparar } = useAcaoTarefa(subtarefaAddAction, () => {
+  const [aviso, setAviso] = useState<string | undefined>(undefined);
+  const tituloRef = useRef<HTMLInputElement | null>(null);
+  // [MÉDIO #2, rodada 6] "Subtarefa criada." — este formulário não tinha
+  // nenhuma região viva; para quem não enxerga a lista crescer, adicionar uma
+  // subtarefa era mudo.
+  const { mensagem, mostrar } = useMensagemSucesso();
+  const { estado, pendente, disparar, emVooAgora } = useAcaoTarefa(subtarefaAddAction, () => {
     setTitle("");
     setEstimativa("");
+    // [ALTO #1, rodada 6] o campo que ficou vazio recebe o foco — antes, o
+    // botão virava `disabled` (título vazio) no instante do sucesso e o
+    // navegador jogava o foco no `<body>`.
+    concluirEscrita("subtarefa_criar", tituloRef.current, null, (t) => mostrar(t));
   });
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    if (pendente) return; // [MÉDIO #2, rodada 5] duplo envio recusado sem `disabled`.
+    const decisao = decidirEscrita({
+      pendente: pendente || emVooAgora(),
+      valido: title.trim().length > 0,
+    });
+    if (decisao !== "gravar") {
+      recusarEscrita("subtarefa_criar", decisao, {
+        anunciar: (t) => mostrar(t),
+        alertar: setAviso,
+      });
+      return;
+    }
+    setAviso(undefined);
     const form = new FormData();
     form.set("parent_id", parentId);
     form.set("title", title);
     form.set("estimativa_dias", estimativa);
     disparar(form);
   }
+
+  const semTitulo = title.trim().length === 0;
 
   return (
     // [ALTO #4, crítico 13/09] mesmo ajuste de duracao-form.tsx — o campo de
@@ -71,10 +98,14 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
       <label className="flex flex-1 min-w-[180px] flex-col gap-1 text-xs font-semibold text-bone-300">
         Título da subtarefa
         <input
+          ref={tituloRef}
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            setAviso(undefined);
+          }}
           placeholder="ex.: Escrever os testes de borda"
-          className="rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+          className="min-h-[44px] rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         />
       </label>
       <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
@@ -86,23 +117,23 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           value={estimativa}
           onChange={(e) => setEstimativa(e.target.value)}
           placeholder="opcional"
-          className="w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+          className="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         />
       </label>
       <button
         type="submit"
-        // `disabled` SÓ pela regra de validade (título vazio) — nunca pelo
-        // `pendente`, que é o que tirava o foco do botão (MÉDIO #2, rodada 5).
-        disabled={title.trim().length === 0}
+        // [ALTO #1, rodada 6] SEM `disabled` — nem por validade (ver
+        // `notas-painel.tsx`). A recusa mora em `aoEnviar` e diz o motivo.
         aria-busy={pendente ? true : undefined}
-        aria-disabled={pendente || title.trim().length === 0 ? true : undefined}
-        className={`inline-flex min-h-[40px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 disabled:opacity-50 ${
-          pendente ? "opacity-50" : ""
+        aria-disabled={pendente || semTitulo ? true : undefined}
+        className={`inline-flex min-h-[44px] items-center rounded-lg border border-navy-700 bg-navy-850 px-3 text-sm font-semibold text-bone-100 hover:border-gold-600 ${
+          pendente || semTitulo ? "opacity-50" : ""
         }`}
       >
         Adicionar subtarefa
       </button>
-      <CampoErro mensagem={estado.erro} />
+      <CampoErro mensagem={estado.erro ?? aviso} />
+      <MensagemSucesso mensagem={mensagem} />
     </form>
   );
 }

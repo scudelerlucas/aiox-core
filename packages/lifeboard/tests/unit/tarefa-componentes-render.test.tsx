@@ -13,8 +13,12 @@ import { describe, expect, it, vi } from "vitest";
  *  - relação nasce com destino VAZIO e botão desabilitado (rodada 4: um
  *    clique cego criava aresta contra a 1ª tarefa da lista);
  *  - toda região `role="status"` já está no DOM, VAZIA (rodada 5, MÉDIO #3);
- *  - nenhum controle usa `disabled` durante a gravação (rodada 5, MÉDIO #2 —
- *    era o que jogava o foco no `<body>`), e sim `aria-busy`/`aria-disabled`.
+ *  - NENHUM controle usa o atributo `disabled` — nem durante a gravação
+ *    (rodada 5, MÉDIO #2) nem por validade (rodada 6, ALTO #1: o botão que
+ *    vira `disabled` no instante do sucesso, quando o campo esvazia, é
+ *    desfocado pelo navegador e o foco cai no `<body>` — era assim que as 3
+ *    CRIAÇÕES falhavam). O estado é dito por `aria-busy`/`aria-disabled`, e a
+ *    recusa mora no handler (`decidirEscrita`), com frase em português.
  *
  * Ambiente: `renderToStaticMarkup`, sem DOM (o repo não tem jsdom nem
  * `@testing-library`, e `npm install` está proibido — mesma nota de
@@ -48,6 +52,7 @@ const { MetaForm } = await import("@/components/task/meta-form");
 const { NotasPainel } = await import("@/components/task/notas-painel");
 const { RelacoesPainel } = await import("@/components/task/relacoes-painel");
 const { StatusForm } = await import("@/components/task/status-form");
+const { SubtarefasPainel } = await import("@/components/task/subtarefas-painel");
 
 const HERANCA = {
   esforco: 2,
@@ -79,9 +84,11 @@ describe("AtomosForm — nasce sem seleção (regressão da rodada 4)", () => {
     expect(html.match(/role="radio"/g)?.length).toBe(11);
     expect(html).not.toContain('aria-checked="true"');
     expect(html).toContain("Escolha os três para calcular o score.");
-    // O botão "Salvar átomos" é o único `disabled` da árvore — e por VALIDADE,
-    // não por gravação em curso.
-    expect(html.match(/disabled=""/g)?.length).toBe(1);
+    // [ALTO #1, rodada 6] "Salvar átomos" era o último `disabled` da árvore.
+    // Agora ele diz o estado por `aria-disabled` (leitor de tela sabe; o
+    // gerenciador de foco não se mete) e recusa no handler, explicando.
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain('aria-disabled="true"');
     // "Limpar átomos" só existe quando há átomos salvos.
     expect(html).not.toContain("Limpar átomos");
   });
@@ -151,7 +158,10 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
     // A opção SELECIONADA é a vazia — nenhuma tarefa real nasce escolhida.
     expect(html).toContain('<option value="" selected="">Escolha a tarefa…</option>');
     expect(html.match(/selected=""/g)?.length).toBe(1);
-    expect(html.match(/disabled=""/g)?.length).toBe(1); // só "Adicionar relação"
+    // [ALTO #1, rodada 6] sem `disabled` — a guarda contra a aresta cega
+    // mora em `aoEnviar` (e agora diz o motivo em português).
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain('aria-disabled="true"');
     expect(html).toContain("Adicionar relação");
     // Sem relação criada ainda: nenhum "Desfazer" na tela.
     expect(html).not.toContain("Desfazer");
@@ -193,7 +203,7 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
       />,
     );
     expect(html).toContain("excluir");
-    expect(html.match(/disabled=""/g)?.length).toBe(1); // segue sendo só "Adicionar relação"
+    expect(html).not.toContain('disabled=""');
   });
 });
 
@@ -216,12 +226,18 @@ describe("MensagemSucesso — região viva PERSISTENTE (achado MÉDIO #3, rodada
   });
 });
 
+/**
+ * [MÉDIO #2, rodada 6] `SubtarefasPainel` entrou nesta lista agora: ele era um
+ * dos dois formulários de criação sem NENHUMA região viva — adicionar uma
+ * subtarefa era mudo para quem não vê a lista crescer.
+ */
 describe("cada formulário traz UMA região viva, já no DOM e vazia (MÉDIO #3)", () => {
   const casos: readonly [string, JSX.Element][] = [
     ["DuracaoForm", <DuracaoForm key="d" taskId="t1" estimativaDias={null} />],
     ["MaeForm", <MaeForm key="m" taskId="t1" parentIdAtual={null} opcoes={[]} />],
     ["MetaForm", <MetaForm key="g" taskId="t1" isGoal={false} />],
     ["StatusForm", <StatusForm key="s" taskId="t1" statusAtual="open" />],
+    ["SubtarefasPainel", <SubtarefasPainel key="sub" parentId="t1" filhas={[]} />],
     [
       "AtomosForm",
       <AtomosForm
@@ -283,10 +299,17 @@ describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2
     expect(html).not.toContain('disabled=""');
   });
 
-  it("NotasPainel: 'Salvar nota' nasce desabilitado por VALIDADE (nota vazia), e a região viva já existe", () => {
+  it("PRONTO QUANDO: NotasPainel não tem NENHUM `disabled` — 'Salvar nota' avisa por aria-disabled", () => {
     const html = renderToStaticMarkup(<NotasPainel taskId="t1" notas={[]} />);
-    expect(html.match(/disabled=""/g)?.length).toBe(1);
-    expect(regioesStatus(html)).toEqual({ total: 1, vazias: 1 });
+    // [ALTO #1, rodada 6] era `disabled={texto.trim().length === 0}`: no
+    // instante do sucesso o `aoSucesso` esvazia a textarea, o botão vira
+    // `disabled` e o navegador manda o foco para o `<body>` (medido em 5 de 5
+    // criações, a 1280 e a 390).
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain('aria-disabled="true"');
+    // Duas regiões vivas: a do formulário ("Nota salva.", achado MÉDIO #2 da
+    // rodada 6) e a do painel ("Excluída. Desfazer").
+    expect(regioesStatus(html)).toEqual({ total: 2, vazias: 2 });
     expect(html).toContain("Nova nota");
   });
 });

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
 import type { EstadoAcaoTarefa } from "@/app/tarefa/actions";
+import { useAvisoDeSaida } from "@/components/task/usar-aviso-de-saida";
 
 /**
  * OS-LIFEBOARD · P6 — equivalente a `useFormState`/`useActionState` para esta
@@ -35,6 +36,14 @@ export interface AcaoTarefaControlada {
   estado: EstadoAcaoTarefa;
   pendente: boolean;
   disparar: (form: FormData) => void;
+  /**
+   * [BAIXO #4, rodada 6] A verdade sobre "tem gravação em voo AGORA" — o ref,
+   * não o estado. `pendente` (do `useTransition`) só vira `true` no render
+   * SEGUINTE: dois disparos no MESMO tick veriam `pendente === false` os
+   * dois, e o segundo seria engolido lá dentro, em silêncio. Os handlers
+   * perguntam `pendente || emVooAgora()` para poder DIZER que recusaram.
+   */
+  emVooAgora: () => boolean;
 }
 
 /**
@@ -121,5 +130,11 @@ export function useAcaoTarefa(
     });
   }
 
-  return { estado, pendente, disparar };
+  // [BAIXO #7, rodada 6] enquanto esta escrita não volta, uma navegação DURA
+  // (F5, URL digitada, fechar a aba) leva a gravação embora — o navegador
+  // pergunta antes. Vive aqui, e não em cada formulário, porque TODA escrita
+  // da página passa por este hook: nenhuma operação nova pode esquecer.
+  useAvisoDeSaida(pendente);
+
+  return { estado, pendente, disparar, emVooAgora: () => emVooRef.current };
 }
