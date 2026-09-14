@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type MutableRefObject } from "react";
 
 import { escreverTarefaAction } from "@/app/tarefa/actions";
 import type {
@@ -112,6 +112,21 @@ export interface ConfigDaPorta {
    * `estado.erro` cru — é o caso do "Desfazer" que falhou.
    */
   textoDeFalha?: (estado: EstadoAcaoTarefa) => string;
+  /**
+   * [P2 do Codex, rodada 10] TRAVA DE VOO COMPARTILHADA entre portas irmãs.
+   *
+   * Duas portas sobre o MESMO dado (salvar átomos × limpar átomos) tinham cada
+   * uma o seu `emVooRef`. Começada a gravação por uma, a outra só ficava
+   * `aria-disabled` no visual: a porta dela continuava se achando ociosa e
+   * despachava uma escrita conflitante. Com a latência de sempre, clicar os
+   * dois botões em sequência fazia o valor final no banco depender da ordem
+   * das respostas, e podia deixar o estado confirmado local inconsistente.
+   *
+   * Quando as portas irmãs recebem o MESMO ref, a trava vale para as duas — e
+   * é um ref, não estado, porque a decisão acontece no clique, antes de
+   * qualquer re-renderização. Sem isto, cada porta usa a sua.
+   */
+  travaDeVoo?: MutableRefObject<boolean>;
 }
 
 export interface PortaDeEscrita {
@@ -146,7 +161,10 @@ export function usarPortaDeEscrita(config: ConfigDaPorta): PortaDeEscrita {
    * SEGUINTE: dois cliques no MESMO tick veriam `false` os dois, e o segundo
    * seria engolido em silêncio.
    */
-  const emVooRef = useRef(false);
+  // A trava PRÓPRIA existe sempre (a ordem dos hooks não pode variar); quando
+  // a config traz uma compartilhada, é ela que vale — ver `travaDeVoo`.
+  const emVooProprioRef = useRef(false);
+  const emVooRef = config.travaDeVoo ?? emVooProprioRef;
   // A config muda a cada render (closures novas); o despacho lê a mais nova.
   const configRef = useRef(config);
   configRef.current = config;

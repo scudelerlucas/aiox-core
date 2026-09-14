@@ -552,8 +552,15 @@ describe("MÉDIO 5 (rodada 8) — a consequência do cancelamento é ANUNCIADA",
     const html = renderToStaticMarkup(
       <CancelarBotao id="i-1" emExecucao confirmando aoMudarConfirmando={() => {}} />,
     );
-    expect(html).toContain('aria-describedby="cancelar-consequencia-i-1"');
-    expect(html).toContain('id="cancelar-consequencia-i-1"');
+    // [Minor do CodeRabbit, rodada 10] o id ganhou sufixo por instância
+    // (`useId`), porque `FilaTabela` monta este componente DUAS vezes para o
+    // mesmo item — tabela do desktop e cartão do celular — e os dois nós
+    // dividiam o mesmo id. Em vez do literal, o teste passa a provar o que
+    // realmente importa e o literal nunca provou: que o `aria-describedby` do
+    // botão aponta para o id que EXISTE nesta árvore, com o prefixo estável.
+    const idDescricao = /id="(cancelar-consequencia-i-1-[^"]+)"/.exec(html)?.[1];
+    expect(idDescricao, "a região de descrição precisa existir").toBeDefined();
+    expect(html).toContain(`aria-describedby="${idDescricao}"`);
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain("A sessão que está rodando vai ser interrompida");
@@ -561,10 +568,28 @@ describe("MÉDIO 5 (rodada 8) — a consequência do cancelamento é ANUNCIADA",
 
   it("a região existe ANTES do texto (vazia e `sr-only`) — senão não é anunciada", () => {
     const html = renderToStaticMarkup(<CancelarBotao id="i-1" aoMudarConfirmando={() => {}} />);
-    expect(html).toContain('id="cancelar-consequencia-i-1"');
+    expect(html).toMatch(/id="cancelar-consequencia-i-1-[^"]+"/);
     expect(html).toContain("sr-only");
     // sem confirmação armada, o botão não aponta para uma descrição vazia:
     expect(html).not.toContain("aria-describedby");
+  });
+
+  // [Minor do CodeRabbit, rodada 10] a guarda do defeito em si. `FilaTabela`
+  // renderiza a tabela do desktop E os cartões do celular para o MESMO item:
+  // com o id derivado só do `id` do item, os dois nós nasciam iguais e o
+  // `aria-describedby` do celular podia resolver para o nó do desktop.
+  it("duas instâncias do MESMO item não dividem o id da descrição", () => {
+    const html = renderToStaticMarkup(
+      <>
+        <CancelarBotao id="i-1" emExecucao confirmando aoMudarConfirmando={() => {}} />
+        <CancelarBotao id="i-1" emExecucao confirmando aoMudarConfirmando={() => {}} />
+      </>,
+    );
+    const ids = [...html.matchAll(/id="(cancelar-consequencia-i-1-[^"]+)"/g)].map((m) => m[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size, `os dois ids colidiram: ${ids.join(" / ")}`).toBe(2);
+    // e cada botão aponta para o SEU, não para o do vizinho.
+    for (const id of ids) expect(html).toContain(`aria-describedby="${id}"`);
   });
 
   it("o texto muda com o estado do item (em execução × parado na fila)", () => {

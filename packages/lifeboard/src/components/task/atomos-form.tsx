@@ -117,8 +117,17 @@ export function AtomosForm({
    * adivinhar no sucesso qual das duas escritas tinha acontecido; agora a
    * `op` viaja com o pedido e o servidor sabe qual é.
    */
+  /**
+   * [P2 do Codex, rodada 10] UMA trava de voo para as DUAS portas. Salvar e
+   * limpar escrevem o MESMO campo; com uma trava cada, começar a gravação por
+   * uma deixava a outra apenas `aria-disabled` no visual, e a porta dela ainda
+   * despachava. O valor final passava a depender da ordem das respostas.
+   */
+  const travaDeVooDosAtomos = useRef(false);
+
   const portaSalvar = usarPortaDeEscrita({
     op: "atomos_salvar",
+    travaDeVoo: travaDeVooDosAtomos,
     alvo: () => botaoSalvarRef.current,
     aoSucesso: () => {
       confirmadoRef.current = trioRef.current;
@@ -127,6 +136,7 @@ export function AtomosForm({
 
   const portaLimpar = usarPortaDeEscrita({
     op: "atomos_limpar",
+    travaDeVoo: travaDeVooDosAtomos,
     // "Limpar átomos" SOME no sucesso: o foco vai para o 1º botão do grupo
     // Opcionalidade (de onde a declaração recomeça) e, se ele já não estiver
     // lá, para "Salvar átomos" — nunca para o `<body>`.

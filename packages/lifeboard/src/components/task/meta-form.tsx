@@ -39,15 +39,20 @@ export function MetaForm({ taskId, isGoal }: MetaFormProps): JSX.Element {
 
   function alternar(): void {
     const novo = !valor;
-    tentativaRef.current = novo;
     // [MÉDIO #3 + BAIXO #4, rodada 6] a recusa fala, e gravar o valor que já
     // está confirmado não gasta rede. O otimismo (`setValor`) só acontece
     // quando a porta de fato gravou — é o veredito dela que diz isso.
+    // [Major do CodeRabbit, rodada 10] e `tentativaRef` segue a MESMA lei: só
+    // se escreve quando a porta aceita, senão uma recusa passa por cima do
+    // valor em voo e a gravação a caminho anuncia o valor errado.
     const decisao = porta.escrever(
       { task_id: taskId, is_goal: String(novo) },
       { mudou: novo !== confirmadoRef.current },
     );
-    if (decisao === "gravar") setValor(novo);
+    if (decisao === "gravar") {
+      tentativaRef.current = novo;
+      setValor(novo);
+    }
   }
 
   return (

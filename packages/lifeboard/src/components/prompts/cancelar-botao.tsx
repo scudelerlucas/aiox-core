@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 
 import { focar } from "@/components/task/foco";
 import { formatarUsd } from "@/core/prompts/tipos";
@@ -69,7 +69,12 @@ export function CancelarBotao({
 }): JSX.Element | null {
   const relogio = useRef<number | null>(null);
   const botaoRef = useRef<HTMLButtonElement>(null);
-  const descricaoId = `cancelar-consequencia-${id}`;
+  // [Minor do CodeRabbit, rodada 10] `FilaTabela` monta a tabela do desktop E
+  // os cartões do celular para o MESMO item, então este componente nasce duas
+  // vezes com o mesmo `id` — e o `aria-describedby` do botão do celular podia
+  // resolver para o nó do desktop. `useId` dá o sufixo por instância; o prefixo
+  // continua estável para quem procura pelo padrão.
+  const descricaoId = `cancelar-consequencia-${id}-${useId()}`;
 
   useEffect(() => {
     return () => {

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -35,29 +35,29 @@ import {
  */
 
 const DIR_MIGRATIONS = join(__dirname, "..", "..", "supabase", "migrations");
-const ARQUIVOS = [
-  "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
-  "0013_lifeboard_v3_fila_contabilidade.sql",
-  "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
-  "0015_lifeboard_v3_fila_dia_e_dono.sql",
-  "0016_lifeboard_v3_consumo_por_entidade.sql",
-  "0018_lifeboard_v3_caixa_auditavel.sql",
-  "0019_lifeboard_v3_livro_razao.sql",
-] as const;
+
+/**
+ * [rodada 10] As duas listas abaixo eram ESCRITAS À MÃO, e ficaram para trás:
+ * faltavam a 0017, a 0020 e a 0021, e a 0021 derrubou este teste ao declarar
+ * uma função nova. É o mesmo defeito que o CodeRabbit achou na sequência de
+ * implantação do DEPLOY.md — lista humana que envelhece calada.
+ *
+ * Agora saem do DISCO, em ordem. Migration nova entra sozinha; o teste deixa
+ * de ter uma lista para alguém esquecer de atualizar.
+ */
+function migrationsDoDisco(): readonly string[] {
+  return readdirSync(DIR_MIGRATIONS)
+    .filter((f) => /^\d{4}_.*\.sql$/.test(f) && !f.endsWith(".test.sql"))
+    .sort();
+}
+
+/** Onde as funções vivem: todas as migrations, porque `create or replace` anda. */
+const ARQUIVOS = migrationsDoDisco();
 
 /** As migrations da fila — a varredura do `raise` (#3) vale para todas. */
-const MIGRATIONS_DA_FILA = [
-  "0007_lifeboard_v3_fila_prompts.sql",
-  "0009_lifeboard_v3_fila_ajustes.sql",
-  "0011_lifeboard_v3_fila_ajustes_2.sql",
-  "0012_lifeboard_v3_fila_posse_e_tentativas.sql",
-  "0013_lifeboard_v3_fila_contabilidade.sql",
-  "0014_lifeboard_v3_fila_pull_e_mensagens.sql",
-  "0015_lifeboard_v3_fila_dia_e_dono.sql",
-  "0016_lifeboard_v3_consumo_por_entidade.sql",
-  "0018_lifeboard_v3_caixa_auditavel.sql",
-  "0019_lifeboard_v3_livro_razao.sql",
-] as const;
+const MIGRATIONS_DA_FILA = migrationsDoDisco().filter((f) =>
+  /fila|caixa|livro_razao|consumo_por_entidade/.test(f),
+);
 
 /** O teste COMPORTAMENTAL da fila — o que este arquivo NÃO é (ver o bloco D28). */
 const TESTE_SQL = join(__dirname, "..", "..", "supabase", "tests", "fila_prompts.test.sql");
@@ -127,8 +127,14 @@ function raisesComPorcentoS(sql: string): string[] {
 
 describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
   it("as migrations existem e têm conteúdo (se o caminho quebrar, o teste grita)", () => {
+    // [rodada 10] O piso era 1000 caracteres, calibrado para a lista escolhida
+    // a dedo. Lendo o diretório inteiro entram migrations antigas e curtas (a
+    // menor tem 844), e o número virava um obstáculo sem sentido: o que este
+    // teste guarda é o CAMINHO — se `DIR_MIGRATIONS` quebrar, `ler` estoura ou
+    // devolve vazio. O piso passa a dizer isso, e nada além disso.
+    expect(ARQUIVOS.length, "nenhuma migration encontrada no disco").toBeGreaterThan(15);
     for (const arquivo of ARQUIVOS) {
-      expect(ler(arquivo).length).toBeGreaterThan(1000);
+      expect(ler(arquivo).length, arquivo).toBeGreaterThan(100);
     }
   });
 

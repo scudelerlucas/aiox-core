@@ -44,12 +44,19 @@ export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.El
 
   function aoMudar(e: ChangeEvent<HTMLSelectElement>): void {
     const novo = e.target.value;
-    tentativaRef.current = novo;
+    // [Major do CodeRabbit, rodada 10] o ref da TENTATIVA só se escreve depois
+    // que a porta ACEITA. Antes ele era escrito aqui em cima, e uma escolha
+    // recusada passava por cima do valor EM VOO: a gravação a caminho lia este
+    // ref em `texto()` e em `aoSucesso`, anunciava a frase errada e guardava em
+    // `confirmadoRef` um valor que o servidor nunca recebeu. E logo abaixo, no
+    // ramo "aguardar", a leitura devolvia ao `<select>` exatamente a opção
+    // recusada — o oposto do que o comentário ali promete.
     const decisao = porta.escrever(
       { task_id: taskId, parent_id: novo },
       { mudou: novo !== confirmadoRef.current },
     );
     if (decisao === "gravar") {
+      tentativaRef.current = novo;
       setValor(novo);
       return;
     }

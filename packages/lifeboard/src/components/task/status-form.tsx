@@ -57,12 +57,17 @@ export function StatusForm({ taskId, statusAtual }: StatusFormProps): JSX.Elemen
      * idênticos. A recusa aqui é silenciosa de propósito (o operador está
      * vendo o valor que pediu, já marcado na tela).
      */
-    tentativaRef.current = novo;
+    // [Major do CodeRabbit, rodada 10] `tentativaRef` só depois do veredito:
+    // escrito antes, uma recusa sobrescrevia o valor EM VOO e a gravação a
+    // caminho anunciava e confirmava o valor errado.
     const decisao = porta.escrever(
       { task_id: taskId, status: novo },
       { mudou: novo !== confirmadoRef.current },
     );
-    if (decisao === "gravar") setValor(novo);
+    if (decisao === "gravar") {
+      tentativaRef.current = novo;
+      setValor(novo);
+    }
   }
 
   return (

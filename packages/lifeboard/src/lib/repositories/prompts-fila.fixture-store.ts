@@ -623,6 +623,14 @@ export function publicarSessaoFixture(
 ): void {
   const estado = loja();
   const jaPublicada = estado.sessoesPublicadas.get(sessionId);
+  // [Minor do CodeRabbit, rodada 10] A SESSÃO NÃO TROCA DE CONTA. Republicar
+  // numa conta diferente descontava o custo antigo da conta NOVA e deixava o
+  // valor preso na antiga — `publicadasUsd` saía inconsistente, e podia ficar
+  // negativo. É a mesma lei que o D39 do livro-razão aplica no banco: a conta
+  // é fixada no primeiro lançamento da entidade e ninguém remaneja. Hoje só
+  // testes chamam esta função e todos reusam a mesma conta, então o alcance é
+  // o setup de fixture — mas o espelho tem de espelhar.
+  if (jaPublicada !== undefined && jaPublicada.conta !== conta) return;
   estado.sessoesPublicadas.set(sessionId, { conta, custoUsd });
   const base = estado.base.get(conta);
   if (!base) return;

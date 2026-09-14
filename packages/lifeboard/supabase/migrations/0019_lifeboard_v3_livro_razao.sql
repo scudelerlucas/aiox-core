@@ -497,7 +497,22 @@ do $$
 declare
   v_divergentes integer;
   v_amostra     text;
+  v_corrigidos  integer;
 begin
+  -- D48 (rodada 10, P2 do Codex): esta conferência só vale na ABERTURA INICIAL.
+  -- Ela compara a fórmula ANTIGA com o livro, e depois da primeira correção os
+  -- dois divergem POR CONSTRUÇÃO — é o ponto do livro-razão: corrigir um item
+  -- de 120 para 3 mantém 120 no dia antigo e lança -117 hoje, enquanto a
+  -- fórmula velha recalcula 3 no dia antigo. Sem esta guarda, re-aplicar esta
+  -- migration ABORTA num banco que já processou correções, embora o arquivo se
+  -- declare re-aplicável — e re-aplicar é exatamente o que se faz num deploy
+  -- repetido.
+  select count(*) into v_corrigidos
+    from public.painel_caixa_lancamentos where not abertura;
+  if v_corrigidos > 0 then
+    raise notice '0019 §8: livro já em uso (% lançamentos além da abertura) — conferência da abertura pulada, como deve ser.', v_corrigidos;
+    return;
+  end if;
   with velha as (
     select s.conta,
            public.painel_sessao_dia_de_cobranca(

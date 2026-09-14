@@ -2936,3 +2936,70 @@ begin
   raise exception 'FALHA: T55 D45 o custo do operador virou medição: medido_em=% medido_ate=% (esperado os dois nulos)',
     coalesce(v_medido_em::text, 'null'), coalesce(v_medido_ate::text, 'null');
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T56 · D46 — a escolha MANUAL de conta também passa pela trava de medição
+-- O chooser já carregava a recusa por medição velha dentro do `cabe_hoje`
+-- dele; a manual decidia só por espaço livre, e o enfileiramento respondia
+-- `manual_cabe` para uma conta que `fila_prompts_pegar_interno` iria RECUSAR.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_r jsonb;
+  v_recusaria boolean;
+  v_cabe boolean;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  update public.painel_teto_diario set exigir_medicao_recente = true where conta = v_conta;
+
+  v_recusaria := public.painel_fila_recusaria_por_medicao(v_conta);
+  v_r := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T56 D46', 'complexidade', 'baixa', 'conta', v_conta));
+  v_cabe := (v_r->>'cabe_hoje')::boolean;
+
+  -- A conta de prova é limpa acima, então ela não tem medição: a trava MORDE.
+  if v_recusaria and v_cabe is not true then
+    raise exception 'RESULTADO: ok — T56 D46 escolha manual respeita a trava de medição: recusaria=% cabe_hoje=%',
+      v_recusaria, coalesce(v_cabe::text, 'null');
+  end if;
+  raise exception 'FALHA: T56 D46 a manual prometeu o que o pull recusaria: recusaria=% cabe_hoje=%',
+    v_recusaria, coalesce(v_cabe::text, 'null');
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T57 · D47 — o estorno aponta para o lançamento ATIVO, nunca para outro
+-- estorno. Estorno e lançamento novo nascem na MESMA transação, com o mesmo
+-- `now()`; o desempate por uuid é aleatório em relação à ordem de inserção, e
+-- a correção seguinte podia encadear no estorno anterior.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T57-entidade-de-prova';
+  v_maus  integer;
+  v_estornos integer;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  -- Três correções seguidas: duas cadeias de estorno para conferir.
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 120, 'estimativa');
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 80, 'medido', null, null, now());
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 30, 'operador');
+
+  select count(*) filter (where alvo.origem = 'estorno'), count(*)
+    into v_maus, v_estornos
+    from public.painel_caixa_lancamentos e
+    join public.painel_caixa_lancamentos alvo on alvo.id = e.estorna_id
+   where e.entidade_id = v_ent;
+
+  if v_maus = 0 and v_estornos = 2 then
+    raise exception 'RESULTADO: ok — T57 D47 cadeia de auditoria íntegra: % estorno(s), nenhum encadeado em estorno',
+      v_estornos;
+  end if;
+  raise exception 'FALHA: T57 D47 % de % estorno(s) apontam para outro estorno — a cadeia do extrato quebrou',
+    v_maus, v_estornos;
+end $$;

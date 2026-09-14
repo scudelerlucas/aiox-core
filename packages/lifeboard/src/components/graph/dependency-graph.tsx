@@ -825,7 +825,14 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
   const modo: ModoDoCartao = tipografiaDoCartao(zoomAtual).modo;
 
   /** Alvo escolhido pelo operador + se a última tentativa coube (achados #10 e D1/D2). */
-  const [alvoDoEnquadramento, setAlvoDoEnquadramento] = useState<AlvoDoEnquadramento>("critico");
+  // [Minor do CodeRabbit, rodada 10] com o caminho crítico VAZIO, começar em
+  // "critico" fazia `cartoesParaAltura` cair para todos os nós enquanto
+  // `opcoesDoAlvo("critico")` ainda punha o teto de zoom em 1,2 — um grafo
+  // pequeno abria a 1,2 em vez do teto 1 do "tudo". O alvo inicial passa a
+  // sair do que existe.
+  const [alvoDoEnquadramento, setAlvoDoEnquadramento] = useState<AlvoDoEnquadramento>(
+    grafoV3.critico.length > 0 ? "critico" : "tudo",
+  );
   const [cabeInteiro, setCabeInteiro] = useState(true);
   /**
    * P4h (achado BAIXO #6): o último enquadramento APLICADO, guardado só para o

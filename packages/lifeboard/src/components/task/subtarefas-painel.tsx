@@ -102,7 +102,15 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           min={0.25}
           step={0.25}
           value={estimativa}
-          onChange={(e) => setEstimativa(e.target.value)}
+          // [Minor do CodeRabbit, rodada 10] o campo do título já limpava o
+          // erro velho do servidor ao mudar; este não. Quando a recusa vinha
+          // POR CAUSA da duração, o operador corrigia a duração e continuava
+          // lendo a acusação antiga — a mesma contradição que a porta existe
+          // para remover.
+          onChange={(e) => {
+            setEstimativa(e.target.value);
+            porta.aoMudarCampo();
+          }}
           placeholder="opcional"
           className="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         />

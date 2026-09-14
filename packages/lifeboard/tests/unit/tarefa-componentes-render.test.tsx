@@ -401,6 +401,11 @@ describe("MÉDIO #3 — `aria-disabled` só enquanto grava; a exigência vira te
       ],
     ];
     for (const [html, id, frase] of telas) {
+      // [Minor do CodeRabbit, rodada 10] o `?? ""` dos três `MENSAGEM_INVALIDO`
+      // acima tornava a asserção da frase VAZIA: `toContain("")` passa sempre.
+      // Se qualquer entrada virasse `undefined`, este laço parava de conferir
+      // a frase e seguia verde. A frase tem de EXISTIR antes de ser procurada.
+      expect(frase, `${id}: MENSAGEM_INVALIDO ausente`).not.toBe("");
       expect(html, id).not.toContain('aria-disabled="true"');
       expect(html, id).not.toContain('disabled=""');
       expect(html, id).toContain(`aria-describedby="${id}"`);
