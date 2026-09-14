@@ -1057,10 +1057,15 @@ describe("LinhaDoTempoView — rodada 6", () => {
     expect(html).toContain("overflow-y-auto");
     /*
       Rodada 7 (decisão D2): a partir de 768px ele deixa de SOBREPOR e passa a
-      COMPRIMIR — `md:static` (coluna de verdade dentro do `md:flex-row` da
-      tela), 300px de largura (o conteúdo real cabe; 360 era folga) e
-      `md:z-auto`, para nunca mais disputar camada com o cabeçalho sticky
-      (`z-20`), que era o que cortava "13/09/202" a 768px.
+      COMPRIMIR — coluna de verdade dentro do `md:flex-row` da tela. Rodada 9
+      (achado BAIXO A7): este comentário dizia `md:static` e "300px de
+      largura"; o código sempre foi `md:sticky` (a coluna ACOMPANHA a rolagem,
+      grudada abaixo da nav) com `md:w-[240px] lg:w-[300px]` — 240px entre 768
+      e 1023, 300 só a partir de `lg`. É o mesmo defeito que a rodada 7 fechou
+      no componente (comentário que mente sobre o próprio arquivo), reaberto
+      dentro do teste; as asserções abaixo são a régua, e agora o texto
+      concorda com elas. `md:z-auto` continua sendo o que impede a disputa de
+      camada com o cabeçalho sticky (`z-20`), que cortava "13/09/202" a 768px.
     */
     expect(html).toContain("md:sticky");
     expect(html).toContain("md:self-start");

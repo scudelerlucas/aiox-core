@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { clampScroll } from "@/core/timeline/geometria-painel";
 import {
   aoRedimensionar,
+  aplicarTransformDoCabecalho,
   lerSincronizacao,
   rolarESincronizar,
   scrollParaRevelar,
@@ -37,6 +38,16 @@ import {
  * fora do módulo puro, ou se o `ResizeObserver` do painel não chamar a função
  * de re-sincronização. Sem esta camada, a mutação (a) — que é uma edição no
  * COMPONENTE — continuaria invisível para um teste de unidade do módulo.
+ *
+ * RODADA 9 (achado MÉDIO A3): as duas camadas não bastaram. O crítico furou a
+ * 1 chamando o módulo e DESCARTANDO o retorno, e a 2 escrevendo a mesma coisa
+ * sem a string (`el[chave] = 0`, `el.scrollTo(...)`). Mudaram duas coisas:
+ * (i) o falso abaixo passou a ARREDONDAR como o navegador (achado BAIXO A6),
+ * que é o que separa "li de volta" de "acreditei no clamp"; (ii) a camada 2
+ * virou ANÁLISE SINTÁTICA em `linha-do-tempo-guarda-do-painel.test.ts`, com
+ * cada mutante alimentado por extenso à régua. E o que chega ao DOM
+ * (`aplicarTransformDoCabecalho`) saiu do `useEffect` e virou função pura com
+ * o alvo injetado — testada logo abaixo.
  */
 
 /**
@@ -55,7 +66,18 @@ class PainelFalso implements ElementoRolavel {
   }
   set scrollLeft(v: number) {
     const max = Math.max(0, this.scrollWidth - this.clientWidth);
-    this.valor = Number.isFinite(v) ? Math.min(Math.max(v, 0), max) : 0;
+    const dentro = Number.isFinite(v) ? Math.min(Math.max(v, 0), max) : 0;
+    /*
+      Rodada 9 (achado BAIXO A6): o falso SATURAVA como o navegador, mas não
+      ARREDONDAVA — e é o arredondamento que o cabeçalho deste módulo diz
+      proteger ("subpixel"). Medido no Chromium com DPR 1, 2 e 3: `scrollLeft`
+      volta INTEIRO — 100,4 → 100; 250,75 → 251; 999,33 → 999, até 0,5px de
+      divergência entre o destino pedido e o que a tela tem. Sem isto, o
+      mutante "devolve o destino já clampado, sem reler" ficava
+      indistinguível do código bom (o clamp sozinho não muda nada quando o
+      destino já cabe) e derrubava ZERO dos 1027 testes do crítico.
+    */
+    this.valor = Math.round(dentro);
   }
 }
 
@@ -70,6 +92,21 @@ function rolarESincronizarMutante(
 ): { scrollLeftAplicado: number; transformDoCabecalho: number } {
   elemento.scrollLeft = destino;
   return { scrollLeftAplicado: destino, transformDoCabecalho: -destino };
+}
+
+/**
+ * A MUTAÇÃO do crítico que derrubava ZERO testes (rodada 9, achado MÉDIO A3):
+ * clampa certo — e acredita no próprio clamp em vez de ler de volta o que a
+ * tela assumiu. Com um falso que só satura, é idêntica ao código bom; com um
+ * falso que ARREDONDA como o navegador (achado BAIXO A6), ela se separa.
+ */
+function rolarESincronizarClampadoSemReler(
+  elemento: ElementoRolavel,
+  destino: number,
+): { scrollLeftAplicado: number; transformDoCabecalho: number } {
+  const alvo = clampScroll(destino, elemento.scrollWidth, elemento.clientWidth);
+  elemento.scrollLeft = alvo;
+  return { scrollLeftAplicado: alvo, transformDoCabecalho: -alvo };
 }
 
 describe("rolarESincronizar — o cabeçalho segue o que a tela TEM, nunca o que pedimos", () => {
@@ -120,6 +157,74 @@ describe("rolarESincronizar — o cabeçalho segue o que a tela TEM, nunca o que
         clampScroll(destino, 3000, 1024),
       );
     }
+  });
+});
+
+describe("A6/A3 (rodada 9): o falso ARREDONDA, e é isso que pega o mutante do clamp", () => {
+  /** Chromium, DPR 1/2/3: o `scrollLeft` lido de volta é sempre INTEIRO. */
+  it("o painel falso devolve inteiro, como o navegador mede (100,4 / 250,75 / 999,33)", () => {
+    const casos: [number, number][] = [
+      [100.4, 100],
+      [250.75, 251],
+      [999.33, 999],
+    ];
+    for (const [pedido, medido] of casos) {
+      const el = new PainelFalso(4000, 1024);
+      el.scrollLeft = pedido;
+      expect(el.scrollLeft).toBe(medido);
+    }
+  });
+
+  it("MUTAÇÃO 'devolve o destino já clampado, sem reler': diverge do que a tela tem", () => {
+    for (const destino of [100.4, 250.75, 999.33]) {
+      const bom = rolarESincronizar(new PainelFalso(4000, 1024), destino);
+      const elMutante = new PainelFalso(4000, 1024);
+      const mau = rolarESincronizarClampadoSemReler(elMutante, destino);
+      // O bom acredita no que o elemento TEM (inteiro); o mutante, no destino.
+      expect(bom.scrollLeftAplicado).toBe(Math.round(destino));
+      expect(mau.scrollLeftAplicado).toBe(destino);
+      expect(mau.scrollLeftAplicado).not.toBe(bom.scrollLeftAplicado);
+      // E a assinatura do defeito: o transform não é o negativo do scrollLeft real.
+      expect(mau.transformDoCabecalho).not.toBe(-elMutante.scrollLeft);
+      expect(bom.transformDoCabecalho).toBe(-bom.scrollLeftAplicado);
+    }
+  });
+
+  it("o código bom NUNCA diverge do elemento — em nenhum destino fracionário", () => {
+    for (const destino of [0.4, 12.5, 333.33, 1975.6, 2048.9]) {
+      const el = new PainelFalso(4000, 1024);
+      const s = rolarESincronizar(el, destino);
+      expect(s.scrollLeftAplicado).toBe(el.scrollLeft);
+      expect(s.transformDoCabecalho).toBe(-el.scrollLeft);
+    }
+  });
+});
+
+describe("aplicarTransformDoCabecalho — o valor que CHEGA ao DOM (rodada 9, A3)", () => {
+  /**
+   * Enquanto esta escrita vivia dentro de um `useEffect` do componente,
+   * nenhum teste de unidade alcançava o valor aplicado — e o mutante "chama o
+   * módulo e descarta o retorno" saía impune. Aqui o alvo é injetado.
+   */
+  it("escreve `translateX(−scrollLeft REAL)` — nunca o destino pedido", () => {
+    const el = new PainelFalso(4000, 1024);
+    const alvo = { style: { transform: "" } };
+    aplicarTransformDoCabecalho(alvo, rolarESincronizar(el, 250.75));
+    expect(alvo.style.transform).toBe("translateX(-251px)");
+    expect(alvo.style.transform).toBe(`translateX(${-el.scrollLeft}px)`);
+  });
+
+  it("destino impossível: o cabeçalho vai para o MÁXIMO real, não para o destino", () => {
+    const el = new PainelFalso(3000, 1024);
+    const alvo = { style: { transform: "" } };
+    aplicarTransformDoCabecalho(alvo, rolarESincronizar(el, 2305.6));
+    expect(alvo.style.transform).toBe("translateX(-1976px)");
+  });
+
+  it("alvo ainda não montado (`null`): não lança, não escreve", () => {
+    expect(() =>
+      aplicarTransformDoCabecalho(null, lerSincronizacao(new PainelFalso(3000, 1024))),
+    ).not.toThrow();
   });
 });
 

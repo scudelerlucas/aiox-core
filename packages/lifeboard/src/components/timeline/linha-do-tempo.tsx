@@ -10,14 +10,15 @@ import {
   avisoDeItensFora,
   depoisDoFimDesenhado,
   diasDesenhados,
+  faixaSuperiorDaTela,
   fimDesenhadoIso as calcularFimDesenhadoIso,
   gerarEscalaEixo,
   larguraAproximada,
   PADDING_CHIP_PX,
   rotulosNaJanela,
-  rotuloDoPeriodoSuperior,
   tetoMordeu as tetoMordeuAJanela,
 } from "@/core/timeline/eixo-rotulos";
+import { aplicarPlanoDaFolha, planoDaFolhaInferior } from "@/core/timeline/folha-inferior";
 import {
   avisoDeOverflow,
   fatorDeOverflow,
@@ -26,6 +27,7 @@ import {
 } from "@/core/timeline/geometria-painel";
 import {
   aoRedimensionar,
+  aplicarTransformDoCabecalho,
   rolarESincronizar,
   scrollParaRevelar,
 } from "@/core/timeline/sincronizacao-painel";
@@ -333,8 +335,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     transformDoCabecalho: number;
     afordancia: { esquerda: boolean; direita: boolean };
   }): void => {
-    const ticks = headerTicksRef.current;
-    if (ticks) ticks.style.transform = `translateX(${s.transformDoCabecalho}px)`;
+    aplicarTransformDoCabecalho(headerTicksRef.current, s);
     setScrollLeft(s.scrollLeftAplicado);
     setAfordanciaScroll(s.afordancia);
   };
@@ -363,6 +364,15 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * um `<details>` FECHADO por padrão; a partir de 768px ele abre sozinho (o
    * 1º render é sempre fechado, e o efeito abre depois do mount — nunca um
    * `open` decidido no servidor, que daria hidratação divergente).
+   *
+   * Rodada 9 (achado BAIXO A5) — o NÚMERO da rodada 8 estava errado, e o
+   * número certo importa porque é ele que diz se a 1ª linha aparece sem rolar.
+   * A rodada 8 declarou "494 → 293px"; 293px é o topo do CABEÇALHO DA ESCALA,
+   * não o da primeira linha. A primeira LINHA nasce em **393px**:
+   * `topo do h1 = 65` + `details = 225` + `cabeçalho da escala = 293 + 58` +
+   * `grupo ASSUNTOS = 42`. A conclusão continua a mesma (393 < 844: a 1ª linha
+   * aparece sem rolar, a 390×844); o número declarado é que era 3,4× otimista
+   * sobre a economia.
    */
   const [legendaAberta, setLegendaAberta] = useState(false);
   useEffect(() => {
@@ -388,6 +398,14 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * que `Escape`/"fechar" devolvam o foco exatamente de onde ele saiu.
    */
   const botoesLinhaRef = useRef<Map<string, HTMLButtonElement>>(new Map());
+  /**
+   * Rodada 9 (achado ALTO A1): o espaço reservado abaixo da última linha
+   * enquanto a folha inferior está aberta. Altura manipulada direto no DOM
+   * (sem re-render por pixel, mesma disciplina do `transform` do cabeçalho) e
+   * decidida pela função pura — nunca um `pb-` fixo que mentiria sobre a
+   * altura real da folha.
+   */
+  const espacoFolhaRef = useRef<HTMLDivElement | null>(null);
   const registrarBotaoLinha = (id: string, el: HTMLButtonElement | null): void => {
     if (el) botoesLinhaRef.current.set(id, el);
     else botoesLinhaRef.current.delete(id);
@@ -553,12 +571,15 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * de cima agora existe em toda densidade. É a única pista de período que
    * nunca sai da tela por mais que se role.
    */
-  const mesGrudado = rotuloDoPeriodoSuperior(
+  const faixaDeCima = faixaSuperiorDaTela({
+    rotulosSuperiores,
     minIso,
-    pxPorDia > 0 ? scrollLeft / pxPorDia : 0,
-    periodoSuperior,
-  );
-  const larguraMesGrudado = larguraAproximada(mesGrudado);
+    pxPorDia,
+    periodo: periodoSuperior,
+    janela: { scrollLeft, larguraVisivel: larguraPainel },
+  });
+  const mesGrudado = faixaDeCima.chip.label;
+  const larguraMesGrudado = faixaDeCima.chip.largura;
   const alturaHeaderTotal = HEADER_H + HEADER_MES_H;
   /**
    * Rodada 7 (decisão D3): a MESMA lei nos dois lados da janela. A rodada 6
@@ -580,10 +601,20 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     : "w-[140px] shrink-0 sm:w-[240px]";
   const janelaCabecalho = { scrollLeft, larguraVisivel: larguraPainel };
   const rotulosVisiveis = rotulosNaJanela(rotulos, janelaCabecalho);
-  const superioresVisiveis = rotulosNaJanela(rotulosSuperiores, {
-    ...janelaCabecalho,
-    margemEsquerda: larguraMesGrudado,
-  });
+  /**
+   * Rodada 9 (achado MÉDIO A2): a faixa de cima NÃO é mais filtrada pelo
+   * espaço do chip grudado. Era `margemEsquerda: larguraMesGrudado` — e o
+   * efeito medido era que TODO rótulo de mês caindo atrás do chip sumia: 320
+   * de 730 posições de scroll (43,8%) tinham um mês começando dentro da
+   * janela sem nenhum cabeçalho, e em 48 delas o portador de ano mais próximo
+   * declarava ano diferente do real. Caso canônico (1280px, Mês, 400 d,
+   * `scrollLeft` 3333): a régua lia `dez/2026 … 04/01 11/01 18/01 25/01 …
+   * fev/2027`, com janeiro de 2027 inteiro sem cabeçalho. Agora o mês que
+   * entra EMPURRA o chip (`posicaoDoChipGrudado`), como faz a referência —
+   * nenhum rótulo é escondido por causa dele.
+   */
+  const superioresVisiveis = faixaDeCima.rotulos;
+  const chipGrudado = faixaDeCima.chip;
   /**
    * P5g (achado ALTO A3, rodada 6): o teto de dias (`TETO_DIAS_ESCALA`)
    * cortava a janela EM SILÊNCIO. A escala desenhava `min(teto, diff)` dias,
@@ -787,32 +818,49 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   }, [ativaChave, inicioAtiva, fimAtiva, larguraPainel, pxPorDia, totalWidth]);
 
   /**
-   * Rodada 7 (achado MÉDIO #5): abaixo de 768px o painel é uma FOLHA INFERIOR
-   * `fixed` — e o crítico mediu, a 390×844, que tocar a linha mais baixa
-   * visível (y 776–818) abria a folha em 703–844: ela tapava a linha tocada e
-   * mais duas, com o anel de seleção embaixo dela. Ao abrir, a página rola o
-   * suficiente para a linha ativa (e o anel) ficarem ACIMA da folha. Só quando
-   * há sobreposição de verdade — no desktop a folha não existe e nada rola,
-   * então o "scrollY sem pulo" que o crítico confirmou continua valendo lá.
+   * Rodada 7 (achado MÉDIO #5) + rodada 9 (achado ALTO A1): abaixo de 768px o
+   * painel é uma FOLHA INFERIOR `fixed`, e tocar uma linha baixa abria a folha
+   * EM CIMA dela. A rodada 8 pediu a rolagem e parou aí — e `window.scrollBy`
+   * é um NO-OP SILENCIOSO quando a página já está no fim
+   * (`scrollY === scrollHeight − innerHeight`), que é exatamente onde a ÚLTIMA
+   * linha vive. Medido na rota real, fixture de 25 linhas: tapava em 9 de 9
+   * casos (360/390/767 × as 3 últimas linhas), resíduo de 9 a 133px; a 390px a
+   * barra da linha tocada ficava 100% coberta e o rótulo sumia inteiro.
+   *
+   * A correção é dar à página PARA ONDE rolar: enquanto a folha inferior está
+   * aberta, o espaçador abaixo da última linha (`espacoFolhaRef`) recebe a
+   * altura da folha. O plano inteiro (é folha inferior? quanto reservar?
+   * quanto rolar?) vem de `planoDaFolhaInferior` — puro e testado com a
+   * geometria do resultado, não com a chamada de rolagem.
    */
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const id = window.requestAnimationFrame(() => {
       const ancora = ancoraDaLinhaRef.current;
       const botao = ancora ? botoesLinhaRef.current.get(ancora.chave) : null;
-      const folha = document.querySelector<HTMLElement>("[data-lb-detalhe]");
-      if (ativaChave && botao && folha) {
-        const rf = folha.getBoundingClientRect();
-        // Folha inferior = ocupa a largura toda e encosta no fim da viewport.
-        const ehFolhaInferior = rf.left <= 1 && rf.width >= window.innerWidth - 2;
-        if (ehFolhaInferior) {
-          // Só no celular: a linha tocada (e o anel) sobem para cima da folha.
-          const MARGEM_ANEL_PX = 6; // o anel é `ring-1 ring-inset`, mas a borda precisa respirar
-          const excesso = botao.getBoundingClientRect().bottom + MARGEM_ANEL_PX - rf.top;
-          ancoraDaLinhaRef.current = null; // a folha manda; a âncora está consumida
-          if (excesso > 0) window.scrollBy({ top: excesso, behavior: "auto" });
-          return;
-        }
+      const folha = ativaChave
+        ? document.querySelector<HTMLElement>("[data-lb-detalhe]")
+        : null;
+      const rf = folha ? folha.getBoundingClientRect() : null;
+      const plano = planoDaFolhaInferior({
+        folha: rf
+          ? { top: rf.top, left: rf.left, width: rf.width, height: rf.height, bottom: rf.bottom }
+          : null,
+        bottomDoBotao: botao ? botao.getBoundingClientRect().bottom : null,
+        larguraJanela: window.innerWidth,
+      });
+      // A RESERVA entra ANTES da rolagem — é ela que faz o `scrollBy` deixar
+      // de ser no-op na última linha. Folha fechada ou folha-COLUNA (≥768px)
+      // devolvem 0 e a página volta ao tamanho de sempre. Quem ESCREVE é o
+      // módulo puro (`aplicarPlanoDaFolha`), com os elementos injetados — o
+      // componente não escreve geometria no DOM em lugar nenhum.
+      aplicarPlanoDaFolha(plano, {
+        espacador: espacoFolhaRef.current,
+        rolarPagina: (px) => window.scrollBy({ top: px, behavior: "auto" }),
+      });
+      if (plano.ehInferior) {
+        ancoraDaLinhaRef.current = null; // a folha manda; a âncora está consumida
+        return;
       }
       // Coluna (≥768) e fechamento: a linha tocada volta exatamente para onde
       // estava na tela, por mais que a altura da página tenha mudado.
@@ -1204,8 +1252,13 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
               */}
               {(
                 <span
-                  className="lb-tl-mes-grudado absolute left-0 top-0 z-20 flex items-center bg-navy-900 text-[12px] font-semibold text-bone-200"
+                  className="lb-tl-mes-grudado absolute top-0 z-20 flex items-center whitespace-nowrap bg-navy-900 text-[12px] font-semibold text-bone-200"
                   style={{
+                    // Rodada 9 (achado MÉDIO A2): o chip não mora mais em
+                    // `left-0` fixo — ele é EMPURRADO para fora pelo mês que
+                    // entra (valor ≤ 0, vindo da função pura), em vez de apagar
+                    // o rótulo desse mês como fazia a rodada 8.
+                    left: chipGrudado.x,
                     height: HEADER_MES_H,
                     // P5g (achado BAIXO A5, rodada 6): o padding do chip é a
                     // MESMA constante que entra em `larguraAproximada` —
@@ -1227,7 +1280,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-y-0 z-10 w-6 bg-gradient-to-r from-navy-900 to-transparent"
-                  style={{ left: larguraMesGrudado }}
+                  style={{ left: Math.max(0, chipGrudado.x + larguraMesGrudado) }}
                 />
               ) : null}
               {afordanciaScroll.direita ? (
@@ -1427,6 +1480,15 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
         ) : null}
         </div>
       )}
+      {/*
+        Rodada 9 (achado ALTO A1): o espaço que a PÁGINA precisa ter abaixo da
+        última linha enquanto a folha inferior está aberta. Sem ele,
+        `window.scrollBy` não tem para onde rolar na última linha — vira no-op
+        silencioso e a folha fica em cima da barra (medido: 100% de cobertura a
+        390px). Altura 0 em repouso, escrita pelo efeito a partir da altura
+        REAL da folha; some sozinho quando o painel fecha ou vira coluna.
+      */}
+      <div ref={espacoFolhaRef} data-lb-espaco-folha="true" aria-hidden="true" style={{ height: 0 }} />
     </main>
   );
 }

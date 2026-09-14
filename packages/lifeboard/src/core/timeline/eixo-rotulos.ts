@@ -602,8 +602,6 @@ export interface JanelaVisivel {
   scrollLeft: number;
   /** Largura visível do cabeçalho (== a do painel). `0` = ainda não medida. */
   larguraVisivel: number;
-  /** Espaço já ocupado à esquerda pelo chip grudado, que empurra o limite. */
-  margemEsquerda?: number;
 }
 
 /**
@@ -630,8 +628,15 @@ export function cabeInteiroNaJanela(
   // Antes da 1ª medição real do painel (SSR / sem `ResizeObserver`) não há
   // janela para comparar — esconder tudo seria pior que o problema.
   if (!(larguraVisivel > 0)) return true;
-  const margemEsquerda = Math.max(0, janela.margemEsquerda ?? 0);
-  if (rotulo.x < scrollLeft + margemEsquerda) return false;
+  /*
+    Rodada 9 (achado MÉDIO A2): existia aqui um `margemEsquerda` — o espaço do
+    chip grudado — e quem o passava (a faixa de cima) APAGAVA todo mês que
+    caísse atrás do chip. O parâmetro foi REMOVIDO do contrato, não só deixado
+    de usar: enquanto ele existisse, reintroduzir o defeito era uma linha. O
+    chip agora é EMPURRADO (`posicaoDoChipGrudado`) e não come o lugar de
+    ninguém.
+  */
+  if (rotulo.x < scrollLeft) return false;
   return rotulo.x + larguraAproximada(rotulo.label) <= scrollLeft + larguraVisivel;
 }
 
@@ -683,4 +688,172 @@ export function avisoDeItensFora(params: {
 /** O teto de dias mordeu esta janela? (o corte NÃO é do recorte do "auto".) */
 export function tetoMordeu(minIso: string, maxIso: string): boolean {
   return diasDesenhados(minIso, maxIso) >= TETO_DIAS_ESCALA;
+}
+
+/**
+ * Rodada 9 (achado MÉDIO A2): o CHIP GRUDADO deixa de APAGAR o mês que entra
+ * e passa a ser EMPURRADO por ele — como faz a referência.
+ *
+ * O defeito, medido pelo crítico: a faixa de cima era filtrada com
+ * `margemEsquerda = larguraMesGrudado`, então TODO rótulo de mês que caísse
+ * atrás do chip era descartado. Em 320 de 730 posições de scroll (43,8%) havia
+ * um mês começando dentro da janela sem nenhum rótulo na faixa de cima; em 48
+ * posições o portador de ano mais próximo declarava ano diferente do real (82
+ * rótulos). Caso canônico (1280px, zoom Mês, janela de 400 d, `scrollLeft`
+ * 3333): a régua lia `dez/2026 … 04/01 11/01 18/01 25/01 … fev/2027` — janeiro
+ * de 2027 INTEIRO sem cabeçalho.
+ *
+ * A lei nova: nenhum rótulo da faixa de cima é escondido por causa do chip. O
+ * chip é que sai de cena, deslizando para a esquerda, quando o próximo período
+ * chega perto o bastante para encostar nele. `x` é o `left` do chip DENTRO da
+ * janela visível (0 em repouso, negativo enquanto é empurrado); `visivel` é
+ * `false` só quando o rótulo REAL daquele período está exatamente na borda —
+ * aí quem fala é ele, e o chip seria o mesmo nome desenhado duas vezes.
+ */
+export function posicaoDoChipGrudado(params: {
+  /** A faixa de cima INTEIRA (não a filtrada) — o chip precisa saber quem vem a seguir. */
+  rotulosSuperiores: readonly Pick<RotuloEixo, "x">[];
+  /** `scrollLeft` do painel — a borda esquerda da janela. */
+  scrollLeft: number;
+  /** Largura estimada do chip (`larguraAproximada` do rótulo dele). */
+  larguraChip: number;
+}): { x: number } {
+  const borda = Number.isFinite(params.scrollLeft) ? params.scrollLeft : 0;
+  const largura = Number.isFinite(params.larguraChip) ? Math.max(0, params.larguraChip) : 0;
+  let proximo: number | null = null;
+  for (const r of params.rotulosSuperiores) {
+    // Quem empurra é só quem vem DEPOIS da borda: o rótulo que está em cima
+    // dela (ou atrás) fala do mesmo período que o chip, e o chip é quem manda
+    // (é o único que carrega o ano sempre).
+    if (!Number.isFinite(r.x) || r.x <= borda) continue;
+    if (proximo === null || r.x < proximo) proximo = r.x;
+  }
+  if (proximo === null) return { x: 0 };
+  // Encostou: o chip cede o lugar deslizando para fora, nunca apagando o outro.
+  return { x: Math.min(0, proximo - borda - largura) };
+}
+
+/**
+ * Rodada 9 (achado MÉDIO A2, o PRONTO QUANDO da decisão): "toda coluna
+ * visível tem o seu mês na faixa de cima", virado em número.
+ *
+ * Devolve o `x` de cada coluna DESENHADA na faixa de baixo cujo período não
+ * está nomeado em cima — nem por um rótulo desenhado da faixa superior, nem
+ * pelo chip grudado (que fala pelo período da borda esquerda). Pura: é a
+ * mesma conta que a varredura das 730 posições de scroll usa, para o número
+ * da entrega e o número do teste nunca virem de duas réguas diferentes.
+ *
+ * Medido nesta rodada (1280px, zoom Mês, janela de 400 d, 730 posições de
+ * scroll): 716 posições órfãs ANTES (a faixa de cima era filtrada pelo espaço
+ * do chip), 0 DEPOIS.
+ */
+export function colunasSemMes(params: {
+  /** A faixa de cima INTEIRA, como `gerarEscalaEixo` devolveu. */
+  rotulosSuperiores: readonly Pick<RotuloEixo, "x">[];
+  /** O que a faixa de cima de fato desenhou (já filtrado pela janela). */
+  superioresDesenhados: readonly Pick<RotuloEixo, "x">[];
+  /** O que a faixa de BAIXO desenhou — as colunas que o operador vê. */
+  colunasDesenhadas: readonly Pick<RotuloEixo, "x">[];
+  janela: JanelaVisivel;
+}): number[] {
+  const { scrollLeft, larguraVisivel } = params.janela;
+  if (!(larguraVisivel > 0)) return [];
+  const inicios = params.rotulosSuperiores
+    .map((r) => r.x)
+    .filter((x) => Number.isFinite(x))
+    .sort((a, b) => a - b);
+  const desenhados = new Set(params.superioresDesenhados.map((r) => r.x));
+  // O chip fala pelo período que cobre a borda esquerda.
+  const inicioDoChip = inicios.filter((x) => x <= scrollLeft).pop();
+  if (inicioDoChip !== undefined) desenhados.add(inicioDoChip);
+  const orfas: number[] = [];
+  for (const col of params.colunasDesenhadas) {
+    if (col.x < scrollLeft || col.x > scrollLeft + larguraVisivel) continue;
+    const meu = inicios.filter((x) => x <= col.x).pop();
+    if (meu === undefined || !desenhados.has(meu)) orfas.push(col.x);
+  }
+  return orfas;
+}
+
+/** `set/2026` → `["set","2026"]`; qualquer outro formato → `null`. */
+const MES_COM_ANO = /^([^/]{1,4})\/(\d{4})$/;
+
+/** O ano que o rótulo declara, quando ele declara um. */
+function anoDoRotulo(label: string | undefined): string | undefined {
+  if (!label) return undefined;
+  return /\/(\d{4})$/.exec(label)?.[1];
+}
+
+/**
+ * Rodada 9 (achado MÉDIO A2, a metade da BORDA DIREITA): a faixa de cima é
+ * filtrada pela janela como todo mundo — mas um mês que ENTRA pela direita
+ * com menos de uma largura de rótulo sobrando sumia inteiro, e com ele o
+ * cabeçalho das colunas que já estão na tela. Medido: depois de tirar a
+ * margem do chip, sobravam 8 de 730 posições com coluna visível sem mês na
+ * faixa de cima — todas nessa fresta.
+ *
+ * A régua nova, na ordem: cabe inteiro → desenha; não cabe → ENCURTA (o mês
+ * sem o ano) e desenha se o curto couber; o curto também não cabe, ou
+ * encurtar MENTIRIA sobre o ano (o ano deste rótulo é diferente do último ano
+ * declarado na tela), → não desenha. Nunca um rótulo cortado: as duas bordas
+ * continuam com a mesma lei da decisão D3 da rodada 7.
+ */
+export function rotulosSuperioresNaJanela(
+  rotulos: readonly RotuloEixo[],
+  janela: JanelaVisivel & { /** Rótulo do chip grudado — é ele quem ancora o ano na borda esquerda. */ rotuloDaBorda?: string },
+): RotuloEixo[] {
+  const { scrollLeft, larguraVisivel } = janela;
+  if (!(larguraVisivel > 0)) return [...rotulos];
+  const direita = scrollLeft + larguraVisivel;
+  const saida: RotuloEixo[] = [];
+  let ultimoAno = anoDoRotulo(janela.rotuloDaBorda);
+  for (const r of rotulos) {
+    if (r.x < scrollLeft) continue;
+    if (r.x + larguraAproximada(r.label) <= direita) {
+      saida.push(r);
+      ultimoAno = anoDoRotulo(r.label) ?? ultimoAno;
+      continue;
+    }
+    const partes = MES_COM_ANO.exec(r.label);
+    if (!partes) continue;
+    const [, mes, ano] = partes;
+    if (ano !== ultimoAno) continue; // encurtar aqui faria o leitor ler o ano errado
+    if (r.x + larguraAproximada(mes!) > direita) continue;
+    saida.push({ ...r, label: mes! });
+  }
+  return saida;
+}
+
+/**
+ * Rodada 9 (achado MÉDIO A2): TUDO o que a faixa de cima mostra, numa decisão
+ * só — o chip (rótulo, largura e o quanto ele já foi empurrado) e os rótulos
+ * que de fato aparecem. Existe para o componente não ter escolha nenhuma a
+ * fazer aqui: a rodada 8 tinha duas chamadas soltas na VIEW (uma delas com a
+ * margem do chip, que apagava o mês que entrava) e nenhum teste via o que a
+ * VIEW escolhia. Agora a escolha é esta função, e ela é testada.
+ */
+export function faixaSuperiorDaTela(params: {
+  /** A faixa de cima INTEIRA, como `gerarEscalaEixo` devolveu. */
+  rotulosSuperiores: readonly RotuloEixo[];
+  minIso: string;
+  pxPorDia: number;
+  periodo: PeriodoSuperior;
+  janela: JanelaVisivel;
+}): { chip: { label: string; largura: number; x: number }; rotulos: RotuloEixo[] } {
+  const { rotulosSuperiores, minIso, pxPorDia, periodo, janela } = params;
+  const label = rotuloDoPeriodoSuperior(
+    minIso,
+    pxPorDia > 0 ? janela.scrollLeft / pxPorDia : 0,
+    periodo,
+  );
+  const largura = larguraAproximada(label);
+  const { x } = posicaoDoChipGrudado({
+    rotulosSuperiores,
+    scrollLeft: janela.scrollLeft,
+    larguraChip: largura,
+  });
+  return {
+    chip: { label, largura, x },
+    rotulos: rotulosSuperioresNaJanela(rotulosSuperiores, { ...janela, rotuloDaBorda: label }),
+  };
 }

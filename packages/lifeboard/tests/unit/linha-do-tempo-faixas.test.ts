@@ -8,6 +8,7 @@ import {
   gerarEscalaEixo,
   larguraAproximada,
   rotulosNaJanela,
+  rotulosSuperioresNaJanela,
   rotuloDoPeriodoSuperior,
   tetoMordeu,
   TETO_DIAS_ESCALA,
@@ -55,11 +56,17 @@ describe("D3 — ou o rótulo cabe inteiro na janela visível, ou não é desenh
     expect(cabeInteiroNaJanela({ x: ultimoQueCabe + 1, label: l }, janela)).toBe(false);
   });
 
-  it("a borda ESQUERDA continua guardada, e o chip grudado empurra o limite", () => {
+  it("a borda ESQUERDA continua guardada — e o chip não come mais o lugar de ninguém", () => {
     expect(cabeInteiroNaJanela({ x: 999, label: "13/09" }, janela)).toBe(false);
-    const comChip = { ...janela, margemEsquerda: 80 };
-    expect(cabeInteiroNaJanela({ x: 1040, label: "13/09" }, comChip)).toBe(false);
-    expect(cabeInteiroNaJanela({ x: 1080, label: "13/09" }, comChip)).toBe(true);
+    /*
+      Rodada 9 (achado MÉDIO A2): aqui existia um `margemEsquerda` (o espaço do
+      chip grudado) que ESCONDIA todo rótulo caindo atrás dele — 43,8% das
+      posições de scroll ficavam com um mês sem cabeçalho. O parâmetro foi
+      removido do contrato; o rótulo que começa NA borda é desenhado, e quem
+      sai da frente é o chip (`posicaoDoChipGrudado`).
+    */
+    expect(cabeInteiroNaJanela({ x: janela.scrollLeft, label: "13/09" }, janela)).toBe(true);
+    expect(cabeInteiroNaJanela({ x: janela.scrollLeft - 1, label: "13/09" }, janela)).toBe(false);
   });
 
   it("antes da 1ª medição do painel (largura 0) nada é escondido", () => {
@@ -98,9 +105,9 @@ describe("D3 — ou o rótulo cabe inteiro na janela visível, ou não é desenh
           );
           const visiveis = [
             ...rotulosNaJanela(escala.rotulos, janelaCombo),
-            ...rotulosNaJanela(escala.rotulosSuperiores, {
+            ...rotulosSuperioresNaJanela(escala.rotulosSuperiores, {
               ...janelaCombo,
-              margemEsquerda: larguraAproximada(grudado),
+              rotuloDaBorda: grudado,
             }),
           ];
           for (const r of visiveis) {

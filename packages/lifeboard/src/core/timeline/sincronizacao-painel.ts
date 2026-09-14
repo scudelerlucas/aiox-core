@@ -134,3 +134,23 @@ export function scrollParaRevelar(params: {
   if (direita > atual + larguraVisivel) return Math.max(0, direita - larguraVisivel);
   return atual;
 }
+
+/** A interface MÍNIMA do conteúdo do cabeçalho — só o que se escreve nele. */
+export interface AlvoDeTransform {
+  style: { transform: string };
+}
+
+/**
+ * Rodada 9 (achado MÉDIO A3, generalizado): quem escreve o `translateX` do
+ * cabeçalho é este módulo, não o componente. Enquanto a escrita vivia dentro
+ * do `useEffect`, nenhum teste alcançava o valor que ia para o DOM — e o
+ * mutante "chama o módulo e descarta o retorno" saía impune. Aqui o valor
+ * aplicado é o `transformDoCabecalho` LIDO DE VOLTA, e um teste o afirma.
+ */
+export function aplicarTransformDoCabecalho(
+  alvo: AlvoDeTransform | null,
+  sincronizacao: Sincronizacao,
+): void {
+  if (!alvo) return;
+  alvo.style.transform = `translateX(${sincronizacao.transformDoCabecalho}px)`;
+}
