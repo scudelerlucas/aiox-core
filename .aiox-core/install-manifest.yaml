@@ -8,7 +8,7 @@
 # - File types for categorization
 #
 version: 5.0.3
-generated_at: "2026-09-13T15:10:04.633Z"
+generated_at: "2026-09-14T20:15:57.946Z"
 generator: scripts/generate-install-manifest.js
 file_count: 1090
 files:
@@ -3849,29 +3849,29 @@ files:
     type: template
     size: 3695
   - path: product/templates/ide-rules/antigravity-rules.md
-    hash: sha256:150fd84d590c2d41f169afdc2368743cb5a90a94a29df2f217b5e5a8e9c3ee1b
+    hash: sha256:fb10dfeae2adb3385cb1720283fd9987307e4b041f5ac9d38c10ea532fb3d10e
     type: template
-    size: 3081
+    size: 3226
   - path: product/templates/ide-rules/claude-rules.md
-    hash: sha256:d5723c0a6d77b7137e9b8699937841f7452302b60905cd35276a319e6ce01742
+    hash: sha256:bd479abe10630708c5e06038c9c2e7666ebef0b98d4b8ebfbc89515c31f83ad2
     type: template
-    size: 12679
+    size: 13085
   - path: product/templates/ide-rules/codex-rules.md
-    hash: sha256:18302f137bda51c687b7c7ad76a17f73d84a1e254801ab9e72837d577962b7c5
+    hash: sha256:07a5e06724dd4879c4d7cf2d6880c38511036b485ff5f0431c5220c393eee235
     type: template
-    size: 2702
+    size: 2793
   - path: product/templates/ide-rules/copilot-rules.md
-    hash: sha256:5f7ecf4f6dbac28bc49b3a61d0902dcc28023b2918082195aab721b0a24847be
+    hash: sha256:58dbe7b26b65a2ca1174213195cc6fa5d9073531ceb1d75d1feb474bf5f19bad
     type: template
-    size: 3101
+    size: 3193
   - path: product/templates/ide-rules/cursor-rules.md
-    hash: sha256:40c5a75ec40a9d2da713336ced608eb4606bf7e76fe9b34827e888ed27903464
+    hash: sha256:78a484b21692629342e66e6b156e72adf70b9356116d382d84fcfea55f5d9ace
     type: template
-    size: 3071
+    size: 3216
   - path: product/templates/ide-rules/gemini-rules.md
-    hash: sha256:20f687384c4deb909e9171f8e83f40b962a9cc717755b62d88db285316b2188a
+    hash: sha256:0a36a0c917e7087f487916222e7a01b0649c7b1ba310c408515994763d26b9c7
     type: template
-    size: 2471
+    size: 2562
   - path: product/templates/index-strategy-tmpl.yaml
     hash: sha256:6db2b40f6eef47f4faa31ce513ee7b0d5f04d9a5e081a72e0cdbad402eb444ae
     type: template
