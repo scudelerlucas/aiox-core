@@ -5,6 +5,7 @@ import {
   ajustarTetoFixture,
   cancelarFixture,
   cursorDaPaginaFixture,
+  definirExigirMedicaoFixture,
   definirTemposFixture,
   enfileirarFixture,
   envelhecerSinalFixture,
@@ -193,6 +194,11 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 
   it("quando nada cabe, o motivo NOMEIA o menor custo que não coube", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): o fixture passou a nascer com a trava de medição
+    // recente LIGADA na Alma Petra (é o estado em que o banco recusa todo
+    // disparo, e ele precisava existir em screenshot). Este bloco prova o
+    // PULL, não a trava — então a trava sai de cena aqui, em voz alta.
+    definirExigirMedicaoFixture(ALMA, false);
     // Alma Petra: 150 medido de 150 de teto — nem a mais barata cabe.
     enfileirarFixture({ prompt: "x", complexidade: "baixa", conta: ALMA, agora: AGORA });
     const r = pegarFixture(ALMA, "W1", AGORA);
@@ -553,6 +559,11 @@ describe("D19 — backoff: quem volta cumpre castigo antes de ser re-pego", () =
 describe("D20 — a parcela de estimativa é marcada, dita e ajustável", () => {
   it("item morto conta o estimado, aparece como estimativa e o ajuste corrige o dia", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): a Alma Petra do fixture nasce com a trava de medição
+    // recente LIGADA (o estado em que o banco recusa todo disparo precisava
+    // existir em screenshot). Este bloco prova outra coisa — a trava sai de
+    // cena aqui, em voz alta, e T-blocos próprios provam a trava.
+    definirExigirMedicaoFixture(ALMA, false);
     // A Alma Petra da semente está exatamente no teto; sobe-se o teto ANTES de
     // enfileirar, para o pull conseguir liberar o item e o cenário ser sobre a
     // MORTE do item, não sobre o teto.
@@ -665,6 +676,11 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
 
   it("60 itens: o elegível da posição 51 é pego, e `pulados` conta os 50 que não cabem", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): a Alma Petra do fixture nasce com a trava de medição
+    // recente LIGADA (o estado em que o banco recusa todo disparo precisava
+    // existir em screenshot). Este bloco prova outra coisa — a trava sai de
+    // cena aqui, em voz alta, e T-blocos próprios provam a trava.
+    definirExigirMedicaoFixture(ALMA, false);
     // Teto alto na ADMISSÃO (senão o `maxima` seria recusado como impossível) e
     // headroom de 110 na HORA DO PULL — as duas coisas que o bloco SQL fez.
     ajustarTetoFixture(ALMA, 500);
@@ -728,6 +744,11 @@ describe("D21 — elegibilidade no filtro, não num laço sobre uma janela de 50
 describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
   it("item na 3ª expiração: o motivo começa por '1 item morreu' e traz o valor lançado", () => {
     resetarFilaFixtureStore();
+    // MÉDIO 2 (rodada 8): a Alma Petra do fixture nasce com a trava de medição
+    // recente LIGADA (o estado em que o banco recusa todo disparo precisava
+    // existir em screenshot). Este bloco prova outra coisa — a trava sai de
+    // cena aqui, em voz alta, e T-blocos próprios provam a trava.
+    definirExigirMedicaoFixture(ALMA, false);
     ajustarTetoFixture(ALMA, 400);
     const novo = enfileirarFixture({
       prompt: "vai morrer na 3a",
@@ -818,7 +839,7 @@ describe("#7 — só custo ESTIMADO pela casa pode ser ajustado", () => {
       tentativas: 1,
     });
     expect(ajustarCustoFixture(novo.id, 1, null, AGORA)).toEqual({
-      erro: "Só custo estimado pela casa pode ser ajustado; este foi medido.",
+      erro: "Este custo foi medido pela sessão — não dá para corrigi-lo aqui.",
     });
   });
 });

@@ -19,6 +19,19 @@
  *   4. D29: o MESMO espaço livre decide `cabeHoje` e escreve a frase. A frase
  *      diz "contando a fila parada" e revela, quando existe, a conta de
  *      headroom maior que não ganhou — porque a fila dela já está cheia.
+ *   5. D36 (rodada 8): conta que o BANCO RECUSARIA agora não é escolhida, não
+ *      "cabe hoje" e não é convidada. Toda frase de espaço livre carimba DE
+ *      QUANDO é a medição.
+ *
+ * D36 — POR QUE (MÉDIO 1 da rodada 7, medido pelo crítico): a rodada 7 criou
+ * `exigir_medicao_recente` no banco e `defasagemHoras` no contrato, e o
+ * roteador ignorou os dois. Resultado na tela: a frase ao lado do botão dizia
+ * "Pandora tem o maior espaço livre hoje… US$ 500,00" sobre uma conta que o
+ * card, dois centímetros acima, declarava "sem medição nenhuma"; e com a trava
+ * ligada e a medição velha, `cabeHoje` saía `true` e o selo "escolhida agora"
+ * aparecia enquanto o banco recusava 100% dos disparos. É a extensão de D9
+ * ("teto atingido não convida") ao estado que a rodada 7 criou: nenhuma
+ * superfície convida para a ação que o banco vai recusar.
  *
  * POR QUE "maior espaço" e não "menor consumo" (mudança da rodada 3): duas
  * contas podem ter o mesmo consumo medido e espaços completamente diferentes,
@@ -34,13 +47,17 @@
 import type { Complexidade, Conta, ConsumoConta, ModeloSugerido } from "@/core/prompts/tipos";
 import {
   CONTAS,
+  LIMITE_DEFASAGEM_HORAS,
   MODELO_POR_COMPLEXIDADE,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
+  bancoRecusaria,
   custoEstimadoParaComplexidade,
   espacoLivreUsd,
   formatarUsd,
   headroomUsd,
+  horasDeDefasagem,
+  seloDaMedicao,
 } from "@/core/prompts/tipos";
 
 export interface EscolhaDeConta {
@@ -69,6 +86,7 @@ export interface EscolhaDeConta {
 export function escolherConta(
   consumos: readonly ConsumoConta[],
   complexidade: Complexidade,
+  agora: number = Date.now(),
 ): EscolhaDeConta {
   const modeloSugerido = MODELO_POR_COMPLEXIDADE[complexidade];
   const custoEstimado = custoEstimadoParaComplexidade(complexidade);
@@ -112,10 +130,18 @@ export function escolherConta(
   // uma conta com US$ 150,00 de headroom e US$ 140,00 já na fila. (Supersede a
   // metade "headroom decide cabeHoje" de D13; a metade "nunca um número
   // negativo na tela" continua valendo — ver os `Math.max(0, …)` abaixo.)
-  let melhor = ordenadas[0] as ConsumoConta;
+  // D36 (rodada 8): quem o banco recusaria AGORA sai da disputa. A conta
+  // continua existindo na tela (o card diz por que ela está fora), mas não
+  // ganha o item e não é apresentada como "a mais folgada": espaço livre num
+  // saldo que o banco não autoriza a gastar não é espaço livre.
+  const autorizadas = ordenadas.filter((c) => !bancoRecusaria(c, agora));
+  const disputa = autorizadas.length > 0 ? autorizadas : ordenadas;
+  const todasRecusadas = autorizadas.length === 0;
+
+  let melhor = disputa[0] as ConsumoConta;
   let melhorEspaco = espacoLivreUsd(melhor);
   let empatados = 1;
-  for (const atual of ordenadas.slice(1)) {
+  for (const atual of disputa.slice(1)) {
     const espaco = espacoLivreUsd(atual);
     if (espaco > melhorEspaco) {
       melhor = atual;
@@ -127,13 +153,34 @@ export function escolherConta(
   }
 
   const headroom = headroomUsd(melhor);
-  const cabeHoje = custoEstimado <= melhorEspaco;
+  // D36: nenhuma conta autorizada = não cabe hoje em conta nenhuma, por mais
+  // dinheiro livre que o teto mostre. É o banco quem decide, e ele já decidiu.
+  const cabeHoje = !todasRecusadas && custoEstimado <= melhorEspaco;
+
+  if (todasRecusadas) {
+    const horas = horasDeDefasagem(melhor, agora);
+    const desde =
+      horas === null
+        ? "nunca teve gasto medido"
+        : `a última medição é de ${Math.round(horas)} h atrás`;
+    return {
+      conta: melhor.conta,
+      motivo:
+        `Nenhuma conta autoriza gasto agora: ela exige medição de menos de ` +
+        `${LIMITE_DEFASAGEM_HORAS} h e ${desde}. O item entra na fila e roda quando ` +
+        `a medição voltar.`,
+      modeloSugerido,
+      cabeHoje: false,
+      espacoLivreUsd: melhorEspaco,
+      headroomUsd: headroom,
+    };
+  }
 
   // A conta com MAIS headroom cru, quando não é a escolhida: é o número que a
   // frase antiga usava e que fazia a frase mentir. Ele não some — vira a
   // explicação de por que aquela conta, que parece folgada, não ganhou.
   let outraFolgada: ConsumoConta | null = null;
-  for (const atual of ordenadas) {
+  for (const atual of disputa) {
     if (atual.conta === melhor.conta) continue;
     if (headroomUsd(atual) <= headroom) continue;
     if (outraFolgada === null || headroomUsd(atual) > headroomUsd(outraFolgada)) {
@@ -155,15 +202,19 @@ export function escolherConta(
     melhor.naFilaUsd > 0
       ? ` (headroom de ${formatarUsd(Math.max(0, headroom))} menos ${formatarUsd(melhor.naFilaUsd)} já na fila)`
       : "";
+  // MÉDIO 1 (rodada 8): TODA frase de espaço livre carimba de quando é a
+  // medição. Um saldo de 37 h atrás e um saldo de agora saíam com exatamente
+  // as mesmas palavras — e o operador não tinha como saber qual dos dois lia.
+  const selo = ` — ${seloDaMedicao(melhor, agora)}`;
   const motivo = cabeHoje
     ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje contando a fila parada: ` +
-      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}.${empate}`
+      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}`
     : `Nenhuma conta tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
       `${ROTULO_COMPLEXIDADE[complexidade]} contando a fila parada. A mais folgada ` +
       // Arranhão da rodada 7: saía "A mais folgada (Pandora) tem US$ 30,00" —
       // sem dizer de quê. Toda metade da frase agora termina em "livres".
       `(${ROTULO_CONTA[melhor.conta]}) tem ${melhorEspaco > 0 ? `${formatarUsd(melhorEspaco)} livres` : "0 livres"}` +
-      `${detalhe}${revelacao}.${empate}`;
+      `${detalhe}${selo}${revelacao}.${empate}`;
 
   return {
     conta: melhor.conta,
@@ -184,6 +235,16 @@ export function escolherConta(
  * diferença entre os dois números é justamente o que a frase agora revela em
  * voz alta, em vez de esconder.
  */
-export function contaTemEspacoPara(consumo: ConsumoConta, complexidade: Complexidade): boolean {
+export function contaTemEspacoPara(
+  consumo: ConsumoConta,
+  complexidade: Complexidade,
+  agora: number = Date.now(),
+): boolean {
+  // D36 (rodada 8): a primeira pergunta é se o banco AUTORIZA — não adianta
+  // ter US$ 500,00 de espaço livre numa conta cujo pull recusa 100% dos
+  // disparos por medição velha. Esta função alimenta o selo "escolhida agora"
+  // e o aviso "não cabe hoje" do cartão; devolver `true` aqui era convidar o
+  // operador para o que o banco já tinha recusado.
+  if (bancoRecusaria(consumo, agora)) return false;
   return espacoLivreUsd(consumo) >= custoEstimadoParaComplexidade(complexidade);
 }

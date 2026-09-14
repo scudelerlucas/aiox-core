@@ -417,3 +417,196 @@ describe("D32d — o teto ao lado da realidade medida (leitura, não mudança)",
     );
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// RODADA 8 — os achados do crítico que vivem na TELA
+//
+// MÉDIO 2 · o cartão cujo trabalho é "gasto do dia vs teto" não mostrava o teto
+//           em 2 dos 3 estados reais (o ramo "sem medição" trocava a linha do
+//           dinheiro por uma frase, e o valor sobrava só no `aria-label`), e a
+//           frase da medição saía DUAS vezes seguidas.
+// MÉDIO 4 · o operador não conseguia corrigir o próprio erro de digitação:
+//           depois do primeiro ajuste, o segundo era recusado como "medido".
+// MÉDIO 5 · a confirmação da ÚNICA ação destrutiva da página não chegava a
+//           leitor de tela nenhum.
+// BAIXO 2 · a confirmação armada em 390 px sumia ao ir para 1280 px.
+// BAIXO 3 · a AÇÃO PRIMÁRIA ("Enviar para a fila") era o menor alvo da tela.
+// D36     · nenhuma superfície convida para o disparo que o banco vai recusar.
+// ═════════════════════════════════════════════════════════════════════════════
+
+const { CancelarBotao } = await import("@/components/prompts/cancelar-botao");
+
+describe("MÉDIO 2 — o teto SEMPRE em texto, e a frase da medição uma vez só", () => {
+  it("sem medição nenhuma: o teto continua na linha, e o zero não é dito como medido", () => {
+    const html = renderToStaticMarkup(<ContaCard consumo={consumoDeProva({})} agora={AGORA} />);
+    expect(html).toContain("nada medido ainda");
+    // O NÚMERO do teto, em texto visível — era isto que faltava.
+    expect(html).toContain("de US$ 150,00");
+    // e continua proibido afirmar medição que não houve:
+    expect(html).not.toContain("US$ 0,00 de US$ 150,00");
+  });
+
+  it("a frase 'sem medição nenhuma' aparece UMA vez (eram duas linhas seguidas)", () => {
+    const html = renderToStaticMarkup(<ContaCard consumo={consumoDeProva({})} agora={AGORA} />);
+    expect(html.split("sem medição nenhuma").length - 1).toBe(1);
+  });
+
+  it("nos outros dois estados o teto também está em texto", () => {
+    const atrasada = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 37 * 3_600_000).toISOString(),
+      defasagemHoras: 37,
+      consumoHojeUsd: 20,
+    });
+    const recente = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+      defasagemHoras: 0.5,
+      consumoHojeUsd: 20,
+    });
+    for (const consumo of [atrasada, recente]) {
+      expect(renderToStaticMarkup(<ContaCard consumo={consumo} agora={AGORA} />)).toContain(
+        "de US$ 150,00",
+      );
+    }
+  });
+
+  it("o fixture tem as DUAS contas que faltavam (sem medição e com a trava ligada)", async () => {
+    const { FIXTURE_CONSUMO } = await import("@/lib/repositories/prompts-fila.fixture");
+    expect(FIXTURE_CONSUMO.some((c) => c.medidoAteEm === null)).toBe(true);
+    expect(FIXTURE_CONSUMO.some((c) => c.exigeMedicaoRecente === true)).toBe(true);
+  });
+});
+
+describe("D36 — nenhuma superfície convida para o que o banco vai recusar", () => {
+  const travada = consumoDeProva({
+    medidoAteEm: new Date(AGORA - 37 * 3_600_000).toISOString(),
+    defasagemHoras: 37,
+    exigeMedicaoRecente: true,
+  });
+
+  it("o cartão carimba 'sem autorização agora' e NÃO sugere próximo modelo", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={travada} agora={AGORA} proximoModelo="Fable" seriaEscolhida />,
+    );
+    expect(html).toContain("sem autorização agora");
+    expect(html).not.toContain("escolhida agora");
+    expect(html).not.toContain("próximo modelo sugerido");
+  });
+
+  it("com medição recente, a MESMA trava não bloqueia nada", () => {
+    const ok = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+      defasagemHoras: 0.5,
+      exigeMedicaoRecente: true,
+    });
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={ok} agora={AGORA} proximoModelo="Fable" seriaEscolhida />,
+    );
+    expect(html).toContain("escolhida agora");
+    expect(html).not.toContain("sem autorização agora");
+  });
+});
+
+describe("MÉDIO 4 (rodada 8) — o operador corrige o próprio erro de digitação", () => {
+  function html(patch: Record<string, unknown>): string {
+    return renderToStaticMarkup(<FilaTabela itens={[item(patch)]} agora={AGORA} />);
+  }
+  const ajustado = {
+    custoUsd: 3,
+    custoEEstimativa: false,
+    custoOrigem: "operador",
+    custoAjustadoEm: new Date(AGORA - 30_000).toISOString(),
+  };
+
+  it("o valor que ELE digitou continua ajustável (era porta de mão única)", () => {
+    expect(podeAjustarCusto(item(ajustado), AGORA)).toBe(true);
+    const saida = html(ajustado);
+    expect(saida).toContain("ajustar custo");
+    expect(saida).toContain("ajustado por você");
+    expect(saida).not.toContain("valores medidos pela sessão não são ajustados aqui");
+  });
+
+  it("o que a SESSÃO mediu continua travado — a origem é que decide, não o valor", () => {
+    expect(podeAjustarCusto(item({ custoUsd: 95, custoOrigem: "medido" }), AGORA)).toBe(false);
+    expect(html({ custoUsd: 95, custoOrigem: "medido" })).toContain(
+      "valores medidos pela sessão não são ajustados aqui",
+    );
+  });
+
+  it("a porta dos fundos do ZERO fechou: quem reabre é a origem, não o número", () => {
+    // Ajustado para exatamente 0 pelo operador: continua ajustável — mas por
+    // ser DELE, não por ser zero. E um valor > 0 de origem `operador` também é.
+    expect(podeAjustarCusto(item({ ...ajustado, custoUsd: 0 }), AGORA)).toBe(true);
+    expect(podeAjustarCusto(item({ ...ajustado, custoUsd: 30 }), AGORA)).toBe(true);
+    // Medido zero segue sendo a exceção declarada (a sessão não leu o usage).
+    expect(podeAjustarCusto(item({ custoUsd: 0, custoOrigem: "medido" }), AGORA)).toBe(true);
+  });
+
+  it("banco antigo (sem `custoOrigem`) degrada para a dedução de antes, sem quebrar", () => {
+    expect(podeAjustarCusto(item({ custoUsd: 95, custoEEstimativa: false }), AGORA)).toBe(false);
+    expect(podeAjustarCusto(item({ custoUsd: 120, custoEEstimativa: true }), AGORA)).toBe(true);
+  });
+});
+
+describe("MÉDIO 5 (rodada 8) — a consequência do cancelamento é ANUNCIADA", () => {
+  it("a frase é a descrição acessível do botão e vive numa região viva", () => {
+    const html = renderToStaticMarkup(
+      <CancelarBotao id="i-1" emExecucao confirmando aoMudarConfirmando={() => {}} />,
+    );
+    expect(html).toContain('aria-describedby="cancelar-consequencia-i-1"');
+    expect(html).toContain('id="cancelar-consequencia-i-1"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain("A sessão que está rodando vai ser interrompida");
+  });
+
+  it("a região existe ANTES do texto (vazia e `sr-only`) — senão não é anunciada", () => {
+    const html = renderToStaticMarkup(<CancelarBotao id="i-1" aoMudarConfirmando={() => {}} />);
+    expect(html).toContain('id="cancelar-consequencia-i-1"');
+    expect(html).toContain("sr-only");
+    // sem confirmação armada, o botão não aponta para uma descrição vazia:
+    expect(html).not.toContain("aria-describedby");
+  });
+
+  it("o texto muda com o estado do item (em execução × parado na fila)", () => {
+    const parado = renderToStaticMarkup(
+      <CancelarBotao id="i-2" confirmando aoMudarConfirmando={() => {}} />,
+    );
+    expect(parado).toContain("Ele sai da fila e não vai rodar.");
+  });
+});
+
+describe("BAIXO 2 (rodada 8) — a confirmação de cancelar não mora mais no botão", () => {
+  it("`cancelar-botao.tsx` não tem estado próprio: ele é controlado pela linha", () => {
+    const fonte = FONTE("cancelar-botao.tsx");
+    expect(fonte).not.toContain("useState");
+    expect(fonte).toContain("confirmando");
+    expect(fonte).toContain("aoMudarConfirmando");
+  });
+
+  it("a linha guarda o mapa e o entrega às DUAS instâncias (tabela e cartão)", () => {
+    const fonte = FONTE("fila-tabela.tsx");
+    expect(fonte).toContain("useState<Record<string, boolean>>({})");
+    expect(fonte.split("confirmandoCancelar={confirmandoCancelar[item.id] === true}").length - 1).toBe(2);
+  });
+
+  it("controlado: a mesma prop produz o mesmo passo nas duas instâncias", () => {
+    const armado = renderToStaticMarkup(
+      <CancelarBotao id="i-1" confirmando aoMudarConfirmando={() => {}} />,
+    );
+    const desarmado = renderToStaticMarkup(
+      <CancelarBotao id="i-1" aoMudarConfirmando={() => {}} />,
+    );
+    expect(armado).toContain("confirmar cancelamento?");
+    expect(desarmado).toContain(">cancelar<");
+    expect(desarmado).not.toContain("confirmar cancelamento?");
+  });
+});
+
+describe("BAIXO 3 (rodada 8) — a AÇÃO PRIMÁRIA era o menor alvo da tela", () => {
+  it("nem o botão de enviar nem os selects continuam abaixo de 44 px", () => {
+    const fonte = FONTE("novo-prompt-form.tsx");
+    expect(fonte).not.toContain("min-h-[40px]");
+    expect(fonte).not.toContain("min-h-[36px]");
+    expect(fonte.split("min-h-[44px]").length - 1).toBeGreaterThanOrEqual(3);
+  });
+});

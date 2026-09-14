@@ -143,6 +143,15 @@ export interface ItemFilaPrompt {
   motivoFalha: string | null;
   /** D20: o `custoUsd` foi lançado pela casa (ninguém mediu) — a tela marca. */
   custoEEstimativa: boolean;
+  /**
+   * MÉDIO 4 (rodada 8): QUEM pôs este número — a coluna `custo_origem` do
+   * banco. `custoEEstimativa` sozinho não distingue "medido pela sessão" de
+   * "digitado pelo operador", e essa confusão travava a segunda correção do
+   * operador com a frase "este foi medido", sobre uma sessão que nunca
+   * reportou nada. Opcional para a tela degradar (e não quebrar) contra um
+   * banco anterior à migration 0018.
+   */
+  custoOrigem?: OrigemGravada;
   /** D20: quando o operador corrigiu o custo pela tela (ISO) — null se nunca. */
   custoAjustadoEm: string | null;
   /** D19: item devolvido só volta a ser elegível a partir deste instante (ISO). */
@@ -402,6 +411,36 @@ export function textoDaMedicao(consumo: ConsumoConta, agora: number): string {
 }
 
 /**
+ * MÉDIO 1 (rodada 8) · O BANCO RECUSARIA ESTE DISPARO AGORA?
+ *
+ * Espelho exato da porta de `fila_prompts_pegar_interno` (migration 0016 §8,
+ * mantida na 0018): com `exigir_medicao_recente = true` e a medição mais velha
+ * que `LIMITE_DEFASAGEM_HORAS` — ou sem medição nenhuma —, o pull RECUSA 100%
+ * dos disparos, antes de escrever qualquer coisa.
+ *
+ * Ele existe porque a rodada 7 criou um estado em que a tela CONVIDAVA para
+ * uma ação que o banco recusa: o crítico mediu o card dizendo "escolhida
+ * agora" e a frase do formulário dizendo "Pandora tem o maior espaço livre
+ * hoje… US$ 500,00" sobre a mesma conta que, dois centímetros acima, declarava
+ * "sem medição nenhuma". É a extensão de D9 ("teto atingido não convida") ao
+ * estado novo — nenhuma superfície convida para o que o banco vai recusar.
+ */
+export function bancoRecusaria(consumo: ConsumoConta, agora: number): boolean {
+  if (consumo.exigeMedicaoRecente !== true) return false;
+  const horas = horasDeDefasagem(consumo, agora);
+  return horas === null || horas > LIMITE_DEFASAGEM_HORAS;
+}
+
+/**
+ * MÉDIO 1 (rodada 8): o CARIMBO que acompanha toda frase de espaço livre —
+ * "esse número é de quando?". Um saldo de 37 h atrás e um saldo de agora são
+ * frases diferentes, e até esta rodada saíam idênticas.
+ */
+export function seloDaMedicao(consumo: ConsumoConta, agora: number): string {
+  return textoDaMedicao(consumo, agora);
+}
+
+/**
  * D32d: o teto ao lado da realidade, numa linha. O valor do teto é decisão do
  * operador — esta função não o muda; ela só põe do lado o que os dias medidos
  * realmente custaram, que é a informação que faltava para ele escolher um teto
@@ -431,8 +470,35 @@ export function textoTetoVsRealidade(consumo: ConsumoConta): string | null {
  */
 export type OrigemDoCusto = "estimativa" | "medido-zero" | "ajustado" | "medido";
 
+/** O que o BANCO grava em `painel_fila_prompts.custo_origem` (migration 0018). */
+export const ORIGEM_GRAVADA = ["estimativa", "medido", "operador"] as const;
+export type OrigemGravada = (typeof ORIGEM_GRAVADA)[number];
+
+export function origemGravadaValida(v: string): v is OrigemGravada {
+  return (ORIGEM_GRAVADA as readonly string[]).includes(v);
+}
+
+/**
+ * MÉDIO 4 (rodada 8): a origem vem do BANCO quando o banco a manda.
+ *
+ * A dedução antiga (`custoEEstimativa` + o VALOR) confundia dois números que
+ * não têm nada em comum: o que a sessão mediu e o que o operador digitou. Ela
+ * cravava "medido" em cima do segundo — e o ajuste virava porta de mão única
+ * sobre o número que governa o teto. Pior: como olhava o VALOR, ajustar para
+ * exatamente 0 reabria a porta ("medido-zero"), uma chave acidental.
+ *
+ * A dedução continua existindo SÓ como degradação para um banco anterior à
+ * 0018 (a tela não quebra; ela perde a precisão que aquele banco não tem).
+ */
 export function origemDoCusto(item: ItemFilaPrompt): OrigemDoCusto | null {
   if (item.custoUsd === null) return null;
+  if (item.custoOrigem !== undefined) {
+    if (item.custoOrigem === "estimativa") return "estimativa";
+    if (item.custoOrigem === "operador") return "ajustado";
+    // `medido`: zero continua sendo o modo de falha conhecido — a sessão
+    // fechou sem conseguir ler o usage. Zero não é medição.
+    return item.custoUsd === 0 ? "medido-zero" : "medido";
+  }
   if (item.custoEEstimativa) return "estimativa";
   if (item.custoUsd === 0) return "medido-zero";
   if (item.custoAjustadoEm !== null) return "ajustado";
@@ -460,7 +526,10 @@ export function textoOrigemDoCusto(item: ItemFilaPrompt): string | null {
  * fechou, não ganham frase nenhuma (ali o botão nunca fez sentido).
  */
 export function textoSemAjuste(item: ItemFilaPrompt): string | null {
-  return origemDoCusto(item) === "medido" || origemDoCusto(item) === "ajustado"
+  // MÉDIO 4 (rodada 8): "ajustado" SAIU desta lista. O número que o operador
+  // digitou continua sendo dele enquanto o dia está aberto — só o que uma
+  // SESSÃO mediu é que não se reescreve pela tela.
+  return origemDoCusto(item) === "medido"
     ? "valores medidos pela sessão não são ajustados aqui"
     : null;
 }

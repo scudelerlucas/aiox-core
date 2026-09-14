@@ -87,6 +87,7 @@ import {
   headroomUsd,
   modeloParaComplexidade,
   montarMotivoDoPull,
+  origemDoCusto,
   semSinal,
 } from "@/core/prompts/tipos";
 import { FIXTURE_CONSUMO, FIXTURE_FILA } from "@/lib/repositories/prompts-fila.fixture";
@@ -138,8 +139,13 @@ interface EstadoFilaFixture {
       historico: HistoricoMedido | null;
     }
   >;
-  /** D10: sessão publicada (`sessionId` → custo, `null` = publicada sem custo). */
-  sessoesPublicadas: Map<string, number | null>;
+  /**
+   * D10: sessão publicada (`sessionId` → custo, `null` = publicada sem custo).
+   * D34a (rodada 8): guarda também a CONTA dona — é o espelho de
+   * `public.painel_sessao_dona`, e sem ele o fixture não consegue recusar a
+   * sessão de OUTRA conta (a porta que fazia o mesmo dinheiro existir duas vezes).
+   */
+  sessoesPublicadas: Map<string, { conta: Conta; custoUsd: number | null }>;
   /**
    * D26 (rodada 6): quem pegou cada item por ÚLTIMO — o espelho da coluna
    * `ultimo_worker_id`. Mora fora de `ItemFilaPrompt` de propósito: é dado de
@@ -169,7 +175,7 @@ function estadoNovo(): EstadoFilaFixture {
           ] as const,
       ),
     ),
-    sessoesPublicadas: new Map<string, number | null>(),
+    sessoesPublicadas: new Map<string, { conta: Conta; custoUsd: number | null }>(),
     ultimoDono: new Map<string, string>(),
     contador: 0,
   };
@@ -194,6 +200,22 @@ export function resetarFilaFixtureStore(): void {
 
 function itens(): ItemFilaPrompt[] {
   return [...loja().fila.values()];
+}
+
+/**
+ * D34a (rodada 8): a conta dona de uma sessão publicada — espelho de
+ * `public.painel_sessao_dona`. `null` = sessão ainda não publicada, que é o
+ * caso normal no heartbeat (a filha acabou de nascer) e passa.
+ */
+function donaDaSessao(sessionId: string): Conta | null {
+  return loja().sessoesPublicadas.get(sessionId)?.conta ?? null;
+}
+
+/** MÉDIO 4 (rodada 8): a recusa de vínculo, em português, nas três portas. */
+function recusaDeContaDaSessao(sessionId: string, contaDoItem: Conta): string | null {
+  const dona = donaDaSessao(sessionId);
+  if (dona === null || dona === contaDoItem) return null;
+  return `Esta sessão é da conta ${dona} — não dá para vinculá-la a um item da conta ${contaDoItem}.`;
 }
 
 /** D26: o último dono conhecido de um item (`ultimo_worker_id` no banco). */
@@ -245,8 +267,11 @@ function contribuicaoDe(item: ItemFilaPrompt, dia: string): number {
       (item.workerId !== null || ultimoDonoDe(item.id) !== null || item.tentativas > 0));
   if (!contaNoDia) return 0;
   if (item.sessionId === null) return item.custoUsd;
+  // D34b (rodada 8): a dedup casa por IDENTIDADE DA SESSÃO — a conta dela não
+  // entra na chave. Era a comparação de conta, no `left join lateral` do SQL,
+  // que deixava o mesmo trabalho ser cobrado em duas contas.
   const publicada = loja().sessoesPublicadas.get(item.sessionId);
-  if (publicada === undefined || publicada === null) return item.custoUsd;
+  if (publicada === undefined || publicada.custoUsd === null) return item.custoUsd;
   return 0;
 }
 
@@ -516,6 +541,7 @@ export function cancelarFixture(id: string, agora: number = Date.now()): Resulta
     concluidoEm: new Date(agora).toISOString(),
     custoUsd: lanca ? custoLancadoUsd : item.custoUsd,
     custoEEstimativa: lanca ? true : item.custoEEstimativa,
+    custoOrigem: lanca ? "estimativa" : item.custoOrigem,
     motivoFalha:
       motivoCancelamento === "cancelado_em_execucao"
         ? "cancelado pelo operador durante a execução"
@@ -552,10 +578,16 @@ export function ajustarCustoFixture(
   if (item.concluidoEm === null || diaOperador(item.concluidoEm) !== diaOperador(agora)) {
     return { erro: "Só dá para ajustar o custo de item fechado hoje." };
   }
-  // #7 (rodada 5): a guarda que o comentário do SQL prometia e o código não
-  // fazia — número MEDIDO por gente não se reescreve pela tela.
-  if (!item.custoEEstimativa) {
-    return { erro: "Só custo estimado pela casa pode ser ajustado; este foi medido." };
+  // MÉDIO 4 (rodada 8): a guarda olha a ORIGEM, não o VALOR — o mesmo que
+  // `fila_prompts_ajustar_custo` faz no banco. Número que o OPERADOR digitou
+  // continua sendo dele enquanto o dia está aberto (era porta de mão única: o
+  // segundo ajuste era recusado com "este foi medido", culpando uma sessão que
+  // nunca reportou nada). Medido igual a ZERO segue ajustável — é a sessão que
+  // fechou sem conseguir ler o usage —, e por a guarda estar na origem, ajustar
+  // para 0 deixou de ser a porta dos fundos que reabria tudo.
+  const origem = origemDoCusto(item);
+  if (origem === "medido") {
+    return { erro: "Este custo foi medido pela sessão — não dá para corrigi-lo aqui." };
   }
   // D26 (rodada 6): sem o vínculo de sessão, o dia soma a estimativa do item
   // MAIS o custo real da sessão que rodou (o crítico mediu 200 num trabalho de
@@ -564,11 +596,14 @@ export function ajustarCustoFixture(
   if (sess !== null) {
     const outro = itens().find((i) => i.sessionId === sess && i.id !== id);
     if (outro) return { erro: "Esta sessão já está vinculada a outro item da fila." };
+    const recusa = recusaDeContaDaSessao(sess, item.conta);
+    if (recusa) return { erro: recusa };
   }
   estado.fila.set(id, {
     ...item,
     custoUsd,
     custoEEstimativa: false,
+    custoOrigem: "operador",
     sessionId: sess ?? item.sessionId,
     custoAjustadoEm: new Date(agora).toISOString(),
   });
@@ -588,12 +623,12 @@ export function publicarSessaoFixture(
 ): void {
   const estado = loja();
   const jaPublicada = estado.sessoesPublicadas.get(sessionId);
-  estado.sessoesPublicadas.set(sessionId, custoUsd);
+  estado.sessoesPublicadas.set(sessionId, { conta, custoUsd });
   const base = estado.base.get(conta);
   if (!base) return;
   // A sessão publicada entra no "medido" das sessões, como a view do SQL.
   // Republicar com outro custo troca o valor, não soma duas vezes.
-  const antes = jaPublicada ?? 0;
+  const antes = jaPublicada?.custoUsd ?? 0;
   estado.base.set(conta, {
     ...base,
     publicadasUsd: base.publicadasUsd - antes + (custoUsd ?? 0),
@@ -670,6 +705,9 @@ function expirar(
         // Conservador: quem sumiu provavelmente gastou. D20: marcado como estimativa.
         custoUsd: Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD),
         custoEEstimativa: true,
+        // MÉDIO 4 (rodada 8): este número é da CASA — e por isso o operador
+        // pode corrigi-lo quantas vezes precisar enquanto o dia está aberto.
+        custoOrigem: "estimativa",
         concluidoEm: new Date(agora).toISOString(),
       });
       mortos.push(item.id);
@@ -823,6 +861,9 @@ export function heartbeatFixture(
   if (sessionId !== null) {
     const outro = itens().find((i) => i.sessionId === sessionId && i.id !== id);
     if (outro) return { erro: `sessão já vinculada ao item ${outro.id}` };
+    // D34a (rodada 8): esta porta aceitava QUALQUER string de sessão.
+    const recusa = recusaDeContaDaSessao(sessionId, item.conta);
+    if (recusa) return { erro: recusa };
   }
   estado.fila.set(id, {
     ...item,
@@ -869,11 +910,17 @@ export function fecharFixture(input: {
     return { erro: "Item voltou para a fila (45 min sem sinal) — não pode ser fechado." };
   }
   if (!ultimoDono && item.workerId !== input.workerId) {
-    return { erro: `Item pertence a outro worker (${item.workerId ?? "nenhum"}).` };
+    // BAIXO 1 (rodada 8): nomeia quem PEGOU (o item morto guarda a memória da
+    // posse) em vez de dizer "nenhum" justamente quando há um dono conhecido.
+    return {
+      erro: `Item pertence a outro worker (${item.workerId ?? ultimoDonoDe(item.id) ?? "ninguém pegou este item"}).`,
+    };
   }
   if (sessionId !== null) {
     const outro = itens().find((i) => i.sessionId === sessionId && i.id !== item.id);
     if (outro) return { erro: `sessão já vinculada ao item ${outro.id}` };
+    const recusa = recusaDeContaDaSessao(sessionId, item.conta);
+    if (recusa) return { erro: recusa };
   }
   const agora = input.agora ?? Date.now();
   if (reabrir) {
@@ -882,6 +929,8 @@ export function fecharFixture(input: {
       estado: input.estado,
       custoUsd: input.custoUsd,
       custoEEstimativa: false,
+      // MÉDIO 4: quem fecha é a SESSÃO; a origem passa a dizer isso.
+      custoOrigem: "medido",
       sessionId: sessionId ?? item.sessionId,
       heartbeatEm: null,
       disponivelEm: null,
@@ -902,6 +951,7 @@ export function fecharFixture(input: {
       ...item,
       custoUsd: input.custoUsd,
       custoEEstimativa: false,
+      custoOrigem: "medido",
       sessionId: sessionId ?? item.sessionId,
       concluidoEm: item.concluidoEm ?? new Date(agora).toISOString(),
     });
@@ -912,6 +962,7 @@ export function fecharFixture(input: {
     estado: input.estado,
     custoUsd: input.custoUsd,
     custoEEstimativa: false,
+    custoOrigem: "medido",
     sessionId: sessionId ?? item.sessionId,
     heartbeatEm: null,
     disponivelEm: null,
@@ -920,7 +971,24 @@ export function fecharFixture(input: {
   return { ok: true, jaFechado: false, reabertoEFechado: false, estado: input.estado };
 }
 
-/** Só para teste: muda o teto diário de uma conta (o de produção é 150 nas 3). */
+/**
+ * Só para teste: liga/desliga a trava de medição recente de uma conta (espelho
+ * de `painel_teto_diario.exigir_medicao_recente`).
+ *
+ * Existe porque o fixture passou a nascer com a trava LIGADA na Alma Petra
+ * (MÉDIO 2 da rodada 8: o estado em que o banco recusa 100% dos disparos
+ * precisava entrar em screenshot). Os blocos que provam o PULL naquela conta
+ * desligam a trava aqui — eles provam outra coisa, e provar duas ao mesmo
+ * tempo esconderia as duas.
+ */
+export function definirExigirMedicaoFixture(conta: Conta, valor: boolean): void {
+  const estado = loja();
+  const base = estado.base.get(conta);
+  if (!base) return;
+  estado.base.set(conta, { ...base, exigeMedicaoRecente: valor });
+}
+
+/** Só para teste: muda o teto diário de uma conta (o de produção é 500 nas 3). */
 export function ajustarTetoFixture(conta: Conta, tetoUsd: number): void {
   const estado = loja();
   const base = estado.base.get(conta);

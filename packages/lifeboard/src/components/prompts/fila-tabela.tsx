@@ -97,10 +97,17 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
  * sessão fechou sem conseguir ler o usage. Zero não é medição; é a ausência
  * dela com cara de número, e sem esta porta o item ficava cravado em US$ 0,00
  * para sempre. Medido > 0 continua fechado, aqui e no `fila_prompts_ajustar_custo`.
+ *
+ * MÉDIO 4 (rodada 8): e o que o OPERADOR ajustou continua ajustável. O crítico
+ * mediu a porta de mão única: 120 (estimativa) → ajustado para 3 → o segundo
+ * ajuste, para 30, era recusado com "este foi medido" — culpando uma sessão
+ * que nunca reportou nada. Quem decide agora é `custo_origem` (o banco grava
+ * `operador` no ajuste), não o valor; e por isso ajustar para exatamente 0
+ * deixou de ser a porta dos fundos que reabria tudo.
  */
 export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
   const origem = origemDoCusto(item);
-  if (origem !== "estimativa" && origem !== "medido-zero") return false;
+  if (origem !== "estimativa" && origem !== "medido-zero" && origem !== "ajustado") return false;
   if (item.estado !== "falhou" && item.estado !== "cancelada") return false;
   if (item.concluidoEm === null) return false;
   const dia = Date.parse(item.concluidoEm);
@@ -166,6 +173,8 @@ function AcoesDaLinha({
   aoResponder,
   ajuste,
   aoMudarAjuste,
+  confirmandoCancelar,
+  aoMudarConfirmarCancelar,
 }: {
   item: ItemFilaPrompt;
   agora: number;
@@ -173,6 +182,9 @@ function AcoesDaLinha({
   aoResponder: (id: string, qual: "cancelar" | "ajustar", estado: EstadoAcaoPrompt) => void;
   ajuste: EstadoDoAjuste;
   aoMudarAjuste: (id: string, patch: Partial<EstadoDoAjuste>) => void;
+  /** BAIXO 2 (rodada 8): a confirmação de cancelar também mora na LINHA. */
+  confirmandoCancelar: boolean;
+  aoMudarConfirmarCancelar: (id: string, armado: boolean) => void;
 }): JSX.Element {
   const mensagemRef = useRef<HTMLParagraphElement>(null);
   const caixaRef = useRef<HTMLDivElement>(null);
@@ -251,6 +263,8 @@ function AcoesDaLinha({
         emExecucao={item.estado === "pega"}
         podeCancelar={podeCancelar(item)}
         pendente={acaoCancelar.pendente}
+        confirmando={confirmandoCancelar}
+        aoMudarConfirmando={aoMudarConfirmarCancelar}
         aoConfirmar={dispararCancelar}
       />
       <AjustarCustoBotao
@@ -303,6 +317,11 @@ export function FilaTabela({
   // MÉDIO 3 (rodada 7): o que o operador está DIGITANDO mora aqui — uma entrada
   // por id, lida pelas duas instâncias da linha (tabela e cartão).
   const [ajustes, setAjustes] = useState<Record<string, EstadoDoAjuste>>({});
+  // BAIXO 2 (rodada 8): o MESMO defeito que MÉDIO 3 corrigiu para o ajuste,
+  // uma linha abaixo e uma rodada depois — a confirmação de cancelar armada em
+  // 390 px sumia ao ir para 1280 px, porque cada instância da linha guardava o
+  // próprio `confirmando`. Agora ela mora aqui, com as outras.
+  const [confirmandoCancelar, setConfirmandoCancelar] = useState<Record<string, boolean>>({});
 
   function registrarResposta(
     id: string,
@@ -310,6 +329,9 @@ export function FilaTabela({
     estado: EstadoAcaoPrompt,
   ): void {
     setRespostas((atual) => ({ ...atual, [id]: { ...atual[id], [qual]: estado, ultima: qual } }));
+  }
+  function mudarConfirmarCancelar(id: string, armado: boolean): void {
+    setConfirmandoCancelar((atual) => ({ ...atual, [id]: armado }));
   }
   function mudarAjuste(id: string, patch: Partial<EstadoDoAjuste>): void {
     setAjustes((atual) => ({ ...atual, [id]: { ...(atual[id] ?? AJUSTE_VAZIO), ...patch } }));
@@ -417,6 +439,8 @@ export function FilaTabela({
                     aoResponder={registrarResposta}
                     ajuste={ajusteDe(item)}
                     aoMudarAjuste={mudarAjuste}
+                    confirmandoCancelar={confirmandoCancelar[item.id] === true}
+                    aoMudarConfirmarCancelar={mudarConfirmarCancelar}
                   />
                 </td>
               </tr>
@@ -467,6 +491,8 @@ export function FilaTabela({
                 aoResponder={registrarResposta}
                 ajuste={ajusteDe(item)}
                 aoMudarAjuste={mudarAjuste}
+                confirmandoCancelar={confirmandoCancelar[item.id] === true}
+                aoMudarConfirmarCancelar={mudarConfirmarCancelar}
               />
             </div>
           </div>

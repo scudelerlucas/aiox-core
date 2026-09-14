@@ -46,6 +46,14 @@ declare
   v_headroom numeric;
   v_ontem numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T01 virada do dia', 'maxima', 'Fable') returning id into v_id;
 
@@ -81,6 +89,14 @@ declare
   v_reservado numeric;
   v_headroom numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T02 em voo na virada', 'maxima', 'Fable') returning id into v_id;
 
@@ -115,6 +131,14 @@ declare
   v_ontem numeric;
   v_rpc jsonb;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T03 fechado ontem', 'maxima', 'Fable') returning id into v_id;
 
@@ -158,6 +182,14 @@ declare
   v_consumo numeric;
   v_estimativa boolean;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T04 dono do morto', 'maxima', 'Fable') returning id into v_id;
 
@@ -197,6 +229,14 @@ declare
   v_id uuid;
   v_erro text := '(nenhum erro)';
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T05 outro worker', 'maxima', 'Fable') returning id into v_id;
 
@@ -231,6 +271,14 @@ declare
   v_dois jsonb;
   v_custo numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T06 idempotente', 'maxima', 'Fable') returning id into v_id;
 
@@ -265,6 +313,14 @@ declare
   v_r jsonb;
   v_sess text;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T07 ajuste com sessao', 'maxima', 'Fable') returning id into v_id;
 
@@ -296,6 +352,14 @@ declare
   v_id uuid;
   v_consumo numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T08 estimativa x medicao', 'maxima', 'Fable') returning id into v_id;
 
@@ -327,6 +391,14 @@ declare
   v_id uuid;
   v_consumo numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T09 sessao maior', 'maxima', 'Fable') returning id into v_id;
 
@@ -359,6 +431,14 @@ declare
   v_id uuid;
   v_consumo numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T10 sessao sem custo', 'maxima', 'Fable') returning id into v_id;
 
@@ -393,6 +473,14 @@ declare
   v_r jsonb;
   v_motivo text;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T11 vai morrer', 'maxima', 'Fable') returning id into v_morto;
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
@@ -435,6 +523,14 @@ declare
   v_motivo text;
   i int;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   for i in 1..5 loop
     insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
     values (v_conta, 'T12 cara ' || i, 'maxima', 'Fable');
@@ -478,6 +574,14 @@ declare
   v_varios text;
   v_dev text;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   v_um := public.painel_fila_motivo_do_pull(
     p_mortos => 0, p_mortos_usd => 0, p_custo_escolhido => null, p_headroom => 50,
     p_menor_disponivel => 5, p_elegiveis => 1, p_em_espera => 0, p_menor_espera => null,
@@ -516,6 +620,14 @@ do $$
 declare
   v_motivo text;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   v_motivo := public.painel_fila_motivo_do_pull(
     p_mortos => 0, p_mortos_usd => 0, p_custo_escolhido => null, p_headroom => -3,
     p_menor_disponivel => 120, p_elegiveis => 0, p_em_espera => 0, p_menor_espera => null,
@@ -539,6 +651,14 @@ declare
   v_barato uuid;
   i int;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   for i in 1..200 loop
     if i = 137 then
       insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, criado_em)
@@ -576,6 +696,14 @@ declare
   v_r jsonb;
   i int;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   for i in 1..200 loop
     insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, criado_em)
     values (v_conta, 'T16 caro ' || i, 'maxima', 'Fable', now() - interval '1 hour' + (i * interval '1 second'));
@@ -605,6 +733,14 @@ declare
   v_id uuid;
   v_erro text := '(nenhum erro)';
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T17 fechado ontem', 'maxima', 'Fable') returning id into v_id;
 
@@ -639,6 +775,14 @@ declare
   v_fantasma uuid := '00000000-0000-0000-0000-0000000000ff';
   v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   begin
     perform public.fila_prompts_cancelar(v_segredo, v_fantasma);
   exception when check_violation then v_erro_cancelar := sqlerrm;
@@ -665,6 +809,14 @@ do $$
 declare
   v_vazadas text;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   -- Funções de TRIGGER ficam de fora: elas não são chamáveis como RPC (o
   -- Postgres recusa "may only be called as trigger") e o privilégio delas é
   -- verificado no CREATE TRIGGER, não a cada disparo.
@@ -693,6 +845,14 @@ declare
   v_conta text := 'lsgpandora@gmail.com';
   v_r jsonb;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   delete from public.painel_fila_prompts where conta = v_conta;
   v_r := public.fila_prompts_pegar_interno(v_conta, 'w-T20');
 
@@ -730,7 +890,14 @@ end $$;
 -- MESMO FILHA_ID):
 --   TRABALHO REAL = US$ 80,00 -> dia 12 cobra 80 ; dia 13 cobra 80,0000 ;
 --   TOTAL COBRADO 160,0000
--- Esperado agora: 80 no TOTAL, e no dia da SESSÃO (que é quem tem o número).
+-- Esperado: 80 no TOTAL.
+-- RODADA 8 (D33) — este bloco é também a prova do DEFEITO ESPELHADO. Aqui a
+-- sessão foi medida ONTEM e o item só fechou HOJE: se a correção do ALTO 1
+-- fosse "o dia do item, sempre", os 80 sairiam de ontem (dia já encerrado) e
+-- entrariam em hoje — exatamente o mesmo crime, na direção oposta. Por isso o
+-- dia de cobrança é `least(dia do item, dia da medição)`: um dia encerrado
+-- nunca devolve dinheiro. No caminho NORMAL (item fecha antes de a sessão ser
+-- publicada) os dois casos coincidem — é o que T30 prova.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -740,6 +907,14 @@ declare
   v_ontem numeric;
   v_total numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T21 virada com sessao vinculada', 'maxima', 'Fable') returning id into v_id;
 
@@ -774,9 +949,15 @@ begin
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- T22 · D31 — O SENTIDO INVERSO (o crítico mediu 160 nos DOIS)
+-- T22 · D31/D33 — O SENTIDO INVERSO (o crítico mediu 160 nos DOIS)
 -- Item fechado 23h59 do dia anterior; a sessão só é atualizada 00h05 do dia
--- seguinte. Antes: 80 no dia do item + 80 no dia da sessão = 160.
+-- seguinte. Rodada 7: 80 no dia do item + 80 no dia da sessão = 160 (corrigido
+-- para 80 no total, mas no dia da SESSÃO).
+-- RODADA 8 · ESTE BLOCO MUDOU DE VEREDITO, e a mudança É a correção do ALTO 1:
+-- o dia que paga é o do FECHAMENTO do item (ontem), não o da publicação (hoje).
+-- Com a régua da rodada 7, ontem — um dia encerrado — era reescrito para 0 e o
+-- teto de HOJE passava a pagar trabalho de ontem. Esperado agora: ontem = 80,
+-- hoje = 0, total 80.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -786,6 +967,14 @@ declare
   v_ontem numeric;
   v_total numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T22 virada inversa', 'maxima', 'Fable') returning id into v_id;
 
@@ -809,11 +998,11 @@ begin
   v_ontem := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador() - 1);
   v_total := v_hoje + v_ontem;
 
-  if v_hoje = 80 and v_ontem = 0 and v_total = 80 then
-    raise exception 'RESULTADO: ok — T22 D31 inverso também cobra 80 no total: hoje=% ontem=% TOTAL=%',
+  if v_hoje = 0 and v_ontem = 80 and v_total = 80 then
+    raise exception 'RESULTADO: ok — T22 D33 o dia que paga é o do FECHAMENTO: hoje=% ontem=% TOTAL=%',
       v_hoje, v_ontem, v_total;
   end if;
-  raise exception 'FALHA: T22 D31 inverso esperado hoje=80 ontem=0 TOTAL=80 obteve hoje=% ontem=% TOTAL=%',
+  raise exception 'FALHA: T22 D33 esperado hoje=0 ontem=80 TOTAL=80 obteve hoje=% ontem=% TOTAL=%',
     v_hoje, v_ontem, v_total;
 end $$;
 
@@ -832,6 +1021,14 @@ declare
   v_estimativa boolean;
   v_erro text := '(nenhum erro)';
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T23 intruso nao move dinheiro', 'maxima', 'Fable') returning id into v_id;
 
@@ -866,9 +1063,14 @@ end $$;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- T24 · D30/D31 DINHEIRO, SEGUNDO CAMINHO — pela RPC, com a CONTAGEM de itens
 -- T08 olha `painel_fila_consumo_hoje`. Este olha a porta secret-gated
--- `fila_prompts_consumo_do_dia`, que devolve também quantos itens CONTRIBUEM.
--- A mutação `greatest(custo − sessão, 0)` passa despercebida por um total de
--- 120 mal lido, mas não por `itens = 0` virando `itens = 1`.
+-- `fila_prompts_consumo_do_dia`.
+-- RODADA 8 · MÉDIO 3 — ESTE BLOCO ESTAVA PROVANDO O DEFEITO. Ele afirmava
+-- `itens = 0` como CORRETO num dia com 1 item fechado, porque a RPC contava só
+-- `contribuicao > 0` — e depois de D31 todo item com sessão vinculada e custo
+-- publicado (o caminho que a Routine percorre TODA vez) contribui zero. O
+-- relatório do dia dizia `{"itens": 0, "consumo_usd": 30.00}` e o teste dizia
+-- "ok". Agora: `itens` conta o que a fila RODOU (1) e
+-- `itens_com_contribuicao` continua dizendo quantos pagaram do próprio bolso (0).
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -877,6 +1079,14 @@ declare
   v_rpc jsonb;
   v_linha jsonb;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T24 rpc conta os itens', 'maxima', 'Fable') returning id into v_id;
 
@@ -896,10 +1106,12 @@ begin
              public.painel_dia_operador());
   select l into v_linha from jsonb_array_elements(v_rpc->'contas') as l where l->>'conta' = v_conta;
 
-  if (v_linha->>'consumo_usd')::numeric = 30 and (v_linha->>'itens')::int = 0 then
-    raise exception 'RESULTADO: ok — T24 D30/D31 a sessão paga por si e o item conta 0: linha=%', v_linha;
+  if (v_linha->>'consumo_usd')::numeric = 30
+     and (v_linha->>'itens')::int = 1
+     and (v_linha->>'itens_com_contribuicao')::int = 0 then
+    raise exception 'RESULTADO: ok — T24 MÉDIO 3 a sessão paga (30) e o item APARECE na contagem: linha=%', v_linha;
   end if;
-  raise exception 'FALHA: T24 esperado consumo_usd=30 e itens=0; obteve %', v_linha;
+  raise exception 'FALHA: T24 esperado consumo_usd=30, itens=1 e itens_com_contribuicao=0; obteve %', v_linha;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -917,6 +1129,14 @@ declare
   v_linhas_ontem int;
   v_total numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T25 contribuicao item a item', 'maxima', 'Fable') returning id into v_id;
 
@@ -963,6 +1183,14 @@ declare
   v_com text;
   v_sem text;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_frentes_sessoes
     (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
   values ('sess-T26', v_conta, 'T26', 'ativa', '{}', '{}',
@@ -1007,6 +1235,14 @@ declare
   v_recusa jsonb;
   v_livre jsonb;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_frentes_sessoes
     (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
   values ('sess-T27', v_conta, 'T27', 'ativa', '{}', '{}',
@@ -1047,6 +1283,14 @@ declare
   v_mediana numeric;
   i int;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   for i in 1..3 loop
     insert into public.painel_frentes_sessoes
       (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
@@ -1087,6 +1331,14 @@ declare
   v_erro_estado text := '(nenhum erro)';
   v_custo numeric;
 begin
+  -- BAIXO 8 (rodada 8): o bloco começa limpando a conta de prova. Até a rodada
+  -- 7, T26/T27/T28 só eram determinísticos porque `lsgpandora@gmail.com` tinha
+  -- ZERO sessões reais — uma das 3 contas de PRODUÇÃO. No dia em que ela
+  -- publicar, `round(defasagem) = 37` quebra e o vermelho não será um defeito,
+  -- será ruído. Como todo bloco termina em `raise` (rollback), o apagamento
+  -- não persiste: ele só tira a produção de dentro da prova.
+  delete from public.painel_frentes_sessoes where conta = 'lsgpandora@gmail.com';
+  delete from public.painel_fila_prompts where conta = 'lsgpandora@gmail.com';
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
   values (v_conta, 'T29 medido zero', 'maxima', 'Fable') returning id into v_zero;
   insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
@@ -1096,11 +1348,11 @@ begin
 
   update public.painel_fila_prompts
      set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T29', tentativas = 3,
-         custo_usd = 0, custo_e_estimativa = false, concluido_em = now()
+         custo_usd = 0, custo_e_estimativa = false, custo_origem = 'medido', concluido_em = now()
    where id = v_zero;
   update public.painel_fila_prompts
      set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T29', tentativas = 3,
-         custo_usd = 95, custo_e_estimativa = false, concluido_em = now()
+         custo_usd = 95, custo_e_estimativa = false, custo_origem = 'medido', concluido_em = now()
    where id = v_medido;
   update public.painel_fila_prompts
      set estado = 'pega', worker_id = 'w-T29', ultimo_worker_id = 'w-T29',
@@ -1121,7 +1373,10 @@ begin
   end;
 
   if (v_ok->>'ok')::boolean and (v_ok->>'era_medido_zero')::boolean and v_custo = 42
-     and v_erro_medido = 'Só custo estimado pela casa pode ser ajustado; este foi medido.'
+     -- RODADA 8 (MÉDIO 4): a recusa mudou de texto porque mudou de RÉGUA —
+     -- ela olha `custo_origem = 'medido'`, não mais `custo_e_estimativa` + o
+     -- valor. O veredito do caso continua o mesmo: medido > 0 não se reescreve.
+     and v_erro_medido = 'Este custo foi medido pela sessão — não dá para corrigi-lo aqui.'
      and v_erro_estado = 'Só dá para ajustar o custo de item que falhou ou foi cancelado (este está em execução).'
      and v_erro_estado not like '%pega%' then
     raise exception 'RESULTADO: ok — T29 medido zero ajustado para %, medido recusado ("%"), estado em português ("%")',
@@ -1129,4 +1384,627 @@ begin
   end if;
   raise exception 'FALHA: T29 — ok=% custo=% erro_medido="%" erro_estado="%"',
     v_ok, v_custo, v_erro_medido, v_erro_estado;
+end $$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- RODADA 8 — os blocos novos. Cada ALTO e cada MÉDIO desta rodada tem ao menos
+-- um bloco que fica VERMELHO quando a correção é desfeita (a tabela de mutações
+-- está no relatório da rodada). Todo bloco começa apagando a conta de prova
+-- (BAIXO 8) e termina em `raise` — nada persiste, passe ou falhe.
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T30 · D33 (ALTO 1) — O CENÁRIO S1: UM DIA ENCERRADO NÃO É REESCRITO
+-- O caminho REAL, medido pelo crítico: o item fecha ONTEM com US$ 80 e ontem
+-- lê 80. A sessão vinculada só é publicada HOJE (a última medição da conta em
+-- produção tinha 39 h de atraso). Com a régua da rodada 7 — a sessão cobra no
+-- dia da PUBLICAÇÃO — ontem virava 0 e os 80 migravam para hoje: um dia
+-- encerrado reescrito, e o teto de hoje consumido por trabalho de ontem.
+-- Esperado: ontem = 80 ANTES e DEPOIS da publicação; hoje = 0 nas duas vezes.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_ontem_antes numeric;
+  v_ontem_depois numeric;
+  v_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T30 fechou ontem, sessao publica hoje', 'maxima', 'Fable') returning id into v_id;
+
+  -- o item fechou ONTEM, ao meio-dia, com o número medido pela filha
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T30', ultimo_worker_id = 'w-T30',
+         session_id = 'sess-T30', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false, custo_origem = 'medido',
+         pego_em      = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '10 hours',
+         concluido_em = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '12 hours'
+   where id = v_id;
+
+  v_ontem_antes := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador() - 1);
+
+  -- ... e só AGORA a Routine publica a sessão daquele trabalho (39 h depois)
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T30', v_conta, 'T30', 'ativa', '{}', '{}', now(), now(), 80, now());
+
+  v_ontem_depois := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador() - 1);
+  v_hoje         := public.painel_fila_consumo_do_dia(v_conta, public.painel_dia_operador());
+
+  if v_ontem_antes = 80 and v_ontem_depois = 80 and v_hoje = 0 then
+    raise exception 'RESULTADO: ok — T30 D33 ontem continua 80 depois da publicação de hoje: antes=% depois=% hoje=%',
+      v_ontem_antes, v_ontem_depois, v_hoje;
+  end if;
+  raise exception 'FALHA: T30 D33 esperado ontem 80 ANTES e DEPOIS e hoje 0; obteve antes=% depois=% hoje=%',
+    v_ontem_antes, v_ontem_depois, v_hoje;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T31 · D34a (ALTO 2) — SESSÃO DE OUTRA CONTA É RECUSADA NAS TRÊS PORTAS
+-- `fila_prompts_heartbeat_interno` (0013) aceitava QUALQUER `p_session_id`, sem
+-- validar nada. Vincular a um item da conta B uma sessão da conta A fazia o
+-- mesmo trabalho existir nas duas contas. As três portas que vinculam sessão a
+-- item — heartbeat, fechar e ajustar_custo — passam a recusar, dizendo de quem
+-- é a sessão. Sessão ainda NÃO publicada continua passando (é o caso normal:
+-- a filha acabou de nascer).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta   text := 'lsgpandora@gmail.com';
+  v_outra   text := 'lucasscudeler@gmail.com';
+  v_id      uuid;
+  v_id2     uuid;
+  v_id3     uuid;
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_hb      text := '(nenhum erro)';
+  v_fe      text := '(nenhum erro)';
+  v_aj      text := '(nenhum erro)';
+  v_nova    jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_frentes_sessoes where sessao_id in ('sess-T31-alheia');
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T31-alheia', v_outra, 'T31', 'ativa', '{}', '{}', now(), now(), 80, now());
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T31 heartbeat', 'baixa', 'Haiku') returning id into v_id;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T31 fechar', 'baixa', 'Haiku') returning id into v_id2;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T31 ajustar', 'baixa', 'Haiku') returning id into v_id3;
+
+  update public.painel_fila_prompts
+     set estado = 'pega', worker_id = 'w-T31', ultimo_worker_id = 'w-T31',
+         tentativas = 1, pego_em = now(), heartbeat_em = now()
+   where id in (v_id, v_id2);
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T31', tentativas = 3,
+         custo_usd = 5, custo_e_estimativa = true, custo_origem = 'estimativa',
+         concluido_em = now()
+   where id = v_id3;
+
+  begin
+    perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T31', 'sess-T31-alheia');
+  exception when others then v_hb := SQLERRM;
+  end;
+  begin
+    perform public.fila_prompts_fechar_interno(
+      p_id => v_id2, p_conta => v_conta, p_worker_id => 'w-T31',
+      p_estado => 'concluida', p_custo_usd => 4, p_session_id => 'sess-T31-alheia');
+  exception when others then v_fe := SQLERRM;
+  end;
+  begin
+    perform public.fila_prompts_ajustar_custo(v_segredo, v_id3, 4, 'sess-T31-alheia');
+  exception when others then v_aj := SQLERRM;
+  end;
+
+  -- E a sessão que AINDA NÃO FOI PUBLICADA (a filha recém-nascida) passa.
+  v_nova := public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T31', 'sess-T31-propria');
+
+  if v_hb = 'Esta sessão é da conta ' || v_outra || ' — não dá para vinculá-la a um item da conta ' || v_conta || '.'
+     and v_fe = v_hb and v_aj = v_hb
+     and (v_nova->>'ok')::boolean and v_nova->>'sessionId' = 'sess-T31-propria' then
+    raise exception 'RESULTADO: ok — T31 D34a as três portas recusam a sessão alheia e a própria passa: "%"', v_hb;
+  end if;
+  raise exception 'FALHA: T31 D34a — heartbeat="%" fechar="%" ajustar="%" nova=%', v_hb, v_fe, v_aj, v_nova;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T32 · D34b (ALTO 2) — A DEDUP CASA POR SESSÃO, SEM OLHAR CONTA
+-- `0016:185` (`and s.conta = f.conta`) fazia o item NÃO deduplicar quando a
+-- sessão vinculada era de outra conta: a conta A cobrava 80 pela sessão e a
+-- conta B cobrava 80 pelo item — 160 por 80 de trabalho real. T31 fecha a
+-- porta para frente; ESTE bloco prova que a linha ruim que já existe no banco
+-- deixa de cobrar duas vezes.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta   text := 'lsgpandora@gmail.com';
+  v_outra   text := 'lucasscudeler@gmail.com';
+  v_id      uuid;
+  v_contrib numeric;
+  v_no_b    numeric;
+  v_dia     date := public.painel_dia_operador();
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_frentes_sessoes where sessao_id = 'sess-T32-alheia';
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T32-alheia', v_outra, 'T32', 'ativa', '{}', '{}', now(), now(), 80, now());
+
+  -- a linha RUIM: item da conta B apontando para a sessão da conta A
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T32 vinculo entre contas', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T32', ultimo_worker_id = 'w-T32',
+         session_id = 'sess-T32-alheia', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false, custo_origem = 'medido',
+         pego_em = now() - interval '2 hours', concluido_em = now()
+   where id = v_id;
+
+  select d.contribuicao into v_contrib
+    from public.painel_fila_itens_do_dia(v_conta, v_dia) d where d.id = v_id;
+  v_no_b := public.painel_fila_consumo_do_dia(v_conta, v_dia);
+
+  if v_contrib = 0 and v_no_b = 0 then
+    raise exception 'RESULTADO: ok — T32 D34b o item da outra conta contribui 0 (a sessão paga por si): contribuicao=% conta_B=%',
+      v_contrib, v_no_b;
+  end if;
+  raise exception 'FALHA: T32 D34b esperado contribuicao=0 e conta_B=0 (o mesmo trabalho em duas contas); obteve %/%',
+    v_contrib, v_no_b;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T33 · D35 (ALTO 3) — A TRAVA NÃO É DESARMADA POR QUEM NÃO MEDIU NADA
+-- `painel_fila_medido_ate` fazia `max(...)` SEM filtrar `custo_usd is not
+-- null` — respondia "última LINHA", não "última MEDIÇÃO". 21 das 215 sessões
+-- reais são linhas sem custo. Medido: uma sessão sem custo de 5 min atrás
+-- mascarava a medição real de 40 h, `defasagem` caía para 0,1 e a trava de
+-- D32c AUTORIZAVA gasto novo.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_defasagem numeric;
+  v_pull jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  -- a MEDIÇÃO de verdade: 40 h atrás
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T33-medida', v_conta, 'T33', 'ativa', '{}', '{}',
+          now() - interval '40 hours', now() - interval '40 hours', 12, now() - interval '40 hours');
+  -- e a LINHA sem custo, de 5 min atrás — a que mascarava tudo
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T33-muda', v_conta, 'T33', 'ativa', '{}', '{}',
+          now() - interval '5 minutes', now() - interval '5 minutes', null, now() - interval '5 minutes');
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T33 item barato', 'baixa', 'Haiku') returning id into v_id;
+
+  v_defasagem := public.painel_fila_defasagem_horas(v_conta);
+
+  update public.painel_teto_diario set exigir_medicao_recente = true where conta = v_conta;
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T33');
+
+  if round(v_defasagem) = 40
+     and v_pull->'item' = 'null'::jsonb
+     and (v_pull->>'recusado_por_medicao')::boolean then
+    raise exception 'RESULTADO: ok — T33 D35 a linha sem custo não conta como medição: defasagem=% recusa="%"',
+      v_defasagem, v_pull->>'motivo';
+  end if;
+  raise exception 'FALHA: T33 D35 esperado defasagem=40 e pull recusado; obteve defasagem=% pull=%',
+    v_defasagem, v_pull;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T34 · MÉDIO 4 — O OPERADOR CORRIGE O PRÓPRIO ERRO DE DIGITAÇÃO
+-- Medido: 120 (estimativa) → ajustado para 3 → SEGUNDO ajuste para 30 recusado
+-- com "este foi medido", culpando uma sessão que nunca reportou nada. Porta de
+-- mão única sobre o número que governa o teto, com uma porta dos fundos
+-- acidental: ajustar para exatamente 0 devolvia a possibilidade, porque a
+-- guarda olhava o VALOR. Agora ela olha a ORIGEM.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta   text := 'lsgpandora@gmail.com';
+  v_id      uuid;
+  v_medido  uuid;
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_um   jsonb;
+  v_dois jsonb;
+  v_zero jsonb;
+  v_tres jsonb;
+  v_erro text := '(nenhum erro)';
+  v_origem text;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T34 digitado pelo operador', 'maxima', 'Fable') returning id into v_id;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T34 medido pela sessao', 'maxima', 'Fable') returning id into v_medido;
+
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T34', tentativas = 3,
+         custo_usd = 120, custo_e_estimativa = true, custo_origem = 'estimativa',
+         motivo_falha = 'expirou 3 vezes sem fechamento', concluido_em = now()
+   where id = v_id;
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T34', tentativas = 3,
+         custo_usd = 95, custo_e_estimativa = false, custo_origem = 'medido',
+         concluido_em = now()
+   where id = v_medido;
+
+  v_um   := public.fila_prompts_ajustar_custo(v_segredo, v_id, 3, null);    -- 120 -> 3
+  v_dois := public.fila_prompts_ajustar_custo(v_segredo, v_id, 30, null);   -- 3 -> 30 (era RECUSADO)
+  v_zero := public.fila_prompts_ajustar_custo(v_segredo, v_id, 0, null);    -- 30 -> 0
+  v_tres := public.fila_prompts_ajustar_custo(v_segredo, v_id, 7, null);    -- 0 -> 7
+  select custo_origem into v_origem from public.painel_fila_prompts where id = v_id;
+
+  begin
+    perform public.fila_prompts_ajustar_custo(v_segredo, v_medido, 42, null);
+  exception when others then v_erro := SQLERRM;
+  end;
+
+  if (v_um->>'ok')::boolean
+     and (v_dois->>'custo_usd')::numeric = 30
+     and (v_dois->>'origem_anterior') = 'operador'
+     and (v_zero->>'custo_usd')::numeric = 0
+     and (v_tres->>'custo_usd')::numeric = 7
+     and v_origem = 'operador'
+     and v_erro = 'Este custo foi medido pela sessão — não dá para corrigi-lo aqui.' then
+    raise exception 'RESULTADO: ok — T34 MÉDIO 4 o operador corrige quantas vezes precisar (120→3→30→0→7) e o medido continua travado: "%"', v_erro;
+  end if;
+  raise exception 'FALHA: T34 MÉDIO 4 — um=% dois=% zero=% tres=% origem=% erro="%"',
+    v_um, v_dois, v_zero, v_tres, v_origem, v_erro;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T35 · BAIXO 4 + BAIXO 5 — SEM TETO DECLARADO NÃO SE INVENTA NÚMERO, E
+-- `headroom_usd` NUNCA SAI NEGATIVO
+-- `0016:368` tinha `if v_teto is null then v_teto := 150; end if;` — um número
+-- inventado no meio do caminho do dinheiro, e justamente o número que o
+-- operador já tinha trocado por 500. E o ramo de recusa por medição devolvia
+-- `headroom_usd` sem clamp, contra a régua de que número negativo não aparece
+-- nem na tela nem no relatório.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_erro text := '(nenhum erro)';
+  v_pull jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  -- (a) headroom NEGATIVO no ramo da recusa por medição. O gasto de HOJE vem
+  -- de um item fechado hoje (US$ 30); a MEDIÇÃO da conta é de 37 h atrás, que
+  -- é o que arma a trava. Teto 10 contra 30 gastos = headroom −20.
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T35', v_conta, 'T35', 'ativa', '{}', '{}',
+          now() - interval '37 hours', now() - interval '37 hours', 0, now() - interval '37 hours');
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T35 gasto de hoje', 'baixa', 'Haiku') returning id into v_id;
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T35', tentativas = 3,
+         custo_usd = 30, custo_e_estimativa = true, custo_origem = 'estimativa',
+         concluido_em = now()
+   where id = v_id;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T35 item na fila', 'baixa', 'Haiku');
+
+  update public.painel_teto_diario
+     set teto_usd = 10, exigir_medicao_recente = true where conta = v_conta;
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T35-a');
+
+  -- (b) SEM teto declarado: a RPC recusa em vez de inventar 150.
+  update public.painel_teto_diario set exigir_medicao_recente = false where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_teto_diario where conta = v_conta;
+  begin
+    perform public.fila_prompts_pegar_interno(v_conta, 'w-T35-b');
+  exception when others then v_erro := SQLERRM;
+  end;
+
+  if (v_pull->>'recusado_por_medicao')::boolean
+     and (v_pull->>'headroom_usd')::numeric = 0
+     and v_pull->>'headroom_usd' not like '%-%'
+     and v_erro like 'A conta % não tem teto diário declarado no painel%'
+     and v_erro not like '%150%' then
+    raise exception 'RESULTADO: ok — T35 headroom clampado em % e sem teto a RPC recusa: "%"',
+      v_pull->>'headroom_usd', v_erro;
+  end if;
+  raise exception 'FALHA: T35 — headroom=% erro="%"', v_pull->>'headroom_usd', v_erro;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T36 · BAIXO 1 — A RECUSA DE FENCING NOMEIA QUEM PEGOU, SEM UUID CRU
+-- `0015:636` dizia "Item pertence a outro worker (nenhum): <uuid cru>" — e
+-- dizia NINGUÉM justamente no caso em que há um dono conhecido (o item morto
+-- guarda `ultimo_worker_id`), cuspindo o id técnico num texto que o operador lê.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_erro text := '(nenhum erro)';
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T36 fencing', 'maxima', 'Fable') returning id into v_id;
+
+  -- item morto: sem dono VIVO, mas com dono conhecido em ultimo_worker_id
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T36-dono',
+         tentativas = 3, custo_usd = 120, custo_e_estimativa = false, custo_origem = 'medido',
+         concluido_em = now()
+   where id = v_id;
+
+  begin
+    perform public.fila_prompts_fechar_interno(
+      p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T36-intruso',
+      p_estado => 'falhou', p_custo_usd => 3);
+  exception when others then v_erro := SQLERRM;
+  end;
+
+  if v_erro = 'Item pertence a outro worker (w-T36-dono).'
+     and v_erro not like '%' || v_id::text || '%'
+     and v_erro not like '%nenhum%' then
+    raise exception 'RESULTADO: ok — T36 BAIXO 1 a recusa nomeia o dono e não cospe UUID: "%"', v_erro;
+  end if;
+  raise exception 'FALHA: T36 BAIXO 1 — obteve "%"', v_erro;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T37 · D34a, SEGUNDO CAMINHO — A RECUSA NÃO DEIXA RASTRO
+-- T31 prova que as três portas dizem "não". Este prova a consequência que
+-- interessa: depois do "não", o VÍNCULO não existe — e é o vínculo que faz o
+-- mesmo dinheiro passar a existir em duas contas. Apagar a guarda derruba os
+-- dois blocos, por caminhos diferentes (a mensagem × o estado gravado).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_outra text := 'lucasscudeler@gmail.com';
+  v_id uuid;
+  v_sess_depois text;
+  v_estado text;
+  v_erro text := '(nenhum erro)';
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_frentes_sessoes where sessao_id = 'sess-T37-alheia';
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T37-alheia', v_outra, 'T37', 'ativa', '{}', '{}', now(), now(), 80, now());
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T37 vinculo recusado', 'baixa', 'Haiku') returning id into v_id;
+  update public.painel_fila_prompts
+     set estado = 'pega', worker_id = 'w-T37', ultimo_worker_id = 'w-T37',
+         tentativas = 1, pego_em = now(), heartbeat_em = now()
+   where id = v_id;
+
+  begin
+    perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T37', 'sess-T37-alheia');
+  exception when others then v_erro := SQLERRM;
+  end;
+
+  select session_id, estado into v_sess_depois, v_estado
+    from public.painel_fila_prompts where id = v_id;
+
+  if v_erro like 'Esta sessão é da conta %'
+     and v_sess_depois is null
+     and v_estado = 'pega' then
+    raise exception 'RESULTADO: ok — T37 D34a a recusa não cria o vínculo: session_id=% estado=% erro="%"',
+      coalesce(v_sess_depois, '(nulo)'), v_estado, v_erro;
+  end if;
+  raise exception 'FALHA: T37 D34a — session_id=% estado=% erro="%"',
+    coalesce(v_sess_depois, '(nulo)'), v_estado, v_erro;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T38 · D34b, SEGUNDO CAMINHO — A SOMA DAS DUAS CONTAS É 80
+-- T32 abre a caixa (a contribuição do item). Este fecha a conta: o TOTAL
+-- cobrado pelas DUAS contas por um trabalho de US$ 80,00. Com `and s.conta =
+-- f.conta` de volta no lateral, a conta A cobra 80 pela sessão e a conta B
+-- cobra 80 pelo item — o 160 que o crítico mediu.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_b text := 'lsgpandora@gmail.com';
+  v_a text := 'lucasscudeler@gmail.com';
+  v_id uuid;
+  v_dia date := public.painel_dia_operador();
+  v_na_a numeric;
+  v_na_b numeric;
+  v_total numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta in (v_a, v_b);
+  delete from public.painel_fila_prompts where conta in (v_a, v_b);
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T38-alheia', v_a, 'T38', 'ativa', '{}', '{}', now(), now(), 80, now());
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_b, 'T38 mesmo trabalho, duas contas', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T38', ultimo_worker_id = 'w-T38',
+         session_id = 'sess-T38-alheia', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false, custo_origem = 'medido',
+         pego_em = now() - interval '2 hours', concluido_em = now()
+   where id = v_id;
+
+  v_na_a := public.painel_fila_consumo_do_dia(v_a, v_dia);
+  v_na_b := public.painel_fila_consumo_do_dia(v_b, v_dia);
+  v_total := v_na_a + v_na_b;
+
+  if v_na_a = 80 and v_na_b = 0 and v_total = 80 then
+    raise exception 'RESULTADO: ok — T38 D34b US$ 80,00 de trabalho cobram 80 no TOTAL das duas contas: A=% B=% TOTAL=%',
+      v_na_a, v_na_b, v_total;
+  end if;
+  raise exception 'FALHA: T38 D34b esperado A=80 B=0 TOTAL=80 (o mesmo dinheiro em duas contas); obteve A=% B=% TOTAL=%',
+    v_na_a, v_na_b, v_total;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T39 · D35, SEGUNDO CAMINHO — O QUE A TELA RECEBE
+-- T33 olha a trava do pull. Este olha a porta que o CARD lê
+-- (`fila_prompts_listar` → consumo[].medidoAteEm/defasagemHoras): com uma
+-- medição de 40 h e uma linha SEM custo de 5 min, o card tem de receber as
+-- 40 h. Sem o filtro de custo, ele recebia 0,1 h e imprimia "medido até há 5
+-- min" sobre um saldo de quase dois dias.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_medida timestamptz := now() - interval '40 hours';
+  v_rpc jsonb;
+  v_linha jsonb;
+  v_medido_ate timestamptz;
+  v_defasagem numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T39-medida', v_conta, 'T39', 'ativa', '{}', '{}', v_medida, v_medida, 12, v_medida);
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T39-muda', v_conta, 'T39', 'ativa', '{}', '{}',
+          now() - interval '5 minutes', now() - interval '5 minutes', null, now() - interval '5 minutes');
+
+  v_rpc := public.fila_prompts_listar(
+             (select valor from private.lifeboard_config where chave = 'load_secret'), 1);
+  select l into v_linha from jsonb_array_elements(v_rpc->'consumo') as l where l->>'conta' = v_conta;
+  v_medido_ate := (v_linha->>'medidoAteEm')::timestamptz;
+  v_defasagem  := (v_linha->>'defasagemHoras')::numeric;
+
+  if abs(extract(epoch from (v_medido_ate - v_medida))) < 2
+     and round(v_defasagem) = 40 then
+    raise exception 'RESULTADO: ok — T39 D35 a tela recebe a MEDIÇÃO (40 h), não a linha muda de 5 min: medidoAteEm=% defasagem=%',
+      v_medido_ate, v_defasagem;
+  end if;
+  raise exception 'FALHA: T39 D35 esperado medidoAteEm = a sessão medida de 40 h e defasagem 40; obteve medidoAteEm=% defasagem=%',
+    v_medido_ate, v_defasagem;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T40 · MÉDIO 3, SEGUNDO CAMINHO — DOIS ITENS, UM PAGO PELA SESSÃO
+-- T24 tem 1 item. Este tem 2 — um com sessão vinculada e custo publicado (paga
+-- a sessão, contribuição 0) e um sem sessão (paga do próprio bolso). `itens`
+-- conta 2 (a fila RODOU dois) e `itens_com_contribuicao` conta 1. Com a régua
+-- antiga, `itens` respondia 1 e metade do dia sumia do relatório.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_com uuid;
+  v_sem uuid;
+  v_rpc jsonb;
+  v_linha jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T40 item com sessao', 'maxima', 'Fable') returning id into v_com;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T40 item sem sessao', 'maxima', 'Fable') returning id into v_sem;
+
+  update public.painel_fila_prompts
+     set estado = 'concluida', worker_id = 'w-T40', ultimo_worker_id = 'w-T40',
+         session_id = 'sess-T40', tentativas = 1,
+         custo_usd = 80, custo_e_estimativa = false, custo_origem = 'medido',
+         pego_em = now() - interval '2 hours', concluido_em = now()
+   where id = v_com;
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T40', tentativas = 3,
+         custo_usd = 20, custo_e_estimativa = true, custo_origem = 'estimativa',
+         concluido_em = now()
+   where id = v_sem;
+
+  insert into public.painel_frentes_sessoes
+    (sessao_id, conta, titulo, estado, branches, repos, criado_em, atualizado_em, custo_usd, publicado_em)
+  values ('sess-T40', v_conta, 'T40', 'ativa', '{}', '{}', now(), now(), 80, now());
+
+  v_rpc := public.fila_prompts_consumo_do_dia(
+             (select valor from private.lifeboard_config where chave = 'load_secret'),
+             public.painel_dia_operador());
+  select l into v_linha from jsonb_array_elements(v_rpc->'contas') as l where l->>'conta' = v_conta;
+
+  if (v_linha->>'itens')::int = 2
+     and (v_linha->>'itens_com_contribuicao')::int = 1
+     and (v_linha->>'consumo_usd')::numeric = 100 then
+    raise exception 'RESULTADO: ok — T40 MÉDIO 3 a fila rodou 2 itens e 1 pagou do próprio bolso: linha=%', v_linha;
+  end if;
+  raise exception 'FALHA: T40 esperado itens=2, itens_com_contribuicao=1, consumo=100; obteve %', v_linha;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T41 · MÉDIO 4, SEGUNDO CAMINHO — PELO CANCELAR, COM A ORIGEM GRAVADA
+-- T34 entra pelo item que MORREU (expiração). Este entra pela outra porta que
+-- lança dinheiro da casa — `fila_prompts_cancelar` de um item em execução —, e
+-- olha a COLUNA (`custo_origem`), não a mensagem: `estimativa` quando a casa
+-- lança, `operador` depois do primeiro ajuste, e o segundo ajuste passa.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_cancel jsonb;
+  v_um jsonb;
+  v_dois jsonb;
+  v_origem_1 text;
+  v_origem_2 text;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T41 cancelado em execucao', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts
+     set estado = 'pega', worker_id = 'w-T41', ultimo_worker_id = 'w-T41',
+         tentativas = 1, pego_em = now() - interval '10 minutes', heartbeat_em = now()
+   where id = v_id;
+
+  v_cancel := public.fila_prompts_cancelar(v_segredo, v_id);
+  select custo_origem into v_origem_1 from public.painel_fila_prompts where id = v_id;
+  v_um   := public.fila_prompts_ajustar_custo(v_segredo, v_id, 9, null);
+  select custo_origem into v_origem_2 from public.painel_fila_prompts where id = v_id;
+  v_dois := public.fila_prompts_ajustar_custo(v_segredo, v_id, 4, null);
+
+  if (v_cancel->>'custo_lancado_usd')::numeric = 120
+     and v_origem_1 = 'estimativa'
+     and v_origem_2 = 'operador'
+     and (v_um->>'custo_usd')::numeric = 9
+     and (v_dois->>'custo_usd')::numeric = 4 then
+    raise exception 'RESULTADO: ok — T41 MÉDIO 4 a casa lança (estimativa), o operador corrige duas vezes (9 e 4) e a origem vira operador: %/%',
+      v_origem_1, v_origem_2;
+  end if;
+  raise exception 'FALHA: T41 — cancel=% origem1=% origem2=% um=% dois=%',
+    v_cancel, v_origem_1, v_origem_2, v_um, v_dois;
 end $$;

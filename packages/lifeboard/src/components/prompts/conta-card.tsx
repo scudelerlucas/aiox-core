@@ -1,6 +1,7 @@
 import type { ConsumoConta } from "@/core/prompts/tipos";
 import {
   ROTULO_CONTA,
+  bancoRecusaria,
   estadoDaMedicao,
   faixaConsumo,
   formatarUsd,
@@ -27,6 +28,20 @@ import { formatRelativeTime } from "@/lib/format-relative-time";
  * Fable" numa conta que não vai rodar nada hoje é convidar o operador a uma
  * ação que o banco recusa — o cartão diz o que é verdade: "teto atingido —
  * próximo espaço amanhã".
+ *
+ * MÉDIO 2 (rodada 8): o TETO APARECE EM TEXTO SEMPRE. O ramo "sem medição"
+ * trocava a linha inteira do dinheiro por uma frase — e o valor do teto, que é
+ * o trabalho deste cartão, sobrava só dentro do `aria-label`: invisível em 2
+ * dos 3 estados reais. E a frase da medição saía DUAS vezes seguidas (uma no
+ * lugar da linha do dinheiro, outra na linha de baixo). Agora: a linha do
+ * dinheiro existe nos três estados e termina em "de US$ X" (dizendo "nada
+ * medido ainda" quando é o caso, nunca "US$ 0,00", que fingiria medição), e a
+ * frase da medição aparece UMA vez.
+ *
+ * D36 (rodada 8): conta que o banco RECUSARIA agora (medição velha com
+ * `exigir_medicao_recente`) ganha o selo "sem autorização agora" — ele vem
+ * ANTES de "escolhida agora", porque um cartão não pode dizer que foi
+ * escolhido para um disparo que o banco vai recusar.
  *
  * D13/D20 (rodada 4): o cartão NUNCA mostra número negativo (o crítico mediu
  * "US$ -20,00 livres" nesta linha) — passou do teto vira "sem espaço livre
@@ -75,11 +90,13 @@ export function ContaCard({
   const fraseDaMedicao = textoDaMedicao(consumo, agora);
   const semMedicao = medicao === "sem-medicao";
   const realidade = textoTetoVsRealidade(consumo);
+  // D36: o banco recusaria QUALQUER disparo desta conta agora.
+  const travada = bancoRecusaria(consumo, agora);
 
   return (
     <section
       className={`rounded-lg border bg-navy-850 p-4 ${
-        atingiu || esperaHoje
+        atingiu || esperaHoje || travada
           ? "border-state-blocked/70"
           : seriaEscolhida
             ? "border-gold-500 shadow-heroi"
@@ -91,6 +108,10 @@ export function ContaCard({
         {atingiu ? (
           <span className="rounded-full border border-state-blocked/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-state-blocked">
             teto atingido
+          </span>
+        ) : travada ? (
+          <span className="rounded-full border border-state-blocked/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-state-blocked">
+            sem autorização agora
           </span>
         ) : esperaHoje ? (
           <span className="rounded-full border border-state-blocked/70 bg-navy-800 px-2 py-0.5 text-[11px] font-medium text-state-blocked">
@@ -112,7 +133,7 @@ export function ContaCard({
           aria-valuemax={100}
           aria-label={
             semMedicao
-              ? `Sem medição nenhuma nesta conta; ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+              ? `Nada medido ainda nesta conta; ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
               : `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
           }
           className="h-2.5 w-full overflow-hidden rounded-full bg-navy-600"
@@ -123,33 +144,41 @@ export function ContaCard({
           />
         </div>
         {/*
-          D32a (rodada 7): SEM MEDIÇÃO NENHUMA não vira "US$ 0,00 de US$ 150,00 ·
-          US$ 150,00 livres". O crítico mediu esse card sobre duas contas que
+          D32a (rodada 7): SEM MEDIÇÃO NENHUMA não vira "US$ 0,00 de US$ 500,00 ·
+          US$ 500,00 livres". O crítico mediu esse card sobre duas contas que
           nunca tiveram sessão: a tela dizia, com todas as letras, que o dia
           inteiro estava livre — sobre um número que ninguém nunca mediu. Zero
-          não medido não é zero gasto, e o card agora diz qual dos dois é.
+          não medido não é zero gasto, e o card diz qual dos dois é.
+
+          MÉDIO 2 (rodada 8): mas o TETO continua na linha, nos três estados.
+          Ele é o trabalho deste cartão ("gasto do dia vs teto") e estava
+          visível só quando havia medição — nos outros dois casos sobrava
+          dentro do `aria-label`, onde ninguém que enxerga o lê.
         */}
-        {semMedicao ? (
-          <p className="mt-1.5 text-xs font-medium text-state-blocked">
-            sem medição nenhuma — nenhuma sessão desta conta foi medida ainda
-          </p>
-        ) : (
-          <p className={`mt-1.5 text-xs font-medium ${cores.texto}`}>
-            {formatarUsd(consumo.consumoHojeUsd)}
-            {consumo.reservadoUsd > 0 ? ` + ${formatarUsd(consumo.reservadoUsd)} em execução` : ""}
-            {" de "}
-            {formatarUsd(consumo.tetoUsd)}
-          </p>
-        )}
+        <p
+          className={`mt-1.5 text-xs font-medium ${semMedicao ? "text-state-blocked" : cores.texto}`}
+        >
+          {semMedicao ? "nada medido ainda" : formatarUsd(consumo.consumoHojeUsd)}
+          {consumo.reservadoUsd > 0 ? ` + ${formatarUsd(consumo.reservadoUsd)} em execução` : ""}
+          {" de "}
+          {formatarUsd(consumo.tetoUsd)}
+        </p>
         <p
           className={`mt-0.5 text-[11px] ${
             medicao === "recente" ? "text-bone-400" : "text-state-progress"
           }`}
         >
-          {/* O proxy só atualiza na cadência da Routine diária de cada conta. */}
+          {/*
+            MÉDIO 2: a frase da medição aparece UMA vez. Antes, no estado "sem
+            medição", ela saía aqui E na linha de cima — duas linhas seguidas
+            dizendo exatamente a mesma coisa.
+            O proxy só atualiza na cadência da Routine diária de cada conta.
+          */}
           {medicao === "recente"
             ? `medido até ${formatRelativeTime(consumo.medidoAteEm as string, agora)}`
-            : fraseDaMedicao}
+            : semMedicao
+              ? "sem medição nenhuma — nenhuma sessão desta conta foi medida ainda"
+              : fraseDaMedicao}
           {semMedicao ? null : (
             <>
               {" · "}
@@ -171,8 +200,12 @@ export function ContaCard({
         */}
         {realidade ? <p className="mt-0.5 text-[11px] text-bone-400">{realidade}</p> : null}
         {consumo.exigeMedicaoRecente === true ? (
-          <p className="mt-0.5 text-[11px] text-state-progress">
-            esta conta só autoriza gasto novo com medição de menos de 12 h.
+          <p
+            className={`mt-0.5 text-[11px] ${travada ? "text-state-blocked" : "text-state-progress"}`}
+          >
+            {travada
+              ? "nenhum disparo é autorizado agora: esta conta exige medição de menos de 12 h."
+              : "esta conta só autoriza gasto novo com medição de menos de 12 h."}
           </p>
         ) : null}
         {estimativa ? (
@@ -182,6 +215,12 @@ export function ContaCard({
 
       {atingiu ? (
         <p className="mt-3 text-xs text-state-blocked">teto atingido — próximo espaço amanhã</p>
+      ) : travada ? (
+        /* D9 estendido (D36): conta que o banco recusa não sugere modelo — sugerir
+           "próximo modelo: Fable" aqui seria convidar para o disparo recusado. */
+        <p className="mt-3 text-xs text-state-blocked">
+          sem autorização agora — volta a rodar quando a medição desta conta for atualizada
+        </p>
       ) : proximoModelo ? (
         <p className="mt-3 text-xs text-bone-300">
           próximo modelo sugerido: <span className="font-semibold text-bone-100">{proximoModelo}</span>
