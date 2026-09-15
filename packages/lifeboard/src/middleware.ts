@@ -112,31 +112,55 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (isPublicPath(path)) return NextResponse.next();
 
   let response = NextResponse.next({ request });
-  const supabase = createServerClient(url, anon, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet: CookieToSet[]) {
-        for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
-        }
-      },
-    },
-  });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const email = (user?.email ?? "").toLowerCase();
-  const autorizado = user ? await podeLer(supabase as unknown as ClienteLeitura, email) : false;
-  if (!user || !autorizado) {
+  const paraOLogin = (proibido: boolean): NextResponse => {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
-    redirectUrl.search = user ? "?error=forbidden" : "";
+    redirectUrl.search = proibido ? "?error=forbidden" : "";
     return NextResponse.redirect(redirectUrl);
+  };
+
+  /**
+   * Abrir o cliente e ler o usuário é a única parte daqui que pode lançar, e
+   * lançar aqui é diferente de lançar numa página: o middleware é UM só, então
+   * a exceção vira 500 em TODAS as rotas de uma vez, não numa tela.
+   *
+   * `getUser()` devolve erro de autenticação como VALOR, mas RELANÇA o que não
+   * for de autenticação — `TypeError` de URL malformada (credencial colada com
+   * espaço ou quebra de linha), falha de rede, projeto trocado no meio do
+   * caminho. Foi o que derrubou o painel em 15/09/2026, ao apontar a Vercel
+   * para outro projeto Supabase (hipótese H2 do diagnóstico da troca).
+   *
+   * A regra é a mesma que as rotas do painel já seguem (`NaoConsegui` em
+   * `linha-do-tempo`, `home-degrada-sem-cair`): degrada, nunca derruba. E
+   * degradar aqui é o lado SEGURO — sem conseguir provar quem é, ninguém entra.
+   */
+  let supabase: ReturnType<typeof createServerClient> | null = null;
+  let user: { email?: string | null } | null = null;
+  try {
+    supabase = createServerClient(url, anon, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet: CookieToSet[]) {
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    });
+    const resultado = await supabase.auth.getUser();
+    user = resultado.data.user;
+  } catch {
+    return paraOLogin(false);
   }
+
+  if (!user || !supabase) return paraOLogin(false);
+
+  const email = (user.email ?? "").toLowerCase();
+  const autorizado = await podeLer(supabase as unknown as ClienteLeitura, email);
+  if (!autorizado) return paraOLogin(true);
 
   return response;
 }

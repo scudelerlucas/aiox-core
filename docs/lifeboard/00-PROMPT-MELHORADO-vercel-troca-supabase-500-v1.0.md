@@ -304,7 +304,16 @@ acontecer, e qual é o próximo clique que é meu. Com o link de cada arquivo e 
 | **D3** | O número de migrations conferidas está escrito de três jeitos (20, 15, 21) | **A)** a próxima sessão mede uma vez e corrige os três lugares · **B)** fica como está, cada documento com o seu |
 | **D4** | Endurecer o `DEPLOY.md` com `!estressar³` depois que a causa for conhecida ⚙ | **A)** sim, na mesma sessão · **B)** não, o documento já basta |
 
-**Recomendação:** **D1-B, D2-A, D3-A, D4-A.**
+> ## ✅ DECIDIDO pelo operador em 15/09/2026: **D1-B · D2-A · D3-A · D4-A**
+> — e executado na mesma sessão. O que saiu: a correção do portão com 9 testes
+> (`packages/lifeboard/tests/unit/middleware.test.ts`), o laudo parcial
+> (`packages/lifeboard/DIAGNOSTICO-500-troca-de-projeto-2026-09-15.md`), as duas emendas no
+> `DEPLOY.md` e a missão de navegador
+> (`docs/ops/PROMPT-CHROME-2026-09-15-lifeboard-vercel-diagnostico.md`).
+> **D3 medido:** 21 migrações, 20 conferíveis pelo `PASSO-0` v2; o "15/15" era a v1 do mesmo dia.
+> **D4 pendente do log:** o endurecimento completo do `DEPLOY.md` roda quando a causa fechar.
+
+**Recomendação (registrada antes da decisão):** **D1-B, D2-A, D3-A, D4-A.**
 D1-B porque o laudo sem o Preview não fecha nada — e você não vai ter de lembrar da sequência
 sozinho. D2-A porque trocar de banco agora empilha duas migrações de uma vez, e uma delas já
 quebrou. D3-A porque três números para a mesma pergunta é como a casa perde uma tarde.
