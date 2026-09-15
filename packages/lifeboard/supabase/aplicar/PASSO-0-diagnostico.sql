@@ -8,14 +8,68 @@
 -- conferida, e estava errada. Esta versão confere as 21 migrations inteiras,
 -- uma por uma, para eu parar de adivinhar.
 --
--- Migrations sem marcador próprio (0002, 0005, 0008, 0010, 0011, 0014, 0017,
--- 0020) só redeclaram função sobre uma tabela já existente — não têm como
--- conferir sozinhas com uma consulta simples. Ficam de fora da tabela; se as
--- vizinhas da faixa delas estiverem OK, elas quase certamente também estão
--- (mesmo arquivo de sequência, mesma ordem de aplicação).
+-- Cobertura: 20 marcadores para 21 migrations. A ÚNICA sem marcador é a 0011,
+-- que só faz `create or replace function` sobre funções que migrations
+-- POSTERIORES redeclaram de novo — qualquer marca no corpo dela seria apagada
+-- depois, então não há o que conferir. Ela fica declarada como NÃO VERIFICÁVEL
+-- na saída, em vez de ficar de fora calada.
+--
+-- HISTÓRICO DAS DUAS CORREÇÕES (15/09/2026, achados do Codex no PR #26):
+--   1ª: a lista de "sem marcador" dizia OITO e incluía 0017 e 0020. Errado —
+--       as duas sempre tiveram linha (0017 confere `v_criado_em` no corpo de
+--       lifeboard_mutate; 0020, `pg_advisory_xact_lock` em painel_caixa_lancar).
+--   2ª: das seis restantes, quatro NÃO "só redeclaram função" — 0002 fixa
+--       search_path, 0005 cria os guardas de dono e o trigger do DAG, 0008 e
+--       0010 criam CHECKs, 0014 cria índice. Todas ganharam marcador agora.
+--       Um banco que pulasse a 0005 passava 15/15 verde com os guardas de
+--       isolamento por dono AUSENTES. Era o pior caso e sumiu.
+--
+-- Marcador escolhido só quando o objeto NASCE naquela migration — conferido
+-- arquivo por arquivo. `trg_tasks_dag_check` foi recusado como marca da 0005
+-- porque a 0001 já o cria; e `tasks_assimetria_dominio`, porque a 0005 já o
+-- cria antes da 0008.
+--
+-- LIMITE QUE ESTE SCRIPT NÃO VENCE, dito por escrito em vez de fingido:
+-- um marcador prova que AQUELE objeto existe, não que a migration inteira
+-- rodou. Uma migration que morra no meio (psql com ON_ERROR_STOP=0, colagem
+-- cortada) pode deixar o objeto marcado de pé e o resto ausente, e a linha sai
+-- verde. Não há cura geral barata: seria preciso um marcador por objeto de cada
+-- migration. O que dá para fazer é blindar onde o estrago é pior — por isso a
+-- 0005, que é a migration das travas de isolamento por dono, exige as QUATRO
+-- constraints dela, não uma. (3ª e 4ª rodadas do Codex no PR #26.)
+--
+-- No SQL Editor do Supabase o risco é menor: a colagem roda como UMA transação
+-- e aborta inteira no primeiro erro. O caminho perigoso é o psql sem
+-- ON_ERROR_STOP.
+--
+-- 5ª rodada do Codex: a checagem da 0005 contava nomes em `pg_constraint` sem
+-- dizer de que TABELA. Nome de constraint não é único no banco — só por tabela.
+-- MEDIDO: criando uma FK chamada `task_notes_task_mesmo_dono_fkey` noutra
+-- tabela, a contagem foi de 4 para 5 e a linha virava FALTA num banco correto;
+-- e a trava podendo faltar em `task_notes` com um sósia alheio mantendo a conta
+-- em 4 dava APLICADA sem a trava. Num projeto compartilhado com ~15 sistemas
+-- isso não é hipótese. Agora cada constraint é ancorada em `conrelid`.
+--
+-- 6ª rodada do Codex, duas coisas:
+--   a) `'public.task_edges'::regclass` ABORTA o script inteiro quando a tabela
+--      não existe — exatamente o caso de banco NOVO, onde este diagnóstico é o
+--      primeiro a rodar e deveria devolver tudo FALTA. Trocado por
+--      `to_regclass(...)`, que devolve NULL em vez de erro. MEDIDO: contra banco
+--      vazio a versão anterior morria em `relation "public.task_edges" does not
+--      exist`; agora sai a tabela inteira com 20 FALTA.
+--   b) 0002, 0008, 0010 e 0014 ainda casavam só por NOME. Ancorados também:
+--      as constraints por `conrelid`, o índice por `indrelid`, e a função da
+--      0002 pelo schema `public`.
 -- ════════════════════════════════════════════════════════════════════════════
 select '0001' as migration, 'tabela public.tasks existe' as marcador,
   case when to_regclass('public.tasks') is not null then 'APLICADA' else 'FALTA' end as estado
+union all
+select '0002', 'search_path fixado em public.lifeboard_touch_updated_at',
+  case when exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where p.proname = 'lifeboard_touch_updated_at' and n.nspname = 'public'
+       and 'search_path=public, pg_temp' = any(coalesce(p.proconfig, '{}')))
+  then 'APLICADA' else 'FALTA' end
 union all
 select '0003', 'CHECK de sources.kind inclui ''lms''',
   case when exists (
@@ -26,6 +80,16 @@ union all
 select '0004', 'tabela public.task_edges existe',
   case when to_regclass('public.task_edges') is not null then 'APLICADA' else 'FALTA' end
 union all
+select '0005', 'as 4 travas de isolamento por dono existem, cada uma na SUA tabela',
+  case when (
+    select count(*) from pg_constraint c
+     where (c.conname, c.conrelid) in (
+             ('task_edges_origem_mesmo_dono_fkey',  to_regclass('public.task_edges')),
+             ('task_edges_destino_mesmo_dono_fkey', to_regclass('public.task_edges')),
+             ('task_notes_task_mesmo_dono_fkey',    to_regclass('public.task_notes')),
+             ('tasks_id_owner_unica',               to_regclass('public.tasks')))) = 4
+  then 'APLICADA' else 'FALTA' end
+union all
 select '0006', 'função lifeboard_mutate existe',
   case when exists (select 1 from pg_proc where proname = 'lifeboard_mutate')
        then 'APLICADA' else 'FALTA' end
@@ -33,11 +97,28 @@ union all
 select '0007', 'tabela public.painel_teto_diario existe',
   case when to_regclass('public.painel_teto_diario') is not null then 'APLICADA' else 'FALTA' end
 union all
+select '0008', 'CHECK tasks_assimetria_tamanho existe em public.tasks',
+  case when exists (
+    select 1 from pg_constraint
+     where conname = 'tasks_assimetria_tamanho'
+       and conrelid = to_regclass('public.tasks'))
+  then 'APLICADA' else 'FALTA' end
+union all
 select '0009', 'coluna painel_fila_prompts.custo_estimado_usd existe',
   case when exists (
     select 1 from information_schema.columns
      where table_name='painel_fila_prompts' and column_name='custo_estimado_usd')
   then 'APLICADA' else 'FALTA' end
+union all
+select '0010', 'CHECK tasks_titulo_tamanho existe em public.tasks',
+  case when exists (
+    select 1 from pg_constraint
+     where conname = 'tasks_titulo_tamanho'
+       and conrelid = to_regclass('public.tasks'))
+  then 'APLICADA' else 'FALTA' end
+union all
+select '0011', 'sem marcador possível (só redeclara função que migration posterior redeclara de novo)',
+  'NAO VERIFICAVEL'
 union all
 select '0012', 'coluna painel_fila_prompts.worker_id existe',
   case when exists (
@@ -49,6 +130,13 @@ select '0013', 'coluna painel_fila_prompts.disponivel_em existe',
   case when exists (
     select 1 from information_schema.columns
      where table_name='painel_fila_prompts' and column_name='disponivel_em')
+  then 'APLICADA' else 'FALTA' end
+union all
+select '0014', 'índice painel_fila_prompts_na_fila_ordem_idx existe na tabela certa',
+  case when exists (
+    select 1 from pg_index i
+     where i.indexrelid = to_regclass('public.painel_fila_prompts_na_fila_ordem_idx')
+       and i.indrelid   = to_regclass('public.painel_fila_prompts'))
   then 'APLICADA' else 'FALTA' end
 union all
 select '0015', 'coluna painel_fila_prompts.ultimo_worker_id existe',
