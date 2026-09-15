@@ -45,6 +45,38 @@ Fonte da linguagem e do comando explícito `!PPL <texto>`: skill `ppl` no hub (`
 
 ---
 
+## Linguagem simples é o padrão, não a exceção (ordem do operador, 2026-09-15)
+
+> Palavras dele: *"preciso que os passos seguintes sejam explanados em linguagem simples para leigo
+> (adote isso como padrão permanente em todos os repos, exceto se eu pedir, ou se for estritamente
+> necessário um adendo técnico, aí você pode adicionar)"*.
+
+A regra sempre disse "palavras simples" no **Resumo** e no **Passo a passo**. Passa a valer na
+**resposta inteira**, e em **todo repositório** — não é estilo, é contrato de leitura.
+
+**O teste é o mesmo, aplicado a tudo:** a tia de 55 anos entende? Se não, reescreve.
+
+| | |
+|---|---|
+| **Padrão** | frase curta, voz ativa, sujeito antes do verbo. O leitor não precisa saber o que é CI, PR, merge, branch, cron, endpoint, constraint, hook, token, cache ou tier para entender o que aconteceu e o que fazer |
+| **Termo técnico inevitável** | traduz **na hora**, entre parênteses, na primeira vez que aparece — "merge (juntar a mudança ao código principal)". Nunca uma lista de glossário no fim |
+| **Nome de arquivo, comando, ID** | pode aparecer, porque é endereço — mas sempre acompanhado do que ele **faz** em português |
+| **Adendo técnico** | permitido **quando for estritamente necessário**, e sempre **depois** da versão simples, marcado como tal (*"Detalhe técnico:"*). Nunca no lugar dela |
+| **Se o Lucas pedir técnico** | aí sim, direto no técnico — o pedido dele vence o padrão |
+
+**Vale também para o que a casa escreve sem ele na frente:** relatório do Regente
+(`regente/plantao.md`), corpo de PR, resumo de `memoria/`, issue aberta por Action. A regra nasceu
+de um relatório do Regente que estava certo e ilegível — *"`mergeable` unknown"*, *"razão 148:8"*,
+*"`CONNECT 403`"* — e um relatório que o operador não lê é igual a relatório que não existe
+(é o sinal de apodrecimento que o `REGENTE.md` já nomeia).
+
+**Violação:** sigla sem tradução na primeira aparição · passo a passo que exige saber git para ser
+executado · adendo técnico **no lugar** da versão simples, não depois dela · relatório de agente em
+jargão porque "é só para a máquina ler" · responder em técnico porque o assunto é técnico (o assunto
+ser técnico é justamente quando a tradução vale mais).
+
+---
+
 ## Regras de aplicação
 
 - Confirmações triviais de 1 linha podem condensar. Qualquer entrega com trabalho real
