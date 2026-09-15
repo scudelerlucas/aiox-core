@@ -161,7 +161,14 @@ os passos abaixo.
    > 3. Pegar o `load_secret` do projeto novo:
    >    `select valor from private.lifeboard_config where chave = 'load_secret';`
    >
-   >    **Se não voltar linha nenhuma, é o caso normal de banco NOVO** — as
+   >    **Pré-requisito:** o projeto de destino já tem de estar com as migrations
+   >    aplicadas (seção "Banco NOVO do zero", `PASSO-2`). Antes disso a própria
+   >    tabela não existe e este `select` devolve
+   >    `ERROR: relation "private.lifeboard_config" does not exist` — não é "zero
+   >    linhas", é erro. Rode o `PASSO-0` primeiro: se vier tudo `FALTA`, aplique
+   >    as migrations antes de voltar para cá.
+   >
+   >    **Se a tabela existir e não voltar linha nenhuma, é o caso normal** — as
    >    migrations criam a tabela `private.lifeboard_config` e de propósito NÃO
    >    inserem o segredo (item 5 acima). Não siga adiante sem ele: gere um valor
    >    e insira, no SQL Editor DAQUELE projeto, antes do passo 4:
