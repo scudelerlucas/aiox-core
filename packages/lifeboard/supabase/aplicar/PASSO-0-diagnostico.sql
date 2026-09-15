@@ -28,6 +28,19 @@
 -- arquivo por arquivo. `trg_tasks_dag_check` foi recusado como marca da 0005
 -- porque a 0001 já o cria; e `tasks_assimetria_dominio`, porque a 0005 já o
 -- cria antes da 0008.
+--
+-- LIMITE QUE ESTE SCRIPT NÃO VENCE, dito por escrito em vez de fingido:
+-- um marcador prova que AQUELE objeto existe, não que a migration inteira
+-- rodou. Uma migration que morra no meio (psql com ON_ERROR_STOP=0, colagem
+-- cortada) pode deixar o objeto marcado de pé e o resto ausente, e a linha sai
+-- verde. Não há cura geral barata: seria preciso um marcador por objeto de cada
+-- migration. O que dá para fazer é blindar onde o estrago é pior — por isso a
+-- 0005, que é a migration das travas de isolamento por dono, exige as QUATRO
+-- constraints dela, não uma. (3ª e 4ª rodadas do Codex no PR #26.)
+--
+-- No SQL Editor do Supabase o risco é menor: a colagem roda como UMA transação
+-- e aborta inteira no primeiro erro. O caminho perigoso é o psql sem
+-- ON_ERROR_STOP.
 -- ════════════════════════════════════════════════════════════════════════════
 select '0001' as migration, 'tabela public.tasks existe' as marcador,
   case when to_regclass('public.tasks') is not null then 'APLICADA' else 'FALTA' end as estado
@@ -48,9 +61,13 @@ union all
 select '0004', 'tabela public.task_edges existe',
   case when to_regclass('public.task_edges') is not null then 'APLICADA' else 'FALTA' end
 union all
-select '0005', 'FK de dono em task_edges (guarda de isolamento por dono)',
-  case when exists (
-    select 1 from pg_constraint where conname = 'task_edges_origem_mesmo_dono_fkey')
+select '0005', 'as 4 travas de isolamento por dono existem',
+  case when (
+    select count(*) from pg_constraint
+     where conname in ('task_edges_origem_mesmo_dono_fkey',
+                       'task_edges_destino_mesmo_dono_fkey',
+                       'task_notes_task_mesmo_dono_fkey',
+                       'tasks_id_owner_unica')) = 4
   then 'APLICADA' else 'FALTA' end
 union all
 select '0006', 'função lifeboard_mutate existe',
