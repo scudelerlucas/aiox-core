@@ -49,15 +49,26 @@
 -- e a trava podendo faltar em `task_notes` com um sósia alheio mantendo a conta
 -- em 4 dava APLICADA sem a trava. Num projeto compartilhado com ~15 sistemas
 -- isso não é hipótese. Agora cada constraint é ancorada em `conrelid`.
+--
+-- 6ª rodada do Codex, duas coisas:
+--   a) `'public.task_edges'::regclass` ABORTA o script inteiro quando a tabela
+--      não existe — exatamente o caso de banco NOVO, onde este diagnóstico é o
+--      primeiro a rodar e deveria devolver tudo FALTA. Trocado por
+--      `to_regclass(...)`, que devolve NULL em vez de erro. MEDIDO: contra banco
+--      vazio a versão anterior morria em `relation "public.task_edges" does not
+--      exist`; agora sai a tabela inteira com 20 FALTA.
+--   b) 0002, 0008, 0010 e 0014 ainda casavam só por NOME. Ancorados também:
+--      as constraints por `conrelid`, o índice por `indrelid`, e a função da
+--      0002 pelo schema `public`.
 -- ════════════════════════════════════════════════════════════════════════════
 select '0001' as migration, 'tabela public.tasks existe' as marcador,
   case when to_regclass('public.tasks') is not null then 'APLICADA' else 'FALTA' end as estado
 union all
-select '0002', 'search_path fixado em lifeboard_touch_updated_at',
+select '0002', 'search_path fixado em public.lifeboard_touch_updated_at',
   case when exists (
-    select 1 from pg_proc
-     where proname = 'lifeboard_touch_updated_at'
-       and 'search_path=public, pg_temp' = any(coalesce(proconfig, '{}')))
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where p.proname = 'lifeboard_touch_updated_at' and n.nspname = 'public'
+       and 'search_path=public, pg_temp' = any(coalesce(p.proconfig, '{}')))
   then 'APLICADA' else 'FALTA' end
 union all
 select '0003', 'CHECK de sources.kind inclui ''lms''',
@@ -73,10 +84,10 @@ select '0005', 'as 4 travas de isolamento por dono existem, cada uma na SUA tabe
   case when (
     select count(*) from pg_constraint c
      where (c.conname, c.conrelid) in (
-             ('task_edges_origem_mesmo_dono_fkey',  'public.task_edges'::regclass),
-             ('task_edges_destino_mesmo_dono_fkey', 'public.task_edges'::regclass),
-             ('task_notes_task_mesmo_dono_fkey',    'public.task_notes'::regclass),
-             ('tasks_id_owner_unica',               'public.tasks'::regclass))) = 4
+             ('task_edges_origem_mesmo_dono_fkey',  to_regclass('public.task_edges')),
+             ('task_edges_destino_mesmo_dono_fkey', to_regclass('public.task_edges')),
+             ('task_notes_task_mesmo_dono_fkey',    to_regclass('public.task_notes')),
+             ('tasks_id_owner_unica',               to_regclass('public.tasks')))) = 4
   then 'APLICADA' else 'FALTA' end
 union all
 select '0006', 'função lifeboard_mutate existe',
@@ -86,9 +97,11 @@ union all
 select '0007', 'tabela public.painel_teto_diario existe',
   case when to_regclass('public.painel_teto_diario') is not null then 'APLICADA' else 'FALTA' end
 union all
-select '0008', 'CHECK tasks_assimetria_tamanho existe',
+select '0008', 'CHECK tasks_assimetria_tamanho existe em public.tasks',
   case when exists (
-    select 1 from pg_constraint where conname = 'tasks_assimetria_tamanho')
+    select 1 from pg_constraint
+     where conname = 'tasks_assimetria_tamanho'
+       and conrelid = to_regclass('public.tasks'))
   then 'APLICADA' else 'FALTA' end
 union all
 select '0009', 'coluna painel_fila_prompts.custo_estimado_usd existe',
@@ -97,9 +110,11 @@ select '0009', 'coluna painel_fila_prompts.custo_estimado_usd existe',
      where table_name='painel_fila_prompts' and column_name='custo_estimado_usd')
   then 'APLICADA' else 'FALTA' end
 union all
-select '0010', 'CHECK tasks_titulo_tamanho existe',
+select '0010', 'CHECK tasks_titulo_tamanho existe em public.tasks',
   case when exists (
-    select 1 from pg_constraint where conname = 'tasks_titulo_tamanho')
+    select 1 from pg_constraint
+     where conname = 'tasks_titulo_tamanho'
+       and conrelid = to_regclass('public.tasks'))
   then 'APLICADA' else 'FALTA' end
 union all
 select '0011', 'sem marcador possível (só redeclara função que migration posterior redeclara de novo)',
@@ -117,9 +132,11 @@ select '0013', 'coluna painel_fila_prompts.disponivel_em existe',
      where table_name='painel_fila_prompts' and column_name='disponivel_em')
   then 'APLICADA' else 'FALTA' end
 union all
-select '0014', 'índice painel_fila_prompts_na_fila_ordem_idx existe',
+select '0014', 'índice painel_fila_prompts_na_fila_ordem_idx existe na tabela certa',
   case when exists (
-    select 1 from pg_indexes where indexname = 'painel_fila_prompts_na_fila_ordem_idx')
+    select 1 from pg_index i
+     where i.indexrelid = to_regclass('public.painel_fila_prompts_na_fila_ordem_idx')
+       and i.indrelid   = to_regclass('public.painel_fila_prompts'))
   then 'APLICADA' else 'FALTA' end
 union all
 select '0015', 'coluna painel_fila_prompts.ultimo_worker_id existe',
