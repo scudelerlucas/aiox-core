@@ -41,6 +41,17 @@ Skill `melhorar-prompt`, skill `arsenal`, leitura do repo (Bash/grep).
 
 ## Vetos aceitos: 0
 
+## Custo de vigilância (regra check-in-automatico-de-pr)
+PR #29, rascunho só de documentação: **8 notificações recebidas, 0 acionáveis**. Quebra: 2 ecos da
+própria inscrição, 2 avisos da Vercel (o mesmo comentário reescrito de *Building* para *Ready*, 2
+projetos apontando para este repositório), 1 CodeRabbit dizendo que não revisa rascunho, 1 relatório
+de cobertura vazio, 1 aviso de fim das verificações, 1 leitura de fila. As 27 verificações fecharam
+sem falha; 17 delas foram puladas por não haver código no diff.
+Aplicada a tabela: linha 1 não (o operador não pediu para vigiar este PR) · linha 2 não (verificações
+terminais, sem conflito, nenhuma thread esperando ação minha) · **linha 3** → inscrição cancelada e
+check-in apagado na hora, com aviso na mesma resposta. Rascunho parado em decisão do operador é o
+caso-padrão de linha 3 que a regra já nomeia.
+
 ## Links
 - `docs/lifeboard/00-PROMPT-MELHORADO-vercel-troca-supabase-500-v1.0.md`
 - `packages/lifeboard/DEPLOY.md` (PR #26, mergeado)
