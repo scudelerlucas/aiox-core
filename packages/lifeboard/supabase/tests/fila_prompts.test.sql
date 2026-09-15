@@ -3003,3 +3003,100 @@ begin
   raise exception 'FALHA: T57 D47 % de % estorno(s) apontam para outro estorno — a cadeia do extrato quebrou',
     v_maus, v_estornos;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T58 · D44b — a parcela estimada não fica NEGATIVA quando a estimativa
+-- corrigida é de um dia anterior
+--
+-- [Achado MAIOR, CodeRabbit, rodada 11] T54 só prova o caso do MESMO dia
+-- (estimativa e correção na mesma chamada, logo mesmo `dia`). A checagem
+-- original do EXISTS (`a.id = l.estorna_id and a.origem = 'estimativa'`) não
+-- olhava o dia de `a`: uma estimativa de ONTEM corrigida HOJE soma o estorno
+-- de hoje (-valor) sozinho — a estimativa original nunca esteve no total de
+-- HOJE (o filtro `l.dia = hoje` já a exclui), só o estorno dela está — e a
+-- parcela ainda estimada de hoje ficava negativa, o que não tem sentido de
+-- negócio (não existe "estimativa negativa").
+--
+-- Este bloco insere a estimativa DIRETO no livro, datada de ONTEM (mesmo
+-- padrão da abertura/§4 da 0020: inserir é permitido, só update/delete são
+-- recusados pelo gatilho de imutabilidade), e corrige HOJE via
+-- painel_caixa_lancar — reproduzindo exatamente o caminho que uma estimativa
+-- aberta um dia e medida no seguinte percorre em produção.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_ent   text := 'T58-entidade-de-prova';
+  v_estimada numeric;
+  v_itens integer;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where entidade_id = v_ent;
+
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, nota)
+  values
+    (public.painel_dia_operador() - 1, v_conta, 80, 'estimativa', 'item', v_ent,
+     'T58: estimativa de ONTEM, inserida direto para simular abertura de dia anterior');
+
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 30, 'medido', null, null, now());
+
+  v_estimada := public.painel_fila_estimativa_usd(v_conta);
+  v_itens    := public.painel_fila_estimativa_itens(v_conta);
+
+  if v_estimada = 0 and v_itens = 0 then
+    raise exception 'RESULTADO: ok — T58 D44b estorno de estimativa de dia anterior não conta como estimativa de hoje: estimada=% itens=%',
+      v_estimada, v_itens;
+  end if;
+  raise exception 'FALHA: T58 D44b esperado estimada=0 itens=0 (nunca negativo), obteve estimada=% itens=%',
+    v_estimada, v_itens;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T59 · D49 — nenhuma entidade ganha linha de ABERTURA depois de já ter sido
+-- lançada (detector de dobra de dinheiro por reaplicação da 0019)
+--
+-- [Rodada 11] A idempotência do §7 da 0019 é a chave `abertura = true`. Sessão
+-- que chega DEPOIS da abertura é lançada pelo gatilho
+-- `painel_frentes_sessoes_lancar` com `abertura = false` — não colide com nada.
+-- MEDIDO num Postgres 16 local, antes do conserto: reaplicar a 0019 levava uma
+-- sessão pós-abertura de US$ 70 para US$ 140. O dia dobrava, em silêncio.
+-- Agravante: o D48 (rodada 10, deste mesmo PR) tirou o freio — antes a 0019
+-- ABORTAVA no §8 ao ser reaplicada sobre livro corrigido; depois dele ela
+-- completa, e completava dobrando.
+--
+-- O QUE ESTE BLOCO É, HONESTAMENTE: um detector de ESTADO, não um teste do
+-- código da migration (query de migration não é chamável daqui — mesma
+-- limitação declarada em T55). Ele varre o livro inteiro e acusa a assinatura
+-- do dano: uma linha de abertura criada DEPOIS de um lançamento não-abertura
+-- da mesma entidade. Num livro são isso é impossível por construção, porque a
+-- abertura é sempre o primeiro lançamento de cada entidade.
+-- Vale contra o banco REAL: se a 0019 já tiver sido reaplicada em produção
+-- depois de sessões novas terem chegado, este bloco acusa aqui.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_suspeitas integer;
+  v_exemplo   text;
+begin
+  select count(*), min(x.entidade_id)
+    into v_suspeitas, v_exemplo
+    from (
+      select ab.entidade_id
+        from public.painel_caixa_lancamentos ab
+       where ab.abertura
+         and exists (
+               select 1 from public.painel_caixa_lancamentos an
+                where an.entidade_tipo = ab.entidade_tipo
+                  and an.entidade_id   = ab.entidade_id
+                  and not an.abertura
+                  and an.criado_em < ab.criado_em)
+    ) x;
+
+  if v_suspeitas = 0 then
+    raise exception 'RESULTADO: ok — T59 D49 nenhuma entidade ganhou abertura depois de já ter sido lançada (livro sem assinatura de dobra)';
+  end if;
+  raise exception 'FALHA: T59 D49 % entidade(s) com linha de abertura POSTERIOR a um lançamento comum (ex.: %) — assinatura de 0019 reaplicada sobre sessões pós-abertura, dinheiro possivelmente dobrado',
+    v_suspeitas, v_exemplo;
+end $$;

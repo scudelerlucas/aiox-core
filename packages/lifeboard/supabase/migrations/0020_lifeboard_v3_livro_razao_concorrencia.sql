@@ -203,13 +203,18 @@ as $$
     and (
       l.origem = 'estimativa'
       -- D44: o estorno de uma estimativa é parte da conta da estimativa.
+      -- [Achado MAIOR, CodeRabbit] só quando o estorno é do MESMO dia da
+      -- estimativa original: sem a.dia = l.dia, uma estimativa de ONTEM
+      -- corrigida HOJE conta o estorno (-valor) sozinho, e a parcela ainda
+      -- estimada de hoje fica NEGATIVA — a estimativa de ontem nunca esteve
+      -- no total de hoje (l.dia = hoje já a exclui), só o estorno dela está.
       or (l.origem = 'estorno' and exists (
             select 1 from public.painel_caixa_lancamentos a
-            where a.id = l.estorna_id and a.origem = 'estimativa'))
+            where a.id = l.estorna_id and a.origem = 'estimativa' and a.dia = l.dia))
     );
 $$;
 comment on function public.painel_fila_estimativa_usd(text) is
-  'D20 (rodada 4) + D41 (rodada 9) + D44 (rodada 10): quanto do consumo de HOJE ainda é ESTIMATIVA da casa. Soma as linhas de origem estimativa E os estornos que apagam uma estimativa — sem a segunda metade, uma estimativa corrigida no mesmo dia continuava contando inteira (achado P1 do Codex).';
+  'D20 (rodada 4) + D41 (rodada 9) + D44 (rodada 10, corrigido rodada 11): quanto do consumo de HOJE ainda é ESTIMATIVA da casa. Soma as linhas de origem estimativa E os estornos, do MESMO dia, que apagam uma estimativa — sem a segunda metade, uma estimativa corrigida no mesmo dia continuava contando inteira; sem a checagem de dia, uma estimativa de dia anterior corrigida hoje deixava a parcela negativa (achado do CodeRabbit).';
 revoke all on function public.painel_fila_estimativa_usd(text) from public, anon, authenticated;
 
 -- O "N itens" segue a mesma lei: entidade cuja parcela estimada do dia zerou
@@ -231,7 +236,7 @@ as $$
         l.origem = 'estimativa'
         or (l.origem = 'estorno' and exists (
               select 1 from public.painel_caixa_lancamentos a
-              where a.id = l.estorna_id and a.origem = 'estimativa'))
+              where a.id = l.estorna_id and a.origem = 'estimativa' and a.dia = l.dia))
       )
     group by 1
   )
