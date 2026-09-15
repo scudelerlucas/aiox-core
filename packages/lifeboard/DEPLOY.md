@@ -1,17 +1,28 @@
 # OS-LIFEBOARD — Deploy (Vercel + Supabase + Login Google)
 
-> ## ⚠️ LEIA ANTES DE SEGUIR QUALQUER PASSO (14/09/2026)
+> ## ⚠️ LEIA ANTES DE SEGUIR QUALQUER PASSO (atualizado em 15/09/2026)
 >
-> **Este documento citava um projeto Supabase que NÃO EXISTE MAIS**
-> (`hciiilopyivjaekaxfqp`). Conferido em 14/09/2026: não aparece nem no Supabase
-> nem na Vercel. Onde esse ref aparecia, agora está `<PROJECT-REF>`.
+> **Correção do aviso anterior.** A versão de 14/09 dizia que o projeto
+> `hciiilopyivjaekaxfqp` "NÃO EXISTE MAIS". **Estava errado, e o erro foi meu.**
+> Ele existe, chama-se **`quiz-diagnosys`**, e é onde o LifeBoard realmente vive:
+> em 15/09/2026 ele fecha 15/15 migrations aplicadas e a suíte comportamental de
+> 59 blocos passa inteira contra ele. A conclusão errada veio de procurar o
+> projeto pela caixa de busca do painel — **ela filtra por NOME, não por ref.**
+> Para conferir um ref, abra a URL direta:
+> `https://supabase.com/dashboard/project/<PROJECT-REF>`.
 >
-> **NUNCA confie no ref escrito aqui.** A fonte da verdade é a Vercel:
+> **Mesmo assim, não confie no ref escrito aqui.** A fonte da verdade é a Vercel:
 > `vercel.com` → projeto `aiox-core-lifeboard` → Settings → Environment
-> Variables → Production → `NEXT_PUBLIC_SUPABASE_URL`.
+> Variables → Production → `NEXT_PUBLIC_SUPABASE_URL`. Onde um ref aparecia no
+> corpo deste documento, agora está `<PROJECT-REF>`.
+>
+> **E hoje a Vercel aponta para o projeto errado** (ver o parágrafo seguinte), então
+> "o que está na Vercel" é a fonte da verdade sobre a CONFIGURAÇÃO, não sobre qual
+> projeto *deveria* ser usado. O jeito de decidir é o `PASSO-0b` no fim deste aviso.
 >
 > **O que deu errado, para não repetir:** em 14/09/2026 essa variável na Vercel
-> apontava para `ofskmjpzlgzmnivmkyop` — que é o projeto Supabase de OUTRO
+> apontava (e, até que alguém troque, ainda aponta) para `ofskmjpzlgzmnivmkyop` —
+> que é o projeto Supabase de OUTRO
 > sistema (RAG/embeddings: `aiox_tnf_pgvector`, `os_corpus_rag`,
 > `aiox_canon_viral_forja`, migrations de maio e julho/2026). Nenhuma migration
 > do LifeBoard jamais rodou lá. Como o app estava em
@@ -65,6 +76,43 @@ os passos abaixo.
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | chave anon/publishable do projeto |
    | `LIFEBOARD_LOAD_SECRET` | segredo da RPC `lifeboard_load` |
    | `LIFEBOARD_ALLOWED_EMAILS` | `lucas.scudeler@pandoratreinamentos.com.br,lucasscudeler@gmail.com` (opcional — já é o default) |
+
+   > **⚠️ TROCAR DE PROJETO SUPABASE NÃO É TROCAR UMA VARIÁVEL (achado de 15/09/2026).**
+   >
+   > Três armadilhas, todas medidas no código:
+   >
+   > **1. Existe um segundo par de variáveis, e ele TEM PRECEDÊNCIA.** Em
+   > `src/config/env.ts`, `SUPABASE_URL` e `SUPABASE_ANON_KEY` (sem o prefixo
+   > `NEXT_PUBLIC_`) são lidas ANTES das públicas:
+   >
+   > ```ts
+   > firstNonEmpty(process.env.SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_URL)
+   > ```
+   >
+   > Se as duas famílias existirem na Vercel e você trocar só a `NEXT_PUBLIC_`, o
+   > servidor continua no banco antigo e o navegador vai para o novo — metade do
+   > sistema em cada projeto, pior que o estado inicial. **Confira se a versão
+   > server-only existe antes de trocar qualquer coisa, e troque as duas juntas.**
+   >
+   > **2. URL e chave anon andam casadas.** `src/lib/supabase/browser.ts` monta o
+   > cliente com as duas; `src/middleware.ts` faz o mesmo no gate de login. URL de
+   > um projeto com chave de outro = login quebrado, não erro de dado.
+   >
+   > **3. `LIFEBOARD_LOAD_SECRET` é por projeto.** É a chave `load_secret` da tabela
+   > `private.lifeboard_config` DAQUELE banco (passo 5 abaixo). Cada projeto tem o
+   > seu; herdar o valor antigo devolve `unauthorized`.
+   >
+   > Ordem segura para migrar de projeto, com `LIFEBOARD_DATA_MODE` ainda em
+   > `fixture` (nada em produção muda até o último passo):
+   >
+   > 1. Ver quais das 4 variáveis de banco existem hoje no painel.
+   > 2. Pegar a chave anon do projeto novo (Supabase → Settings → API).
+   > 3. Pegar o `load_secret` do projeto novo:
+   >    `select valor from private.lifeboard_config where chave = 'load_secret';`
+   > 4. Trocar TODAS de uma vez (as `NEXT_PUBLIC_*`, e as server-only se existirem).
+   > 5. Redeploy e conferir `/api/health` — ainda em `fixture`, a resposta deve ficar
+   >    IGUAL à de antes. É assim que se sabe que nada quebrou.
+   > 6. Só então `LIFEBOARD_DATA_MODE=live`, e conferir `/api/health` de novo.
 
 5. **Segredo da RPC no banco (obrigatório em banco NOVO).** A função `lifeboard_load`
    lê o segredo de `private.lifeboard_config` (migration 0004/0005) — as migrations
