@@ -107,7 +107,7 @@ os passos abaixo.
 
    | Nome | Valor |
    |------|-------|
-   | `LIFEBOARD_DATA_MODE` | `live` |
+   | `LIFEBOARD_DATA_MODE` | `live` — **mas veja o aviso abaixo se você está MIGRANDO um deploy que já existe:** ali esta linha fica em `fixture` até o último passo, de propósito. `live` aqui vale para instalação NOVA. |
    | `NEXT_PUBLIC_SUPABASE_URL` | `https://<PROJECT-REF>.supabase.co` |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | chave anon/publishable do projeto |
    | `LIFEBOARD_LOAD_SECRET` | segredo da RPC `lifeboard_load` |
@@ -160,6 +160,21 @@ os passos abaixo.
    > 2. Pegar a chave anon do projeto novo (Supabase → Settings → API).
    > 3. Pegar o `load_secret` do projeto novo:
    >    `select valor from private.lifeboard_config where chave = 'load_secret';`
+   >
+   >    **Se não voltar linha nenhuma, é o caso normal de banco NOVO** — as
+   >    migrations criam a tabela `private.lifeboard_config` e de propósito NÃO
+   >    inserem o segredo (item 5 acima). Não siga adiante sem ele: gere um valor
+   >    e insira, no SQL Editor DAQUELE projeto, antes do passo 4:
+   >
+   >    ```sql
+   >    insert into private.lifeboard_config (chave, valor)
+   >    values ('load_secret', encode(gen_random_bytes(32), 'hex'))
+   >    on conflict (chave) do nothing;
+   >    select valor from private.lifeboard_config where chave = 'load_secret';
+   >    ```
+   >
+   >    O valor que sair daí é o que vai para `LIFEBOARD_LOAD_SECRET` na Vercel —
+   >    os dois têm de ser o MESMO. Sem isso, o passo 7 devolve `unauthorized`.
    > 4. **Antes de tocar em produção, provar num Preview.** Aponte um deploy de
    >    preview para o projeto novo (env vars de Preview na Vercel) e faça o login
    >    de verdade nele. É o único passo que prova que URL + chave anon estão
@@ -169,6 +184,13 @@ os passos abaixo.
    >    se existirem, **e `LIFEBOARD_LOAD_SECRET`**. Deixar qualquer uma para trás
    >    mistura dois projetos; deixar o `LOAD_SECRET` para trás não aparece agora e
    >    estoura no passo 7 como `unauthorized`.
+   >
+   >    **NÃO toque em `LIFEBOARD_DATA_MODE` aqui.** A tabela do passo 3, acima,
+   >    lista essa variável como `live` — isso vale para instalação nova. Numa
+   >    MIGRAÇÃO ela fica em `fixture` até o passo 7. Se ela virar `live` agora, a
+   >    camada de dados muda no mesmo redeploy da troca de credencial, e a
+   >    comparação do `/api/health` no passo 6 deixa de provar o que deveria: ela
+   >    só vale porque, em `fixture`, a resposta NÃO depende do banco.
    > 6. Redeploy e conferir DUAS coisas, não uma: (a) `/api/health` igual ao de
    >    antes — a camada de dados não mudou; (b) **fazer login de novo** na URL de
    >    produção. Espere ser deslogado: a sessão antiga era do projeto velho.
@@ -176,7 +198,8 @@ os passos abaixo.
    >    uma vez — agora ele fala com o banco real, e é aqui que um `load_secret`
    >    errado apareceria.
    >
-   > Achado de 15/09/2026, levantado pela revisão automática do Codex no PR #26.
+   > Achados de 15/09/2026, levantados em cinco rodadas pela revisão automática
+   > do Codex no PR #26.
 
 5. **Segredo da RPC no banco (obrigatório em banco NOVO).** A função `lifeboard_load`
    lê o segredo de `private.lifeboard_config` (migration 0004/0005) — as migrations

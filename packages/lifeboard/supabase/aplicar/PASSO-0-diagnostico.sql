@@ -41,6 +41,14 @@
 -- No SQL Editor do Supabase o risco é menor: a colagem roda como UMA transação
 -- e aborta inteira no primeiro erro. O caminho perigoso é o psql sem
 -- ON_ERROR_STOP.
+--
+-- 5ª rodada do Codex: a checagem da 0005 contava nomes em `pg_constraint` sem
+-- dizer de que TABELA. Nome de constraint não é único no banco — só por tabela.
+-- MEDIDO: criando uma FK chamada `task_notes_task_mesmo_dono_fkey` noutra
+-- tabela, a contagem foi de 4 para 5 e a linha virava FALTA num banco correto;
+-- e a trava podendo faltar em `task_notes` com um sósia alheio mantendo a conta
+-- em 4 dava APLICADA sem a trava. Num projeto compartilhado com ~15 sistemas
+-- isso não é hipótese. Agora cada constraint é ancorada em `conrelid`.
 -- ════════════════════════════════════════════════════════════════════════════
 select '0001' as migration, 'tabela public.tasks existe' as marcador,
   case when to_regclass('public.tasks') is not null then 'APLICADA' else 'FALTA' end as estado
@@ -61,13 +69,14 @@ union all
 select '0004', 'tabela public.task_edges existe',
   case when to_regclass('public.task_edges') is not null then 'APLICADA' else 'FALTA' end
 union all
-select '0005', 'as 4 travas de isolamento por dono existem',
+select '0005', 'as 4 travas de isolamento por dono existem, cada uma na SUA tabela',
   case when (
-    select count(*) from pg_constraint
-     where conname in ('task_edges_origem_mesmo_dono_fkey',
-                       'task_edges_destino_mesmo_dono_fkey',
-                       'task_notes_task_mesmo_dono_fkey',
-                       'tasks_id_owner_unica')) = 4
+    select count(*) from pg_constraint c
+     where (c.conname, c.conrelid) in (
+             ('task_edges_origem_mesmo_dono_fkey',  'public.task_edges'::regclass),
+             ('task_edges_destino_mesmo_dono_fkey', 'public.task_edges'::regclass),
+             ('task_notes_task_mesmo_dono_fkey',    'public.task_notes'::regclass),
+             ('tasks_id_owner_unica',               'public.tasks'::regclass))) = 4
   then 'APLICADA' else 'FALTA' end
 union all
 select '0006', 'função lifeboard_mutate existe',
