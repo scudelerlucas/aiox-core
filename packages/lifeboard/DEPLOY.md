@@ -5,8 +5,11 @@
 > **Correção do aviso anterior.** A versão de 14/09 dizia que o projeto
 > `hciiilopyivjaekaxfqp` "NÃO EXISTE MAIS". **Estava errado, e o erro foi meu.**
 > Ele existe, chama-se **`quiz-diagnosys`**, e é onde o LifeBoard realmente vive:
-> em 15/09/2026 ele fecha 15/15 migrations aplicadas e a suíte comportamental de
-> 59 blocos passa inteira contra ele. A conclusão errada veio de procurar o
+> em 15/09/2026 ele fecha **15/15 marcadores de diagnóstico** do `PASSO-0` e a
+> suíte comportamental de 59 blocos passa inteira contra ele. (São 15 marcadores
+> para 21 migrations: oito delas só redeclaram função sobre tabela já existente e
+> não têm marcador próprio — ver o cabeçalho do `PASSO-0`. Marcador verde é forte
+> indício, não prova de que as 21 rodaram.) A conclusão errada veio de procurar o
 > projeto pela caixa de busca do painel — **ela filtra por NOME, não por ref.**
 > Para conferir um ref, abra a URL direta:
 > `https://supabase.com/dashboard/project/<PROJECT-REF>`.
@@ -18,7 +21,7 @@
 >
 > **E hoje a Vercel aponta para o projeto errado** (ver o parágrafo seguinte), então
 > "o que está na Vercel" é a fonte da verdade sobre a CONFIGURAÇÃO, não sobre qual
-> projeto *deveria* ser usado. O jeito de decidir é o `PASSO-0b` no fim deste aviso.
+> projeto *deveria* ser usado. Como decidir está no fim deste aviso.
 >
 > **O que deu errado, para não repetir:** em 14/09/2026 essa variável na Vercel
 > apontava (e, até que alguém troque, ainda aponta) para `ofskmjpzlgzmnivmkyop` —
@@ -29,10 +32,29 @@
 > `LIFEBOARD_DATA_MODE != live`, ele nunca leu esse banco e nada quebrou na
 > tela — o desalinhamento ficou invisível por semanas.
 >
-> **Antes de aplicar migration em qualquer projeto**, rode
-> `supabase/aplicar/PASSO-0b-historico.sql` nele. Se o histórico tiver nomes de
-> outro sistema, é o projeto ERRADO — aplicar o LifeBoard ali despejaria ~40
-> tabelas e funções dentro do banco de outra aplicação viva.
+> ### Como saber se um projeto Supabase é o certo
+>
+> **A regra que estava aqui antes era perigosa e foi retirada.** Ela dizia: rode
+> `PASSO-0b-historico.sql` e, se o histórico tiver nomes de outro sistema, é o
+> projeto ERRADO. Aplicada ao projeto de produção, ela **reprova o projeto
+> certo**: o `quiz-diagnosys` é compartilhado com cerca de 15 outros sistemas, e
+> o histórico dele tem nomes de todos eles, legitimamente. A regra também
+> **aprovaria** um banco vazio e alheio, que não tem nome nenhum para reprovar.
+>
+> Histórico de migration não identifica projeto. Use, nesta ordem:
+>
+> 1. **O ref, de uma fonte autoritativa** — a env var `NEXT_PUBLIC_SUPABASE_URL`
+>    na Vercel, ou alguém que saiba. Abra `https://supabase.com/dashboard/project/<REF>`
+>    para ver o NOME (a caixa de busca do painel filtra por nome, não por ref).
+> 2. **`PASSO-0-diagnostico.sql` (decisivo)** — ele pergunta se os objetos DO
+>    LIFEBOARD existem naquele banco. Marcadores verdes = o LifeBoard mora ali.
+>    Tudo `FALTA` = ou é banco novo, ou é projeto de outra coisa. É esta checagem
+>    que separa os dois casos, não o histórico.
+> 3. **`PASSO-0b-historico.sql` (só conferência)** — mostra o que já rodou. Serve
+>    para ver se você está prestes a despejar ~40 tabelas dentro de um banco com
+>    aplicação viva. Não serve para aprovar nem reprovar projeto.
+>
+> Achado de 15/09/2026, levantado pela revisão automática do Codex no PR #26.
 
 Estado atual: **schema aplicado no Supabase real, 18 tarefas reais do Calendar já
 ingeridas, código live + login Google testado (54/54, build verde) e pushed.**
@@ -102,17 +124,45 @@ os passos abaixo.
    > `private.lifeboard_config` DAQUELE banco (passo 5 abaixo). Cada projeto tem o
    > seu; herdar o valor antigo devolve `unauthorized`.
    >
-   > Ordem segura para migrar de projeto, com `LIFEBOARD_DATA_MODE` ainda em
-   > `fixture` (nada em produção muda até o último passo):
+   > **⛔ `fixture` NÃO é uma rede de segurança para o login.** A primeira versão
+   > desta seção dizia que, com `LIFEBOARD_DATA_MODE=fixture`, trocar as variáveis
+   > "não muda nada em produção". **Errado.** `src/middleware.ts` e
+   > `src/lib/supabase/browser.ts` leem `NEXT_PUBLIC_SUPABASE_URL` e
+   > `NEXT_PUBLIC_SUPABASE_ANON_KEY` DIRETO, sem passar por `LIFEBOARD_DATA_MODE`.
+   > Trocar esse par e fazer redeploy **troca o backend de autenticação na hora**:
+   > as sessões abertas (cookies do projeto antigo) deixam de valer e quem estiver
+   > logado cai para `/login`.
    >
-   > 1. Ver quais das 4 variáveis de banco existem hoje no painel.
+   > E `/api/health` **não detecta isso**: ele está na lista de rotas públicas do
+   > middleware (`isPublicPath`), então nunca passa pelo gate de login, e em
+   > `fixture` lê repositório de mentira. Health verde com login quebrado é um
+   > estado perfeitamente possível. Health serve para provar que a CAMADA DE DADOS
+   > não mudou — nada além disso.
+   >
+   > Ordem para migrar de projeto:
+   >
+   > 1. Ver quais das 4 variáveis de banco existem hoje no painel (as `NEXT_PUBLIC_*`
+   >    e as server-only `SUPABASE_URL` / `SUPABASE_ANON_KEY`).
    > 2. Pegar a chave anon do projeto novo (Supabase → Settings → API).
    > 3. Pegar o `load_secret` do projeto novo:
    >    `select valor from private.lifeboard_config where chave = 'load_secret';`
-   > 4. Trocar TODAS de uma vez (as `NEXT_PUBLIC_*`, e as server-only se existirem).
-   > 5. Redeploy e conferir `/api/health` — ainda em `fixture`, a resposta deve ficar
-   >    IGUAL à de antes. É assim que se sabe que nada quebrou.
-   > 6. Só então `LIFEBOARD_DATA_MODE=live`, e conferir `/api/health` de novo.
+   > 4. **Antes de tocar em produção, provar num Preview.** Aponte um deploy de
+   >    preview para o projeto novo (env vars de Preview na Vercel) e faça o login
+   >    de verdade nele. É o único passo que prova que URL + chave anon estão
+   >    casadas. Confira também que o redirect URL do preview está na lista do
+   >    Supabase (Passo 2 deste documento).
+   > 5. Em Production, trocar TODAS de uma vez — as `NEXT_PUBLIC_*`, as server-only
+   >    se existirem, **e `LIFEBOARD_LOAD_SECRET`**. Deixar qualquer uma para trás
+   >    mistura dois projetos; deixar o `LOAD_SECRET` para trás não aparece agora e
+   >    estoura no passo 7 como `unauthorized`.
+   > 6. Redeploy e conferir DUAS coisas, não uma: (a) `/api/health` igual ao de
+   >    antes — a camada de dados não mudou; (b) **fazer login de novo** na URL de
+   >    produção. Espere ser deslogado: a sessão antiga era do projeto velho.
+   > 7. Só então `LIFEBOARD_DATA_MODE=live`, redeploy, e conferir `/api/health` mais
+   >    uma vez — agora ele fala com o banco real, e é aqui que um `load_secret`
+   >    errado apareceria.
+   >
+   > Achado de 15/09/2026, levantado pela revisão automática do Codex no PR #26.
 
 5. **Segredo da RPC no banco (obrigatório em banco NOVO).** A função `lifeboard_load`
    lê o segredo de `private.lifeboard_config` (migration 0004/0005) — as migrations
@@ -202,8 +252,8 @@ leitura** e não escrevem nada.
 
 | # | Script | O que faz |
 |---|--------|-----------|
-| 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`. Se aparecerem nomes de outro sistema, PARE: é o projeto errado. |
-| 0 | `PASSO-0-diagnostico.sql` | Diz quais das 21 migrations já estão aplicadas. Em banco novo: 15/15 `FALTA`. |
+| 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`: mostra o que já rodou naquele banco. Nome de outro sistema **não** quer dizer projeto errado — o `quiz-diagnosys` divide o banco com ~15 sistemas. Quer dizer que há aplicação viva ali e que aplicar o LifeBoard vai somar ~40 objetos ao banco dela. Quem identifica o projeto é o `PASSO-0` (ver o aviso no topo). |
+| 0 | `PASSO-0-diagnostico.sql` | Confere 15 marcadores de objeto — um por migration que introduz objeto próprio; 8 das 21 só redeclaram função e não têm marcador. É a checagem que diz se o LifeBoard mora naquele banco. Em banco novo: 15/15 `FALTA`. |
 | 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0021`, depois o `alter ... teto_usd set default 500`. |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
 | — | `tests/fila_prompts.test.sql` | A guarda comportamental: 59 blocos. |
