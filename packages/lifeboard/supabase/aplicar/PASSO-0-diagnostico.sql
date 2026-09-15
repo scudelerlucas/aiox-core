@@ -8,11 +8,17 @@
 -- conferida, e estava errada. Esta versão confere as 21 migrations inteiras,
 -- uma por uma, para eu parar de adivinhar.
 --
--- Migrations sem marcador próprio (0002, 0005, 0008, 0010, 0011, 0014, 0017,
--- 0020) só redeclaram função sobre uma tabela já existente — não têm como
--- conferir sozinhas com uma consulta simples. Ficam de fora da tabela; se as
--- vizinhas da faixa delas estiverem OK, elas quase certamente também estão
--- (mesmo arquivo de sequência, mesma ordem de aplicação).
+-- Migrations sem marcador próprio: 0002, 0005, 0008, 0010, 0011, 0014 — SEIS.
+-- Só redeclaram função sobre uma tabela já existente e não têm como conferir
+-- sozinhas com uma consulta simples. Ficam de fora da tabela; se as vizinhas da
+-- faixa delas estiverem OK, elas quase certamente também estão (mesmo arquivo
+-- de sequência, mesma ordem de aplicação).
+--
+-- CORREÇÃO (15/09/2026, achado do Codex no PR #26): esta lista dizia OITO e
+-- incluía 0017 e 0020. Errado — as duas TÊM linha aqui embaixo (0017 confere
+-- `v_criado_em` no corpo de lifeboard_mutate; 0020 confere
+-- `pg_advisory_xact_lock` no corpo de painel_caixa_lancar). A conta certa é
+-- 15 marcadores + 6 sem marcador = 21 migrations.
 -- ════════════════════════════════════════════════════════════════════════════
 select '0001' as migration, 'tabela public.tasks existe' as marcador,
   case when to_regclass('public.tasks') is not null then 'APLICADA' else 'FALTA' end as estado
