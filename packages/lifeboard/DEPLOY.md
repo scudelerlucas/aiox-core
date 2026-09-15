@@ -130,6 +130,22 @@ os passos abaixo.
    > sistema em cada projeto, pior que o estado inicial. **Confira se a versão
    > server-only existe antes de trocar qualquer coisa, e troque as duas juntas.**
    >
+   > **1-b. E o RETORNO do login Google lê por um caminho DIFERENTE do portão**
+   > (achado de 15/09/2026, lendo o código). Não é a mesma armadilha do item 1 — é
+   > a consequência dela que ninguém tinha nomeado:
+   >
+   > | Arquivo | O que faz | De onde lê |
+   > |---|---|---|
+   > | `src/middleware.ts` | o portão: decide quem entra | `NEXT_PUBLIC_*`, direto |
+   > | `src/lib/supabase/browser.ts` | o botão "Entrar com Google" | `NEXT_PUBLIC_*`, direto |
+   > | `src/lib/supabase/auth-server.ts` | **o retorno do Google** (`/auth/callback`) | `@/config/env` → **prefere as SEM prefixo** |
+   >
+   > Com as duas famílias na Vercel e só a pública trocada: a pessoa clica em
+   > entrar, o Google devolve, o **retorno** abre sessão no projeto antigo e grava
+   > o crachá com o nome dele; o **portão** procura o crachá com o nome do projeto
+   > novo, não acha, e manda de volta para o login. Roda para sempre, e não
+   > aparece como erro — aparece como "o login não funciona".
+   >
    > **2. URL e chave anon andam casadas.** `src/lib/supabase/browser.ts` monta o
    > cliente com as duas; `src/middleware.ts` faz o mesmo no gate de login. URL de
    > um projeto com chave de outro = login quebrado, não erro de dado.
@@ -185,8 +201,14 @@ os passos abaixo.
    > 4. **Antes de tocar em produção, provar num Preview.** Aponte um deploy de
    >    preview para o projeto novo (env vars de Preview na Vercel) e faça o login
    >    de verdade nele. É o único passo que prova que URL + chave anon estão
-   >    casadas. Confira também que o redirect URL do preview está na lista do
-   >    Supabase (Passo 2 deste documento).
+   >    casadas.
+   >
+   >    **Confira o redirect URL do preview no Supabase ANTES de testar, não
+   >    depois** (emenda de 15/09/2026). A ordem importa: sem ele cadastrado, o
+   >    Preview reprova por motivo errado — parece credencial casada errado e é só
+   >    endereço de retorno faltando, e aí se desfaz uma troca que estava certa.
+   >    O endereço fica em Supabase → Authentication → URL Configuration →
+   >    Redirect URLs (Passo 2 deste documento).
    > 5. Em Production, trocar TODAS de uma vez — as `NEXT_PUBLIC_*`, as server-only
    >    se existirem, **e `LIFEBOARD_LOAD_SECRET`**. Deixar qualquer uma para trás
    >    mistura dois projetos; deixar o `LOAD_SECRET` para trás não aparece agora e

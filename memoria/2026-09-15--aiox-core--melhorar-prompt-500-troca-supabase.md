@@ -41,6 +41,33 @@ Skill `melhorar-prompt`, skill `arsenal`, leitura do repo (Bash/grep).
 
 ## Vetos aceitos: 0
 
+## Decisões do operador e o que foi executado (mesma sessão)
+**D1-B · D2-A · D3-A · D4-A.**
+- **Defeito real achado e corrigido (H2):** `src/middleware.ts` chamava `supabase.auth.getUser()`
+  sem `try`/`catch`. A biblioteca relança erro que não é de autenticação → exceção crua no
+  middleware → 500 em TODAS as rotas menos `/login`, `/auth/*` e `/api/health`. Agora degrada para
+  o login, mesma disciplina de `linha-do-tempo-degrada` e `home-degrada-sem-cair`.
+- **Teste que faltava:** `tests/unit/middleware.test.ts`, 9 casos. Provado nos dois sentidos —
+  2 falham com o código antigo, 9 passam com a correção, voltam a falhar ao desfazer. O portão era
+  a única peça do sistema sem nenhum teste.
+- **Qualidade:** `tsc --noEmit` limpo, suíte 1342/1342 (eram 1333 + 9 novos).
+- **`DEPLOY.md`, 2 emendas:** (a) a armadilha 1-b — o retorno do Google (`auth-server.ts`) lê por
+  `@/config/env`, que prefere as variáveis SEM prefixo, enquanto portão e browser leem só as
+  `NEXT_PUBLIC_*`; (b) o passo do Preview agora manda conferir o redirect URL no Supabase ANTES de
+  testar, senão o Preview reprova por motivo errado.
+- **D3 medido:** 21 migrations (0001–0021) · 20 conferíveis pelo `PASSO-0` v2 (a 0011 sai como
+  `NAO VERIFICAVEL`) · o "15/15" do resumo anterior era a v1 do PASSO-0, do mesmo dia, antes da
+  correção que o próprio cabeçalho do script registra. Os três números não se contradizem.
+- **H4 descartada como causa do 500:** a consulta a `painel_frentes_leitores` já tem `try`/`catch`
+  → vira redirecionamento, nunca 500. Continua sendo a parede seguinte.
+- **H1, H3, H5, H6 em aberto:** dependem de tela que esta sessão não alcança. Missão exportada em
+  `docs/ops/PROMPT-CHROME-2026-09-15-lifeboard-vercel-diagnostico.md` (só leitura, nenhum segredo).
+- **D4 parcial:** as emendas entraram; o `!estressar³` completo no `DEPLOY.md` espera a causa fechar.
+
+## Pendência com dono
+- **Rodar a missão de navegador e trazer a linha de log do 500** — dono: Lucas, 15/09/2026.
+  Sem ela, H2 é defeito provado mas não causa provada.
+
 ## Custo de vigilância (regra check-in-automatico-de-pr)
 PR #29, rascunho só de documentação: **8 notificações recebidas, 0 acionáveis**. Quebra: 2 ecos da
 própria inscrição, 2 avisos da Vercel (o mesmo comentário reescrito de *Building* para *Ready*, 2
