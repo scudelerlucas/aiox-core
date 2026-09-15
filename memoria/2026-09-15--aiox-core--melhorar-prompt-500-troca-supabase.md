@@ -68,6 +68,18 @@ Skill `melhorar-prompt`, skill `arsenal`, leitura do repo (Bash/grep).
 - **Rodar a missão de navegador e trazer a linha de log do 500** — dono: Lucas, 15/09/2026.
   Sem ela, H2 é defeito provado mas não causa provada.
 
+## Desfecho — dois PRs, não um
+O PR #29 foi mergeado (17:02) ainda na versão só-documento; a correção de código saiu 6 min depois
+e não entrou nele. Replantada em cima da `main` atualizada, virou o **PR #30**
+(https://github.com/scudelerlucas/aiox-core/pull/30), **mergeado em 15/09 17:19**. Bilhete de
+correção deixado no #29 para o histórico não atribuir a ele um conserto que não tem.
+
+**Achado extra no #30, medido nos arquivos de config, não suposto:** `packages/lifeboard` não tem
+NENHUMA cobertura no CI deste repositório — `jest.config.js` só casa `.js` (os testes do LifeBoard
+são `.ts`/`.tsx`, vitest) e `tsconfig.json` não inclui `packages/`. Vale para todo PR já mergeado do
+pacote, não só este. Decisão do operador (D-extra, mesma sessão): ligar ao CI fica **separado**,
+não entra neste PR.
+
 ## Custo de vigilância (regra check-in-automatico-de-pr)
 PR #29, rascunho só de documentação: **8 notificações recebidas, 0 acionáveis**. Quebra: 2 ecos da
 própria inscrição, 2 avisos da Vercel (o mesmo comentário reescrito de *Building* para *Ready*, 2
