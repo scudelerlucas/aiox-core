@@ -8,20 +8,36 @@
 -- conferida, e estava errada. Esta versão confere as 21 migrations inteiras,
 -- uma por uma, para eu parar de adivinhar.
 --
--- Migrations sem marcador próprio: 0002, 0005, 0008, 0010, 0011, 0014 — SEIS.
--- Só redeclaram função sobre uma tabela já existente e não têm como conferir
--- sozinhas com uma consulta simples. Ficam de fora da tabela; se as vizinhas da
--- faixa delas estiverem OK, elas quase certamente também estão (mesmo arquivo
--- de sequência, mesma ordem de aplicação).
+-- Cobertura: 20 marcadores para 21 migrations. A ÚNICA sem marcador é a 0011,
+-- que só faz `create or replace function` sobre funções que migrations
+-- POSTERIORES redeclaram de novo — qualquer marca no corpo dela seria apagada
+-- depois, então não há o que conferir. Ela fica declarada como NÃO VERIFICÁVEL
+-- na saída, em vez de ficar de fora calada.
 --
--- CORREÇÃO (15/09/2026, achado do Codex no PR #26): esta lista dizia OITO e
--- incluía 0017 e 0020. Errado — as duas TÊM linha aqui embaixo (0017 confere
--- `v_criado_em` no corpo de lifeboard_mutate; 0020 confere
--- `pg_advisory_xact_lock` no corpo de painel_caixa_lancar). A conta certa é
--- 15 marcadores + 6 sem marcador = 21 migrations.
+-- HISTÓRICO DAS DUAS CORREÇÕES (15/09/2026, achados do Codex no PR #26):
+--   1ª: a lista de "sem marcador" dizia OITO e incluía 0017 e 0020. Errado —
+--       as duas sempre tiveram linha (0017 confere `v_criado_em` no corpo de
+--       lifeboard_mutate; 0020, `pg_advisory_xact_lock` em painel_caixa_lancar).
+--   2ª: das seis restantes, quatro NÃO "só redeclaram função" — 0002 fixa
+--       search_path, 0005 cria os guardas de dono e o trigger do DAG, 0008 e
+--       0010 criam CHECKs, 0014 cria índice. Todas ganharam marcador agora.
+--       Um banco que pulasse a 0005 passava 15/15 verde com os guardas de
+--       isolamento por dono AUSENTES. Era o pior caso e sumiu.
+--
+-- Marcador escolhido só quando o objeto NASCE naquela migration — conferido
+-- arquivo por arquivo. `trg_tasks_dag_check` foi recusado como marca da 0005
+-- porque a 0001 já o cria; e `tasks_assimetria_dominio`, porque a 0005 já o
+-- cria antes da 0008.
 -- ════════════════════════════════════════════════════════════════════════════
 select '0001' as migration, 'tabela public.tasks existe' as marcador,
   case when to_regclass('public.tasks') is not null then 'APLICADA' else 'FALTA' end as estado
+union all
+select '0002', 'search_path fixado em lifeboard_touch_updated_at',
+  case when exists (
+    select 1 from pg_proc
+     where proname = 'lifeboard_touch_updated_at'
+       and 'search_path=public, pg_temp' = any(coalesce(proconfig, '{}')))
+  then 'APLICADA' else 'FALTA' end
 union all
 select '0003', 'CHECK de sources.kind inclui ''lms''',
   case when exists (
@@ -32,6 +48,11 @@ union all
 select '0004', 'tabela public.task_edges existe',
   case when to_regclass('public.task_edges') is not null then 'APLICADA' else 'FALTA' end
 union all
+select '0005', 'FK de dono em task_edges (guarda de isolamento por dono)',
+  case when exists (
+    select 1 from pg_constraint where conname = 'task_edges_origem_mesmo_dono_fkey')
+  then 'APLICADA' else 'FALTA' end
+union all
 select '0006', 'função lifeboard_mutate existe',
   case when exists (select 1 from pg_proc where proname = 'lifeboard_mutate')
        then 'APLICADA' else 'FALTA' end
@@ -39,11 +60,24 @@ union all
 select '0007', 'tabela public.painel_teto_diario existe',
   case when to_regclass('public.painel_teto_diario') is not null then 'APLICADA' else 'FALTA' end
 union all
+select '0008', 'CHECK tasks_assimetria_tamanho existe',
+  case when exists (
+    select 1 from pg_constraint where conname = 'tasks_assimetria_tamanho')
+  then 'APLICADA' else 'FALTA' end
+union all
 select '0009', 'coluna painel_fila_prompts.custo_estimado_usd existe',
   case when exists (
     select 1 from information_schema.columns
      where table_name='painel_fila_prompts' and column_name='custo_estimado_usd')
   then 'APLICADA' else 'FALTA' end
+union all
+select '0010', 'CHECK tasks_titulo_tamanho existe',
+  case when exists (
+    select 1 from pg_constraint where conname = 'tasks_titulo_tamanho')
+  then 'APLICADA' else 'FALTA' end
+union all
+select '0011', 'sem marcador possível (só redeclara função que migration posterior redeclara de novo)',
+  'NAO VERIFICAVEL'
 union all
 select '0012', 'coluna painel_fila_prompts.worker_id existe',
   case when exists (
@@ -55,6 +89,11 @@ select '0013', 'coluna painel_fila_prompts.disponivel_em existe',
   case when exists (
     select 1 from information_schema.columns
      where table_name='painel_fila_prompts' and column_name='disponivel_em')
+  then 'APLICADA' else 'FALTA' end
+union all
+select '0014', 'índice painel_fila_prompts_na_fila_ordem_idx existe',
+  case when exists (
+    select 1 from pg_indexes where indexname = 'painel_fila_prompts_na_fila_ordem_idx')
   then 'APLICADA' else 'FALTA' end
 union all
 select '0015', 'coluna painel_fila_prompts.ultimo_worker_id existe',

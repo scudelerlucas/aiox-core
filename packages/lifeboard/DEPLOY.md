@@ -5,11 +5,12 @@
 > **Correção do aviso anterior.** A versão de 14/09 dizia que o projeto
 > `hciiilopyivjaekaxfqp` "NÃO EXISTE MAIS". **Estava errado, e o erro foi meu.**
 > Ele existe, chama-se **`quiz-diagnosys`**, e é onde o LifeBoard realmente vive:
-> em 15/09/2026 ele fecha **15/15 marcadores de diagnóstico** do `PASSO-0` e a
-> suíte comportamental de 59 blocos passa inteira contra ele. (São 15 marcadores
-> para 21 migrations: as outras **seis** — 0002, 0005, 0008, 0010, 0011, 0014 —
-> só redeclaram função sobre tabela já existente e não têm marcador próprio.
-> Marcador verde é indício forte, não prova de que as 21 rodaram.) A conclusão errada veio de procurar o
+> em 15/09/2026 ele fecha **20/20 marcadores de diagnóstico** do `PASSO-0` e a
+> suíte comportamental de 59 blocos passa inteira contra ele. (São 20 marcadores
+> para 21 migrations. A única sem marcador é a **0011**, que só redeclara funções
+> que migrations posteriores redeclaram de novo — o `PASSO-0` a declara
+> `NAO VERIFICAVEL` em vez de omiti-la. Marcador verde é indício forte, não prova
+> de que as 21 rodaram.) A conclusão errada veio de procurar o
 > projeto pela caixa de busca do painel — **ela filtra por NOME, não por ref.**
 > Para conferir um ref, abra a URL direta:
 > `https://supabase.com/dashboard/project/<PROJECT-REF>`.
@@ -266,7 +267,7 @@ leitura** e não escrevem nada.
 | # | Script | O que faz |
 |---|--------|-----------|
 | 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`: mostra o que já rodou naquele banco. Nome de outro sistema **não** quer dizer projeto errado — o `quiz-diagnosys` divide o banco com ~15 sistemas. Quer dizer que há aplicação viva ali e que aplicar o LifeBoard vai somar ~40 objetos ao banco dela. **Nenhum script identifica o projeto** — nem este nem o `PASSO-0`. A identidade vem do project ref, de fonte autoritativa (ver o aviso no topo). |
-| 0 | `PASSO-0-diagnostico.sql` | Confere 15 marcadores de objeto — um por migration que introduz objeto próprio; as outras 6 (0002, 0005, 0008, 0010, 0011, 0014) só redeclaram função e não têm marcador. Diz se o LifeBoard já mora naquele banco, não se o banco é o certo. Em banco novo: 15/15 `FALTA`. |
+| 0 | `PASSO-0-diagnostico.sql` | Confere 20 marcadores de objeto, um por migration; só a 0011 sai como `NAO VERIFICAVEL`. Diz se o LifeBoard já mora naquele banco, não se o banco é o certo. Em banco novo: 20/20 `FALTA`. |
 | 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0021`, depois o `alter ... teto_usd set default 500`. |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
 | — | `tests/fila_prompts.test.sql` | A guarda comportamental: 59 blocos. |
