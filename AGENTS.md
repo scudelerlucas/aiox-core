@@ -148,20 +148,23 @@ divergência) · [`bash scripts/rules-drift.sh`](https://github.com/scudelerluca
 [`rules-drift`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.github/workflows/rules-drift.yml), que abre issue quando diverge e fecha
 sozinha quando iguala.
 
-## Passo a passo para pessoa é sempre `!PPL` — Passo a Passo de Leigo (15/09/2026)
+## Passo a passo para pessoa é sempre `!PPL` — Passo a Passo de Leigo, v1.1 (16/09/2026)
 
-Ordem do operador, válida em **qualquer CLI e qualquer repo**: todo passo a passo dirigido a uma
-pessoa (a seção `🧭 Passo a passo` que fecha toda resposta com trabalho real, e qualquer procedimento
-pedido com `!PPL <texto>`) sai na linguagem de leigo, com o cabeçalho `🧭 Passo a passo (!PPL)`:
-**um passo = uma ação começando pelo verbo · tela, botão e campo pelo nome real · link direto em cada
-passo · cada passo termina dizendo o que a pessoa vê quando deu certo · zero jargão (termo inevitável
-traduzido entre parênteses na 1ª vez) · nenhum passo supõe o que outro não fez · antes de ação
-irreversível, o passo anterior manda conferir.** Quem executa não sabe o que é terminal, branch ou
-token, e não precisa saber. Segredos nunca no texto: o passo diz onde a pessoa pega o valor.
+Ordem do operador (15/09), recalibrada por ele em 16/09 (*"ficou leigo demais… pode ser para um leigo da
+minha versão"*), válida em **qualquer CLI e qualquer repo**: todo passo a passo dirigido a uma pessoa (a
+seção `🧭 Passo a passo (!PPL)` que fecha toda resposta com trabalho real, e qualquer `!PPL <texto>`) é
+escrito para o **Lucas-leigo** — leigo *neste* domínio (git, infra, código), competente em todo o resto,
+usuário diário de GitHub, Vercel e claude.ai pela interface. Finalidade: reduzir carga cognitiva e
+dissonância cognitiva, nunca ensinar a clicar. **Se ele faz toda semana pela interface, é um passo, sem
+cor nem posição de botão · um passo = um objetivo que ele já executa, pelo verbo · link direto · traduz só
+o que é novo ou interno (sha, ref, webhook), nunca PR/merge/branch/deploy · "como se sabe que deu certo"
+só quando não é óbvio, normalmente um por procedimento · gate só antes de irreversível não rotineiro ·
+porquê de 1 linha quando o passo contraria o modelo mental · ≤5 passos.** Régua: ele lê uma vez, executa
+sem reler e não se sente subestimado. Segredos nunca no texto.
 
 **Norma completa** — no hub, não neste repositório:
 [`.claude/skills/ppl/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/ppl/SKILL.md)
-e a seção do passo a passo em
+(leitor, ciência, antes × depois) e a seção do passo a passo em
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md).
 
 <!-- HUB-INVARIANTES-END -->

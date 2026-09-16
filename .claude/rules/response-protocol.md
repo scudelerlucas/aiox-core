@@ -11,8 +11,10 @@ Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:
 
 ## ✅ Resumo simples
-O que foi feito ou descoberto, em linguagem direta e curta. Teste da tia de 55 anos:
-sem jargão. Se um termo técnico for inevitável, traduzir entre parênteses na hora.
+O que foi feito ou descoberto, em linguagem direta e curta. Régua (16/09): o **Lucas-leigo** —
+leigo neste domínio, competente em todo o resto — lê uma vez, entende e não se sente subestimado.
+Termo técnico novo ou interno traduz entre parênteses na hora; o que ele usa todo dia (PR, merge,
+deploy) fica como está.
 Não recapitular o que já foi dito — este resumo é curto e novo.
 
 ## 🔀 Decisões que você precisa tomar
@@ -26,22 +28,25 @@ Qual opção eu recomendo e **por quê** (1–2 linhas). Recomendação, não su
 O risco de cada caminho, 1 linha cada — incluindo o risco de **não** fazer nada.
 
 ## 🧭 Passo a passo — sempre em `!PPL` (quando houver)
-**`!PPL` = Passo a Passo de Leigo** (ordem do operador, 15/09/2026). Todo passo a passo desta
-seção sai nessa linguagem, e o cabeçalho declara: `## 🧭 Passo a passo (!PPL)`. As regras:
-1. **Um passo = uma ação**, começando pelo verbo ("Abra", "Clique", "Cole"). Duas ações = dois passos.
-2. **Onde e o quê, pelo nome real:** a tela, o botão, o campo — como aparecem para quem olha,
-   nunca "acesse a configuração" sem dizer qual.
-3. **Link direto em cada passo** (URL de produção, página, PR, documento, arquivo). Nunca um
-   passo sem o link quando o link existe.
-4. **Como se sabe que deu certo:** o passo termina dizendo o que a pessoa vê quando funcionou
-   ("aparece a mensagem verde 'Salvo'").
-5. **Zero jargão** (teste da tia de 55 anos); termo técnico inevitável vem traduzido entre
-   parênteses na primeira vez. Nada de sigla solta.
-6. **Nenhum passo supõe o que outro passo não fez:** senha, aba aberta, arquivo baixado —
-   se precisa, é um passo antes.
-7. **Antes de ação irreversível** (apagar, pagar, publicar, enviar), o passo anterior manda
-   conferir: "Antes de clicar em X, confira que Y".
-Fonte da linguagem e do comando explícito `!PPL <texto>`: skill `ppl` no hub (`.claude/skills/ppl/SKILL.md`).
+**`!PPL` = Passo a Passo de Leigo, v1.1** (ordem do operador 15/09; recalibrado 16/09: *"ficou leigo
+demais… pode ser para um leigo da minha versão"*). Cabeçalho: `## 🧭 Passo a passo (!PPL)`.
+**Quem lê é o Lucas-leigo:** leigo *neste* domínio (git, infra, código), competente em todo o resto, e que
+usa GitHub, Vercel e claude.ai todo dia pela interface. Finalidade do comando: **reduzir carga cognitiva e
+dissonância cognitiva** — nunca ensinar a clicar. As regras:
+1. **Se ele faz toda semana pela interface, é um passo** — sem cor, sem posição de botão, sem "você vê".
+2. **Um passo = um objetivo que ele já sabe executar**, começando pelo verbo. Clique só vira passo em
+   tela que ele nunca viu.
+3. **Link direto no passo**, sempre que existe.
+4. **Traduz só o que é novo ou interno** (sha, ref, webhook), entre parênteses, uma vez. PR, merge,
+   branch, deploy, build, skill **não** se traduzem — ele usa todo dia.
+5. **"Como se sabe que deu certo" só quando não é óbvio ou pode falhar em silêncio** — o normal é um
+   por procedimento, no fim ("pronto quando…"). Um por passo é redundância.
+6. **Gate antes do irreversível só quando não é rotina** (trocar branch padrão, apagar, pagar).
+7. **Porquê de 1 linha quando o passo contraria o modelo mental** — sem porquê, dissonância; com
+   parágrafo, carga.
+Forma: ≤5 passos ou blocos de ≤4 com título. Régua: **ele lê uma vez, executa sem reler e não se sente
+subestimado.** Ciência (Sweller, Kalyuga, Mayer, Cowan, Festinger), antes × depois e o comando explícito
+`!PPL <texto>`: skill `ppl` no hub (`.claude/skills/ppl/SKILL.md`).
 
 ---
 
@@ -54,7 +59,7 @@ Fonte da linguagem e do comando explícito `!PPL <texto>`: skill `ppl` no hub (`
 A regra sempre disse "palavras simples" no **Resumo** e no **Passo a passo**. Passa a valer na
 **resposta inteira**, e em **todo repositório** — não é estilo, é contrato de leitura.
 
-**O teste é o mesmo, aplicado a tudo:** a tia de 55 anos entende? Se não, reescreve.
+**O teste é o mesmo, aplicado a tudo — recalibrado em 16/09 pelo operador ("ficou leigo demais"):** o **Lucas-leigo** entende sem reler e sem se sentir subestimado? Leigo *neste* domínio, competente em todo o resto, usuário diário de GitHub, Vercel e claude.ai pela interface. Se não entende, reescreve; se se sente subestimado, também reescreve — os dois erros custam carga (Sweller) e dissonância (Festinger). Definição do leitor: skill `ppl` §1.
 
 | | |
 |---|---|
