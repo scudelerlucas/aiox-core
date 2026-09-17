@@ -388,3 +388,4 @@ build/
 # script gerado para colagem única, não versionado (vira cópia velha das migrations)
 packages/lifeboard/supabase/aplicar/PASSO-2-aplicar.sql
 packages/lifeboard/supabase/aplicar/PASSO-3-suite.sql
+packages/lifeboard/supabase/aplicar/PASSO-0c-drift.sql

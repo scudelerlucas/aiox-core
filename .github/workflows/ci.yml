@@ -31,6 +31,7 @@ jobs:
       tests: ${{ steps.filter.outputs.tests }}
       config: ${{ steps.filter.outputs.config }}
       stories: ${{ steps.filter.outputs.stories }}
+      ci: ${{ steps.filter.outputs.ci }}
     steps:
       # NOTE: No 'submodules' parameter — pro/ submodule is intentionally
       # NOT checked out. aiox-core MUST work standalone without pro/.
@@ -58,6 +59,11 @@ jobs:
               - 'eslint.config.*'
             stories:
               - 'docs/stories/**'
+            # Mudança no próprio CI precisa reexecutar o que valida o CI.
+            # Sem isto, um PR que só mexe neste arquivo pula os jobs e entra
+            # sem nunca ter sido exercido — foi o que aconteceu no PR #34.
+            ci:
+              - '.github/workflows/**'
 
   # Security audit - only fail on critical vulnerabilities
   # Note: high severity vulnerabilities in dev dependencies (semantic-release/npm/tar)
@@ -187,6 +193,57 @@ jobs:
           name: codecov-umbrella
           fail_ci_if_error: false
         continue-on-error: true
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Testes dos pacotes em packages/ — o job `test` acima NÃO os alcança.
+  #
+  # Medido em 17/09/2026: `jest.config.js` casa só `**/tests/**/*.test.js`,
+  # e `tsconfig.json` não inclui `packages/`. Resultado: 1453 testes que
+  # passam nunca rodaram no CI deste repositório, em três pacotes —
+  #   @aiox/lifeboard   1342 (vitest, arquivos .ts/.tsx)
+  #   @aiox/idea-inbox    68 (node --test, arquivos .mjs)
+  #   @aiox/idea-forge    43 (node --test, arquivos .mjs)
+  #
+  # `@aiox/installer` fica de fora DE PROPÓSITO: os testes dele são
+  # `.test.js` dentro de `tests/`, então o job `test` já os executa.
+  #
+  # Cada pacote roda o SEU próprio comando de teste — não se tenta unificar
+  # o runner. E a verificação de tipos também é a do pacote: o `tsconfig.json`
+  # da raiz não tem JSX nem DOM, então incluir `packages/` nele quebraria.
+  #
+  # Uma versão do Node basta: são suítes de pacote, não do framework.
+  package-tests:
+    name: Package Tests (workspaces)
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.config == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: lifeboard - tests (vitest)
+        run: npm test --workspace=@aiox/lifeboard
+
+      - name: lifeboard - type checking
+        run: npm run typecheck --workspace=@aiox/lifeboard
+
+      - name: idea-forge - tests (node --test)
+        run: npm test --workspace=@aiox/idea-forge
+
+      - name: idea-inbox - tests (node --test)
+        run: npm test --workspace=@aiox/idea-inbox
 
   story-validation:
     name: Story Checkbox Validation
@@ -318,7 +375,7 @@ jobs:
   validation-summary:
     name: Validation Summary
     runs-on: ubuntu-latest
-    needs: [changes, security-audit, lint, typecheck, test, story-validation, manifest-validation, ide-sync-validation, installer-smoke-test, compatibility-parity-gate, dependency-validation, brownfield-install-test]
+    needs: [changes, security-audit, lint, typecheck, test, package-tests, story-validation, manifest-validation, ide-sync-validation, installer-smoke-test, compatibility-parity-gate, dependency-validation, brownfield-install-test]
     if: always()
 
     steps:
@@ -337,6 +394,7 @@ jobs:
           echo "  Lint: ${{ needs.lint.result }}"
           echo "  TypeCheck: ${{ needs.typecheck.result }}"
           echo "  Tests: ${{ needs.test.result }}"
+          echo "  Package Tests: ${{ needs.package-tests.result }}"
           echo "  Story Validation: ${{ needs.story-validation.result }}"
           echo "  Manifest Validation: ${{ needs.manifest-validation.result }}"
           echo "  IDE Sync Validation: ${{ needs.ide-sync-validation.result }}"
@@ -369,6 +427,12 @@ jobs:
           # Tests: fail if ran and didn't succeed
           if [ "${{ needs.test.result }}" == "failure" ]; then
             echo "❌ Jest tests failed"
+            FAILED=true
+          fi
+
+          # Package Tests: fail if ran and didn't succeed
+          if [ "${{ needs.package-tests.result }}" == "failure" ]; then
+            echo "❌ Package tests failed (lifeboard / idea-forge / idea-inbox)"
             FAILED=true
           fi
 
