@@ -31,6 +31,7 @@ jobs:
       tests: ${{ steps.filter.outputs.tests }}
       config: ${{ steps.filter.outputs.config }}
       stories: ${{ steps.filter.outputs.stories }}
+      ci: ${{ steps.filter.outputs.ci }}
     steps:
       # NOTE: No 'submodules' parameter — pro/ submodule is intentionally
       # NOT checked out. aiox-core MUST work standalone without pro/.
@@ -58,6 +59,11 @@ jobs:
               - 'eslint.config.*'
             stories:
               - 'docs/stories/**'
+            # Mudança no próprio CI precisa reexecutar o que valida o CI.
+            # Sem isto, um PR que só mexe neste arquivo pula os jobs e entra
+            # sem nunca ter sido exercido — foi o que aconteceu no PR #34.
+            ci:
+              - '.github/workflows/**'
 
   # Security audit - only fail on critical vulnerabilities
   # Note: high severity vulnerabilities in dev dependencies (semantic-release/npm/tar)
@@ -209,7 +215,7 @@ jobs:
   package-tests:
     name: Package Tests (workspaces)
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.config == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.config == 'true' || needs.changes.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
