@@ -11,6 +11,11 @@
 import { useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import {
+  consultarProvedorGoogle,
+  mensagemProvedorDesligado,
+  refDoProjeto,
+} from "@/lib/supabase/provedor-de-login";
 
 const C = {
   navy: "#0A1628",
@@ -24,12 +29,28 @@ const C = {
 
 export default function LoginPage(): JSX.Element {
   const [loading, setLoading] = useState(false);
+  const [avisoDeConfiguracao, setAvisoDeConfiguracao] = useState<string | null>(null);
   const hasError =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).has("error");
 
   async function signIn(): Promise<void> {
     setLoading(true);
+    setAvisoDeConfiguracao(null);
+
+    // Antes de navegar, pergunta se o provedor está ligado NESTE projeto. Só uma
+    // resposta explícita de "desligado" segura o clique; qualquer outra coisa
+    // (rede fora, resposta estranha) deixa o login seguir. Ver o cabeçalho de
+    // `provedor-de-login.ts`: sem isto, o Supabase responde 400 em JSON cru numa
+    // página fora do painel, e a pessoa não tem o que fazer com aquilo.
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+    const chaveAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+    if ((await consultarProvedorGoogle(url, chaveAnon)) === "desligado") {
+      setAvisoDeConfiguracao(mensagemProvedorDesligado(refDoProjeto(url)));
+      setLoading(false);
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -84,6 +105,24 @@ export default function LoginPage(): JSX.Element {
         {hasError && (
           <div style={{ color: C.red, fontSize: 13, marginTop: 16 }}>
             Não foi possível entrar. Verifique se este email está autorizado.
+          </div>
+        )}
+
+        {avisoDeConfiguracao !== null && (
+          <div
+            role="alert"
+            style={{
+              color: C.red,
+              fontSize: 13,
+              marginTop: 16,
+              lineHeight: 1.5,
+              textAlign: "left",
+              border: `1px solid ${C.red}`,
+              borderRadius: 10,
+              padding: "12px 14px",
+            }}
+          >
+            {avisoDeConfiguracao}
           </div>
         )}
 
