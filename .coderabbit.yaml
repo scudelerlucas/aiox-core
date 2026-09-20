@@ -12,12 +12,21 @@ tone_instructions: "Be professional, constructive, and focused on code quality."
 early_access: false
 
 reviews:
+  # Disparo de revisão (medido em 20/09/2026, conta scudelerlucas, 30 dias):
+  # 766 revisões em 315 PRs, 73% barradas por limite de taxa; 74% eram re-revisão
+  # do MESMO PR. O gargalo é o disparo, não o plano — por isso a revisão
+  # incremental automática está desligada abaixo.
   # Automatic review settings
   auto_review:
     enabled: true
     base_branches:
       - main
     drafts: false
+    # Não re-revisar a cada push — pedir com "@coderabbitai review".
+    auto_incremental_review: false
+    ignore_title_keywords:
+      - "wip"
+      - "[skip review]"
 
   # Review behavior
   request_changes_workflow: true
