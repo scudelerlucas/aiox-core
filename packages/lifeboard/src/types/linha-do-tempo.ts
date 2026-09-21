@@ -74,6 +74,18 @@ export interface LinhaDoTempoTarefaRow {
   folga: number | null;
   /** `true` quando a tarefa não tem `estimativaDias` válida (dentro ou fora do CPM). */
   semDuracao: boolean;
+  /**
+   * P5h (achado ALTO 3, rodada 10): o número que ALGUÉM DIGITOU em
+   * `Task.estimativaDias`, em dias — `null` quando ninguém digitou nada.
+   *
+   * Existe porque a tela chamava de "estimativa" o resultado de
+   * `Math.max(1, diffDias(inicio, fim))`: as datas TRUNCADAS da barra, não o
+   * dado. Uma tarefa de 0,5 dia virava "estimativa de 1 dia" ao lado de uma
+   * barra de 12px (um dia real mede 42,77px naquela escala), e uma tarefa sem
+   * estimativa nenhuma também virava "1 dia". Daqui em diante o texto só pode
+   * citar ESTE campo; quando ele é `null`, a tela diz que não há.
+   */
+  estimativaDias: number | null;
   /** Ids de predecessoras (união de 3 fontes — mesma regra do CPM). */
   predecessores: string[];
   /** Ids de sucessoras (união de 3 fontes — mesma regra do CPM). */

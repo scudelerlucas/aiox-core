@@ -134,7 +134,7 @@ export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
  * "medido pela sessão" é uma frase, não um silêncio.
  */
 function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
-  if (item.custoUsd === null) return <span className="text-bone-500">—</span>;
+  if (item.custoUsd === null) return <span className="text-bone-400">—</span>;
   const origem = origemDoCusto(item);
   const nota = textoOrigemDoCusto(item);
   const atencao = origem === "estimativa" || origem === "medido-zero";
@@ -443,7 +443,7 @@ export function FilaTabela({
                       abrir
                     </a>
                   ) : (
-                    <span className="text-bone-500">—</span>
+                    <span className="text-bone-400">—</span>
                   )}
                 </td>
                 <td className="px-3 py-2.5 align-top text-right">

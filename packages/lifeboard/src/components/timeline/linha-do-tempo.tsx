@@ -23,6 +23,7 @@ import {
   planoDaFolhaInferior,
   semRolagem,
 } from "@/core/timeline/folha-inferior";
+import { textoDoPeriodo } from "@/core/timeline/periodo-da-tarefa";
 import {
   avisoDeOverflow,
   fatorDeOverflow,
@@ -414,11 +415,22 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     if (el) botoesLinhaRef.current.set(id, el);
     else botoesLinhaRef.current.delete(id);
   };
-  /** Fecha o painel e devolve o foco — nunca deixa o foco cair no `<body>`. */
+  /**
+   * Fecha o painel e devolve o foco — nunca deixa o foco cair no `<body>`.
+   *
+   * P5h (achado BAIXO 8, rodada 10): `preventScroll`. Medido na rota real: o
+   * operador abria a gaveta em `scrollY = 538`, rolava até 0 para ver o topo
+   * do quadro, fechava — e a página voltava sozinha para 538. A culpa não era
+   * da reserva nem da âncora: era este `.focus()`. O navegador traz à vista
+   * todo elemento que recebe foco, e o botão de origem estava 538px abaixo.
+   * A devolução de foco está certa (é o que o leitor de tela precisa); o
+   * efeito colateral de arrastar a página junto é que não. `preventScroll`
+   * separa as duas coisas — o foco vai, a página fica.
+   */
   const fecharDetalhe = (): void => {
     const chave = ativaChave;
     setAtivaChave(null);
-    if (chave) botoesLinhaRef.current.get(chave)?.focus();
+    if (chave) botoesLinhaRef.current.get(chave)?.focus({ preventScroll: true });
   };
   const fecharDetalheRef = useRef<() => void>(() => {});
   fecharDetalheRef.current = fecharDetalhe;
@@ -1293,7 +1305,16 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 sobre o próprio arquivo. Agora não há mais o caso: a faixa de
                 cima existe sempre (decisão D4) e o chip mora nela, sempre.
               */}
-              {(
+              {/*
+                P5h (achado BAIXO 6, rodada 10): o chip só existe enquanto
+                sobra chip. Empurrado além de `FRACAO_MINIMA_DO_CHIP`, ele
+                virava um caco de glifo com fundo sólido — medido a 768×900 em
+                "Semana": 0,6px visíveis de um chip de 66,6px em
+                `scrollLeft = 1236`, e menos de 60% em 29 de 858 posições. A
+                decisão de sumir é da função pura, que no mesmo ato tira o ano
+                da lista de anos "já ditos na tela".
+              */}
+              {chipGrudado.visivel && (
                 <span
                   className="lb-tl-mes-grudado absolute top-0 z-20 flex items-center whitespace-nowrap bg-navy-900 text-[12px] font-semibold text-bone-200"
                   style={{
@@ -1614,7 +1635,19 @@ function RotuloLinha({
           numa só.
         */}
         <span
-          className={`line-clamp-2 break-words ${cor.riscado ? "text-bone-500 line-through" : ""}`}
+          /*
+            P5h (achado MÉDIO 4, rodada 10): era `text-bone-500`. Medido no
+            Chromium, `rgb(108,122,153)` sobre `rgb(18,26,48)` (navy-850) a
+            12px, com o risco cortando os glifos: 4,01:1 — abaixo da régua da
+            casa (4,5:1), e atingindo TODO assunto mergeado ou fechado, que é a
+            maioria do histórico em "Mês" e "Trimestre". `bone-400` mede 6,79:1
+            sobre a mesma superfície. O agravante era o medidor:
+            `scripts/checar-contraste.mjs` já registrava este par exato como
+            corrigido na P7 e rodava verde aqui, porque o par da P5 não estava
+            na lista escrita à mão. Agora ele deriva do código quais tokens são
+            usados como TEXTO e exige que cada um esteja na régua.
+          */
+          className={`line-clamp-2 break-words ${cor.riscado ? "text-bone-400 line-through" : ""}`}
         >
           {linha.titulo}
         </span>
@@ -2037,14 +2070,17 @@ function BarraTarefa({
   // "0 d" (que se confundia com "tão crítica quanto o caminho do goal") — o
   // tooltip diz explicitamente que não foi calculada.
   const folgaTexto = row.folga === null ? "folga não calculada" : `folga: ${row.folga} d`;
-  // Achado BAIXO A9 (rodada 5): o `title` diz exatamente o que a borda
-  // tracejada significa — "início não definido", com a estimativa em dias.
-  const diasEstimados = Math.max(1, diffDias(row.inicio, row.fim));
+  /**
+   * P5h (achados CRÍTICO 1 + ALTO 3, rodada 10): o `title` da barra e o campo
+   * "Período" da gaveta passam pela MESMA função pura (`textoDoPeriodo`), que
+   * só cita número digitado. Antes aqui havia `Math.max(1, diffDias(inicio,
+   * fim))` chamado de "estimativa": devolvia "1 dia" para uma tarefa de 0,5
+   * (barra de 12px, onde um dia real mede 42,77px) e "1 dia" para uma tarefa
+   * que ninguém estimou — o texto contradizia o desenho na mesma tela.
+   */
   const tituloBarra =
     `${row.titulo} — ` +
-    (row.inicioEstimado
-      ? `início não definido — estimativa de ${diasEstimados} ${diasEstimados === 1 ? "dia" : "dias"}`
-      : periodoTarefa) +
+    textoDoPeriodo(row, diaMesAnoCurto) +
     ` (${folgaTexto})` +
     (terminaForaTarefa
       ? ` — termina em ${diaMesAnoCurto(row.fim)} — depois do fim da janela (${diaMesAnoCurto(fimDesenhado)})`
@@ -2375,13 +2411,15 @@ export function PainelDetalheTarefa({
         <div className="flex gap-1">
           <dt>Período:</dt>
           <dd className="text-bone-100">
-            {linha.semBarra
-              ? linha.pontoConcluidoEm
-                ? `concluída em ${diaMesAnoCurto(linha.pontoConcluidoEm)}`
-                : "sem data registrada"
-              : linha.inicioEstimado
-                ? `início não definido — estimativa de ${Math.max(1, diffDias(linha.inicio, linha.fim))} d`
-                : `${diaMesAnoCurto(linha.inicio)} → ${diaMesAnoCurto(linha.fim)}`}
+            {/*
+              P5h (achado CRÍTICO 1, rodada 10): esta era a linha que imprimia
+              "21/09/2026 → 22/09/2026" para uma tarefa sem `iniciadoEm` e sem
+              `estimativaDias` — os dois dias eram `hoje + DURACAO_PLACEHOLDER`,
+              e a própria gaveta desmentia isso em cinza três linhas abaixo
+              ("sem estimativa"). A mesma função pura do `title` da barra
+              decide agora as duas superfícies, e elas não podem mais divergir.
+            */}
+            {textoDoPeriodo(linha, diaMesAnoCurto)}
           </dd>
         </div>
         <div className="flex gap-1">

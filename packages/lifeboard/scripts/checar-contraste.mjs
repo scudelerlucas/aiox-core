@@ -7,7 +7,9 @@
  *
  * Rodar: `node scripts/checar-contraste.mjs`
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const fonte = readFileSync(new URL("../tailwind.config.ts", import.meta.url), "utf8");
 
@@ -187,6 +189,16 @@ const PARES = [
   ["state-progress", "navy-950", 4.5, "aviso 'isto entrou no gasto de hoje' na linha da fila (P7 MÉDIO 4)"],
   ["state-done", "navy-950", 4.5, "sucesso mudo da fila (cancelamento sem custo) na tabela (P7 MÉDIO 4)"],
   ["state-blocked", "navy-950", 4.5, "recusa em português da fila, role=alert, na tabela (P7)"],
+  // ── Pares que ENTRARAM porque o gate derivado acima os cobrou (rodada 10) ──
+  // Não são achados do crítico: são cores que já estavam na tela e que a lista
+  // à mão nunca mediu. O gate as encontrou na primeira execução, junto com o
+  // `bone-500` da P5 (4,01:1) que motivou tudo isto. Todas passam.
+  ["bone-200", "navy-850", 4.5, "rótulo dos botões flutuantes do grafo e cabeçalho do detalhe (P4/P5)"],
+  ["bone-200", "navy-900", 4.5, "chip de mês grudado no topo do Gantt (P5)"],
+  ["bone-200", "navy-700", 4.5, "rótulo do botão do grafo em hover (P4)"],
+  ["state-error", "navy-950", 4.5, "ícone de alerta do cartão e borda de 'datas inconsistentes' do Gantt"],
+  ["state-error", "navy-850", 4.5, "ícone de alerta do cartão sobre o painel (P4)"],
+  ["state-success-fg", "navy-800", 4.5, "etiqueta de conta 'pandora' — fundo fixo navy-800 (frentes)"],
 ];
 
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */
@@ -194,13 +206,155 @@ function resolveCor(nome) {
   return T[nome] ?? RESOLVIDAS[nome];
 }
 
-let falhou = 0;
+/**
+ * ── O MEDIDOR PASSOU A MEDIR O PRODUTO, NÃO A HIPÓTESE (rodada 10, MÉDIO 4) ──
+ *
+ * O defeito que esta seção fecha: a P5 pintava o rótulo de um assunto
+ * mergeado com `text-bone-500` sobre `navy-850` (4,01:1, medido no Chromium),
+ * este script tinha o par `bone-500 × navy-850` DOCUMENTADO como corrigido na
+ * P7 — e mesmo assim imprimia "64 pares verificados, todos dentro da régua".
+ * Porque `PARES` é uma lista escrita à mão, e a P5 nunca foi escrita nela.
+ * Uma régua que só mede o que alguém lembrou de anotar mede o autor, não a
+ * tela; é a mesma doença da guarda de comportamento da rodada 9.
+ *
+ * O que dá para derivar do código sem navegador, e é derivado abaixo:
+ *
+ *  **Todo token usado como COR DE TEXTO existe na régua.** Varre `src/**`
+ *  atrás de `text-<grupo>-<chave>` que resolva em `tailwind.config.ts`
+ *  (`text-[12px]`, `text-left`, `text-ellipsis` não resolvem e são ignorados)
+ *  e exige que cada um apareça como lado ESQUERDO de pelo menos um par.
+ *  `bone-500` teria caído aqui, e com ele o achado inteiro.
+ *
+ * ## O que foi tentado e REJEITADO, com a medição
+ *
+ * A primeira versão derivava também o PAR: quando um `className` traz
+ * `bg-navy-850` e `text-bone-300` na mesma linha, o par seria um fato do
+ * código. Rodou contra `src/` e acusou 17 pares — **9 deles falsos**, em duas
+ * classes que nenhuma heurística de texto resolve:
+ *
+ *  1. **Opacidade.** `bg-gold-500/20 text-bone-50` não é `bone-50` sobre
+ *     `gold-500` (2,03:1, "reprovado"): é `bone-50` sobre gold a 20% sobre o
+ *     canvas escuro — legível. O pixel real depende do que está EMBAIXO, que
+ *     o arquivo de tokens não sabe.
+ *  2. **Linha que é tabela de variantes, não `className`.** `{ barra:
+ *     "bg-state-done", texto: "text-state-done" }` (a tabela de cores do
+ *     próprio Gantt) vira "state-done sobre state-done" — duas cores que
+ *     nunca se encostam na tela.
+ *
+ * Suprimir esses dois casos exigiria uma lista de exceções escrita à mão —
+ * exatamente a doença que o gate existe para curar, um nível acima. Então o
+ * par derivado ficou de fora, e isto aqui é o que ele cobre de verdade: o
+ * medidor não deixa mais uma cor de texto existir na tela sem estar na régua.
+ *
+ * O que continua sem derivação, e por isso na lista à mão: o fundo que vem de
+ * um ANCESTRAL (o caso do rótulo do Gantt — o `text-` está num `<span>` e o
+ * `bg-navy-850` vem de dois componentes acima) e o pixel já composto por
+ * opacidade (`RESOLVIDAS`). Para esses a régua é a lista + a medição no
+ * navegador (`tests/navegador/guarda-p5.mjs`, que lê `getComputedStyle` de
+ * verdade e reprovou o 4,01:1 antes desta correção).
+ *
+ * Exceção declarada, uma só: um token usado como cor de um ÍCONE decorativo
+ * não é texto e vale 3:1. Cada exceção nomeia o arquivo e some da lista
+ * quando o uso sumir do código (uma exceção que não corresponde a nada é
+ * FALHA, para a lista não apodrecer).
+ */
+const RAIZ_SRC = fileURLToPath(new URL("../src", import.meta.url));
+
+function arquivosDeFonte(dir) {
+  const achados = [];
+  for (const nome of readdirSync(dir)) {
+    const caminho = join(dir, nome);
+    if (statSync(caminho).isDirectory()) {
+      achados.push(...arquivosDeFonte(caminho));
+    } else if (/\.(tsx?|jsx?)$/.test(nome)) {
+      achados.push(caminho);
+    }
+  }
+  return achados;
+}
+
+/**
+ * `text-bone-400` → `bone-400`, mas só quando o nome resolve num token real
+ * (`text-[12px]`, `text-left`, `text-ellipsis` não resolvem e caem fora).
+ *
+ * **Modificador de opacidade derruba o token de propósito.** `bg-gold-500/20`
+ * NÃO é `gold-500`: o pixel que o navegador pinta é a composição da cor com o
+ * que estiver embaixo, e nenhuma conta feita só com `tailwind.config.ts` sabe
+ * o que está embaixo. Tratar os dois como iguais produzia falso positivo puro
+ * — a primeira versão deste gate acusou `bone-50 sobre gold-500` (2,03:1) no
+ * chip de filtro ativo, que na tela é `bone-50` sobre `gold-500 a 20%` sobre
+ * `navy-950`, perfeitamente legível. Pixel composto continua entrando à mão,
+ * em `RESOLVIDAS`, com a medição do navegador do lado.
+ */
+function tokensDeClasse(texto, prefixo) {
+  const achados = new Set();
+  const re = new RegExp(
+    `(?:^|[\\s"'\`{}(\\[])${prefixo}-([a-zA-Z]+)-([\\w-]+?)(?=[\\s"'\`{}()\\]]|$)`,
+    "g",
+  );
+  for (const m of texto.matchAll(re)) {
+    const nome = `${m[1]}-${m[2]}`;
+    if (T[nome]) achados.add(nome);
+  }
+  return achados;
+}
+
+/** Tokens de texto que são cor de ÍCONE decorativo (régua 3:1), não de texto. */
+const ICONES_DECORATIVOS = [];
+
+/**
+ * Comentário não é tela. Uma linha que só FALA de uma cor (o registro de "era
+ * `bone-500`, virou `bone-400`", que esta rodada escreveu no próprio
+ * componente) não pinta nada, e contá-la faria o gate acusar a sua própria
+ * documentação. Some o corpo dos comentários mantendo as quebras de linha,
+ * para `arquivo:linha` continuar apontando o lugar certo.
+ */
+function semComentarios(conteudo) {
+  const embranquece = (trecho) => trecho.replace(/[^\n]/g, " ");
+  return conteudo
+    .replace(/\/\*[\s\S]*?\*\//g, embranquece)
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m) => m[0] + embranquece(m.slice(1)));
+}
+
+const textoUsado = new Map(); // token → [arquivo:linha]
+for (const arquivo of arquivosDeFonte(RAIZ_SRC)) {
+  const conteudo = semComentarios(readFileSync(arquivo, "utf8"));
+  const ondeArquivo = relative(RAIZ_SRC, arquivo);
+  conteudo.split("\n").forEach((linha, i) => {
+    for (const t of tokensDeClasse(linha, "text")) {
+      if (!textoUsado.has(t)) textoUsado.set(t, []);
+      textoUsado.get(t).push(`${ondeArquivo}:${String(i + 1)}`);
+    }
+  });
+}
+
+const tokensNaRegua = new Set(PARES.map(([t]) => t));
+const derivados = [];
+let derivadosFalhos = 0;
+
+for (const [token, ondes] of [...textoUsado].sort()) {
+  if (tokensNaRegua.has(token)) continue;
+  if (ICONES_DECORATIVOS.includes(token)) continue;
+  derivadosFalhos++;
+  derivados.push(
+    `FALHA  token de TEXTO usado no código e ausente da régua: ${token}  — ${ondes.slice(0, 3).join(", ")}`,
+  );
+}
+for (const exceção of ICONES_DECORATIVOS) {
+  if (textoUsado.has(exceção)) continue;
+  derivadosFalhos++;
+  derivados.push(`FALHA  exceção de ícone decorativo sem uso no código: ${exceção}`);
+}
+
+let falhou = derivadosFalhos;
 const linhas = [];
 for (const [t, f, min, onde] of PARES) {
   const corT = resolveCor(t);
   const corF = resolveCor(f);
   if (!corT || !corF) {
-    console.error(`token ausente: ${t} ou ${f}`);
+    // Nunca interpolar variável no 1º argumento de `console.*` — o analisador
+    // de segurança do GitHub reprova a forma, mesmo com dado local.
+    console.error("token ausente: %s ou %s", t, f);
     falhou++;
     continue;
   }
@@ -212,10 +366,17 @@ for (const [t, f, min, onde] of PARES) {
   );
 }
 
-console.log(linhas.join("\n"));
+console.log("%s", linhas.join("\n"));
 console.log(
+  "%s",
+  derivados.length === 0
+    ? `\nderivado do código: ${String(textoUsado.size)} tokens usados como cor de texto em src/ — todos na régua.`
+    : `\nderivado do código (${String(derivados.length)} problema(s)):\n${derivados.join("\n")}`,
+);
+console.log(
+  "%s",
   falhou === 0
-    ? `\n${PARES.length} pares verificados, todos dentro da régua.`
-    : `\n${falhou} par(es) abaixo da régua.`,
+    ? `\n${String(PARES.length)} pares verificados, todos dentro da régua.`
+    : `\n${String(falhou)} item(ns) fora da régua.`,
 );
 process.exit(falhou === 0 ? 0 : 1);

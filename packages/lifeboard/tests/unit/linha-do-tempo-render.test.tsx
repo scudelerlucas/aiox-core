@@ -57,6 +57,9 @@ function tarefa(parcial: Partial<LinhaDoTempoTarefaRow> = {}): LinhaDoTempoTaref
     critico: false,
     folga: 0,
     semDuracao: false,
+    // P5h (rodada 10): a estimativa DIGITADA, que a tela agora cita em vez de
+    // reinventar por `diffDias`. 3 dias = `inicio` → `fim` do default acima.
+    estimativaDias: 3,
     predecessores: [],
     sucessores: [],
     fonteKind: "calendar",

@@ -231,6 +231,13 @@ function montaTarefa(
   const janela = cpm.janelas.get(t.id);
   const fonteKind = fontePorTask.get(t.id) ?? "notes";
   const dueDate = dueDateValida(t);
+  /**
+   * P5h (achado ALTO 3, rodada 10): a estimativa DIGITADA viaja até a tela,
+   * em vez de ser reinventada lá por `diffDias(inicio, fim)` (que devolvia 1
+   * para `0,5` e 1 para "nenhuma"). `null` é "ninguém digitou" — e a tela
+   * tem de dizer isso, nunca escolher um número no lugar de quem não digitou.
+   */
+  const estimativaDigitada = estimativaValida(t);
 
   const base = {
     kind: "tarefa" as const,
@@ -266,6 +273,7 @@ function montaTarefa(
       critico: janela ? cpm.critico.has(t.id) : false,
       folga: janela ? janela.folga : null,
       semDuracao: false,
+      estimativaDias: estimativaDigitada,
       foraDoCpm: !janela,
       marco: false,
       datasInconsistentes: false,
@@ -288,6 +296,7 @@ function montaTarefa(
       critico: cpm.critico.has(t.id),
       folga: janela.folga,
       semDuracao: cpm.semDuracao.includes(t.id),
+      estimativaDias: estimativaDigitada,
       foraDoCpm: false,
       // P5c (achado BAIXO #11 do crítico hostil, rodada 2): duração zero de
       // VERDADE (`es === ef`, `done` no CPM tem duração 0 por construção) →
@@ -312,7 +321,7 @@ function montaTarefa(
   // "sem folga" (== tão urgente quanto o caminho crítico), quando o CPM
   // simplesmente não calculou folga nenhuma para quem está fora do subgrafo
   // do goal. `null` é "não calculada", nunca "zero".
-  const estimativa = estimativaValida(t);
+  const estimativa = estimativaDigitada;
   const duracao = estimativa ?? DURACAO_PLACEHOLDER_FORA_CPM;
   // P5f (achado BAIXO A9, rodada 5): sem `iniciadoEm` válido, o início é
   // FABRICADO ("hoje") só para a barra ter onde nascer — a tela precisa saber
@@ -329,6 +338,7 @@ function montaTarefa(
     critico: false,
     folga: null,
     semDuracao: estimativa === null,
+    estimativaDias: estimativa,
     foraDoCpm: true,
     // P5c (achado BAIXO #11, rodada 2): FORA do CPM a duração nunca é zero de
     // verdade (`estimativaValida` exige > 0; zero de verdade é `done`, que sai
@@ -359,7 +369,40 @@ export function montarLinhaDoTempo(
   hoje: string,
   scores?: ReadonlyMap<string, number | null | undefined>,
 ): LinhaDoTempoProps {
-  const linhasAssuntos: LinhaDoTempoRow[] = prs.map((pr) => montaAssunto(pr, hoje));
+  /**
+   * P5h (achado MÉDIO 5, rodada 10): os ASSUNTOS não tinham ordem nenhuma —
+   * saíam na ordem em que o repositório de frentes os devolveu. Medido na
+   * tela, o `left` das 14 barras descia e subia cinco vezes
+   * (377,85 · 377,85 · 299,38 · 256,61 · 342,14 · 171,06 · 0 · 42,77 · 0 · 0 ·
+   * 0 · 128,30 · 213,84 · 299,38): um Gantt sem eixo vertical. As TAREFAS já
+   * ordenavam (`es` → `rank` → `critico` → id); o grupo de cima é que não.
+   *
+   * A ordem escolhida é a única defensável sem inventar produto: **a data de
+   * início da barra**, a mesma grandeza que o olho segue da esquerda para a
+   * direita (é o default do Asana e do MS Project, e a P5 declara perseguir o
+   * primeiro). Desempates, nesta ordem: fim mais cedo primeiro (barra mais
+   * curta em cima quando dois assuntos começam no mesmo dia) e depois o id
+   * (`repo#numero`), estável e único — a ordem nunca muda entre duas leituras
+   * do mesmo quadro.
+   *
+   * Linha sem barra desenhável (`dataInvalida`) vai para o FIM: ela não tem
+   * posição no eixo, e enfiá-la no meio pela data fabricada de "hoje"
+   * misturaria "não sei quando" com "começa hoje". `datasInconsistentes` TEM
+   * início real (o podre é o fim) e ordena por ele, como qualquer outra.
+   *
+   * O que NÃO entra aqui: um controle de ordenação para o operador (ordenar
+   * por fim, por repositório, por estado). Isso é decisão de produto e está
+   * PROPOSTO, não implementado — a régua desta rodada é "o Gantt tem UMA
+   * ordem", não "o Gantt tem um seletor".
+   */
+  const linhasAssuntos: LinhaDoTempoRow[] = prs
+    .map((pr) => montaAssunto(pr, hoje))
+    .sort((a, b) => {
+      if (a.dataInvalida !== b.dataInvalida) return a.dataInvalida ? 1 : -1;
+      if (a.inicio !== b.inicio) return a.inicio < b.inicio ? -1 : 1;
+      if (a.fim !== b.fim) return a.fim < b.fim ? -1 : 1;
+      return a.id.localeCompare(b.id);
+    });
 
   const { predecessores, sucessores } = precedenciaDeclarada(tasks, edges);
   const fontePorTask = mapaFontePorTask(tasks, sources);
