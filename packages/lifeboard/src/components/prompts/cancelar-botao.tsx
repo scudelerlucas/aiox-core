@@ -106,6 +106,7 @@ export function CancelarBotao({
   }
 
   function aoClicar(): void {
+    // B3 (rodada 11): a recusa do 2º clique tem VOZ — ver `emAndamento` abaixo.
     if (pendente) return;
     if (!confirmando) {
       aoMudarConfirmando?.(id, true);
@@ -152,9 +153,35 @@ export function CancelarBotao({
     ? ` ${formatarUsd(custoAoCancelarUsd)} entram no gasto de hoje como estimativa — dá para ajustar na linha depois.`
     : " Não entra nada no gasto de hoje.";
   const consequencia = `${oQueAcontece}${oQueCusta} Esc cancela.`;
+  /**
+   * B3 (rodada 11) · O SEGUNDO CLIQUE ERA RECUSADO EM SILÊNCIO.
+   * Com um cancelamento em voo, `aoClicar` faz `if (pendente) return;` e nada
+   * acontecia na tela — o operador clica de novo, o sistema não responde nada,
+   * e é assim que se faz alguém achar que a página travou. A recusa passa a ter
+   * frase, e ela fica visível o tempo todo em que o clique vai ser recusado
+   * (não só depois do clique perdido): a região viva abaixo já existe, é
+   * `role="status"` e anuncia sozinha. Sem estado local — BAIXO 2 (rodada 8)
+   * manda este componente ser controlado pela linha, e `pendente` é prop.
+   */
+  const emAndamento = pendente
+    ? "Este cancelamento já está em andamento — clicar de novo não adianta."
+    : "";
 
+  /**
+   * M2 (rodada 11) · `relative` NÃO É ENFEITE: ELE É O CONSERTO.
+   * O `<p role="status">` abaixo é `sr-only` quando está vazio, e `sr-only` é
+   * `position:absolute`. Sem ancestral posicionado, o bloco que o contém é o
+   * da PÁGINA — então ele escapava do `overflow-x-auto` da tabela
+   * (`min-w-[880px]`) e esticava o documento inteiro a partir da posição
+   * estática dele, lá dentro da tabela larga. Medido em 820×1180: a página
+   * rolava 74 px de lado (`scrollWidth` 894 contra 820 de viewport), e
+   * esconder a tabela derrubava o `scrollWidth` para 820 — era ela, por este
+   * parágrafo. Telefone e desktop davam 0, que é por que ninguém tinha visto.
+   * Com `relative`, o bloco que o contém é esta coluna e o `overflow-x-auto`
+   * volta a recortá-lo.
+   */
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="relative flex flex-col items-end gap-1">
       <button
         ref={botaoRef}
         type="button"
@@ -185,10 +212,19 @@ export function CancelarBotao({
         role="status"
         aria-live="polite"
         className={
-          confirmando ? "max-w-[240px] text-right text-[11px] text-state-progress" : "sr-only"
+          confirmando || emAndamento.length > 0
+            ? "max-w-[240px] text-right text-[11px] text-state-progress"
+            : // M2: `sr-only` é `position:absolute` SEM deslocamento — e um
+              // absoluto de deslocamento automático fica na "posição
+              // estática", que aqui é lá dentro da tabela de 880 px. Medido:
+              // o `overflow-x-auto` da tabela não o recortava e a PÁGINA
+              // inteira rolava 74 px de lado em 820×1180. Ancorado em
+              // `left-0 top-0` dentro do `relative` acima, ele volta a ser
+              // recortado: 894 → 820, e segue 1×1 px, invisível e anunciável.
+              "sr-only left-0 top-0"
         }
       >
-        {confirmando ? consequencia : ""}
+        {confirmando ? consequencia : emAndamento}
       </p>
     </div>
   );

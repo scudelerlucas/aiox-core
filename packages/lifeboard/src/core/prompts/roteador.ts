@@ -92,6 +92,15 @@ export interface EscolhaDeConta {
    * D29: deixou de decidir `cabeHoje`; virou explicação dentro da frase.
    */
   headroomUsd: number;
+  /**
+   * D36 · A4 (rodada 11): NENHUMA conta candidata está autorizada agora — o
+   * banco recusaria 100% dos disparos de todas elas por medição velha. É
+   * diferente de "não cabe": o veredito já saía certo em `cabeHoje`, mas
+   * quem chamava não tinha como distinguir os dois casos e a tela explicava
+   * falta de dinheiro onde o problema é medição parada. Espelho de
+   * `todas_recusadas` em `painel_fila_escolher_conta` (migration 0019 §15).
+   */
+  todasRecusadas: boolean;
 }
 
 
@@ -121,6 +130,7 @@ export function escolherConta(
       cabeHoje: false,
       espacoLivreUsd: 0,
       headroomUsd: 0,
+      todasRecusadas: false,
     };
   }
 
@@ -144,6 +154,7 @@ export function escolherConta(
       cabeHoje: false,
       espacoLivreUsd: 0,
       headroomUsd: 0,
+      todasRecusadas: false,
     };
   }
 
@@ -197,6 +208,7 @@ export function escolherConta(
       cabeHoje: false,
       espacoLivreUsd: melhorEspaco,
       headroomUsd: headroom,
+      todasRecusadas: true,
     };
   }
 
@@ -247,6 +259,7 @@ export function escolherConta(
     cabeHoje,
     espacoLivreUsd: melhorEspaco,
     headroomUsd: headroom,
+    todasRecusadas,
   };
 }
 

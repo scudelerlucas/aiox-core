@@ -217,6 +217,24 @@ export interface HistoricoMedido {
  */
 export const LIMITE_DEFASAGEM_HORAS = 12;
 
+/**
+ * M3 (rodada 11): o TETO DIÁRIO POR CONTA — 500, por decisão do operador em
+ * 14/09/2026 (régua da casa `teto-de-gasto-diario`).
+ *
+ * Ele existia em três lugares e em nenhum deles era conferível: o schema tinha
+ * `default 150` (migration 0007 §42), o fixture tinha 500 escrito à mão, e o
+ * número da decisão só vivia como PROSA no `DEPLOY.md` ("depois o `alter …
+ * teto_usd set default 500`") — um passo manual que some na primeira
+ * implantação feita com pressa. Agora o número mora aqui, a migration 0026 o
+ * declara no banco e `tests/unit/prompts-ultima-palavra-sql.test.ts` compara
+ * os dois.
+ *
+ * O valor é calibragem provisória: nos 9 dias com dado em
+ * `painel_consumo_por_conta_dia`, 9 de 9 ficaram acima de 150 (mediana ~2,6×
+ * o teto). Reavaliar com 14 dias de dado real nas três contas.
+ */
+export const TETO_DIARIO_PADRAO_USD = 500;
+
 export interface FilaPromptsState {
   fila: ItemFilaPrompt[];
   consumo: ConsumoConta[];
@@ -546,6 +564,13 @@ export const MOTIVOS_ENFILEIRAR = [
   // devolvia `manual_nao_cabe_hoje`, cuja frase fala de espaço livre — a tela
   // explicava falta de dinheiro onde o problema é medição parada.
   "manual_medicao_velha",
+  // A4 (rodada 11): a RPC já devolvia `todas_recusadas` (migration 0025) e
+  // ninguém lia. Quando TODAS as contas estão recusadas por medição velha, o
+  // roteamento automático caía em `auto_nao_cabe_hoje`, cuja frase fala de
+  // dinheiro — e saía se contradizendo: "nenhuma conta tem US$ 50,00 livres …
+  // — a mais folgada tem US$ 500,00". O problema ali não é espaço; é medição
+  // parada. Mesmo remédio de `manual_medicao_velha`, do lado automático.
+  "auto_medicao_velha",
 ] as const;
 export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
 
@@ -609,6 +634,13 @@ export function fraseDoEnfileiramento(
         `para uma tarefa ${complexidade} contando a fila parada — a mais folgada tem ` +
         `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. ` +
         `Entra na fila e roda quando houver espaço.`
+      );
+    case "auto_medicao_velha":
+      return (
+        `Enfileirado para ${conta}: nenhuma conta autoriza gasto agora — elas exigem medição de ` +
+        `menos de ${LIMITE_DEFASAGEM_HORAS} h e a medição está parada. Não é falta de espaço ` +
+        `(há ${formatarUsd(espaco)} livres para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. Entra na fila e roda quando a medição voltar.`
       );
     case "manual_medicao_velha":
       return (

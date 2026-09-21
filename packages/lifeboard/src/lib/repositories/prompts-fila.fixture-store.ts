@@ -81,6 +81,7 @@ import {
   MAX_TENTATIVAS,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
+  TETO_DIARIO_PADRAO_USD,
   bancoRecusaria,
   contaValida,
   custoEstimadoParaComplexidade,
@@ -341,7 +342,7 @@ export function listarConsumoFixture(agora: number = Date.now()): ConsumoConta[]
     const estimativa = estimativaDe(conta, agora);
     return {
       conta,
-      tetoUsd: base?.tetoUsd ?? 150,
+      tetoUsd: base?.tetoUsd ?? TETO_DIARIO_PADRAO_USD,
       consumoHojeUsd: medidoDe(conta, agora),
       reservadoUsd: reservadoDe(conta, agora),
       naFilaUsd: naFilaDe(conta),
@@ -430,6 +431,17 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
 
   let conta: Conta;
   let manual: boolean;
+  /**
+   * A2 (rodada 11): O VEREDITO DO ROTEADOR, que era jogado fora.
+   * `escolherConta` devolve `cabeHoje` já contando a recusa por medição velha
+   * (D36) — e este arquivo o descartava para recalcular `cabeHoje` por conta
+   * própria, com outra régua. Medido: com as três contas travadas por medição
+   * velha, o roteador dizia `cabeHoje:false` e a loja respondia
+   * `auto_maior_espaco` + `cabeHoje:true`. O SQL faz o contrário — quando a
+   * conta veio do chooser, o veredito é o DELE (migration 0025 §2).
+   */
+  let autoCabeHoje = false;
+  let autoTodasRecusadas = false;
 
   if (input.conta) {
     if (!contaValida(input.conta)) {
@@ -447,32 +459,55 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
       };
     }
   } else {
-    const escolha = escolherConta(consumos, input.complexidade);
+    // B2 (rodada 11): `agora` é parâmetro desta função e não chegava a decisão
+    // de tempo nenhuma — o roteador caía no default `Date.now()`, e um teste
+    // que finge o relógio media outra coisa do que pediu.
+    const escolha = escolherConta(consumos, input.complexidade, agora);
     if (escolha.conta === null) return { erro: escolha.motivo };
     conta = escolha.conta;
     manual = false;
+    autoCabeHoje = escolha.cabeHoje;
+    autoTodasRecusadas = escolha.todasRecusadas;
   }
 
   const c = consumos.find((x) => x.conta === conta) as ConsumoConta;
-  // D13: uma régua só — `headroom` decide `cabeHoje`; `espacoLivre` é previsão.
   const headroom = headroomUsd(c);
-  const cabeHoje = custoEstimado <= headroom;
+  /**
+   * A1 (rodada 11) · A MESMA RÉGUA DOS DOIS LADOS.
+   * Aqui era `custoEstimado <= headroom` — o headroom CRU, sem descontar a
+   * fila parada. O SQL decide por ESPAÇO LIVRE (`v_espaco := v_headroom -
+   * v_na_fila`, migration 0025 §2; e o veredito do chooser em 0019 §15).
+   * Medido no navegador com as duas réguas convivendo: a tela dizia
+   * "cabe hoje contando a fila parada — US$ 0,00 livres", uma frase que se
+   * contradiz sozinha. D29 já tinha mandado o NÚMERO da frase ser o espaço
+   * livre; faltava o VEREDITO vir do mesmo lugar.
+   */
+  const espacoLivre = headroom - c.naFilaUsd;
+  const cabeNoEspaco = custoEstimado <= espacoLivre;
   const itensNaFrente = itens().filter((i) => i.conta === conta && i.estado === "na_fila").length;
   // D46 + D51 (pós-merge): a escolha MANUAL passa pela mesma trava de medição
   // que `fila_prompts_pegar_interno` aplica, e a recusa por medição velha tem
   // código próprio — `manual_nao_cabe_hoje` fala de espaço livre, e o problema
   // aqui não é dinheiro. Espelho de `fila_prompts_enfileirar` (migration 0025).
-  const recusaPorMedicao = manual && bancoRecusaria(c, Date.now());
-  const manualCabe = cabeHoje && !recusaPorMedicao;
+  // B2 (rodada 11): `agora`, nunca `Date.now()` — ver o comentário acima.
+  const recusaPorMedicao = manual && bancoRecusaria(c, agora);
+  const manualCabe = cabeNoEspaco && !recusaPorMedicao;
+  // A2: no automático quem vereditou foi o ROTEADOR (ele já conta D36).
+  const cabeHoje = manual ? manualCabe : autoCabeHoje;
   const motivoCodigo: MotivoEnfileirar = manual
     ? manualCabe
       ? "manual_cabe"
       : recusaPorMedicao
         ? "manual_medicao_velha"
         : "manual_nao_cabe_hoje"
-    : cabeHoje
+    : autoCabeHoje
       ? "auto_maior_espaco"
-      : "auto_nao_cabe_hoje";
+      : // A4 (rodada 11): quando NENHUMA conta autoriza gasto, o problema não é
+        // dinheiro — e `auto_nao_cabe_hoje` só sabe falar de dinheiro. Mesmo
+        // remédio que `manual_medicao_velha` recebeu do outro lado.
+        autoTodasRecusadas
+        ? "auto_medicao_velha"
+        : "auto_nao_cabe_hoje";
 
   const id = novoId();
   estado.fila.set(id, {
@@ -511,9 +546,9 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     motivoCodigo,
     // D46: a trava de medição também derruba o `cabe_hoje` da escolha manual —
     // o SQL faz `v_cabe_hoje := false` no mesmo caso.
-    cabeHoje: manual ? manualCabe : cabeHoje,
+    cabeHoje,
     headroomUsd: headroom,
-    espacoLivreUsd: headroom - c.naFilaUsd,
+    espacoLivreUsd: espacoLivre,
     custoEstimadoUsd: custoEstimado,
     naFilaUsd: c.naFilaUsd,
     itensNaFrente,
@@ -682,6 +717,14 @@ export interface ResultadoPegarFixture {
   estimativaItens: number;
   /** D27 (rodada 6): a frase ADITIVA, presente TAMBÉM quando um item foi pego. */
   motivo: string;
+  /**
+   * A3 (rodada 11): o pull foi RECUSADO porque a conta exige medição recente e
+   * a medição está velha. Espelho de `recusado_por_medicao` em
+   * `fila_prompts_pegar_interno` (migration 0019 §17).
+   */
+  recusadoPorMedicao: boolean;
+  /** D32a: quão velho é o número medido desta conta (`null` = nunca mediu). */
+  defasagemHoras: number | null;
 }
 
 /**
@@ -742,10 +785,69 @@ export function pegarFixture(
   agora: number = Date.now(),
 ): ResultadoPegarFixture {
   const estado = loja();
+
+  /**
+   * A3 (rodada 11) · A PORTA DE RECUSA, E ELA VEM ANTES DE QUALQUER ESCRITA.
+   *
+   * O fixture já montava a frase certa — `montarMotivoDoPull` recebia
+   * `defasagemHoras`/`exigeMedicaoRecente` e devolvia *"não autorizo contra
+   * saldo de 37 h atrás: esta conta exige medição recente"* — e depois
+   * ENTREGAVA O ITEM ASSIM MESMO. Não havia porta nenhuma: só a frase.
+   * O SQL recusa de verdade, e recusa antes de expirar/devolver/matar nada
+   * (migration 0019 §17, `if v_exigir and (v_defasagem is null or
+   * v_defasagem > 12) then return …`). Por isso esta guarda está acima do
+   * `expirar()`: recusar depois de já ter escrito na fila não é recusar.
+   */
+  const contaMedida = listarConsumoFixture(agora).find((x) => x.conta === conta);
+  const baseAntes = estado.base.get(conta);
+  const defasagemHoras = baseAntes?.defasagemHoras ?? null;
+  if (contaMedida !== undefined && bancoRecusaria(contaMedida, agora)) {
+    const tetoDeclarado = baseAntes?.tetoUsd ?? TETO_DIARIO_PADRAO_USD;
+    const estimativaAgora = estimativaDe(conta, agora);
+    return {
+      item: null,
+      devolvidos: 0,
+      mortos: 0,
+      mortosUsd: 0,
+      pulados: 0,
+      travados: 0,
+      menorCustoFilaUsd: null,
+      menorCustoElegivelAgoraUsd: null,
+      emEspera: emEsperaDe(conta, agora),
+      // BAIXO 5: o headroom nunca sai negativo de ramo nenhum do pull.
+      headroomUsd: Math.max(
+        0,
+        tetoDeclarado - medidoDe(conta, agora) - reservadoDe(conta, agora),
+      ),
+      estimativaUsd: estimativaAgora.usd,
+      estimativaItens: estimativaAgora.itens,
+      recusadoPorMedicao: true,
+      defasagemHoras,
+      // D32c: a RECUSA é a frase inteira — a mesma função pura do SQL.
+      motivo: montarMotivoDoPull({
+        mortos: 0,
+        mortosUsd: 0,
+        custoEscolhidoUsd: null,
+        headroomUsd: 0,
+        menorDisponivelUsd: null,
+        elegiveis: 0,
+        emEspera: 0,
+        menorEmEsperaUsd: null,
+        voltaEmMin: null,
+        devolvidos: 0,
+        travados: 0,
+        estimativaUsd: 0,
+        estimativaItens: 0,
+        defasagemHoras,
+        exigeMedicaoRecente: true,
+      }),
+    };
+  }
+
   const { devolvidos, mortos, mortosUsd } = expirar(conta, agora);
 
   const base = estado.base.get(conta);
-  const teto = base?.tetoUsd ?? 150;
+  const teto = base?.tetoUsd ?? TETO_DIARIO_PADRAO_USD;
   const medido = medidoDe(conta, agora);
   const emExecucao = reservadoDe(conta, agora);
   const emEspera = emEsperaDe(conta, agora);
@@ -834,6 +936,8 @@ export function pegarFixture(
     estimativaUsd: estimativa.usd,
     estimativaItens: estimativa.itens,
     motivo,
+    recusadoPorMedicao: false,
+    defasagemHoras,
   };
 
   if (escolhido !== null) {

@@ -421,16 +421,32 @@ export async function enfileirarPrompt(payload: {
       custo_estimado_usd?: number;
       na_fila_usd?: number;
       itens_na_frente?: number;
+      todas_recusadas?: boolean;
     };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
     }
+    /**
+     * A4 (rodada 11): `todas_recusadas` VOLTAVA DA RPC E NINGUÉM LIA.
+     *
+     * A migration 0025 passou a devolver o campo (ele vem do chooser, §15 da
+     * 0019) e não havia uma ocorrência dele no cliente nem nas actions. Sem
+     * ele, quando as três contas estão travadas por medição velha o código é
+     * `auto_nao_cabe_hoje` — e a frase desse código só sabe falar de dinheiro.
+     * Medido: *"nenhuma conta tem US$ 50,00 livres … — a mais folgada tem
+     * US$ 500,00"*, uma frase que se desmente no meio. O caso tem código e
+     * frase próprios agora, como `manual_medicao_velha` já tinha do outro lado.
+     */
+    const codigo =
+      body.motivo_codigo === "auto_nao_cabe_hoje" && body.todas_recusadas === true
+        ? "auto_medicao_velha"
+        : body.motivo_codigo;
     return {
       ok: true,
       id: body.id,
       conta: body.conta,
       complexidade: body.complexidade,
-      motivoCodigo: body.motivo_codigo,
+      motivoCodigo: codigo,
       cabeHoje: body.cabe_hoje !== false,
       headroomUsd: numeroOu(body.headroom_usd, 0),
       espacoLivreUsd: numeroOu(body.espaco_livre_usd, 0),

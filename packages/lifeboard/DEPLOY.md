@@ -321,9 +321,37 @@ leitura** e não escrevem nada.
 | 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`: mostra o que já rodou naquele banco. Nome de outro sistema **não** quer dizer projeto errado — o `quiz-diagnosys` divide o banco com ~15 sistemas. Quer dizer que há aplicação viva ali e que aplicar o LifeBoard vai somar ~40 objetos ao banco dela. **Nenhum script identifica o projeto** — nem este nem o `PASSO-0`. A identidade vem do project ref, de fonte autoritativa (ver o aviso no topo). |
 | 0 | `PASSO-0-diagnostico.sql` | Confere 20 marcadores de objeto, um por migration; só a 0011 sai como `NAO VERIFICAVEL`. Diz se o LifeBoard já mora naquele banco, não se o banco é o certo. Em banco novo: 20/20 `FALTA`. |
 | 0c | `PASSO-0c-drift.sql` | **Só leitura.** Compara o histórico do banco com os arquivos de `supabase/migrations/` e nomeia os três casos: o que está **só no banco** (e, se o banco guardar o SQL, devolve o SQL para virar arquivo), o que está **só no repositório**, e que nome foi **registrado duas vezes**. Fecha o vão que o `PASSO-0` não alcança: ele confere os objetos que o repositório conhece e **não pode sentir falta do que nunca foi escrito** — um banco reconstruído sem essas migrations passa 20/20 verde. Não é versionado: gerar com `node scripts/gerar-conferencia-drift.mjs > supabase/aplicar/PASSO-0c-drift.sql`. |
-| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0025`, depois o `alter ... teto_usd set default 500`. |
+| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0026`. **O `alter ... teto_usd set default 500` saiu daqui**: ele era um passo manual que nenhum arquivo conferia, e virou parte da `0026` (achado M3 da rodada 11). |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
 | — | `tests/fila_prompts.test.sql` | A guarda comportamental: 62 blocos. Os três últimos (T60, T61, T62) são da rodada pós-merge e só passam com a `0025` aplicada. |
+
+### A `0026`, e por que ela é obrigatória em banco NOVO
+
+As migrations `0022`, `0023` e `0024` são **versões antigas**: rodaram em
+produção em 13/09/2026 — antes da `0019` (o livro-razão) — e só chegaram ao
+repositório depois, recuperadas do histórico do banco, com números que as
+colocam no **fim** da ordem de aplicação.
+
+Em produção nada quebrou, porque lá a ordem real foi outra. Quem quebra é quem
+segue esta página e aplica `0001` … `0025` em ordem num banco novo: a **última
+palavra** sobre duas funções do dinheiro passa a ser a versão velha.
+
+| Função | Última definição de `0001`…`0025` | O que se perde |
+|---|---|---|
+| `fila_prompts_fechar_interno` | `0023` | **Fechar um item não escreve no livro-razão** — o custo dele some do gasto do dia. |
+| `fila_prompts_pegar_interno` | `0022` | Some a recusa por medição velha (D32c), some o lançamento da estimativa do item que morre (D37), e volta o teto fantasma `v_teto := 150`. |
+| `painel_fila_motivo_do_pull` | `0024` | Ressuscita a sobrecarga de 13 argumentos que a `0016` tinha apagado — com as duas vivas, a chamada de 13 argumentos nomeados fica ambígua. |
+
+A `0026_lifeboard_v3_ultima_palavra_do_dinheiro.sql` redeclara, como última
+palavra da ordem, o texto da `0019` para as duas funções do dinheiro, apaga de
+novo a sobrecarga de 13 argumentos e traz o teto de **500 por conta** (decisão
+do operador de 14/09/2026) para dentro de uma migration. Nada aqui é aplicado
+em produção por esta rodada — produção já está certa; era o repositório que não
+estava.
+
+A guarda que impede a repetição é `tests/unit/prompts-ultima-palavra-sql.test.ts`:
+ela varre **todas** as migrations em ordem, acha a ÚLTIMA definição de cada
+função e afirma sobre ela — nomeando a função e o arquivo quando falha.
 
 ### A `0025`, e por que ela existe
 

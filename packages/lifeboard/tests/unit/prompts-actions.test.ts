@@ -170,3 +170,49 @@ describe("prompts/actions — validação", () => {
     expect(fixtureStore.ajustarCustoFixture).toHaveBeenCalledWith("fila-x", 12.34, null);
   });
 });
+
+/**
+ * M7 (rodada 11) — A MUTAÇÃO QUE PASSOU: apagar a troca e-mail → rótulo em
+ * `formatarRecusaFila` (`src/app/prompts/actions.ts`). O crítico aplicou
+ * exatamente isso e os 1350 testes continuaram verdes — a tela voltava a
+ * mostrar `lucasscudeler@gmail.com` cru numa recusa, e o operador não precisa
+ * saber qual e-mail é qual.
+ *
+ * `formatarRecusaFila` não é exportável (o arquivo é `"use server"`: só
+ * função assíncrona sai dele), então a prova é pelo caminho de fora — a recusa
+ * do repositório entra crua e a resposta da action sai traduzida.
+ */
+describe("M7 — a recusa nunca mostra e-mail cru na tela", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { email: "lucasscudeler@gmail.com" } } });
+  });
+
+  it("novoPromptAction: e-mail da casa vira rótulo, e o ponto decimal vira vírgula", async () => {
+    vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+      erro:
+        "fila: uma tarefa máxima custa cerca de US$ 120.00 e o teto diário da conta " +
+        "lucasscudeler@gmail.com é US$ 100.00 — nunca vai caber.",
+    } as never);
+    const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "maxima" }));
+    expect(r.erro, "o e-mail cru chegou à tela").not.toContain("@gmail.com");
+    expect(r.erro).toContain("Lucas");
+    expect(r.erro).toContain("US$ 120,00");
+    expect(r.erro).not.toContain("fila: ");
+  });
+
+  it("as TRÊS contas da casa têm rótulo — nenhuma escapa", async () => {
+    for (const [conta, rotulo] of [
+      ["lucasscudeler@gmail.com", "Lucas"],
+      ["lsgpandora@gmail.com", "Pandora"],
+      ["almapetra.ltda@gmail.com", "Alma Petra"],
+    ] as const) {
+      vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+        erro: `fila: a conta ${conta} recusou.`,
+      } as never);
+      const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+      expect(r.erro, `${conta} chegou crua à tela`).not.toContain(conta);
+      expect(r.erro).toContain(rotulo);
+    }
+  });
+});
