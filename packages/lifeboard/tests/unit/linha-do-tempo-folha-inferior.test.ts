@@ -117,7 +117,12 @@ function abrirFolha(params: {
   const plano = planoDaFolhaInferior({
     folha,
     bottomDoBotao: linha.bottom,
+    topoDoBotao: linha.top,
     larguraJanela: p.innerWidth,
+    alturaJanela: p.innerHeight,
+    scrollY: p.scrollY,
+    alturaDoDocumento: p.alturaBase + p.espacador,
+    espacoAtual: p.espacador,
   });
   /*
     A CADEIA INTEIRA sob teste — medir, decidir e APLICAR. A aplicação é a
@@ -136,7 +141,7 @@ function abrirFolha(params: {
       },
     },
   };
-  aplicarPlanoDaFolha(plano, { espacador, rolarPagina: (px) => scrollBy(p, px) });
+  aplicarPlanoDaFolha(plano, { espacador, folha: null, rolarPagina: (px) => scrollBy(p, px) });
   const depois = retanguloDaLinha(p, indice);
   const barraTopo = depois.top + BARRA_TOPO_NA_LINHA;
   const barraBaixo = barraTopo + BARRA_ALTURA;
@@ -214,14 +219,31 @@ describe("A1 · as peças puras, uma a uma", () => {
       folha: { top: 120, left: 1040, width: 240, height: 400, bottom: 520 },
       bottomDoBotao: 900,
       larguraJanela: 1280,
+      alturaJanela: 800,
+      scrollY: 0,
+      alturaDoDocumento: 2000,
+      espacoAtual: 0,
     });
-    expect(plano).toEqual({ ehInferior: false, espacoReservado: 0, rolar: 0 });
+    expect(plano).toEqual({
+      ehInferior: false,
+      espacoReservado: 0,
+      rolar: 0,
+      alturaMaxima: null,
+    });
   });
 
   it("folha fechada: plano vazio (o espaçador volta a 0)", () => {
     expect(
-      planoDaFolhaInferior({ folha: null, bottomDoBotao: 800, larguraJanela: 390 }),
-    ).toEqual({ ehInferior: false, espacoReservado: 0, rolar: 0 });
+      planoDaFolhaInferior({
+        folha: null,
+        bottomDoBotao: 800,
+        larguraJanela: 390,
+        alturaJanela: 844,
+        scrollY: 0,
+        alturaDoDocumento: 2000,
+        espacoAtual: 0,
+      }),
+    ).toEqual({ ehInferior: false, espacoReservado: 0, rolar: 0, alturaMaxima: null });
   });
 
   it("a régua de 'é a folha inferior': largura toda e encostada na esquerda", () => {
@@ -255,7 +277,12 @@ describe("A1 · as peças puras, uma a uma", () => {
     const plano = planoDaFolhaInferior({
       folha: { top: 630, left: 0, width: 390, height: 214, bottom: 844 },
       bottomDoBotao: 400,
+      topoDoBotao: 358,
       larguraJanela: 390,
+      alturaJanela: 844,
+      scrollY: 0,
+      alturaDoDocumento: 2000,
+      espacoAtual: 0,
     });
     expect(plano.rolar).toBe(0);
     expect(plano.espacoReservado).toBe(220);
@@ -266,6 +293,10 @@ describe("A1 · as peças puras, uma a uma", () => {
       folha: { top: Number.NaN, left: 0, width: 390, height: Number.NaN, bottom: 0 },
       bottomDoBotao: Number.NaN,
       larguraJanela: 390,
+      alturaJanela: Number.NaN,
+      scrollY: Number.NaN,
+      alturaDoDocumento: Number.NaN,
+      espacoAtual: Number.NaN,
     });
     expect(Number.isFinite(plano.espacoReservado)).toBe(true);
     expect(Number.isFinite(plano.rolar)).toBe(true);
