@@ -1,5 +1,5 @@
 /**
- * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as 3 contas).
+ * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as 4 contas).
  *
  * Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`
  * (linhas R1/R2/R6, transferências T1/T2) + o contrato exato de
@@ -11,10 +11,19 @@
  * "porquê" que a tela mostra.
  */
 
+/**
+ * MÉDIO 3 (rodada 12): a QUARTA conta. Medido em produção em 21/09/2026 —
+ * `painel_teto_diario` tem quatro linhas, `arborcactus@gmail.com` entre elas
+ * com teto 500, e nenhuma função da fila a citava: ela tinha orçamento e não
+ * podia receber um item sequer. Esta lista e a lista das funções da
+ * migration 0027 são o MESMO contrato; a ordem aqui é a ordem de desempate
+ * lá (`prompts-espelho-sql.test.ts` confere as duas).
+ */
 export const CONTAS = [
   "lucasscudeler@gmail.com",
   "lsgpandora@gmail.com",
   "almapetra.ltda@gmail.com",
+  "arborcactus@gmail.com",
 ] as const;
 
 export type Conta = (typeof CONTAS)[number];
@@ -24,6 +33,7 @@ export const ROTULO_CONTA: Record<Conta, string> = {
   "lucasscudeler@gmail.com": "Lucas",
   "lsgpandora@gmail.com": "Pandora",
   "almapetra.ltda@gmail.com": "Alma Petra",
+  "arborcactus@gmail.com": "Arbor Cactus",
 };
 
 export function contaValida(valor: string): valor is Conta {
@@ -225,7 +235,7 @@ export const LIMITE_DEFASAGEM_HORAS = 12;
  * `default 150` (migration 0007 §42), o fixture tinha 500 escrito à mão, e o
  * número da decisão só vivia como PROSA no `DEPLOY.md` ("depois o `alter …
  * teto_usd set default 500`") — um passo manual que some na primeira
- * implantação feita com pressa. Agora o número mora aqui, a migration 0026 o
+ * implantação feita com pressa. Agora o número mora aqui, a migration 0027 o
  * declara no banco e `tests/unit/prompts-ultima-palavra-sql.test.ts` compara
  * os dois.
  *
@@ -767,7 +777,19 @@ export function montarMotivoDoPull(n: NumerosDoPull): string {
     frases.push(`atenção: o gasto medido desta conta é de ${Math.round(defasagem)} h atrás`);
   }
 
-  if (n.mortos === 1) {
+  // CRÍTICO 1 (rodada 12): `mortosUsd` é o que o LIVRO aceitou, não o que a
+  // casa tentou lançar. Quando a sessão vinculada já publicou o número real, a
+  // estimativa da morte é recusada por posto (D53) e o dia não anda — e a
+  // frase diz isso, em vez de anunciar um lançamento de "US$ 0,00".
+  if (n.mortos === 1 && n.mortosUsd === 0) {
+    frases.push(
+      "1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido",
+    );
+  } else if (n.mortos > 1 && n.mortosUsd === 0) {
+    frases.push(
+      `${n.mortos} itens morreram sem fechar neste disparo e não mudaram o gasto do dia: os números reais deles já estavam medidos`,
+    );
+  } else if (n.mortos === 1) {
     frases.push(
       `1 item morreu sem fechar neste disparo e lançou ${formatarUsd(n.mortosUsd)} no dia`,
     );

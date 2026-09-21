@@ -176,6 +176,29 @@ interface RespostasDaLinha {
 
 const AJUSTE_VAZIO: EstadoDoAjuste = { aberto: false, valor: "", sessao: "" };
 
+/**
+ * O estado com que o painel de "ajustar custo" NASCE para um item.
+ *
+ * O valor de partida é o custo atual do item — e ele NÃO entra no mapa de
+ * estados até o operador mexer, para o `router.refresh()` não sobrescrever o
+ * que ele acabou de digitar.
+ *
+ * CRÍTICO 2 (rodada 12): a SESSÃO de partida é a que o item JÁ TEM. O campo
+ * nascia vazio mesmo com sessão vinculada — e um campo de digitação livre que
+ * nasce vazio convida a digitar outra coisa. Foi por essa porta que o crítico
+ * mediu "um item de US$ 30 custando US$ 80 no dia": o ajuste trocava a sessão
+ * e o dinheiro da antiga ficava sem dono. O banco já não deixa mais isso
+ * acontecer (a fusão de entidade da migration 0027 §7 esvazia a entidade
+ * antiga); aqui a tela para de PROPOR a troca.
+ */
+export function estadoInicialDoAjuste(item: ItemFilaPrompt): EstadoDoAjuste {
+  return {
+    ...AJUSTE_VAZIO,
+    valor: item.custoUsd === null ? "" : item.custoUsd.toFixed(2),
+    sessao: item.sessionId ?? "",
+  };
+}
+
 function temTexto(estado: EstadoAcaoPrompt | undefined): boolean {
   return Boolean(estado && (estado.mensagem || estado.erro));
 }
@@ -354,10 +377,7 @@ export function FilaTabela({
   function ajusteDe(item: ItemFilaPrompt): EstadoDoAjuste {
     const guardado = ajustes[item.id];
     if (guardado) return guardado;
-    // O valor de partida é o custo atual do item — e ele NÃO entra no mapa até
-    // o operador mexer, para o `router.refresh()` não sobrescrever o que ele
-    // acabou de digitar.
-    return { ...AJUSTE_VAZIO, valor: item.custoUsd === null ? "" : item.custoUsd.toFixed(2) };
+    return estadoInicialDoAjuste(item);
   }
 
   const limite = limiteAtual ?? 50;

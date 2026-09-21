@@ -321,11 +321,20 @@ leitura** e não escrevem nada.
 | 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`: mostra o que já rodou naquele banco. Nome de outro sistema **não** quer dizer projeto errado — o `quiz-diagnosys` divide o banco com ~15 sistemas. Quer dizer que há aplicação viva ali e que aplicar o LifeBoard vai somar ~40 objetos ao banco dela. **Nenhum script identifica o projeto** — nem este nem o `PASSO-0`. A identidade vem do project ref, de fonte autoritativa (ver o aviso no topo). |
 | 0 | `PASSO-0-diagnostico.sql` | Confere 20 marcadores de objeto, um por migration; só a 0011 sai como `NAO VERIFICAVEL`. Diz se o LifeBoard já mora naquele banco, não se o banco é o certo. Em banco novo: 20/20 `FALTA`. |
 | 0c | `PASSO-0c-drift.sql` | **Só leitura.** Compara o histórico do banco com os arquivos de `supabase/migrations/` e nomeia os três casos: o que está **só no banco** (e, se o banco guardar o SQL, devolve o SQL para virar arquivo), o que está **só no repositório**, e que nome foi **registrado duas vezes**. Fecha o vão que o `PASSO-0` não alcança: ele confere os objetos que o repositório conhece e **não pode sentir falta do que nunca foi escrito** — um banco reconstruído sem essas migrations passa 20/20 verde. Não é versionado: gerar com `node scripts/gerar-conferencia-drift.mjs > supabase/aplicar/PASSO-0c-drift.sql`. |
-| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0026`. **O `alter ... teto_usd set default 500` saiu daqui**: ele era um passo manual que nenhum arquivo conferia, e virou parte da `0026` (achado M3 da rodada 11). |
+| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0027`. **O `alter ... teto_usd set default 500` saiu daqui**: ele era um passo manual que nenhum arquivo conferia, e virou parte da `0027` (achado M3 da rodada 11). |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
-| — | `tests/fila_prompts.test.sql` | A guarda comportamental: 62 blocos. Os três últimos (T60, T61, T62) são da rodada pós-merge e só passam com a `0025` aplicada. |
+| — | `tests/fila_prompts.test.sql` | A guarda comportamental: **68 blocos**. T60–T62 são da rodada pós-merge (exigem a `0025`); T63–T68 são da rodada 12 e exigem a `0027`. |
+| — | `scripts/rodar-suite-sql.sh` | **O jeito de rodar tudo isso de uma vez**, num Postgres qualquer: aplica o ambiente de teste (`tests/00-ambiente-de-teste.sql`), as migrations em ordem e a suíte, e sai com erro se um bloco reprovar ou se um bloco não chegar ao veredito. É o mesmo comando que o job `lifeboard-sql` do CI executa — `DATABASE_URL=postgres://… packages/lifeboard/scripts/rodar-suite-sql.sh`. |
 
-### A `0026`, e por que ela é obrigatória em banco NOVO
+### A `0027`, e por que ela é obrigatória em banco NOVO
+
+> **Ela se chamava `0026` até a rodada 12.** Produção aplicou em 21/09/2026, às
+> 12:32 UTC, uma migration `0026_lifeboard_v3_fila_quarta_conta_arborcactus`
+> vinda de uma branch irmã. Dois arquivos diferentes com o mesmo número
+> quebram qualquer reconciliação entre o repositório e o histórico do banco,
+> então este arquivo virou `0027`. Quem regerar o `PASSO-2` ou conferir o drift
+> deve contar até `0027`.
+
 
 As migrations `0022`, `0023` e `0024` são **versões antigas**: rodaram em
 produção em 13/09/2026 — antes da `0019` (o livro-razão) — e só chegaram ao
@@ -342,16 +351,31 @@ palavra** sobre duas funções do dinheiro passa a ser a versão velha.
 | `fila_prompts_pegar_interno` | `0022` | Some a recusa por medição velha (D32c), some o lançamento da estimativa do item que morre (D37), e volta o teto fantasma `v_teto := 150`. |
 | `painel_fila_motivo_do_pull` | `0024` | Ressuscita a sobrecarga de 13 argumentos que a `0016` tinha apagado — com as duas vivas, a chamada de 13 argumentos nomeados fica ambígua. |
 
-A `0026_lifeboard_v3_ultima_palavra_do_dinheiro.sql` redeclara, como última
+A `0027_lifeboard_v3_ultima_palavra_do_dinheiro.sql` redeclara, como última
 palavra da ordem, o texto da `0019` para as duas funções do dinheiro, apaga de
 novo a sobrecarga de 13 argumentos e traz o teto de **500 por conta** (decisão
-do operador de 14/09/2026) para dentro de uma migration. Nada aqui é aplicado
-em produção por esta rodada — produção já está certa; era o repositório que não
-estava.
+do operador de 14/09/2026) para dentro de uma migration.
+
+**A partir da rodada 12 ela faz mais quatro coisas, e essas SIM precisam chegar
+a produção** (§§5 a 10 do arquivo):
+
+| § | O que entra | Por quê |
+|---|---|---|
+| 5–6 | **Precedência do dinheiro (D53).** Cada lançamento do livro-razão carrega um POSTO — 10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta — e um lançamento de posto menor **não derruba** um de posto maior, em nenhuma ordem de chegada. | A estimativa da casa apagava a medição real: item com sessão de US$ 480 medidos, o worker morre, o pull mata o item e o dia passava a valer US$ 50 — com o pull despachando mais US$ 120 num teto de 500. E os mesmos dois fatos davam dois totais conforme a ordem de chegada (20 num sentido, 100 no outro), embora esta página prometesse desde D6/D30 que **a medição publicada prevalece**. Agora ela prevalece de verdade, por mecanismo. |
+| 7 | **Fusão geral de entidade.** `painel_caixa_lancar_item` esvazia qualquer entidade que ainda guarde dinheiro do item — não só a órfã `item:<uuid>`, mas também a **sessão anterior**, quando o item passa a apontar para outra. Sessão que publicou custo por si fica com o que ela publicou. | Trocar a sessão vinculada (pela tela ou pelo worker) contava o mesmo trabalho duas vezes: item morto com estimativa 50 em `sess-ERRADA`, ajuste para 30 em `sess-CERTA`, e o dia fechava em **80**. |
+| 8 | **A quarta conta.** `arborcactus@gmail.com` entra na lista das funções e nas duas travas de coluna (`painel_teto_diario`, `painel_fila_prompts`). | Medido em produção: a conta tem teto de 500 e nenhuma função da fila a citava — orçamento sem poder receber um item sequer. |
+| 9–10 | A frase do pull e as duas portas do operador (`cancelar`, `ajustar custo`) passam a dizer **o que o livro aceitou**, não o que a casa tentou. | Com a estimativa recusada, a frase anunciava um lançamento que não houve e a tela respondia "custo ajustado" sobre um dia parado. |
 
 A guarda que impede a repetição é `tests/unit/prompts-ultima-palavra-sql.test.ts`:
 ela varre **todas** as migrations em ordem, acha a ÚLTIMA definição de cada
-função e afirma sobre ela — nomeando a função e o arquivo quando falha.
+função e afirma sobre ela — nomeando a função e o arquivo quando falha. Ela é
+de **ortografia**, e diz isso de si mesma. Quem prova COMPORTAMENTO é
+`tests/fila_prompts.test.sql` contra um Postgres de verdade — e desde a rodada
+12 essa suíte roda no CI, no job `lifeboard-sql` (`.github/workflows/ci.yml`),
+com um serviço `postgres:16` e as migrations aplicadas em ordem. Antes disso o
+caminho do dinheiro tinha **zero** cobertura automática de comportamento: a
+mutação `and f.custo_estimado_usd <= v_headroom + 100000` deixava os 1387
+testes do vitest verdes.
 
 ### A `0025`, e por que ela existe
 
@@ -379,7 +403,7 @@ uma a uma, aplique a do hub primeiro.
 
 **Depois de aplicar, o banco está pronto mas VAZIO** — e o app continua sem ler
 dele até `LIFEBOARD_DATA_MODE` virar `live` na Vercel. São duas decisões
-separadas de propósito: "o banco está certo" (provável pelos 62 blocos) e "o app
+separadas de propósito: "o banco está certo" (provável pelos 68 blocos) e "o app
 mostra isso pros usuários" (sua, no seu tempo).
 
 Ainda falta, num banco novo: o `insert` do `load_secret` (item 5 do Passo 3

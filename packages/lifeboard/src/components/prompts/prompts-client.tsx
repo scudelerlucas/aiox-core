@@ -54,7 +54,13 @@ export function PromptsClient({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      {/*
+        MÉDIO 3 (rodada 12): são QUATRO contas agora. Com `sm:grid-cols-3` a
+        quarta caía sozinha numa segunda linha, larga como as outras três
+        juntas. Duas colunas no tablet, quatro no desktop — e uma só no
+        telefone, como antes.
+      */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {CONTAS.map((conta) => {
           const item = consumo.find((c) => c.conta === conta);
           if (!item) return null;

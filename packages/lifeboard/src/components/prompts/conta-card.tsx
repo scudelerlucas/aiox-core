@@ -94,6 +94,23 @@ export function ContaCard({
   const medicao = estadoDaMedicao(consumo, agora);
   const fraseDaMedicao = textoDaMedicao(consumo, agora);
   const semMedicao = medicao === "sem-medicao";
+  /*
+    MÉDIO 2 (rodada 12): "sem medição" e "sem gasto nenhum" NÃO são a mesma
+    coisa, e o card tratava as duas como uma. Medido pelo crítico a 1280 px:
+    `consumoHojeUsd = 98,50`, reservado 15, teto 500 — a linha do dinheiro
+    imprimia "nada medido ainda + US$ 15,00 em execução de US$ 500,00", o
+    `aria-label` repetia isso e a barra desenhava `aria-valuenow=23`. O texto
+    explicava 3% enquanto a barra mostrava 23%, e duas linhas abaixo o próprio
+    card dizia "US$ 50,00 do consumo são estimativa de 1 item que morreu sem
+    fechar". O número que governa o teto estava escondido pela própria tela.
+
+    Quem esconde o número passa a ser só o estado em que NÃO HÁ número: nada
+    medido E nada consumido. É esse o caso que D32a (rodada 7) veio proteger —
+    "US$ 0,00 de US$ 500,00 · US$ 500,00 livres" sobre um dia que ninguém
+    mediu. Com consumo lançado, o número aparece, e a proveniência (sem medição
+    nenhuma · a parcela estimada) continua dita na linha de baixo.
+  */
+  const semNumero = semMedicao && consumo.consumoHojeUsd === 0;
   const realidade = textoTetoVsRealidade(consumo);
   // D36: o banco recusaria QUALQUER disparo desta conta agora.
   const travada = bancoRecusaria(consumo, agora);
@@ -172,9 +189,11 @@ export function ContaCard({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label={
-            semMedicao
+            semNumero
               ? `Nada medido ainda nesta conta; ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
-              : `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+              : semMedicao
+                ? `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} lançado sem medição de sessão (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+                : `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
           }
           className="h-2.5 w-full overflow-hidden rounded-full bg-navy-600"
         >
@@ -196,9 +215,9 @@ export function ContaCard({
           dentro do `aria-label`, onde ninguém que enxerga o lê.
         */}
         <p
-          className={`mt-1.5 text-xs font-medium ${semMedicao ? "text-state-blocked" : cores.texto}`}
+          className={`mt-1.5 text-xs font-medium ${semNumero ? "text-state-blocked" : cores.texto}`}
         >
-          {semMedicao ? "nada medido ainda" : formatarUsd(consumo.consumoHojeUsd)}
+          {semNumero ? "nada medido ainda" : formatarUsd(consumo.consumoHojeUsd)}
           {consumo.reservadoUsd > 0 ? ` + ${formatarUsd(consumo.reservadoUsd)} em execução` : ""}
           {" de "}
           {formatarUsd(consumo.tetoUsd)}
@@ -219,7 +238,7 @@ export function ContaCard({
             : semMedicao
               ? "sem medição nenhuma — nenhuma sessão desta conta foi medida ainda"
               : fraseDaMedicao}
-          {semMedicao ? null : (
+          {semNumero ? null : (
             <>
               {" · "}
               {/* D13: clamp em 0 — "US$ -20,00 livres" não é informação, é erro. */}

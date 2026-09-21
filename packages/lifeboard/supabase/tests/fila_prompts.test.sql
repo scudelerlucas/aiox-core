@@ -2195,7 +2195,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":400}
     },
@@ -2205,7 +2206,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lucasscudeler@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":400}
     },
@@ -2215,7 +2217,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":390,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":490,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":490,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":200}
     },
@@ -2225,7 +2228,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":2,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":2,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"almapetra.ltda@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":200}
     },
@@ -2235,7 +2239,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":37,"exige_medicao_recente":true},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":100}
     },
@@ -2245,7 +2250,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":3,"exige_medicao_recente":true},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lucasscudeler@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":500}
     },
@@ -2255,7 +2261,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":37,"exige_medicao_recente":true},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":40,"exige_medicao_recente":true}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":40,"exige_medicao_recente":true},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":false,"todas_recusadas":true,"nunca_cabe":false,"espaco_livre_usd":400}
     },
@@ -2265,7 +2272,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":30,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":480,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":490,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":490,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":false,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":20}
     },
@@ -2275,7 +2283,8 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":30,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":40,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":10,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":10,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":20,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":null,"cabe_hoje":false,"todas_recusadas":false,"nunca_cabe":true,"espaco_livre_usd":0}
     },
@@ -2285,9 +2294,21 @@ declare
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":490,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
         {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":495,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
-        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":499,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":499,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
       "esperado": {"conta":"lucasscudeler@gmail.com","cabe_hoje":false,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":10}
+    },
+    {
+      "nome": "MEDIO 3: a quarta conta (arborcactus) esta na disputa e pode ganhar",
+      "complexidade": "alta", "estimado_usd": 50,
+      "contas": [
+        {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":200,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
+      ],
+      "esperado": {"conta":"arborcactus@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":400}
     }
   ]$casos$;
   v_caso jsonb;
@@ -2986,9 +3007,14 @@ begin
   delete from public.painel_fila_prompts where conta = v_conta;
 
   -- Três correções seguidas: duas cadeias de estorno para conferir.
+  -- [rodada 12] A ordem das origens subiu de posto (estimativa 10 → operador
+  -- 20 → medido 30). Antes a terceira era `operador` DEPOIS de `medido`, e com
+  -- a trava de precedência (D53) ela passa a ser recusada — o bloco mediria a
+  -- recusa, não a cadeia de estorno que é o assunto dele. O que T57 prova
+  -- continua sendo o mesmo: dois estornos, nenhum encadeado noutro estorno.
   perform public.painel_caixa_lancar('item', v_ent, v_conta, 120, 'estimativa');
-  perform public.painel_caixa_lancar('item', v_ent, v_conta, 80, 'medido', null, null, now());
   perform public.painel_caixa_lancar('item', v_ent, v_conta, 30, 'operador');
+  perform public.painel_caixa_lancar('item', v_ent, v_conta, 80, 'medido', null, null, now());
 
   select count(*) filter (where alvo.origem = 'estorno'), count(*)
     into v_maus, v_estornos
@@ -3224,4 +3250,322 @@ begin
     raise exception 'RESULTADO: ok — T62 D52 a leitura do dono segura o lock da entidade sessao:% (mesma chave de painel_caixa_lancar)', v_sessao;
   end if;
   raise exception 'FALHA: T62 D52 nenhum lock advisory com a chave da entidade sessao:% — a chave do dono não bate com a do caixa', v_sessao;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T63 · CRÍTICO 1 (rodada 12) — A ESTIMATIVA DA CASA NÃO APAGA A MEDIÇÃO REAL
+-- O caso exato do crítico, no banco: item com sessão vinculada que já publicou
+-- US$ 480 MEDIDOS; o worker morre (heartbeat de 2 h, tentativas esgotadas); o
+-- pull seguinte mata o item e tenta lançar a estimativa de US$ 50 sobre a
+-- MESMA entidade. Antes: +480, −480, +50 — o dia valia 50, o headroom voltava
+-- para 450 e o pull despachava mais US$ 120 num teto de 500 (US$ 600 reais).
+-- Agora: o lançamento de posto 10 não derruba o de posto 40. O dia continua
+-- 480, o headroom é 20 e nada é despachado.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar a trava de precedência de
+-- `painel_caixa_lancar` (0027 §6) — o bloco fecha em 50, não em 480.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_id2 uuid;
+  v_pull jsonb;
+  v_medido numeric;
+  v_depois numeric;
+  v_despachado text;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T63 item caro', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 50 where id = v_id;
+
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T63');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T63', 'sess-T63-cara');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T63-cara', v_conta, 'sessão cara', 'idle', 480, now());
+  v_medido := public.painel_fila_consumo_hoje(v_conta);
+
+  -- o worker some: heartbeat de 2 h e tentativas esgotadas
+  update public.painel_fila_prompts
+     set heartbeat_em = now() - interval '2 hours', tentativas = 3, max_tentativas = 3
+   where id = v_id;
+
+  -- um item de US$ 120 para provar que o pull NÃO abre espaço inventado
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T63 item de 120', 'maxima', 'Fable') returning id into v_id2;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id2;
+
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T63-b');
+  v_depois := public.painel_fila_consumo_hoje(v_conta);
+  v_despachado := coalesce(v_pull->'item'->>'custoEstimadoUsd', 'nenhum');
+
+  if v_medido = 480 and v_depois = 480
+     and (v_pull->>'headroom_usd')::numeric = 20
+     and v_despachado = 'nenhum'
+     and (v_pull->>'mortos')::int = 1
+     and (v_pull->>'mortos_usd')::numeric = 0
+     and v_pull->>'motivo' like
+         '%1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido%' then
+    raise exception 'RESULTADO: ok — T63 CRÍTICO 1 a estimativa não apaga a medição: antes=% depois=% headroom=% despachado=% motivo=[%]',
+      v_medido, v_depois, v_pull->>'headroom_usd', v_despachado, v_pull->>'motivo';
+  end if;
+  raise exception 'FALHA: T63 CRÍTICO 1 esperado consumo 480 headroom 20 nada despachado e mortos_usd 0 — obteve antes=% depois=% headroom=% despachado=% mortos_usd=% motivo=[%]',
+    v_medido, v_depois, v_pull->>'headroom_usd', v_despachado, v_pull->>'mortos_usd', v_pull->>'motivo';
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T64 · CRÍTICO 1 pela porta do OPERADOR — cancelar não apaga a medição
+-- Sessão vinculada com US$ 300 medidos; o operador cancela o item em execução.
+-- Antes: o dia caía para US$ 50 (a estimativa da casa) e a RPC anunciava o
+-- lançamento. Agora o dia fica em 300 e `custo_lancado_usd` volta ZERO.
+-- MUTAÇÃO: tirar a trava de precedência — o bloco fecha em 50.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_medido numeric;
+  v_depois numeric;
+  v_r jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T64 cancelar sobre medido', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 50 where id = v_id;
+
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T64');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T64', 'sess-T64');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T64', v_conta, 'sessão medida', 'idle', 300, now());
+  v_medido := public.painel_fila_consumo_hoje(v_conta);
+
+  v_r := public.fila_prompts_cancelar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'), v_id);
+  v_depois := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_medido = 300 and v_depois = 300
+     and (v_r->>'custo_lancado_usd')::numeric = 0
+     and (v_r->>'recusado_por_precedencia')::boolean then
+    raise exception 'RESULTADO: ok — T64 CRÍTICO 1 cancelar não apaga a medição: antes=% depois=% lancado=%',
+      v_medido, v_depois, v_r->>'custo_lancado_usd';
+  end if;
+  raise exception 'FALHA: T64 CRÍTICO 1 esperado 300 → 300 com lancado=0 — obteve antes=% depois=% lancado=% recusado=%',
+    v_medido, v_depois, v_r->>'custo_lancado_usd', coalesce(v_r->>'recusado_por_precedencia', 'null');
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T65 · CRÍTICO 2 (rodada 12) — TROCAR A SESSÃO NÃO CRIA UMA SEGUNDA ENTIDADE
+-- Item morre sem fechar com a estimativa de US$ 50 em `sess-T65-ERRADA`; o
+-- operador corrige para US$ 30 e digita `sess-T65-CERTA`. Antes o dia fechava
+-- em 80 (a entidade antiga ficava com os 50 e ninguém a estornava) com a tela
+-- dizendo "o gasto de hoje já considera o número real". Agora fecha em 30.
+-- MUTAÇÃO: devolver a fusão da 0019 (só a órfã `item:<uuid>`) — fecha em 80.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_apos_morte numeric;
+  v_final numeric;
+  v_orfa numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T65 troca de sessão', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 50 where id = v_id;
+
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T65');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T65', 'sess-T65-ERRADA');
+  update public.painel_fila_prompts
+     set heartbeat_em = now() - interval '2 hours', tentativas = 3, max_tentativas = 3
+   where id = v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T65-b');   -- mata o item
+  v_apos_morte := public.painel_fila_consumo_hoje(v_conta);
+
+  perform public.fila_prompts_ajustar_custo(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    v_id, 30, 'sess-T65-CERTA');
+  v_final := public.painel_fila_consumo_hoje(v_conta);
+
+  select coalesce(sum(l.valor_usd), 0) into v_orfa
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = 'sessao' and l.entidade_id = 'sess-T65-ERRADA';
+
+  if v_apos_morte = 50 and v_final = 30 and v_orfa = 0 then
+    raise exception 'RESULTADO: ok — T65 CRÍTICO 2 a entidade antiga foi drenada: morte=% ajuste=% sobrou na sessão errada=%',
+      v_apos_morte, v_final, v_orfa;
+  end if;
+  raise exception 'FALHA: T65 CRÍTICO 2 esperado morte=50 ajuste=30 e nada na sessão errada — obteve morte=% ajuste=% sobrou=%',
+    v_apos_morte, v_final, v_orfa;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T66 · ALTO 1 (rodada 12) — A ORDEM DE CHEGADA NÃO DECIDE O TOTAL
+-- Os mesmos dois fatos, nos dois sentidos: a rotina da conta publica US$ 100
+-- para a sessão e o worker fecha o item com US$ 20. Antes: 20 num sentido,
+-- 100 no outro — o número que governa o teto oscilava com o relógio de duas
+-- rotinas independentes. Agora os dois sentidos dão 100, que é a promessa
+-- escrita do DEPLOY.md (D6/D30): a medição PUBLICADA prevalece.
+-- MUTAÇÃO: igualar os postos de `medido` e `publicado` — os sentidos divergem.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_ordem_publica_primeiro numeric;
+  v_ordem_fecha_primeiro numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  -- sentido A: a sessão publica 100, depois o worker fecha com 20
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T66 sentido A', 'baixa', 'Haiku') returning id into v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T66a');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T66a', 'sess-T66-A');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T66-A', v_conta, 's', 'idle', 100, now());
+  perform public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T66a', 'concluida', 20, 'sess-T66-A');
+  -- O total sai da ENTIDADE, não da conta: os dois sentidos convivem no mesmo
+  -- bloco e somar a conta inteira misturaria os dois.
+  select coalesce(sum(l.valor_usd), 0) into v_ordem_publica_primeiro
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = 'sessao' and l.entidade_id = 'sess-T66-A';
+
+  -- sentido B: o worker fecha com 20, depois a sessão publica 100
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T66 sentido B', 'baixa', 'Haiku') returning id into v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T66b');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T66b', 'sess-T66-B');
+  perform public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T66b', 'concluida', 20, 'sess-T66-B');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T66-B', v_conta, 's', 'idle', 100, now());
+  select coalesce(sum(l.valor_usd), 0) into v_ordem_fecha_primeiro
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = 'sessao' and l.entidade_id = 'sess-T66-B';
+
+  if v_ordem_publica_primeiro = 100 and v_ordem_fecha_primeiro = 100 then
+    raise exception 'RESULTADO: ok — T66 ALTO 1 os dois sentidos dão o mesmo total: publica→fecha=% fecha→publica=%',
+      v_ordem_publica_primeiro, v_ordem_fecha_primeiro;
+  end if;
+  raise exception 'FALHA: T66 ALTO 1 a ordem de chegada decidiu o total: publica→fecha=% fecha→publica=%',
+    v_ordem_publica_primeiro, v_ordem_fecha_primeiro;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T67 · D53 — a ordem de precedência é a MESMA nos dois sentidos, entidade a
+-- entidade. Quatro postos, seis pares: em qualquer ordem de chegada o líquido
+-- da entidade é o do posto mais alto.
+-- MUTAÇÃO: qualquer afrouxamento da trava de posto derruba ao menos um par.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_falhas text := '';
+  v_ent text;
+  v_a record;
+  v_b record;
+  v_liq_ab numeric;
+  v_liq_ba numeric;
+  v_n int := 0;
+  v_postos jsonb := $postos$[
+    {"origem":"estimativa","posto":10,"valor":11},
+    {"origem":"operador","posto":20,"valor":22},
+    {"origem":"medido","posto":30,"valor":33},
+    {"origem":"medido","posto":40,"valor":44}
+  ]$postos$;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  for v_a in select * from jsonb_to_recordset(v_postos) as x(origem text, posto int, valor numeric) loop
+    for v_b in select * from jsonb_to_recordset(v_postos) as y(origem text, posto int, valor numeric) loop
+      if v_a.posto >= v_b.posto then continue; end if;
+      v_n := v_n + 1;
+
+      v_ent := format('T67-%s-%s-ab', v_a.posto, v_b.posto);
+      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_a.valor, v_a.origem,
+                                         null, null, now(), 'T67', v_a.posto);
+      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_b.valor, v_b.origem,
+                                         null, null, now(), 'T67', v_b.posto);
+      select coalesce(sum(l.valor_usd), 0) into v_liq_ab
+        from public.painel_caixa_lancamentos l where l.entidade_id = v_ent;
+
+      v_ent := format('T67-%s-%s-ba', v_a.posto, v_b.posto);
+      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_b.valor, v_b.origem,
+                                         null, null, now(), 'T67', v_b.posto);
+      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_a.valor, v_a.origem,
+                                         null, null, now(), 'T67', v_a.posto);
+      select coalesce(sum(l.valor_usd), 0) into v_liq_ba
+        from public.painel_caixa_lancamentos l where l.entidade_id = v_ent;
+
+      if v_liq_ab is distinct from v_b.valor or v_liq_ba is distinct from v_b.valor then
+        v_falhas := v_falhas || format(' | posto %s x %s: ab=%s ba=%s esperado=%s',
+          v_a.posto, v_b.posto, v_liq_ab, v_liq_ba, v_b.valor);
+      end if;
+    end loop;
+  end loop;
+
+  if v_falhas = '' then
+    raise exception 'RESULTADO: ok — T67 D53 o posto mais alto vence nos dois sentidos em % de % pares', v_n, v_n;
+  end if;
+  raise exception 'FALHA: T67 D53 precedência dependente da ordem —%', v_falhas;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T68 · MÉDIO 3 (rodada 12) — A QUARTA CONTA RECEBE ITEM
+-- Medido em produção em 21/09/2026: `painel_teto_diario` tem quatro contas e
+-- `arborcactus@gmail.com` (teto 500) não era citada por função nenhuma da fila.
+-- Tinha orçamento e não podia receber um item sequer.
+-- MUTAÇÃO: voltar a lista de contas para 3 — `fila_prompts_enfileirar` recusa.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'arborcactus@gmail.com';
+  v_teto numeric;
+  v_r jsonb;
+  v_pull jsonb;
+  v_id uuid;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+
+  select teto_usd into v_teto from public.painel_teto_diario where conta = v_conta;
+
+  -- A recusa da 4ª conta vem como EXCEÇÃO ("conta precisa ser uma das N contas
+  -- da casa"), e exceção não tratada aborta o bloco antes do veredito — o
+  -- vermelho viraria silêncio. Aqui ela é capturada e vira FALHA com nome.
+  begin
+    v_r := public.fila_prompts_enfileirar(
+      (select valor from private.lifeboard_config where chave = 'load_secret'),
+      jsonb_build_object('prompt', 'T68 a quarta conta recebe item de verdade',
+                         'complexidade', 'baixa', 'conta', v_conta));
+  exception when others then
+    raise exception 'FALHA: T68 a 4ª conta foi RECUSADA no enfileiramento: %', sqlerrm;
+  end;
+  v_id := (v_r->>'id')::uuid;
+
+  begin
+    v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T68');
+  exception when others then
+    raise exception 'FALHA: T68 a 4ª conta foi RECUSADA no pull: %', sqlerrm;
+  end;
+
+  if v_teto = 500
+     and v_r->>'conta' = v_conta
+     and v_pull->'item'->>'id' = v_id::text then
+    raise exception 'RESULTADO: ok — T68 a 4ª conta enfileira e o pull despacha: teto=% conta=% item=%',
+      v_teto, v_r->>'conta', v_pull->'item'->>'id';
+  end if;
+  raise exception 'FALHA: T68 a 4ª conta não fecha o ciclo: teto=% conta_enfileirada=% item_despachado=%',
+    coalesce(v_teto::text, 'sem linha'), coalesce(v_r->>'conta', 'null'),
+    coalesce(v_pull->'item'->>'id', 'nenhum');
 end $$;

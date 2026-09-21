@@ -138,17 +138,46 @@ describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
     }
   });
 
-  it("a ordem de desempate das contas no SQL é a ordem de CONTAS no TS", () => {
+  /*
+   * [rodada 12] A casa passou de 3 para 4 contas (`arborcactus@gmail.com`,
+   * que existe em produção com teto 500 desde 21/09/2026). Migration aplicada
+   * não se edita, então as antigas continuam listando as 3 primeiras — e é
+   * correto que continuem: a ordem delas é um PREFIXO da ordem de hoje, e o
+   * `else 9` que todas trazem põe qualquer conta nova depois, na posição certa.
+   *
+   * O que este espelho passa a exigir, e é mais forte do que exigia antes:
+   *   (a) nenhuma migration inverte a ordem — toda lista é prefixo de CONTAS;
+   *   (b) a ÚLTIMA migration que declara o desempate lista TODAS as contas.
+   * Era (b) que faltava: com a regra antiga, "todo arquivo igual a CONTAS",
+   * acrescentar uma conta obrigaria a reescrever o passado ou a afrouxar o
+   * teste — e a segunda saída é a que acontece na pressa.
+   */
+  it("nenhuma migration inverte a ordem de desempate (toda lista é prefixo de CONTAS)", () => {
     for (const arquivo of ARQUIVOS) {
       const ordem = ordemDasContas(semComentarios(ler(arquivo)));
       if (ordem.length === 0) continue; // migration que não repete o desempate
-      expect(ordem, `${arquivo}: ordem das contas`).toEqual([...CONTAS]);
+      expect(ordem, `${arquivo}: ordem das contas`).toEqual(
+        [...CONTAS].slice(0, ordem.length),
+      );
     }
   });
 
-  it("0013 (a migration desta rodada) declara o desempate — não herda em silêncio", () => {
+  it("a ÚLTIMA migration que declara o desempate lista TODAS as contas de CONTAS", () => {
+    const comOrdem = ARQUIVOS.filter(
+      (a) => ordemDasContas(semComentarios(ler(a))).length > 0,
+    );
+    expect(comOrdem.length, "nenhuma migration declara o desempate").toBeGreaterThan(0);
+    const ultima = comOrdem[comOrdem.length - 1] as string;
+    expect(
+      ordemDasContas(semComentarios(ler(ultima))),
+      `${ultima} é a última palavra sobre o desempate e precisa citar todas as contas`,
+    ).toEqual([...CONTAS]);
+  });
+
+  it("0013 (a migration da rodada 4) declara o desempate — não herda em silêncio", () => {
     const ordem = ordemDasContas(semComentarios(ler("0013_lifeboard_v3_fila_contabilidade.sql")));
-    expect(ordem).toEqual([...CONTAS]);
+    expect(ordem.length, "0013 precisa declarar o desempate").toBeGreaterThan(0);
+    expect(ordem).toEqual([...CONTAS].slice(0, ordem.length));
   });
 
   it("a janela de expiração do heartbeat no SQL é JANELA_HEARTBEAT_MIN", () => {

@@ -1,0 +1,1558 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- 0027 · LIFEBOARD v3 · a ÚLTIMA PALAVRA da ordem, a PRECEDÊNCIA do dinheiro
+--        e a QUARTA conta da casa
+-- ════════════════════════════════════════════════════════════════════════════
+--
+-- POR QUE 0027 E NÃO 0026 (rodada 12). Produção aplicou, em 21/09/2026 12:32
+-- UTC, uma migration `0026_lifeboard_v3_fila_quarta_conta_arborcactus` vinda de
+-- uma branch irmã. Dois arquivos diferentes com o mesmo número quebram
+-- qualquer reconciliação entre o repositório e o histórico do banco, então
+-- este arquivo passa a ser o 0027. O conteúdo é o mesmo de antes MAIS as
+-- correções da rodada 12 (§§5 a 8).
+--
+-- O QUE ACONTECEU (achado da rodada 11, conferido contra o histórico do banco).
+-- As migrations 0022, 0023 e 0024 são VERSÕES ANTIGAS. Elas rodaram em
+-- produção em 13/09/2026 — ANTES da 0019 (o livro-razão) — mas chegaram ao
+-- repositório depois, recuperadas do histórico do banco, com números que as
+-- põem no FIM da ordem de aplicação.
+--
+-- Em produção nada quebrou: lá a ordem REAL foi 0022/0023/0024 primeiro e
+-- 0019/0025 depois, então a última palavra sempre foi a certa. Quem quebra é
+-- quem segue o DEPLOY.md e aplica `0001` … `0025` em ordem num banco NOVO:
+--
+--   · `fila_prompts_pegar_interno`  — última definição: 0022. Sem o
+--     lançamento no livro-razão do item que morre (D37), sem a recusa por
+--     medição velha (D32c), sem a recusa de conta sem teto declarado, e com o
+--     teto fantasma `v_teto := 150` de volta (BAIXO 4).
+--   · `fila_prompts_fechar_interno` — última definição: 0023. **Fechar um
+--     item não escreve no livro-razão**: o custo do item some do gasto do dia.
+--   · `painel_fila_motivo_do_pull`  — a 0022/0024 RECRIARAM a sobrecarga de 13
+--     argumentos que a 0016 tinha apagado de propósito. Com as duas vivas, a
+--     chamada de 13 argumentos nomeados (é a que `supabase/tests/
+--     fila_prompts.test.sql` faz, blocos T13/T29) fica ambígua entre as duas.
+--
+-- O QUE ESTA MIGRATION FAZ. Redeclara, como última palavra da ordem, a versão
+-- CORRETA das duas funções do dinheiro — o texto da 0019, verbatim — e apaga
+-- de novo a sobrecarga de 13 argumentos. Nenhum arquivo é renumerado: os nomes
+-- de 0022/0023/0024 já estão gravados no histórico do banco.
+--
+-- O QUE FOI PRESERVADO DAS 0022/0023/0024: nada delas é melhoria que a 0019
+-- não tenha.
+--   · 0022 "motivo puro": a frase já é função pura desde a 0015, e a 0016 a
+--     ampliou (defasagem + recusa por medição). A 0019 chama a versão ampliada.
+--   · 0023 "fechar pelo último dono" (D26): a 0019 tem o MESMO ramo
+--     `v_reabrir`, e ainda estorna a estimativa do dia da morte (D38), grava
+--     `custo_origem`, checa a conta dona da sessão (D34a) e tirou o UUID cru
+--     das recusas (BAIXO 1). A 0023 é a versão anterior a tudo isso.
+--   · 0024 "motivo em texto literal": o `::text` que ela acrescenta JÁ EXISTE
+--     na versão de 15 argumentos da 0016, linha a linha. A 0024 conserta a
+--     cópia de 13 argumentos que não deveria existir.
+--
+-- Re-aplicável: tudo é `create or replace` / `drop … if exists` / `alter …`.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ── 1 · fila_prompts_pegar_interno — o texto da 0019 §17, verbatim ─────────
+-- D32c (recusa por medição velha antes de qualquer escrita) · BAIXO 4 (sem
+-- teto declarado recusa, não inventa 150) · BAIXO 5 (headroom nunca negativo)
+-- · D37 (o item que morre LANÇA a estimativa da casa no livro-razão).
+create or replace function public.fila_prompts_pegar_interno(p_conta text, p_worker_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_teto            numeric;
+  v_medido          numeric;
+  v_execucao        numeric;
+  v_headroom        numeric;
+  v_estimativa      numeric;
+  v_estimativa_n    integer;
+  v_devolvidos      integer := 0;
+  v_mortos          integer := 0;
+  v_mortos_usd      numeric := 0;
+  v_pulados         integer := 0;
+  v_em_espera       integer := 0;
+  v_devolvidos_ids  uuid[] := '{}'::uuid[];
+  v_mortos_ids      uuid[] := '{}'::uuid[];
+  v_menor_fila      numeric;
+  v_menor_agora     numeric;
+  v_menor_espera    numeric;
+  v_espera_min      integer;
+  v_custo_escolhido numeric;
+  v_elegiveis       integer := 0;
+  v_travados        integer := 0;
+  v_escolhido       uuid;
+  v_row             public.painel_fila_prompts%rowtype;
+  v_motivo          text;
+  v_defasagem       numeric;
+  v_exigir          boolean := false;
+  v_morto           record;
+  v_caixa_morte     jsonb;
+begin
+  if p_conta is null
+     or p_conta not in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com')
+  then
+    raise exception 'conta precisa ser uma das 4 contas da casa.' using errcode = 'check_violation';
+  end if;
+  if p_worker_id is null or length(btrim(p_worker_id)) = 0 then
+    raise exception 'worker_id é obrigatório (use o id desta sessão: get_session sem argumento → session_id).'
+      using errcode = 'check_violation';
+  end if;
+
+  perform 1 from public.painel_teto_diario where conta = p_conta for update;
+
+  select teto_usd, coalesce(exigir_medicao_recente, false)
+    into v_teto, v_exigir
+    from public.painel_teto_diario where conta = p_conta;
+  -- BAIXO 4 (rodada 8): sem teto DECLARADO não se inventa teto.
+  if v_teto is null then
+    raise exception 'A conta % não tem teto diário declarado no painel — declare o teto em painel_teto_diario antes de pegar item.',
+      p_conta using errcode = 'check_violation';
+  end if;
+
+  v_defasagem := public.painel_fila_defasagem_horas(p_conta);
+
+  -- D32c (rodada 7): a recusa vem ANTES de qualquer escrita.
+  if v_exigir and (v_defasagem is null or v_defasagem > 12) then
+    v_medido   := public.painel_fila_consumo_hoje(p_conta);
+    v_execucao := public.painel_fila_reservado(p_conta);
+    return jsonb_build_object(
+      'ok', true, 'item', null,
+      'devolvidos', 0, 'mortos', 0, 'pulados', 0, 'travados', 0,
+      'mortos_usd', 0,
+      'em_espera', public.painel_fila_em_espera(p_conta),
+      'headroom_usd', round(greatest(v_teto - v_medido - v_execucao, 0), 2),
+      'menor_custo_fila', null, 'menor_custo_elegivel_agora', null,
+      'estimativa_usd', round(public.painel_fila_estimativa_usd(p_conta), 2),
+      'estimativa_itens', public.painel_fila_estimativa_itens(p_conta),
+      'recusado_por_medicao', true,
+      'defasagem_horas', v_defasagem,
+      'motivo', public.painel_fila_motivo_do_pull(
+        p_mortos => 0, p_mortos_usd => 0,
+        p_custo_escolhido => null, p_headroom => 0,
+        p_menor_disponivel => null, p_elegiveis => 0,
+        p_em_espera => 0, p_menor_espera => null, p_espera_min => null,
+        p_devolvidos => 0, p_travados => 0,
+        p_estimativa_usd => 0, p_estimativa_itens => 0,
+        p_defasagem_horas => v_defasagem, p_exigir_medicao => true)
+    );
+  end if;
+
+  -- D2 + D19 + D26, inalterados.
+  with alvo as (
+    select f.id, f.tentativas, f.max_tentativas
+    from public.painel_fila_prompts f
+    where f.conta = p_conta
+      and f.estado = 'pega'
+      and coalesce(f.heartbeat_em, f.pego_em) < now() - interval '45 minutes'
+  ),
+  dev as (
+    update public.painel_fila_prompts f
+       set estado = 'na_fila', worker_id = null, pego_em = null, heartbeat_em = null,
+           ultimo_worker_id = coalesce(f.worker_id, f.ultimo_worker_id),
+           disponivel_em = now() + (interval '15 minutes' * greatest(f.tentativas, 1))
+      from alvo a
+     where f.id = a.id and a.tentativas < a.max_tentativas
+    returning f.id
+  ),
+  mor as (
+    update public.painel_fila_prompts f
+       set estado = 'falhou',
+           ultimo_worker_id = coalesce(f.worker_id, f.ultimo_worker_id),
+           worker_id = null,
+           heartbeat_em = null,
+           motivo_falha = format('expirou %s vezes sem fechamento', f.tentativas),
+           custo_usd = least(f.custo_estimado_usd, 500),
+           custo_e_estimativa = true,
+           custo_origem = 'estimativa',
+           concluido_em = now()
+      from alvo a
+     where f.id = a.id and a.tentativas >= a.max_tentativas
+    returning f.id, f.conta, f.session_id, f.custo_usd
+  )
+  select
+    coalesce((select array_agg(d.id) from dev d), '{}'::uuid[]),
+    (select count(*) from dev),
+    (select count(*) from mor),
+    coalesce((select sum(m.custo_usd) from mor m), 0),
+    coalesce((select array_agg(m.id) from mor m), '{}'::uuid[])
+  into v_devolvidos_ids, v_devolvidos, v_mortos, v_mortos_usd, v_mortos_ids;
+
+  -- D37 (rodada 9): a estimativa do item que MORREU entra no livro-razão, no
+  -- dia em que ele morreu. Quando o último dono voltar com o número real, o
+  -- fechamento estorna ESTE lançamento e grava o novo — no dia de LÁ, não
+  -- reescrevendo o dia de cá (ALTO 1).
+  --
+  -- CRÍTICO 1 (rodada 12): a estimativa NÃO derruba medição (posto 10 contra
+  -- 30/40, §6). Quando ela é recusada, o dia não se mexe — e a FRASE do pull
+  -- também não pode dizer que lançou. `v_mortos_usd` passa a ser o que o livro
+  -- ACEITOU, não o que a casa tentou: era essa a linha que escrevia "lançou
+  -- US$ 50,00 no dia" sobre um dia que continuou valendo 480.
+  if v_mortos > 0 then
+    v_mortos_usd := 0;
+    for v_morto in
+      select f.id, f.conta, f.session_id, f.custo_usd
+        from public.painel_fila_prompts f
+       where f.id = any (v_mortos_ids)
+    loop
+      v_caixa_morte := public.painel_caixa_lancar_item(
+        v_morto.id, v_morto.custo_usd, 'estimativa', null,
+        'estimativa da casa: item morreu sem fechar');
+      if coalesce((v_caixa_morte->>'movimentou')::boolean, false) then
+        v_mortos_usd := v_mortos_usd + coalesce((v_caixa_morte->>'delta_usd')::numeric, 0);
+      end if;
+    end loop;
+    v_mortos_usd := greatest(v_mortos_usd, 0);
+  end if;
+
+  v_medido       := public.painel_fila_consumo_hoje(p_conta);
+  v_execucao     := public.painel_fila_reservado(p_conta);
+  v_headroom     := v_teto - v_medido - v_execucao;
+  v_em_espera    := public.painel_fila_em_espera(p_conta);
+  v_estimativa   := public.painel_fila_estimativa_usd(p_conta);
+  v_estimativa_n := public.painel_fila_estimativa_itens(p_conta);
+
+  select f.id into v_escolhido
+    from public.painel_fila_prompts f
+   where f.conta = p_conta
+     and f.estado = 'na_fila'
+     and f.id <> all (v_devolvidos_ids)
+     and (f.disponivel_em is null or f.disponivel_em <= now())
+     and f.custo_estimado_usd <= v_headroom
+   order by f.criado_em, f.id
+   limit 1
+     for update skip locked;
+
+  select
+    count(*) filter (where f.custo_estimado_usd > v_headroom)::int,
+    count(*) filter (where f.custo_estimado_usd <= v_headroom)::int,
+    min(f.custo_estimado_usd)
+    into v_pulados, v_elegiveis, v_menor_agora
+    from public.painel_fila_prompts f
+   where f.conta = p_conta
+     and f.estado = 'na_fila'
+     and f.id <> all (v_devolvidos_ids)
+     and (f.disponivel_em is null or f.disponivel_em <= now());
+
+  select min(f.custo_estimado_usd)
+    into v_menor_fila
+    from public.painel_fila_prompts f
+   where f.conta = p_conta and f.estado = 'na_fila';
+
+  select
+    min(f.custo_estimado_usd),
+    greatest(1, ceil(extract(epoch from (min(f.disponivel_em) - now())) / 60.0))::int
+    into v_menor_espera, v_espera_min
+    from public.painel_fila_prompts f
+   where f.conta = p_conta
+     and f.estado = 'na_fila'
+     and f.disponivel_em is not null
+     and f.disponivel_em > now();
+
+  if v_escolhido is null and v_elegiveis > 0 then
+    v_travados := v_elegiveis;
+  end if;
+
+  if v_escolhido is not null then
+    select f.custo_estimado_usd into v_custo_escolhido
+      from public.painel_fila_prompts f where f.id = v_escolhido;
+  end if;
+
+  v_motivo := public.painel_fila_motivo_do_pull(
+    p_mortos           => v_mortos,
+    p_mortos_usd       => v_mortos_usd,
+    p_custo_escolhido  => v_custo_escolhido,
+    p_headroom         => v_headroom,
+    p_menor_disponivel => v_menor_agora,
+    p_elegiveis        => v_elegiveis,
+    p_em_espera        => v_em_espera,
+    p_menor_espera     => v_menor_espera,
+    p_espera_min       => v_espera_min,
+    p_devolvidos       => v_devolvidos,
+    p_travados         => v_travados,
+    p_estimativa_usd   => v_estimativa,
+    p_estimativa_itens => v_estimativa_n,
+    p_defasagem_horas  => v_defasagem,
+    p_exigir_medicao   => false
+  );
+
+  if v_escolhido is null then
+    return jsonb_build_object(
+      'ok', true, 'item', null,
+      'devolvidos', v_devolvidos, 'mortos', v_mortos, 'pulados', v_pulados,
+      'travados', v_travados,
+      'mortos_usd', round(v_mortos_usd, 2),
+      'em_espera', v_em_espera,
+      'headroom_usd', round(greatest(v_headroom, 0), 2),
+      'menor_custo_fila', round(v_menor_fila, 2),
+      'menor_custo_elegivel_agora', round(v_menor_agora, 2),
+      'estimativa_usd', round(v_estimativa, 2), 'estimativa_itens', v_estimativa_n,
+      'recusado_por_medicao', false,
+      'defasagem_horas', v_defasagem,
+      'motivo', v_motivo
+    );
+  end if;
+
+  update public.painel_fila_prompts
+     set estado = 'pega',
+         worker_id = p_worker_id,
+         ultimo_worker_id = p_worker_id,
+         pego_em = now(),
+         heartbeat_em = now(),
+         disponivel_em = null,
+         tentativas = tentativas + 1
+   where id = v_escolhido
+  returning * into v_row;
+
+  return jsonb_build_object(
+    'ok', true,
+    'devolvidos', v_devolvidos, 'mortos', v_mortos, 'pulados', v_pulados,
+    'travados', v_travados,
+    'mortos_usd', round(v_mortos_usd, 2),
+    'em_espera', v_em_espera,
+    'headroom_usd', round(greatest(v_headroom, 0), 2),
+    'menor_custo_fila', round(v_menor_fila, 2),
+    'menor_custo_elegivel_agora', round(v_menor_agora, 2),
+    'estimativa_usd', round(v_estimativa, 2), 'estimativa_itens', v_estimativa_n,
+    'recusado_por_medicao', false,
+    'defasagem_horas', v_defasagem,
+    'motivo', v_motivo,
+    'item', jsonb_build_object(
+      'id', v_row.id, 'conta', v_row.conta, 'prompt', v_row.prompt,
+      'complexidade', v_row.complexidade, 'modeloSugerido', v_row.modelo_sugerido,
+      'criadoEm', v_row.criado_em, 'taskId', v_row.task_id,
+      'workerId', v_row.worker_id, 'tentativas', v_row.tentativas,
+      'maxTentativas', v_row.max_tentativas,
+      'custoEstimadoUsd', v_row.custo_estimado_usd
+    )
+  );
+end;
+$$;
+comment on function public.fila_prompts_pegar_interno(text, text) is
+  'D32b/D32c + BAIXO 4/5 (rodada 8) + D37 (rodada 9): o item que MORRE lança a estimativa da casa no livro-razão, no dia da morte. Mantém a recusa por medição velha antes de qualquer escrita, o headroom nunca negativo e a recusa sem teto declarado.';
+revoke all on function public.fila_prompts_pegar_interno(text, text) from public, anon, authenticated;
+
+-- ── 2 · fila_prompts_fechar_interno — o texto da 0019 §12, verbatim ────────
+-- D37/D38: fechar LANÇA no livro-razão, hoje, sob a entidade canônica do item.
+-- É a função que a 0023 tinha jogado para trás — e sem ela o custo de um item
+-- fechado simplesmente não existe no gasto do dia.
+create or replace function public.fila_prompts_fechar_interno(
+  p_id uuid, p_conta text, p_worker_id text, p_estado text,
+  p_custo_usd numeric, p_session_id text default null,
+  p_sessao_url text default null, p_resultado text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_row         public.painel_fila_prompts%rowtype;
+  v_sess        text;
+  v_outro       uuid;
+  v_dona        text;
+  v_ultimo_dono boolean;
+  v_reabrir     boolean;
+  v_caixa       jsonb;
+begin
+  if p_id is null then
+    raise exception 'id é obrigatório.' using errcode = 'check_violation';
+  end if;
+  if p_conta is null
+     or p_conta not in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com')
+  then
+    raise exception 'conta precisa ser uma das 4 contas da casa.' using errcode = 'check_violation';
+  end if;
+  if p_worker_id is null or length(btrim(p_worker_id)) = 0 then
+    raise exception 'worker_id é obrigatório (o mesmo usado no fila_prompts_pegar_interno).'
+      using errcode = 'check_violation';
+  end if;
+  if p_estado is null or p_estado not in ('concluida','falhou') then
+    raise exception 'estado de fechamento precisa ser concluida ou falhou.' using errcode = 'check_violation';
+  end if;
+  if p_custo_usd is null then
+    raise exception 'custo_usd é obrigatório ao fechar (use 0 quando não houver custo).'
+      using errcode = 'check_violation';
+  end if;
+  if p_custo_usd < 0 or p_custo_usd > 500 then
+    raise exception 'custo_usd fora da faixa aceita (0 a 500): %', p_custo_usd
+      using errcode = 'check_violation';
+  end if;
+
+  v_sess := nullif(btrim(coalesce(p_session_id, '')), '');
+  if v_sess is not null and v_sess = btrim(p_worker_id) then
+    raise exception 'session_id é o id da sessão FILHA, não o da Routine' using errcode = 'check_violation';
+  end if;
+
+  select * into v_row from public.painel_fila_prompts
+    where id = p_id and conta = p_conta for update;
+
+  if not found then
+    raise exception 'Item não encontrado ou não pertence à conta informada.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- D26 (rodada 6): a morte tira a posse VIVA para liberar a fila, não para
+  -- proibir o único ator com o número honesto de entregá-lo.
+  v_ultimo_dono := (
+    v_row.worker_id is null
+    and v_row.ultimo_worker_id is not null
+    and v_row.ultimo_worker_id = btrim(p_worker_id)
+  );
+  v_reabrir := (v_row.estado = 'falhou' and v_ultimo_dono and v_row.custo_e_estimativa);
+
+  if v_row.estado = 'na_fila' and v_row.worker_id is null then
+    raise exception 'Item voltou para a fila (45 min sem sinal) — não pode ser fechado; ele será pego de novo.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- D1 · fencing: só quem pegou fecha (ou, por D26, quem tinha pegado).
+  -- BAIXO 1 (rodada 8): a recusa nomeia quem PEGOU, sem cuspir UUID.
+  if not v_ultimo_dono and v_row.worker_id is distinct from p_worker_id then
+    raise exception 'Item pertence a outro worker (%).',
+      coalesce(v_row.worker_id, v_row.ultimo_worker_id, 'ninguém pegou este item')
+      using errcode = 'check_violation';
+  end if;
+
+  if v_sess is not null then
+    select f.id into v_outro from public.painel_fila_prompts f
+      where f.session_id = v_sess and f.id <> p_id limit 1;
+    if v_outro is not null then
+      raise exception 'sessão já vinculada ao item %', v_outro using errcode = 'check_violation';
+    end if;
+    -- D34a (rodada 8) mantida: a porta continua fechada para o caso em que a
+    -- sessão JÁ está publicada. O caminho real — a sessão nascer depois — não
+    -- depende mais desta guarda para nada: a conta do dinheiro é a do
+    -- lançamento (D39), e ela não se remaneja.
+    v_dona := public.painel_sessao_dona(v_sess);
+    if v_dona is not null and v_dona <> v_row.conta then
+      raise exception 'Esta sessão é da conta % — não dá para vinculá-la a um item da conta %.',
+        v_dona, v_row.conta using errcode = 'check_violation';
+    end if;
+  end if;
+
+  if v_reabrir then
+    -- D26 + ALTO 1 (rodada 9): `concluido_em = now()` NÃO move mais dinheiro —
+    -- o dia do dinheiro é o do lançamento, e o lançamento de ontem fica onde
+    -- está. O que `concluido_em` governa é UMA coisa: a janela em que o
+    -- operador ainda pode corrigir o número pela tela
+    -- (`fila_prompts_ajustar_custo`, "só item fechado hoje"). Este item acabou
+    -- de ser fechado AGORA, com o número real — e é hoje que ele é corrigível.
+    update public.painel_fila_prompts
+       set estado = p_estado,
+           custo_usd = p_custo_usd,
+           custo_e_estimativa = false,
+           custo_origem = 'medido',
+           session_id = coalesce(v_sess, session_id),
+           sessao_url = coalesce(p_sessao_url, sessao_url),
+           resultado = coalesce(p_resultado, resultado),
+           motivo_falha = case when p_estado = 'falhou' then motivo_falha else null end,
+           heartbeat_em = null,
+           disponivel_em = null,
+           concluido_em = now()
+     where id = p_id
+    returning * into v_row;
+
+    -- D38: a estimativa lançada no dia da morte é ESTORNADA HOJE e o número
+    -- real é lançado HOJE. Ontem continua valendo o que foi relatado.
+    v_caixa := public.painel_caixa_lancar_item(
+      v_row.id, p_custo_usd, 'medido', now(),
+      'fechamento pelo último dono de item que tinha morrido sem fechar');
+
+    return jsonb_build_object(
+      'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', true, 'estado', p_estado,
+      'caixa', v_caixa
+    );
+  end if;
+
+  -- D8 (rodada 3) · idempotência: a segunda chamada não lança nada.
+  if v_row.estado in ('concluida','falhou') then
+    return jsonb_build_object(
+      'ok', true, 'ja_fechado', true, 'reaberto_e_fechado', false, 'estado', v_row.estado
+    );
+  end if;
+
+  -- D12 (rodada 4): item cancelado pelo operador durante a execução — a
+  -- medição real SUBSTITUI a estimativa, o estado continua `cancelada`.
+  if v_row.estado = 'cancelada' then
+    -- ALTO 2 (rodada 9): `concluido_em` NÃO anda. O item fechou quando foi
+    -- cancelado; esta chamada só troca o NÚMERO. Mover `concluido_em` para
+    -- agora reabriria a janela de escrita da tela sobre um item encerrado em
+    -- outro dia — e era isso que fazia dinheiro entrar num dia encerrado.
+    update public.painel_fila_prompts
+       set custo_usd = p_custo_usd,
+           custo_e_estimativa = false,
+           custo_origem = 'medido',
+           session_id = coalesce(v_sess, session_id),
+           sessao_url = coalesce(p_sessao_url, sessao_url),
+           resultado = coalesce(p_resultado, resultado),
+           concluido_em = coalesce(concluido_em, now())
+     where id = p_id
+    returning * into v_row;
+
+    v_caixa := public.painel_caixa_lancar_item(
+      v_row.id, p_custo_usd, 'medido', now(),
+      'medição real sobre item cancelado durante a execução');
+
+    return jsonb_build_object(
+      'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', 'cancelada',
+      'caixa', v_caixa
+    );
+  end if;
+
+  update public.painel_fila_prompts
+     set estado = p_estado,
+         custo_usd = p_custo_usd,
+         custo_e_estimativa = false,
+         custo_origem = 'medido',
+         session_id = coalesce(v_sess, session_id),
+         sessao_url = coalesce(p_sessao_url, sessao_url),
+         resultado = coalesce(p_resultado, resultado),
+         heartbeat_em = null,
+         disponivel_em = null,
+         concluido_em = now()
+   where id = p_id
+  returning * into v_row;
+
+  v_caixa := public.painel_caixa_lancar_item(
+    v_row.id, p_custo_usd, 'medido', now(),
+    'fechamento normal');
+
+  return jsonb_build_object(
+    'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', p_estado,
+    'caixa', v_caixa
+  );
+end;
+$$;
+comment on function public.fila_prompts_fechar_interno(uuid, text, text, text, numeric, text, text, text) is
+  'D37/D38 (rodada 9): fechar LANÇA no livro-razão, no dia de hoje, sob a entidade canônica do item. O ramo reaberto estorna a estimativa do dia da morte e lança o número real HOJE — o dia da morte não é reescrito (ALTO 1). O ramo `cancelada` não move `concluido_em`: o item fechou quando foi cancelado (ALTO 2). Mantém D1/D8/D11/D12/D26/D34a e BAIXO 1.';
+revoke all on function public.fila_prompts_fechar_interno(uuid, text, text, text, numeric, text, text, text) from public, anon, authenticated;
+
+-- ── 3 · a sobrecarga de 13 argumentos do motivo sai de novo ────────────────
+-- A 0016 apagou esta assinatura de propósito quando criou a de 15 argumentos
+-- (com `p_defasagem_horas` e `p_exigir_medicao`, ambos com default). A 0022 e a
+-- 0024 a recriaram. Com as duas vivas, uma chamada de 13 argumentos nomeados
+-- casa com as duas — e é exatamente assim que `supabase/tests/
+-- fila_prompts.test.sql` chama a função nos blocos T13 e T29.
+-- Apagar a de 13 devolve a resolução para a de 15, que tem o MESMO texto para
+-- esses casos (inclusive o `::text` que a 0024 foi acrescentar na cópia) mais
+-- o ramo da defasagem. Nada no repositório chama a de 13 de propósito.
+drop function if exists public.painel_fila_motivo_do_pull(
+  integer, numeric, numeric, numeric, numeric, integer,
+  integer, numeric, integer, integer, integer, numeric, integer);
+
+-- ── 4 · M3 · o teto de 500 por conta vira migration (decisão de 14/09/2026) ─
+-- Até aqui o número 500 só existia como PROSA no DEPLOY.md ("depois o
+-- `alter … teto_usd set default 500`") — um passo manual que nenhum arquivo
+-- confere e que some na primeira implantação feita com pressa. O schema
+-- continuava com `default 150` (0007 §42) e a seed das três contas também.
+--
+-- A régua da casa `teto-de-gasto-diario` registrou a decisão do operador em
+-- 14/09/2026: **500 por conta**, nas três. O motivo medido: nos 9 dias com
+-- dado em `painel_consumo_por_conta_dia`, 9 de 9 ficaram acima de 150
+-- (mediana ~2,6× o teto; 12/09 deu US$ 2.513,29). Um teto que nenhum dia real
+-- respeita não é freio — é um bloqueio total esperando a medição funcionar.
+--
+-- O `update` só mexe em quem AINDA está no default antigo (150). Conta em que
+-- o operador já escolheu outro número não é tocada — o valor do teto é decisão
+-- dele, e esta migration só termina de aplicar a decisão que ele já tomou.
+-- MÉDIO 3 (rodada 12): as DUAS travas de coluna que ainda listavam 3 contas.
+-- Produção já as ampliou (migration irmã de 21/09); aqui a mesma ampliação
+-- entra no repositório, para que um banco novo nasça igual ao vivo. Sem isto,
+-- `arborcactus@gmail.com` não entra nem na tabela do teto nem na fila.
+alter table public.painel_teto_diario drop constraint if exists painel_teto_diario_conta_check;
+alter table public.painel_teto_diario add constraint painel_teto_diario_conta_check
+  check (conta in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com'));
+
+alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_conta_check;
+alter table public.painel_fila_prompts add constraint painel_fila_prompts_conta_check
+  check (conta in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com'));
+
+alter table public.painel_teto_diario alter column teto_usd set default 500;
+
+update public.painel_teto_diario
+   set teto_usd = 500
+ where conta in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com')
+   and teto_usd = 150;
+
+insert into public.painel_teto_diario (conta, teto_usd) values
+  ('lucasscudeler@gmail.com', 500),
+  ('lsgpandora@gmail.com', 500),
+  ('almapetra.ltda@gmail.com', 500),
+  ('arborcactus@gmail.com', 500)
+on conflict (conta) do nothing;
+
+comment on column public.painel_teto_diario.teto_usd is
+  'Teto diário de gasto por conta. 500 por decisão do operador em 14/09/2026 (regra da casa `teto-de-gasto-diario`) — calibragem provisória, a reavaliar com 14 dias de dado real nas quatro contas. Antes: 150.';
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- RODADA 12 · §5 a §8 — o dinheiro para de depender de quem escreve por último
+-- ════════════════════════════════════════════════════════════════════════════
+--
+-- TRÊS ACHADOS, UMA CAUSA. `painel_caixa_lancar` gravava sempre: lia o líquido
+-- da entidade, estornava e escrevia o número novo, sem olhar DE ONDE vinha o
+-- número que já estava lá. Daí saíram, medidos contra um banco novo:
+--
+--  · CRÍTICO 1 — a ESTIMATIVA DA CASA apagava a MEDIÇÃO REAL. Item com sessão
+--    vinculada que já publicou US$ 480 medidos; o worker morre; o pull seguinte
+--    mata o item e lança a estimativa de US$ 50 sobre a mesma entidade. Livro:
+--    +480 medido, −480 estorno, +50 estimativa. O dia passava a valer 50, o
+--    headroom voltava para 450 e o pull despachava mais US$ 120 — US$ 600 reais
+--    num teto de 500. O mesmo pela porta do operador (`fila_prompts_cancelar`).
+--
+--  · ALTO 1 — os MESMOS DOIS FATOS davam DOIS TOTAIS. Sessão publica 100 e o
+--    item fecha com 20: na ordem (publica → fecha) o dia valia 20; na ordem
+--    (fecha → publica) valia 100. O DEPLOY.md (D6/D10/D30) promete que "a
+--    medição publicada prevalece"; quem prevalecia era a última escrita, e a
+--    ordem depende do relógio de duas rotinas independentes.
+--
+--  · CRÍTICO 2 — TROCAR A SESSÃO VINCULADA contava o mesmo trabalho duas vezes.
+--    `painel_caixa_lancar_item` só fundia a entidade órfã `item:<uuid>`. Quando
+--    o item JÁ tinha sessão e passava a ter outra (`fila_prompts_ajustar_custo`
+--    e `fila_prompts_fechar_interno` trocam com `coalesce(v_sess, session_id)`),
+--    o dinheiro da sessão antiga ficava lá e ninguém o estornava: item morto
+--    com estimativa 50 em `sess-ERRADA`, ajuste para 30 em `sess-CERTA` → o dia
+--    fechava em 80, com a tela dizendo "o gasto de hoje já considera o número
+--    real". É o modo de falha que o comentário da D39 declara morto.
+--
+-- A REGRA QUE ENTRA (D53 · PRECEDÊNCIA): todo lançamento carrega um POSTO, e
+-- um lançamento de posto MENOR não derruba um de posto MAIOR — em qualquer
+-- ordem de chegada. Os postos, de baixo para cima:
+--
+--     10  estimativa  — palpite da casa (item que morreu, item cancelado)
+--     20  operador    — número que o operador digitou na tela
+--     30  medido      — número que o WORKER relatou ao fechar o item
+--     40  publicado   — número que a ROTINA da conta publicou para a sessão
+--
+-- Por que `publicado` acima de `medido`: é a promessa que o DEPLOY.md já fazia
+-- por escrito ("a medição publicada prevalece", D6; "a medição publicada
+-- SUBSTITUI a estimativa", D30) e nunca teve mecanismo. Com ela, ALTO 1 some
+-- pela raiz — os dois sentidos dão 100 — sem depender de carimbo de tempo
+-- nenhum (medir por `medido_em` não resolveria: para os dois lados o carimbo é,
+-- na prática, a hora da escrita).
+--
+-- Posto IGUAL continua sendo "o mais novo manda": é assim que o operador
+-- corrige a própria correção (120 → 3, MÉDIO 4 da rodada 9) e que uma sessão
+-- republicada com número novo atualiza o dia.
+--
+-- Recusa NÃO é erro: `painel_caixa_lancar` devolve `movimentou=false` com
+-- `recusado_por_precedencia=true` e diz qual posto está vigente. Quem chamou
+-- segue o seu caminho — o item fecha, o cancelamento acontece — só o NÚMERO do
+-- dia não regride.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ── 5 · D53 · o posto de cada lançamento ───────────────────────────────────
+alter table public.painel_caixa_lancamentos
+  add column if not exists precedencia smallint;
+
+create or replace function public.painel_caixa_precedencia(p_origem text)
+returns smallint
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select case p_origem
+    when 'estimativa' then 10::smallint
+    when 'operador'   then 20::smallint
+    when 'medido'     then 30::smallint
+    else 10::smallint
+  end;
+$$;
+comment on function public.painel_caixa_precedencia(text) is
+  'D53 (rodada 12): o posto PADRÃO de uma origem — estimativa 10, operador 20, medido 30. A publicação da sessão (posto 40) é a única que pede o posto explicitamente, porque ela é `medido` com autoridade maior (DEPLOY.md D6/D30: "a medição publicada prevalece").';
+revoke all on function public.painel_caixa_precedencia(text) from public, anon, authenticated;
+
+-- As linhas que já existem recebem o posto da própria origem. Estorno herda o
+-- posto do que ele anula (ele nunca é "o ativo", então o número só documenta).
+update public.painel_caixa_lancamentos l
+   set precedencia = case
+         when l.origem = 'estorno' then
+           coalesce((select e.precedencia from public.painel_caixa_lancamentos e where e.id = l.estorna_id),
+                    public.painel_caixa_precedencia(l.origem))
+         else public.painel_caixa_precedencia(l.origem)
+       end
+ where l.precedencia is null;
+
+alter table public.painel_caixa_lancamentos
+  alter column precedencia set default 10;
+
+comment on column public.painel_caixa_lancamentos.precedencia is
+  'D53 (rodada 12): 10 estimativa · 20 operador · 30 medido pelo worker · 40 medido publicado pela rotina da conta. Lançamento de posto MENOR não derruba um de posto MAIOR, em nenhuma ordem de chegada. Posto igual: o mais novo manda.';
+
+-- ── 6 · D53 · painel_caixa_lancar ganha o posto e a trava ──────────────────
+-- A assinatura de 9 argumentos SAI e a de 10 entra no lugar: com as duas
+-- vivas, toda chamada de 9 argumentos ficaria ambígua (a de 10 tem default no
+-- último). Nenhum chamador muda: todos passam 9 ou menos, posicionalmente.
+drop function if exists public.painel_caixa_lancar(
+  text, text, text, numeric, text, uuid, text, timestamptz, text);
+
+create or replace function public.painel_caixa_lancar(
+  p_entidade_tipo text,
+  p_entidade_id   text,
+  p_conta         text,
+  p_alvo_usd      numeric,
+  p_origem        text,
+  p_item_id       uuid default null,
+  p_sessao_id     text default null,
+  p_medido_em     timestamptz default null,
+  p_nota          text default null,
+  p_precedencia   integer default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_liquido        numeric;
+  v_conta          text;
+  v_ultimo         uuid;
+  v_origem_atual   text;
+  v_medido_atual   timestamptz;
+  v_alvo           numeric;
+  v_dia            date;
+  v_estorno        uuid;
+  v_novo           uuid;
+  v_prec           smallint;
+  v_prec_atual     smallint;
+begin
+  if p_entidade_tipo is null or p_entidade_id is null or btrim(p_entidade_id) = '' then
+    raise exception 'painel_caixa_lancar: entidade é obrigatória.' using errcode = 'check_violation';
+  end if;
+  if p_origem is null or p_origem not in ('estimativa','medido','operador') then
+    raise exception 'painel_caixa_lancar: origem precisa ser estimativa, medido ou operador (estorno é gravado por esta função, nunca pedido de fora).'
+      using errcode = 'check_violation';
+  end if;
+
+  -- D40: "sem valor" e "valor zero" são a MESMA coisa — a ausência de medição.
+  v_alvo := coalesce(p_alvo_usd, 0);
+
+  -- D53 (rodada 12): o POSTO deste lançamento. Sem posto explícito vale o da
+  -- origem; quem publica a sessão pede 40 (a autoridade que o DEPLOY.md já
+  -- prometia em D6/D30) e a transferência de entidade pede 99.
+  v_prec := coalesce(p_precedencia::smallint, public.painel_caixa_precedencia(p_origem));
+
+  -- D42 (P1, CodeRabbit + Codex): SERIALIZA DE VERDADE. Antes daqui havia só o
+  -- comentário dizendo que serializava. `painel_caixa_lancamentos_entidade` não
+  -- é único (não pode ser: a entidade tem N linhas por construção) e
+  -- `painel_caixa_abertura_unica` só vale para `abertura = true` — não há
+  -- nenhuma linha para travar com `for update`. O lock consultivo de transação
+  -- é a trava certa: vive até o fim da transação, não depende de linha
+  -- existir, e duas entidades diferentes nunca se bloqueiam.
+  perform pg_advisory_xact_lock(
+    hashtextextended(p_entidade_tipo || ':' || p_entidade_id, 0));
+
+  select coalesce(sum(l.valor_usd), 0)
+    into v_liquido
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id;
+
+  -- D39: A CONTA É A DO PRIMEIRO LANÇAMENTO desta entidade, e estorno nenhum
+  -- muda isso — por isso ela sai de uma leitura própria, pela ponta ANTIGA.
+  select l.conta
+    into v_conta
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
+   order by l.criado_em asc, l.id asc
+   limit 1;
+
+  -- D47 (P2 do Codex, rodada 10): O LANÇAMENTO ATIVO, por DEFINIÇÃO e não por
+  -- ordenação. Antes isto era `order by criado_em desc, id desc limit 1` — e
+  -- numa correção o estorno e o lançamento novo entram na MESMA transação,
+  -- com o mesmo `now()`. O desempate caía no uuid, que é aleatório em relação
+  -- à ordem de inserção: a correção seguinte podia apontar `estorna_id` para o
+  -- ESTORNO anterior em vez do valor vigente, quebrando a cadeia de auditoria
+  -- que o extrato do livro expõe.
+  -- Ativo = não é estorno, e ninguém o estornou. Por construção há no máximo
+  -- um, e a leitura deixa de depender de relógio.
+  select l.id, l.origem, l.medido_em,
+         coalesce(l.precedencia, public.painel_caixa_precedencia(l.origem))
+    into v_ultimo, v_origem_atual, v_medido_atual, v_prec_atual
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
+     and l.origem <> 'estorno'
+     and not exists (
+           select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id)
+   order by l.criado_em desc, l.id desc
+   limit 1;
+
+  -- D39 (ALTO 3): A CONTA É FIXADA NO LANÇAMENTO. O primeiro lançamento desta
+  -- entidade decidiu de quem é o dinheiro; nenhuma publicação posterior
+  -- remaneja.
+  v_conta := coalesce(v_conta, p_conta);
+  if v_conta is null then
+    raise exception 'painel_caixa_lancar: conta é obrigatória no primeiro lançamento de uma entidade.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- D53 (rodada 12) · A TRAVA DE PRECEDÊNCIA — CRÍTICO 1 e ALTO 1.
+  -- Um lançamento de posto MENOR não derruba o que está vigente. É o que
+  -- impede a estimativa da casa (10) de apagar os US$ 480 que a sessão
+  -- publicou (40), e o que faz a ordem de chegada entre a rotina que publica a
+  -- sessão e o worker que fecha o item deixar de decidir o total do dia.
+  -- Não é erro: quem chamou segue o seu caminho, só o NÚMERO não regride.
+  if v_ultimo is not null and v_prec < v_prec_atual then
+    return jsonb_build_object(
+      'ok', true, 'movimentou', false, 'conta', v_conta,
+      'liquido_usd', round(v_liquido, 2), 'dia', null,
+      'recusado_por_precedencia', true,
+      'origem_vigente', v_origem_atual,
+      'precedencia_vigente', v_prec_atual,
+      'origem', p_origem,
+      'precedencia_pedida', v_prec,
+      'alvo_recusado_usd', round(v_alvo, 2));
+  end if;
+
+  -- D43 (P1, Codex): valor igual NÃO é motivo suficiente para não gravar.
+  -- Só há nada a fazer quando o valor E a proveniência já são os pedidos:
+  --   · alvo zero e líquido zero — não existe medição de zero (D40), nada a
+  --     atribuir, e gravar seria criar linha proibida (`valor_usd <> 0`);
+  --   · ou a origem vigente é a mesma pedida, e quando ela é `medido` o
+  --     `medido_em` já está carimbado.
+  -- Fora disso, cai no caminho normal: estorno do líquido + lançamento novo,
+  -- os dois no dia de HOJE. Com valor igual eles se anulam no total do dia — o
+  -- dinheiro não se move, e a PROVENIÊNCIA passa a existir no livro.
+  -- D50 (pós-merge, P1 do Codex): E O CARIMBO. `medido` com valor igual e
+  -- origem igual só é não-lançamento quando o carimbo pedido NÃO é mais novo
+  -- que o guardado. Vindo mais novo, cai no caminho normal: estorno + novo,
+  -- os dois hoje, que se anulam no total do dia — o dinheiro não anda e o
+  -- `medido_em` novo passa a existir. Sem `p_medido_em` explícito não há
+  -- evidência de medição nova, e continua não-lançamento.
+  if v_liquido = v_alvo
+     and (
+       v_alvo = 0
+       or (v_origem_atual is not distinct from p_origem
+           and (p_origem <> 'medido'
+                or (v_medido_atual is not null
+                    and (p_medido_em is null or p_medido_em <= v_medido_atual))))
+     )
+  then
+    return jsonb_build_object(
+      'ok', true, 'movimentou', false, 'conta', v_conta,
+      'liquido_usd', round(v_liquido, 2), 'dia', null);
+  end if;
+
+  -- D37: o dia é SEMPRE o de hoje, no fuso do operador.
+  v_dia := public.painel_dia_operador();
+
+  -- D38: a correção é um ESTORNO DATADO do líquido anterior, seguido do
+  -- lançamento novo.
+  if v_liquido <> 0 then
+    insert into public.painel_caixa_lancamentos
+      (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
+    values
+      (v_dia, v_conta, -v_liquido, 'estorno', p_entidade_tipo, p_entidade_id,
+       p_item_id, p_sessao_id, v_ultimo,
+       coalesce(p_nota, 'estorno do líquido anterior desta entidade'),
+       coalesce(v_prec_atual, v_prec))
+    returning id into v_estorno;
+  end if;
+
+  if v_alvo <> 0 then
+    insert into public.painel_caixa_lancamentos
+      (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, medido_em, nota, precedencia)
+    values
+      (v_dia, v_conta, v_alvo, p_origem, p_entidade_tipo, p_entidade_id,
+       p_item_id, p_sessao_id,
+       case when p_origem = 'medido' then coalesce(p_medido_em, now()) else null end,
+       p_nota, v_prec)
+    returning id into v_novo;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true, 'movimentou', true, 'conta', v_conta, 'dia', v_dia,
+    'liquido_anterior_usd', round(v_liquido, 2),
+    'liquido_usd', round(v_alvo, 2),
+    'delta_usd', round(v_alvo - v_liquido, 2),
+    'origem_anterior', v_origem_atual, 'origem', p_origem,
+    'recusado_por_precedencia', false,
+    'precedencia_vigente', v_prec_atual, 'precedencia', v_prec,
+    'estorno_id', v_estorno, 'lancamento_id', v_novo);
+end;
+$$;
+comment on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) is
+  'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53: cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta) e um lançamento de posto menor NÃO derruba um de posto maior — em nenhuma ordem de chegada. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos dois fatos darem o mesmo total nos dois sentidos (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção.';
+revoke all on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) from public, anon, authenticated;
+
+-- ── 7 · CRÍTICO 2 · a fusão de entidade deixa de ser só a órfã `item:` ─────
+-- A versão da 0019 fundia UMA entidade: a órfã `item:<uuid>`. O caso que ela
+-- não via é o que o crítico mediu: o item JÁ tinha sessão e passa a ter OUTRA.
+-- `fila_prompts_ajustar_custo` e `fila_prompts_fechar_interno` trocam a sessão
+-- com `session_id = coalesce(v_sess, session_id)` sem checar se já havia uma
+-- diferente — e o dinheiro da antiga ficava lá, sem dono e sem estorno.
+--
+-- Agora a fusão olha o LIVRO, não um nome: toda entidade que guarda lançamento
+-- DESTE item e não é a canônica é esvaziada. Com uma ressalva que é a própria
+-- regra do livro: uma SESSÃO que publicou custo por si continua respondendo
+-- pelo que ela publicou — o que sai de lá é só o que era do item. Esvaziar uma
+-- sessão medida junto com o item subcontaria o dia, e num teto errar para
+-- baixo é pior que errar para cima.
+drop function if exists public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text);
+
+create or replace function public.painel_caixa_lancar_item(
+  p_item        uuid,
+  p_alvo_usd    numeric,
+  p_origem      text,
+  p_medido_em   timestamptz default null,
+  p_nota        text default null,
+  p_precedencia integer default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_f         record;
+  v_ent_tipo  text;
+  v_ent_id    text;
+  v_antiga    record;
+  v_liquido   numeric;
+  v_alvo      numeric;
+begin
+  select f.id, f.conta, f.session_id into v_f
+    from public.painel_fila_prompts f where f.id = p_item;
+  if not found then
+    raise exception 'painel_caixa_lancar_item: item % não existe.', p_item
+      using errcode = 'check_violation';
+  end if;
+
+  -- D39: a entidade canônica é a sessão vinculada quando existe; senão o item.
+  if v_f.session_id is not null then
+    v_ent_tipo := 'sessao';
+    v_ent_id   := v_f.session_id;
+  else
+    v_ent_tipo := 'item';
+    v_ent_id   := p_item::text;
+  end if;
+
+  for v_antiga in
+    select distinct l.entidade_tipo, l.entidade_id
+      from public.painel_caixa_lancamentos l
+     where l.item_id = p_item
+       and not (l.entidade_tipo = v_ent_tipo and l.entidade_id = v_ent_id)
+  loop
+    select coalesce(sum(x.valor_usd), 0) into v_liquido
+      from public.painel_caixa_lancamentos x
+     where x.entidade_tipo = v_antiga.entidade_tipo
+       and x.entidade_id = v_antiga.entidade_id;
+    if v_liquido = 0 then
+      continue;
+    end if;
+
+    if v_antiga.entidade_tipo = 'sessao' then
+      select coalesce(s.custo_usd, 0) into v_alvo
+        from public.painel_frentes_sessoes s where s.sessao_id = v_antiga.entidade_id;
+      v_alvo := coalesce(v_alvo, 0);
+    else
+      v_alvo := 0;
+    end if;
+
+    -- `p_item_id => null`: a partir daqui essas linhas não são mais deste item.
+    -- Posto: 40 quando o que fica é a medição publicada da própria sessão; 99
+    -- quando é transferência pura (esvaziar não pode ser recusado por posto).
+    perform public.painel_caixa_lancar(
+      v_antiga.entidade_tipo, v_antiga.entidade_id, v_f.conta,
+      v_alvo, 'medido', null,
+      case when v_antiga.entidade_tipo = 'sessao' then v_antiga.entidade_id else null end,
+      null,
+      case when v_alvo > 0
+           then 'o trabalho deste item mudou de entidade; esta sessão fica com o que ela mesma publicou'
+           else 'fusão de entidade: o dinheiro deste item saiu daqui e foi para a entidade canônica dele'
+      end,
+      case when v_alvo > 0 then 40 else 99 end);
+  end loop;
+
+  return public.painel_caixa_lancar(
+    v_ent_tipo, v_ent_id, v_f.conta, p_alvo_usd, p_origem,
+    v_f.id, v_f.session_id, p_medido_em, p_nota, p_precedencia);
+end;
+$$;
+comment on function public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text, integer) is
+  'D39 + CRÍTICO 2 (rodada 12): a porta de lançamento de um ITEM. Resolve a entidade canônica (a sessão vinculada quando existe) e ESVAZIA toda entidade que ainda guarde dinheiro deste item — não só a órfã `item:<uuid>` da 0019, mas também a sessão ANTERIOR quando o item passa a apontar para outra. Sessão que publicou custo por si fica com o que ela publicou; o resto vai a zero.';
+revoke all on function public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text, integer) from public, anon, authenticated;
+
+-- ── 7b · a publicação da sessão pede o posto 40 ────────────────────────────
+-- É a única chamada que declara posto: a rotina da conta é a autoridade sobre
+-- o custo de uma sessão, e o DEPLOY.md (D6/D30) já dizia isso em prosa.
+create or replace function public.painel_frentes_sessoes_lancar()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_item uuid;
+begin
+  if new.conta is null or new.sessao_id is null then
+    return null;
+  end if;
+  -- D40 + D10/D30: sessão publicada SEM custo, ou com custo ZERO, não é
+  -- medição — é a ausência dela. Ela não lança e, principalmente, NÃO ESTORNA
+  -- o que o item já tinha lançado (21 das 215 sessões reais são assim).
+  if new.custo_usd is null or new.custo_usd = 0 then
+    return null;
+  end if;
+
+  select f.id into v_item from public.painel_fila_prompts f
+    where f.session_id = new.sessao_id limit 1;
+
+  if v_item is not null then
+    perform public.painel_caixa_lancar_item(
+      v_item, new.custo_usd, 'medido',
+      coalesce(new.atualizado_em, new.criado_em, new.publicado_em, now()),
+      'medição publicada pela sessão vinculada a um item da fila',
+      40);
+  else
+    perform public.painel_caixa_lancar(
+      'sessao', new.sessao_id, new.conta,
+      new.custo_usd, 'medido',
+      null, new.sessao_id,
+      coalesce(new.atualizado_em, new.criado_em, new.publicado_em, now()),
+      'medição publicada pela sessão',
+      40);
+  end if;
+
+  return null;
+end;
+$$;
+comment on function public.painel_frentes_sessoes_lancar() is
+  'D37/D39 + D53 (rodada 12): toda publicação de custo de sessão entra no livro-razão NO INSTANTE em que acontece, sob a entidade canônica `sessao:<id>`, na conta do primeiro lançamento dela e com POSTO 40 — o mais alto. É por isso que a estimativa da casa não a apaga e que a ordem entre esta rotina e o fechamento do item deixou de decidir o total do dia.';
+
+drop trigger if exists painel_frentes_sessoes_lancar_caixa on public.painel_frentes_sessoes;
+create trigger painel_frentes_sessoes_lancar_caixa
+  after insert or update of custo_usd, conta, atualizado_em on public.painel_frentes_sessoes
+  for each row execute function public.painel_frentes_sessoes_lancar();
+
+-- ── 8 · MÉDIO 3 · a QUARTA conta entra na fila ─────────────────────────────
+-- Medido em produção em 21/09/2026: `painel_teto_diario` tem QUATRO contas —
+-- `arborcactus@gmail.com` entre elas, com teto 500 —, e nenhuma das funções da
+-- fila a citava. A conta tinha orçamento e não podia receber um item sequer.
+-- A migration irmã que a criou (0026 em produção) só inseriu a linha do teto.
+-- Aqui a lista cresce nas funções que a cravam: `fila_prompts_pegar_interno` e
+-- `fila_prompts_fechar_interno` (§§1 e 2 acima) e `fila_prompts_enfileirar`,
+-- redeclarada abaixo a partir do texto da 0025 com dois pontos mudados: a
+-- lista de contas aceitas e a ordem de desempate (a 4ª entra como 4ª, na mesma
+-- ordem de `CONTAS` do TS).
+-- `fila_prompts_listar` não é redeclarada de propósito: ela lê `painel_teto_
+-- diario` inteiro e o `else 9` do desempate já põe a conta nova por último —
+-- a 4ª posição — sem citar e-mail nenhum.
+
+create or replace function public.fila_prompts_enfileirar(p_secret text, p_payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, private, pg_temp
+as $$
+declare
+  v_expected       text;
+  v_prompt         text;
+  v_complexidade   text;
+  v_modelo         text;
+  v_conta          text;
+  v_criado_por     text;
+  v_task_id        uuid;
+  v_id             uuid;
+  v_estimado       numeric;
+  v_headroom       numeric;
+  v_espaco         numeric;
+  v_na_fila        numeric;
+  v_itens_frente   integer;
+  v_codigo         text;
+  v_cabe_hoje      boolean;
+  v_consumos       jsonb;
+  v_escolha        jsonb;
+begin
+  select valor into v_expected from private.lifeboard_config where chave = 'load_secret';
+  if v_expected is null then
+    raise exception
+      'fila_prompts_enfileirar: segredo não configurado — inserir a chave load_secret em private.lifeboard_config (ver DEPLOY.md)'
+      using errcode = 'config_file_error';
+  end if;
+  if p_secret is null or p_secret <> v_expected then
+    raise exception 'fila_prompts_enfileirar: acesso negado' using errcode = 'insufficient_privilege';
+  end if;
+
+  if p_payload is null or jsonb_typeof(p_payload) <> 'object' then
+    raise exception 'payload precisa ser um objeto JSON.' using errcode = 'check_violation';
+  end if;
+
+  v_prompt := p_payload->>'prompt';
+  if v_prompt is null or length(btrim(v_prompt)) = 0 then
+    raise exception 'O prompt não pode ficar vazio.' using errcode = 'check_violation';
+  end if;
+  if length(btrim(v_prompt)) > 20000 then
+    raise exception 'O prompt passou de 20000 caracteres.' using errcode = 'check_violation';
+  end if;
+
+  v_complexidade := p_payload->>'complexidade';
+  if v_complexidade is null or v_complexidade not in ('baixa','media','alta','maxima') then
+    raise exception 'complexidade precisa ser uma de: baixa, media, alta, maxima.'
+      using errcode = 'check_violation';
+  end if;
+  v_modelo := case v_complexidade
+    when 'baixa' then 'Haiku' when 'media' then 'Sonnet'
+    when 'alta' then 'Opus'  when 'maxima' then 'Fable' end;
+
+  select usd into v_estimado from public.painel_custo_estimado where complexidade = v_complexidade;
+  if v_estimado is null then v_estimado := 15; end if;
+
+  v_criado_por := nullif(p_payload->>'criado_por', '');
+  v_task_id := nullif(p_payload->>'task_id', '')::uuid;
+
+  v_conta := nullif(p_payload->>'conta', '');
+  if v_conta is not null
+     and v_conta not in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com')
+  then
+    raise exception 'conta precisa ser uma das 4 contas da casa.' using errcode = 'check_violation';
+  end if;
+
+  -- D42: os números, na ORDEM DE `CONTAS` do TS (é ela que desempata).
+  select jsonb_agg(linha order by ordem)
+    into v_consumos
+    from (
+      select
+        case t.conta
+          when 'lucasscudeler@gmail.com' then 1
+          when 'lsgpandora@gmail.com'    then 2
+          when 'almapetra.ltda@gmail.com' then 3
+          when 'arborcactus@gmail.com'   then 4
+          else 9 end as ordem,
+        jsonb_build_object(
+          'conta', t.conta,
+          'teto_usd', t.teto_usd,
+          'medido_usd', public.painel_fila_consumo_hoje(t.conta),
+          'em_execucao_usd', public.painel_fila_reservado(t.conta),
+          'na_fila_usd', public.painel_fila_na_fila(t.conta),
+          'defasagem_horas', public.painel_fila_defasagem_horas(t.conta),
+          'exige_medicao_recente', coalesce(t.exigir_medicao_recente, false)
+        ) as linha
+      from public.painel_teto_diario t
+    ) s;
+
+  v_escolha := public.painel_fila_escolher_conta(coalesce(v_consumos, '[]'::jsonb), v_estimado);
+
+  if v_conta is null then
+    if (v_escolha->>'nunca_cabe')::boolean then
+      raise exception
+        'fila: uma tarefa % custa cerca de US$ % e nenhuma conta tem teto que a comporte (o maior é US$ %) — nunca vai caber.',
+        v_complexidade, round(v_estimado, 2), v_escolha->>'maior_teto_usd'
+        using errcode = 'check_violation';
+    end if;
+    if v_escolha->>'conta' is null then
+      raise exception 'fila: nenhuma conta configurada em painel_teto_diario.'
+        using errcode = 'check_violation';
+    end if;
+    v_conta := v_escolha->>'conta';
+  end if;
+
+  select
+    t.teto_usd - public.painel_fila_consumo_hoje(t.conta) - public.painel_fila_reservado(t.conta),
+    public.painel_fila_na_fila(t.conta)
+    into v_headroom, v_na_fila
+    from public.painel_teto_diario t where t.conta = v_conta;
+
+  v_headroom := coalesce(v_headroom, 0);
+  v_na_fila := coalesce(v_na_fila, 0);
+  v_espaco := v_headroom - v_na_fila;
+  -- D29 + D42: quando a conta veio do chooser, o veredito é o DELE (ele já
+  -- conta a recusa por medição velha). Escolha manual usa a mesma aritmética.
+  -- [P2 do Codex, rodada 10] A ESCOLHA MANUAL TAMBÉM PASSA PELA TRAVA DE
+  -- MEDIÇÃO. A conta vinda do chooser já carregava a recusa por medição velha
+  -- no `cabe_hoje` dele; a manual decidia só por espaço livre. Resultado: o
+  -- enfileiramento respondia `manual_cabe` para uma conta que
+  -- `fila_prompts_pegar_interno` iria RECUSAR categoricamente — e o cliente,
+  -- que já checa a régua nova, dizia o contrário na mesma tela.
+  v_cabe_hoje := case
+    when nullif(p_payload->>'conta','') is null then (v_escolha->>'cabe_hoje')::boolean
+    when public.painel_fila_recusaria_por_medicao(v_conta) then false
+    else v_estimado <= v_espaco
+  end;
+
+  select count(*)::int into v_itens_frente
+    from public.painel_fila_prompts f
+    where f.conta = v_conta and f.estado = 'na_fila';
+
+  v_codigo := case
+    when nullif(p_payload->>'conta','') is null then
+      case when v_cabe_hoje then 'auto_maior_espaco' else 'auto_nao_cabe_hoje' end
+    else
+      -- D51 (pós-merge, CodeRabbit): a recusa por MEDIÇÃO VELHA tem código
+      -- próprio. `manual_nao_cabe_hoje` fala de espaço livre em português, e
+      -- a tela explicava falta de dinheiro onde o problema é medição.
+      case
+        when v_cabe_hoje then 'manual_cabe'
+        when public.painel_fila_recusaria_por_medicao(v_conta) then 'manual_medicao_velha'
+        else 'manual_nao_cabe_hoje'
+      end
+  end;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, criado_por, task_id)
+  values (v_conta, btrim(v_prompt), v_complexidade, v_modelo, v_criado_por, v_task_id)
+  returning id into v_id;
+
+  return jsonb_build_object(
+    'ok', true, 'id', v_id, 'conta', v_conta, 'modelo_sugerido', v_modelo,
+    'complexidade', v_complexidade,
+    'motivo_codigo', v_codigo,
+    'cabe_hoje', v_cabe_hoje,
+    'headroom_usd', round(v_headroom, 2),
+    'espaco_livre_usd', round(v_espaco, 2),
+    'custo_estimado_usd', round(v_estimado, 2),
+    'na_fila_usd', round(v_na_fila, 2),
+    'itens_na_frente', v_itens_frente,
+    'todas_recusadas', coalesce((v_escolha->>'todas_recusadas')::boolean, false)
+  );
+end;
+$$;
+comment on function public.fila_prompts_enfileirar(text, jsonb) is
+  'D14/D29 + D42 (rodada 9) + D46 (rodada 10) + D51 (pós-merge): a escolha de conta saiu do laço e virou painel_fila_escolher_conta — a MESMA regra de escolherConta no TS. D46: a escolha MANUAL passou a consultar painel_fila_recusaria_por_medicao. D51: quando é a medição velha que recusa, o código é manual_medicao_velha e não manual_nao_cabe_hoje — a frase deste último fala de espaço livre e explicava falta de dinheiro onde o problema é medição. Nenhuma frase: quem escreve em português é o TS.';
+revoke all on function public.fila_prompts_enfileirar(text, jsonb) from public;
+grant execute on function public.fila_prompts_enfileirar(text, jsonb) to anon, authenticated;
+
+-- ── 9 · a frase do pull para de anunciar um lançamento que não houve ───────
+-- Consequência direta de §6: com a estimativa recusada por posto, `mortos_usd`
+-- passa a ser zero — e a frase de antes escrevia "lançou US$ 0,00 no dia".
+-- O texto da 0016, verbatim, mais dois ramos para esse caso. O TS
+-- (`core/prompts/tipos.ts`) recebe a MESMA frase, e a paridade das duas é
+-- provada por `tests/unit/prompts-motivo-do-pull.test.ts`.
+create or replace function public.painel_fila_motivo_do_pull(
+  p_mortos integer, p_mortos_usd numeric,
+  p_custo_escolhido numeric, p_headroom numeric,
+  p_menor_disponivel numeric, p_elegiveis integer,
+  p_em_espera integer, p_menor_espera numeric, p_espera_min integer,
+  p_devolvidos integer, p_travados integer,
+  p_estimativa_usd numeric, p_estimativa_itens integer,
+  p_defasagem_horas numeric default null,
+  p_exigir_medicao boolean default false
+)
+returns text
+language plpgsql
+immutable
+set search_path = public, pg_temp
+as $$
+declare
+  v text[] := '{}'::text[];
+begin
+  -- D32c: a RECUSA é a frase inteira. Não adianta listar o que caberia num
+  -- saldo que a casa acabou de declarar velho demais para autorizar gasto.
+  if coalesce(p_exigir_medicao, false)
+     and (p_defasagem_horas is null or p_defasagem_horas > 12) then
+    if p_defasagem_horas is null then
+      return 'não autorizo contra saldo nenhum: esta conta exige medição recente e nunca teve gasto medido';
+    end if;
+    return format('não autorizo contra saldo de %s h atrás: esta conta exige medição recente',
+      round(p_defasagem_horas)::integer);
+  end if;
+
+  -- D32b: a defasagem vem PRIMEIRO — ela qualifica todos os números seguintes.
+  -- Medido: 37 h de atraso e a tela dizia "US$ 150,00 livres" sem ressalva.
+  -- Conta que NUNCA mediu nada não ganha oração aqui de propósito: os números
+  -- do pull dela são todos zero e a oração seria um prefixo permanente em toda
+  -- frase. Quem diz isso é o CARD ("sem medição nenhuma"), e quem trava é
+  -- exigir_medicao_recente.
+  if p_defasagem_horas is not null and p_defasagem_horas > 12 then
+    v := v || format('atenção: o gasto medido desta conta é de %s h atrás',
+      round(p_defasagem_horas)::integer);
+  end if;
+
+  -- A ordem é a ordem: defasagem · mortos · escolhido/nada cabe · em espera ·
+  -- devolvidos · travados · parcela estimada. Nenhum ramo cala outro.
+  -- CRÍTICO 1 (rodada 12): `p_mortos_usd` é o que o LIVRO aceitou, não o que a
+  -- casa tentou. Quando a medição real da sessão já estava lançada, a
+  -- estimativa é recusada por posto (D53) e o dia não anda — e a frase diz
+  -- isso, em vez de anunciar um lançamento de US$ 0,00 que não houve.
+  if p_mortos = 1 and coalesce(p_mortos_usd, 0) = 0 then
+    v := v || '1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido'::text;
+  elsif p_mortos > 1 and coalesce(p_mortos_usd, 0) = 0 then
+    v := v || format('%s itens morreram sem fechar neste disparo e não mudaram o gasto do dia: os números reais deles já estavam medidos', p_mortos);
+  elsif p_mortos = 1 then
+    v := v || format('1 item morreu sem fechar neste disparo e lançou %s no dia',
+      public.painel_usd_br(p_mortos_usd));
+  elsif p_mortos > 1 then
+    v := v || format('%s itens morreram sem fechar neste disparo e lançaram %s no dia',
+      p_mortos, public.painel_usd_br(p_mortos_usd));
+  end if;
+
+  if p_custo_escolhido is not null then
+    v := v || format('peguei o item mais antigo que cabe: %s de %s livres',
+      public.painel_usd_br(p_custo_escolhido), public.painel_usd_br(p_headroom));
+  elsif p_menor_disponivel is not null and coalesce(p_elegiveis, 0) = 0 then
+    -- Só é honesto dizer "nada cabe" quando NADA cabe: com um elegível travado
+    -- por outra transação (B5), quem conta a verdade é a frase de travados.
+    -- D13/BAIXO 1: headroom negativo nunca vira número na tela nem no relatório.
+    v := v || format('nada cabe agora: o mais barato disponível custa %s e %s',
+      public.painel_usd_br(p_menor_disponivel),
+      case when p_headroom > 0 then 'há ' || public.painel_usd_br(p_headroom) || ' livres'
+           else 'não há espaço livre agora' end);
+  end if;
+
+  if p_em_espera = 1 then
+    v := v || format('1 item de %s volta em %s min',
+      public.painel_usd_br(p_menor_espera), p_espera_min);
+  elsif p_em_espera > 1 then
+    v := v || format('%s itens de %s voltam em %s min',
+      p_em_espera, public.painel_usd_br(p_menor_espera), p_espera_min);
+  end if;
+
+  if p_devolvidos = 1 then
+    -- `::text` obrigatório: `text[] || 'literal'` sem tipo faz o Postgres ler
+    -- o literal como ARRAY ("malformed array literal") e o pull inteiro morre
+    -- com exatamente 1 devolvido. Achado do bloco T13 deste arquivo.
+    v := v || '1 item voltou para a fila e aguarda nova tentativa'::text;
+  elsif p_devolvidos > 1 then
+    v := v || format('%s itens voltaram para a fila e aguardam nova tentativa', p_devolvidos);
+  end if;
+
+  if p_travados = 1 then
+    v := v || '1 item elegível está em uso por outra operação; tente no próximo disparo'::text;
+  elsif p_travados > 1 then
+    v := v || format('%s itens elegíveis estão em uso por outra operação; tente no próximo disparo', p_travados);
+  end if;
+
+  -- D20 (rodada 4): a parcela estimada é dita em voz alta — BAIXO 7 (rodada 7):
+  -- exceto quando ela é EXATAMENTE o dinheiro que a oração dos mortos deste
+  -- disparo já nomeou. Duas orações para o mesmo dinheiro só engordam a frase
+  -- (o crítico mediu 331 caracteres, com a repetição dentro).
+  if coalesce(p_estimativa_usd, 0) > 0
+     and not (coalesce(p_mortos, 0) > 0
+              and coalesce(p_mortos, 0) = coalesce(p_estimativa_itens, -1)
+              and coalesce(p_mortos_usd, 0) = coalesce(p_estimativa_usd, -1)) then
+    v := v || format('%s do consumo de hoje são estimativa de %s',
+      public.painel_usd_br(p_estimativa_usd),
+      case when p_estimativa_itens = 1 then '1 item que morreu sem fechar'
+           else p_estimativa_itens || ' itens que morreram sem fechar' end);
+  end if;
+
+  if array_length(v, 1) is null then
+    return 'fila vazia para esta conta';
+  end if;
+  return array_to_string(v, '; ');
+end;
+$$;
+comment on function public.painel_fila_motivo_do_pull(integer, numeric, numeric, numeric, numeric, integer, integer, numeric, integer, integer, integer, numeric, integer, numeric, boolean) is
+  'D32b/D32c + CRÍTICO 1 (rodada 12): a frase do pull, função pura. Quando um item morre e a estimativa dele é recusada por posto (a medição real já estava lançada), a frase diz que o dia NÃO mudou, em vez de anunciar um lançamento de US$ 0,00.';
+revoke all on function public.painel_fila_motivo_do_pull(integer, numeric, numeric, numeric, numeric, integer, integer, numeric, integer, integer, integer, numeric, integer, numeric, boolean) from public, anon, authenticated;
+
+-- ── 10 · as duas portas do operador contam a verdade do livro ──────────────
+-- `fila_prompts_cancelar` anunciava o lançamento da estimativa mesmo quando o
+-- livro a recusava por posto; `fila_prompts_ajustar_custo` deixaria passar uma
+-- correção que o livro recusaria, devolvendo ok=true sobre um dia parado. As
+-- duas agora olham o que o livro ACEITOU. O resto do texto é o da 0019.
+create or replace function public.fila_prompts_cancelar(p_secret text, p_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, private, pg_temp
+as $$
+declare
+  v_expected text;
+  v_row      public.painel_fila_prompts%rowtype;
+  v_codigo   text;
+  v_lancado  numeric := 0;
+  v_caixa    jsonb;
+begin
+  select valor into v_expected from private.lifeboard_config where chave = 'load_secret';
+  if v_expected is null then
+    raise exception
+      'fila_prompts_cancelar: segredo não configurado — inserir a chave load_secret em private.lifeboard_config (ver DEPLOY.md)'
+      using errcode = 'config_file_error';
+  end if;
+  if p_secret is null or p_secret <> v_expected then
+    raise exception 'fila_prompts_cancelar: acesso negado' using errcode = 'insufficient_privilege';
+  end if;
+  if p_id is null then
+    raise exception 'Item não identificado.' using errcode = 'check_violation';
+  end if;
+
+  select * into v_row from public.painel_fila_prompts where id = p_id for update;
+
+  if not found or v_row.estado not in ('na_fila','pega') then
+    raise exception 'Este item não está mais na fila — ele já foi concluído, falhou ou foi cancelado.'
+      using errcode = 'check_violation';
+  end if;
+
+  v_codigo := case
+    when v_row.estado = 'pega' then 'cancelado_em_execucao'
+    when v_row.tentativas > 0 then 'cancelado_apos_devolucao'
+    else 'cancelado_nunca_pego'
+  end;
+
+  -- D12: cancelada que JÁ TEVE DONO gastou dinheiro. Esta é a cláusula que a
+  -- mutação M23 apaga — e o bloco T45 fica vermelho quando ela some.
+  if v_codigo <> 'cancelado_nunca_pego' and v_row.custo_usd is null then
+    v_lancado := least(v_row.custo_estimado_usd, 500);
+  end if;
+
+  update public.painel_fila_prompts
+     set estado = 'cancelada',
+         heartbeat_em = null,
+         disponivel_em = null,
+         concluido_em = now(),
+         ultimo_worker_id = coalesce(worker_id, ultimo_worker_id),
+         custo_usd = case when v_lancado > 0 then v_lancado else custo_usd end,
+         custo_e_estimativa = case when v_lancado > 0 then true else custo_e_estimativa end,
+         custo_origem = case when v_lancado > 0 then 'estimativa' else custo_origem end,
+         motivo_falha = case v_codigo
+           when 'cancelado_em_execucao' then 'cancelado pelo operador durante a execução'
+           when 'cancelado_apos_devolucao' then format('cancelado pelo operador depois de %s tentativa(s)', v_row.tentativas)
+           else motivo_falha end
+   where id = p_id
+  returning * into v_row;
+
+  if v_lancado > 0 then
+    v_caixa := public.painel_caixa_lancar_item(
+      v_row.id, v_lancado, 'estimativa', null,
+      'estimativa da casa: item cancelado depois de já ter rodado');
+    -- CRÍTICO 1 (rodada 12): se a sessão vinculada já publicou o número real,
+    -- a estimativa é recusada por posto (D53) e o dia NÃO muda. O relatório
+    -- diz o que o livro aceitou — antes ele anunciava um lançamento que não
+    -- aconteceu, e era por essa porta que US$ 300 medidos viravam US$ 50.
+    if not coalesce((v_caixa->>'movimentou')::boolean, false) then
+      v_lancado := 0;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true,
+    'motivo_codigo', v_codigo,
+    'tentativas', v_row.tentativas,
+    'custo_lancado_usd', round(v_lancado, 2),
+    'recusado_por_precedencia', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false),
+    'caixa', v_caixa
+  );
+end;
+$$;
+comment on function public.fila_prompts_cancelar(text, uuid) is
+  'D12 + D37 + CRÍTICO 1 (rodada 12): cancelar item que JÁ RODOU lança o custo ESTIMADO no livro-razão com posto 10; se a sessão vinculada já publicou o número real, o livro recusa e `custo_lancado_usd` volta ZERO — o relatório passa a dizer o que aconteceu, não o que se tentou.';
+revoke all on function public.fila_prompts_cancelar(text, uuid) from public;
+grant execute on function public.fila_prompts_cancelar(text, uuid) to anon, authenticated;
+create or replace function public.fila_prompts_ajustar_custo(
+  p_secret text, p_id uuid, p_custo_usd numeric, p_session_id text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, private, pg_temp
+as $$
+declare
+  v_expected text;
+  v_row      public.painel_fila_prompts%rowtype;
+  v_sess     text;
+  v_outro    uuid;
+  v_dona     text;
+  v_caixa    jsonb;
+  v_antes    text;
+  v_era_zero boolean;
+  v_origem_livro text;
+begin
+  select valor into v_expected from private.lifeboard_config where chave = 'load_secret';
+  if v_expected is null then
+    raise exception
+      'fila_prompts_ajustar_custo: segredo não configurado — inserir a chave load_secret em private.lifeboard_config (ver DEPLOY.md)'
+      using errcode = 'config_file_error';
+  end if;
+  if p_secret is null or p_secret <> v_expected then
+    raise exception 'fila_prompts_ajustar_custo: acesso negado' using errcode = 'insufficient_privilege';
+  end if;
+  if p_id is null then
+    raise exception 'Item não identificado.' using errcode = 'check_violation';
+  end if;
+  if p_custo_usd is null or p_custo_usd < 0 or p_custo_usd > 500 then
+    raise exception 'O custo precisa ser um número entre 0 e 500.' using errcode = 'check_violation';
+  end if;
+
+  v_sess := nullif(btrim(coalesce(p_session_id, '')), '');
+
+  select * into v_row from public.painel_fila_prompts where id = p_id for update;
+
+  if not found then
+    raise exception 'Item não encontrado na fila.' using errcode = 'check_violation';
+  end if;
+  if v_row.estado not in ('falhou','cancelada') then
+    raise exception 'Só dá para ajustar o custo de item que falhou ou foi cancelado (este está %).',
+      public.painel_fila_estado_br(v_row.estado)
+      using errcode = 'check_violation';
+  end if;
+  if v_row.concluido_em is null
+     or public.painel_dia_operador(v_row.concluido_em) <> public.painel_dia_operador() then
+    raise exception 'Só dá para ajustar o custo de item fechado hoje.' using errcode = 'check_violation';
+  end if;
+  -- MÉDIO 4 (rodada 8) mantida: a guarda olha a ORIGEM, não o VALOR.
+  if v_row.custo_origem = 'medido' and coalesce(v_row.custo_usd, 0) <> 0 then
+    raise exception 'Este custo foi medido pela sessão — não dá para corrigi-lo aqui.'
+      using errcode = 'check_violation';
+  end if;
+  -- CRÍTICO 1 (rodada 12): a MESMA guarda, olhando o LIVRO. A coluna
+  -- `custo_origem` do item pode dizer `estimativa` (a casa lançou quando ele
+  -- morreu) enquanto a entidade dele já guarda a medição publicada pela
+  -- sessão. Sem esta linha a correção do operador (posto 20) seria recusada
+  -- por posto lá dentro e a tela responderia "custo ajustado" sobre um dia
+  -- que não se mexeu — o no-op silencioso que a rodada 9 matou por outro
+  -- caminho. Aqui ele vira recusa com motivo.
+  select l.origem into v_origem_livro
+    from public.painel_caixa_lancamentos l
+   where (l.entidade_tipo, l.entidade_id) = (
+           select case when f.session_id is not null then 'sessao' else 'item' end,
+                  case when f.session_id is not null then f.session_id else f.id::text end
+             from public.painel_fila_prompts f where f.id = p_id)
+     and l.origem <> 'estorno'
+     and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id)
+   order by l.criado_em desc, l.id desc
+   limit 1;
+  if public.painel_caixa_precedencia('operador')
+     < coalesce(public.painel_caixa_precedencia(v_origem_livro), 0) then
+    raise exception 'Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.'
+      using errcode = 'check_violation';
+  end if;
+
+  if v_sess is not null then
+    select f.id into v_outro from public.painel_fila_prompts f
+      where f.session_id = v_sess and f.id <> p_id limit 1;
+    if v_outro is not null then
+      raise exception 'Esta sessão já está vinculada a outro item da fila.' using errcode = 'check_violation';
+    end if;
+    v_dona := public.painel_sessao_dona(v_sess);
+    if v_dona is not null and v_dona <> v_row.conta then
+      raise exception 'Esta sessão é da conta % — não dá para vinculá-la a um item da conta %.',
+        v_dona, v_row.conta using errcode = 'check_violation';
+    end if;
+  end if;
+
+  -- A origem de ANTES da correção (o `returning` abaixo já traz 'operador').
+  v_antes    := v_row.custo_origem;
+  v_era_zero := (v_row.custo_origem = 'medido' and coalesce(v_row.custo_usd, 0) = 0);
+
+  update public.painel_fila_prompts
+     set custo_usd = p_custo_usd,
+         custo_e_estimativa = false,
+         custo_origem = 'operador',
+         session_id = coalesce(v_sess, session_id),
+         custo_ajustado_em = now()
+   where id = p_id
+  returning * into v_row;
+
+  -- MÉDIO 4 (rodada 9): A CORREÇÃO DEIXA DE SER NO-OP. Medido pelo crítico:
+  -- `ajuste 120->3 devolveu ok=true custo=3.00 dia=30` — a RPC confirmava, a
+  -- tela ficava verde e o número que governa o teto não se mexia, porque o dia
+  -- era derivado da SESSÃO e o item vinculado contribuía zero. Agora a
+  -- correção é um lançamento: estorno do líquido da entidade + o valor novo.
+  v_caixa := public.painel_caixa_lancar_item(
+    v_row.id, p_custo_usd, 'operador', null,
+    'correção do operador pela tela');
+
+  return jsonb_build_object(
+    'ok', true, 'custo_usd', round(p_custo_usd, 2),
+    'session_id', coalesce(v_sess, v_row.session_id),
+    'origem_anterior', v_antes,
+    'era_medido_zero', v_era_zero,
+    'consumo_do_dia_usd', round(public.painel_fila_consumo_hoje(v_row.conta), 2),
+    'caixa', v_caixa
+  );
+end;
+$$;
+comment on function public.fila_prompts_ajustar_custo(text, uuid, numeric, text) is
+  'D20/D26 + MÉDIO 4 + CRÍTICO 1 (rodada 12): a correção do operador grava no livro (estorno + lançamento novo). A trava agora olha os DOIS lugares — a coluna `custo_origem` do item e a origem do lançamento ATIVO da entidade dele —, porque a coluna pode dizer `estimativa` enquanto o livro já guarda a medição publicada pela sessão.';
+revoke all on function public.fila_prompts_ajustar_custo(text, uuid, numeric, text) from public;
+grant execute on function public.fila_prompts_ajustar_custo(text, uuid, numeric, text) to anon, authenticated;

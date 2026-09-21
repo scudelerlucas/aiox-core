@@ -126,6 +126,28 @@ describe("D27 — o motivo do pull é ADITIVO, e o TS diz o mesmo que o SQL", ()
     },
   );
 
+  /**
+   * CRÍTICO 1 (rodada 12) — a morte que NÃO move o dia. Com a trava de
+   * precedência (0027 §6), a estimativa da casa é recusada quando a sessão
+   * vinculada já publicou o número real: `mortosUsd` volta ZERO e a frase não
+   * pode anunciar um lançamento de "US$ 0,00". O bloco T63 de
+   * `supabase/tests/fila_prompts.test.sql` afirma a MESMA frase contra o
+   * Postgres, e é por isso que ela aparece literal nos dois lugares.
+   */
+  it("morte sem movimento: a frase diz que o dia não mudou, não que lançou US$ 0,00", () => {
+    const um = montarMotivoDoPull(numeros({ mortos: 1, mortosUsd: 0 }));
+    expect(um).toBe(
+      "1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido",
+    );
+    expect(um).not.toContain("US$ 0,00");
+    expect(TESTE_SQL, "T63 precisa afirmar a MESMA frase contra o banco").toContain(um);
+
+    const varios = montarMotivoDoPull(numeros({ mortos: 3, mortosUsd: 0 }));
+    expect(varios).toBe(
+      "3 itens morreram sem fechar neste disparo e não mudaram o gasto do dia: os números reais deles já estavam medidos",
+    );
+  });
+
   it("fila realmente vazia continua tendo o nome dela", () => {
     expect(montarMotivoDoPull(numeros({}))).toBe("fila vazia para esta conta");
     expect(TESTE_SQL).toContain("fila vazia para esta conta");

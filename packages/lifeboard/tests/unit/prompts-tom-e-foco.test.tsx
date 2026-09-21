@@ -29,7 +29,9 @@ vi.mock("@/lib/supabase/live-client", () => ({
   ajustarCustoPrompt: vi.fn(),
 }));
 
-const { FilaTabela, podeAjustarCusto } = await import("@/components/prompts/fila-tabela");
+const { FilaTabela, podeAjustarCusto, estadoInicialDoAjuste } = await import(
+  "@/components/prompts/fila-tabela"
+);
 const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
 
 /**
@@ -137,6 +139,24 @@ describe("MÉDIO 3 — o botão 'ajustar custo' só aparece em item fechado HOJE
 
   it("item com custo MEDIDO não oferece o ajuste, nem fechado hoje", () => {
     expect(render({ custoEEstimativa: false })).not.toContain("ajustar custo");
+  });
+
+  /*
+   * CRÍTICO 2 (rodada 12): o campo "sessão" do ajuste nascia VAZIO mesmo
+   * quando o item já tinha uma sessão vinculada. Campo de digitação livre que
+   * nasce vazio convida a digitar outra coisa, e trocar a sessão fazia o mesmo
+   * trabalho aparecer em duas entidades: o crítico mediu um item de US$ 30
+   * custando US$ 80 no dia, com a tela dizendo "o gasto de hoje já considera o
+   * número real". A trava de verdade é do banco (0027 §7); esta é a tela
+   * deixando de propor a troca.
+   */
+  it("o ajuste nasce com a SESSÃO que o item já tem, não em branco", () => {
+    expect(estadoInicialDoAjuste(item({ sessionId: "sess-ja-vinculada" })).sessao).toBe(
+      "sess-ja-vinculada",
+    );
+    expect(estadoInicialDoAjuste(item({ sessionId: null })).sessao).toBe("");
+    // e o valor continua partindo do custo atual do item
+    expect(estadoInicialDoAjuste(item({ custoUsd: 120 })).valor).toBe("120.00");
   });
 
   it("o campo OPCIONAL de sessão existe no painel de ajuste (D26)", () => {
@@ -370,6 +390,46 @@ describe("D32a — três estados de medição, três frases (eram um só)", () =
     expect(renderToStaticMarkup(<ContaCard consumo={consumo} agora={AGORA} />)).toContain(
       "medido até",
     );
+  });
+
+  /*
+   * MÉDIO 2 (rodada 12): o card ESCONDIA o consumo que governa o teto sempre
+   * que `medidoAteEm` era nulo — e "nulo" não quer dizer "zero". O estado é
+   * alcançável no banco vivo (item que morre sem fechar lança a estimativa da
+   * casa sem medição de sessão nenhuma) e era o retrato de 2 das 3 contas
+   * reais. Medido pelo crítico a 1280 px com consumo 98,50 / reservado 15 /
+   * teto 500: o texto dizia "nada medido ainda + US$ 15,00 em execução de
+   * US$ 500,00", o `aria-label` repetia isso e a barra marcava
+   * `aria-valuenow=23` — a barra desenhava 23% do teto enquanto o texto
+   * explicava 3%.
+   */
+  it("consumo lançado SEM medição de sessão: o número aparece, e a barra bate com o texto", () => {
+    const consumo = consumoDeProva({
+      tetoUsd: 500,
+      consumoHojeUsd: 98.5,
+      reservadoUsd: 15,
+      estimativaUsd: 50,
+      estimativaItens: 1,
+    });
+    const html = renderToStaticMarkup(<ContaCard consumo={consumo} agora={AGORA} />);
+    // (98,50 + 15) / 500 = 22,7% → 23
+    expect(html).toContain('aria-valuenow="23"');
+    expect(html, "o número que governa o teto não pode ficar fora da linha").toContain(
+      "US$ 98,50",
+    );
+    expect(html, "a linha do dinheiro não pode trocar o número por 'nada medido ainda'")
+      .not.toContain("nada medido ainda");
+    expect(html, "o espaço livre sumia junto com o número").toContain("livres");
+    // a proveniência continua dita, na linha de baixo
+    expect(html).toContain("sem medição nenhuma");
+  });
+
+  it("nada medido E nada consumido continua sendo 'nada medido ainda' (D32a intacta)", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={consumoDeProva({ tetoUsd: 500 })} agora={AGORA} />,
+    );
+    expect(html).toContain("nada medido ainda");
+    expect(html).not.toContain("US$ 500,00 livres");
   });
 
   it("sem `defasagemHoras` (banco antigo, sem 0016) a tela calcula e degrada sem quebrar", () => {

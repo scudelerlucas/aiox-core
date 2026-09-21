@@ -32,6 +32,7 @@ jobs:
       config: ${{ steps.filter.outputs.config }}
       stories: ${{ steps.filter.outputs.stories }}
       ci: ${{ steps.filter.outputs.ci }}
+      lifeboard_sql: ${{ steps.filter.outputs.lifeboard_sql }}
     steps:
       # NOTE: No 'submodules' parameter — pro/ submodule is intentionally
       # NOT checked out. aiox-core MUST work standalone without pro/.
@@ -59,6 +60,14 @@ jobs:
               - 'eslint.config.*'
             stories:
               - 'docs/stories/**'
+            # MÉDIO 1 (rodada 12): o caminho do DINHEIRO do lifeboard. A
+            # guarda de comportamento dele é SQL rodado contra um Postgres de
+            # verdade (`lifeboard-sql` abaixo), e ela é a única coisa que
+            # distingue um pull que respeita o teto de um que estoura o
+            # orçamento — o vitest lê a GRAFIA do .sql e passa nos dois casos.
+            lifeboard_sql:
+              - 'packages/lifeboard/supabase/**'
+              - 'packages/lifeboard/scripts/rodar-suite-sql.sh'
             # Mudança no próprio CI precisa reexecutar o que valida o CI.
             # Sem isto, um PR que só mexe neste arquivo pula os jobs e entra
             # sem nunca ter sido exercido — foi o que aconteceu no PR #34.
@@ -245,6 +254,55 @@ jobs:
       - name: idea-inbox - tests (node --test)
         run: npm test --workspace=@aiox/idea-inbox
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # MÉDIO 1 (rodada 12) — A GUARDA DE COMPORTAMENTO DO DINHEIRO RODA EM CI.
+  #
+  # `packages/lifeboard/supabase/tests/fila_prompts.test.sql` existe desde a
+  # rodada 5 e não era executada por job nenhum: para o lifeboard o CI rodava
+  # só `npm test` e `npm run typecheck`. O crítico da rodada 11 mediu o buraco
+  # com uma linha — trocar `and f.custo_estimado_usd <= v_headroom` por
+  # `… <= v_headroom + 100000` na migration faz o pull ignorar o teto do dia, e
+  # os 1387 testes do vitest ficam VERDES, porque eles conferem a GRAFIA do
+  # .sql, não o que o banco faz.
+  #
+  # Este job aplica as migrations `0001` … `NNNN` EM ORDEM num Postgres 16
+  # limpo — o mesmo caminho do DEPLOY.md, que é o que pega migration fora de
+  # ordem — e roda a suíte. Nada aqui toca produção: o banco é o serviço
+  # efêmero do runner.
+  # ───────────────────────────────────────────────────────────────────────────
+  lifeboard-sql:
+    name: Lifeboard SQL (comportamento do dinheiro)
+    needs: changes
+    if: ${{ needs.changes.outputs.lifeboard_sql == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lifeboard_teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Migrations em ordem + suíte de comportamento
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/lifeboard_teste
+        run: packages/lifeboard/scripts/rodar-suite-sql.sh
+
   story-validation:
     name: Story Checkbox Validation
     needs: changes
@@ -375,7 +433,7 @@ jobs:
   validation-summary:
     name: Validation Summary
     runs-on: ubuntu-latest
-    needs: [changes, security-audit, lint, typecheck, test, package-tests, story-validation, manifest-validation, ide-sync-validation, installer-smoke-test, compatibility-parity-gate, dependency-validation, brownfield-install-test]
+    needs: [changes, security-audit, lint, typecheck, test, package-tests, lifeboard-sql, story-validation, manifest-validation, ide-sync-validation, installer-smoke-test, compatibility-parity-gate, dependency-validation, brownfield-install-test]
     if: always()
 
     steps:
@@ -395,6 +453,7 @@ jobs:
           echo "  TypeCheck: ${{ needs.typecheck.result }}"
           echo "  Tests: ${{ needs.test.result }}"
           echo "  Package Tests: ${{ needs.package-tests.result }}"
+          echo "  Lifeboard SQL: ${{ needs.lifeboard-sql.result }}"
           echo "  Story Validation: ${{ needs.story-validation.result }}"
           echo "  Manifest Validation: ${{ needs.manifest-validation.result }}"
           echo "  IDE Sync Validation: ${{ needs.ide-sync-validation.result }}"
@@ -433,6 +492,12 @@ jobs:
           # Package Tests: fail if ran and didn't succeed
           if [ "${{ needs.package-tests.result }}" == "failure" ]; then
             echo "❌ Package tests failed (lifeboard / idea-forge / idea-inbox)"
+            FAILED=true
+          fi
+
+          # Lifeboard SQL: fail if ran and didn't succeed
+          if [ "${{ needs.lifeboard-sql.result }}" == "failure" ]; then
+            echo "❌ Lifeboard SQL behaviour suite failed (o caminho do dinheiro)"
             FAILED=true
           fi
 
