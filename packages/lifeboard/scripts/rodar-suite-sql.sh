@@ -8,6 +8,23 @@
 # migration deixa o pull ignorar o teto do dia, e os 1387 testes do vitest
 # continuam verdes — porque eles leem a GRAFIA do .sql, não o comportamento.
 #
+# O QUE ESTA SUÍTE COBRE — e o que não (ALTO 2, rodada 13). O cabeçalho antigo
+# dizia que ela "é a única coisa que distingue um pull que respeita o teto de
+# um que estoura o orçamento". Não era: o crítico apagou `- v_execucao` do
+# cálculo do headroom e os 68 blocos ficaram verdes enquanto seis pulls
+# despachavam US$ 720 contra um teto de 500. Aquele caso ganhou bloco (T69).
+# Os buracos que SOBRAM, para quem confia nesta saída saber do que confia:
+#   · 19 das 44 funções do esquema não são chamadas por bloco nenhum — entre
+#     elas `fila_prompts_pegar` e `fila_prompts_fechar`, as portas com segredo
+#     que embrulham as `_interno` que a suíte de fato exercita;
+#   · ninguém se conecta como `anon`: permissão é LIDA (has_function_
+#     privilege, T19/T73), não exercida;
+#   · a tela não entra aqui (vitest + tsc + checar-contraste.mjs);
+#   · o ambiente é um Postgres 16 com os stubs de `00-ambiente-de-teste.sql`.
+# Em uma frase: ela pega mudança de comportamento no caminho que os blocos
+# percorrem. Cobertura fora dali é zero, e dizer o contrário é o que fez o
+# crítico da rodada 12 gastar uma linha para provar.
+#
 # COMO USAR
 #   scripts/rodar-suite-sql.sh                      # sobe nada, usa $DATABASE_URL
 #   DATABASE_URL=postgres://… scripts/rodar-suite-sql.sh

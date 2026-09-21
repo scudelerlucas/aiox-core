@@ -162,6 +162,28 @@ export interface ItemFilaPrompt {
    * banco anterior à migration 0018.
    */
   custoOrigem?: OrigemGravada;
+  /**
+   * MÉDIO 3 (rodada 13) · O QUE O LIVRO DIZ DESTE ITEM — a origem do
+   * lançamento ATIVO da entidade canônica dele (a sessão vinculada quando
+   * existe; senão o próprio item).
+   *
+   * A CAUSA que estes três campos matam: a tela decidia pela COLUNA
+   * `custoOrigem` do item e o banco decide pelo LANÇAMENTO VIVO da entidade.
+   * Desde a precedência (D53) as duas divergem — a coluna diz `estimativa` (a
+   * casa lançou quando o item morreu) enquanto a sessão vinculada já publicou
+   * US$ 300 medidos. Daí saíam os três sintomas medidos pelo crítico: o botão
+   * de ajuste aparecendo para um item que a RPC recusa, o aviso do
+   * cancelamento prometendo dinheiro que não entra, e a célula imprimindo
+   * US$ 50,00 para um item que pesa 300 no dia.
+   *
+   * Opcionais: banco anterior à 0028 não manda, e a tela degrada para a
+   * dedução pela coluna — a mesma que valia antes.
+   */
+  livroOrigem?: OrigemGravada | null;
+  /** MÉDIO 3: o POSTO do lançamento ativo (D53: 10/20/30/40). */
+  livroPrecedencia?: number | null;
+  /** MÉDIO 3: quanto essa entidade pesa no livro — a contribuição real ao dia. */
+  livroLiquidoUsd?: number | null;
   /** D20: quando o operador corrigiu o custo pela tela (ISO) — null se nunca. */
   custoAjustadoEm: string | null;
   /** D19: item devolvido só volta a ser elegível a partir deste instante (ISO). */
@@ -278,15 +300,25 @@ export function tetoAtingido(
   reservadoUsd: number,
   tetoUsd: number,
 ): boolean {
-  return consumoHojeUsd + reservadoUsd >= tetoUsd;
+  // CRÍTICO 1 (rodada 13): mesmo piso de `headroomUsd` — um dia negativo não
+  // pode desfazer um teto já atingido pelo que está em execução.
+  return Math.max(0, consumoHojeUsd) + reservadoUsd >= tetoUsd;
 }
 
 /**
  * D3: o que o PULL realmente checa — `medido + em_execucao + estimado <= teto`.
  * A fila parada (`naFilaUsd`) NÃO entra: ela não gastou nada ainda.
+ *
+ * CRÍTICO 1 (rodada 13): o gasto entra COM PISO ZERO, exatamente como
+ * `fila_prompts_pegar_interno` (migration 0027 §1) passou a fazer. É a raiz de
+ * "US$ 843,50 livres" num teto de 500, medida no Chromium: com
+ * `consumoHojeUsd = -358,50` esta subtração devolvia MAIS teto do que existe, e
+ * tudo o que deriva dela — a frase "livres", a previsão com a fila, a escolha
+ * automática de conta — herdava o número inflado. Gasto negativo é crédito de
+ * um dia fechado; crédito não vira teto, aqui nem no banco.
  */
 export function headroomUsd(consumo: ConsumoConta): number {
-  return consumo.tetoUsd - consumo.consumoHojeUsd - consumo.reservadoUsd;
+  return consumo.tetoUsd - Math.max(0, consumo.consumoHojeUsd) - consumo.reservadoUsd;
 }
 
 /**
@@ -506,6 +538,86 @@ export function origemGravadaValida(v: string): v is OrigemGravada {
   return (ORIGEM_GRAVADA as readonly string[]).includes(v);
 }
 
+// ── MÉDIO 3 (rodada 13) · A RÉGUA DO BANCO, LIDA PELA TELA ───────────────────
+//
+// Uma raiz, não três remendos. O banco aceita ou recusa uma escrita comparando
+// POSTOS (D53, migration 0027 §5): um lançamento de posto menor não derruba um
+// de posto maior. A tela passa a fazer a MESMA pergunta, com a MESMA régua e
+// sobre o MESMO dado — o lançamento vivo da entidade, que `fila_prompts_listar`
+// agora manda junto com o item (migration 0028 §2).
+//
+// Tudo o que a tela decide sobre dinheiro deriva daqui: se o botão de ajuste
+// aparece, quanto o cancelamento lança, e qual número a célula imprime.
+
+/** D53: o posto PADRÃO de cada origem gravada. A publicação da sessão é 40. */
+export const POSTO_POR_ORIGEM: Record<OrigemGravada, number> = {
+  estimativa: 10,
+  operador: 20,
+  medido: 30,
+};
+
+/** O posto de quem escreve pela TELA — o operador. */
+export const POSTO_OPERADOR = POSTO_POR_ORIGEM.operador;
+/** O posto da ESTIMATIVA DA CASA — o que um cancelamento tenta lançar. */
+export const POSTO_ESTIMATIVA = POSTO_POR_ORIGEM.estimativa;
+
+export interface LeituraDoLivro {
+  /** A origem do lançamento ATIVO da entidade canônica do item. */
+  origem: OrigemGravada;
+  /** O posto dele (10/20/30/40) — a régua literal da D53. */
+  posto: number;
+  /** Quanto essa entidade pesa no livro: a contribuição REAL do item ao dia. */
+  liquidoUsd: number;
+}
+
+/**
+ * O que o livro diz deste item, ou `null` quando não há lançamento vivo (item
+ * que nunca custou nada — e banco antigo, que não manda os campos).
+ */
+export function leituraDoLivro(item: ItemFilaPrompt): LeituraDoLivro | null {
+  const origem = item.livroOrigem;
+  if (typeof origem !== "string" || !origemGravadaValida(origem)) return null;
+  const posto =
+    typeof item.livroPrecedencia === "number" && Number.isFinite(item.livroPrecedencia)
+      ? item.livroPrecedencia
+      : POSTO_POR_ORIGEM[origem];
+  const liquidoUsd =
+    typeof item.livroLiquidoUsd === "number" && Number.isFinite(item.livroLiquidoUsd)
+      ? item.livroLiquidoUsd
+      : 0;
+  return { origem, posto, liquidoUsd };
+}
+
+/**
+ * O banco aceitaria uma escrita de `posto` sobre este item? Sem lançamento
+ * vivo não há nada a derrubar — aceita. Com ele, vale a D53.
+ */
+export function livroAceita(item: ItemFilaPrompt, posto: number): boolean {
+  const livro = leituraDoLivro(item);
+  return livro === null || posto >= livro.posto;
+}
+
+/**
+ * Quanto este item pesa no gasto de HOJE, do jeito que o livro conta. É o
+ * número que a célula imprime quando ele discorda da coluna — a coluna é o que
+ * o item diz de si, o livro é o que o dia cobra.
+ */
+export function contribuicaoNoDia(item: ItemFilaPrompt): number | null {
+  const livro = leituraDoLivro(item);
+  if (livro === null) return item.custoUsd;
+  return livro.liquidoUsd;
+}
+
+/**
+ * A frase que explica por que a tela não oferece a correção: o número que o
+ * dia cobra não veio deste item, veio da sessão que o banco considera dona.
+ */
+export function textoLivroManda(item: ItemFilaPrompt): string | null {
+  const livro = leituraDoLivro(item);
+  if (livro === null || livro.posto <= POSTO_OPERADOR) return null;
+  return "a sessão já publicou o número deste item — quem manda no gasto de hoje é ela";
+}
+
 /**
  * MÉDIO 4 (rodada 8): a origem vem do BANCO quando o banco a manda.
  *
@@ -553,10 +665,68 @@ export function textoOrigemDoCusto(item: ItemFilaPrompt): string | null {
  * número foi medido. Só nesse caso: item de outro dia, ou item que ainda não
  * fechou, não ganham frase nenhuma (ali o botão nunca fez sentido).
  */
+/**
+ * MÉDIO 3 (rodada 13) · O QUE A CÉLULA DE CUSTO IMPRIME — um número só, e ele
+ * é o que o DIA cobra.
+ *
+ * Medido pelo crítico: a célula dizia "US$ 50,00 · estimativa da casa" para um
+ * item cuja contribuição real ao dia era US$ 300 — porque lia a coluna do item
+ * e o dia é cobrado pelo livro. Quando os dois discordam, quem fala é o livro,
+ * e a nota diz o que a casa estimava, para o número de antes não sumir sem
+ * explicação.
+ */
+export interface CustoNaTela {
+  valorUsd: number | null;
+  nota: string | null;
+  /** Palpite da casa ou medição que falhou — a tela marca em cor de atenção. */
+  atencao: boolean;
+}
+
+export function custoNaTela(item: ItemFilaPrompt): CustoNaTela {
+  const livro = leituraDoLivro(item);
+  if (livro !== null && livro.posto > POSTO_OPERADOR && livro.liquidoUsd !== item.custoUsd) {
+    return {
+      valorUsd: livro.liquidoUsd,
+      nota:
+        item.custoUsd === null
+          ? "medido pela sessão"
+          : `medido pela sessão (a casa estimava ${formatarUsd(item.custoUsd)})`,
+      atencao: false,
+    };
+  }
+  const origem = origemDoCusto(item);
+  return {
+    valorUsd: item.custoUsd,
+    nota: textoOrigemDoCusto(item),
+    atencao: origem === "estimativa" || origem === "medido-zero",
+  };
+}
+
+/**
+ * MÉDIO 3 (rodada 13) · QUANTO O CANCELAMENTO DESTE ITEM LANÇA DE VERDADE.
+ * Espelho de `fila_prompts_cancelar` (0027 §10), inclusive da parte que a tela
+ * não via: a estimativa da casa tem posto 10 e o livro a RECUSA quando a
+ * entidade já tem medição. Medido pelo crítico: a tela prometia "US$ 50,00
+ * entram no gasto de hoje … dá para ajustar na linha depois" e entravam
+ * US$ 0,00, sobre a única pergunta destrutiva da página.
+ */
+export function custoAoCancelarUsd(item: ItemFilaPrompt): number {
+  const jaTeveDono = item.estado === "pega" || item.tentativas > 0;
+  if (!jaTeveDono) return 0;
+  if (item.custoUsd !== null) return 0;
+  if (!livroAceita(item, POSTO_ESTIMATIVA)) return 0;
+  return Math.min(item.custoEstimadoUsd, 500);
+}
+
 export function textoSemAjuste(item: ItemFilaPrompt): string | null {
   // MÉDIO 4 (rodada 8): "ajustado" SAIU desta lista. O número que o operador
   // digitou continua sendo dele enquanto o dia está aberto — só o que uma
   // SESSÃO mediu é que não se reescreve pela tela.
+  // MÉDIO 3 (rodada 13): o livro fala primeiro. A coluna do item pode dizer
+  // `estimativa` enquanto a entidade dele já guarda a medição publicada — e
+  // era exatamente aí que o botão aparecia para algo que a RPC recusa.
+  const doLivro = textoLivroManda(item);
+  if (doLivro !== null) return doLivro;
   return origemDoCusto(item) === "medido"
     ? "valores medidos pela sessão não são ajustados aqui"
     : null;

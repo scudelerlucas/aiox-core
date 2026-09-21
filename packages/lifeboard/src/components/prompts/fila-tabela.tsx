@@ -18,13 +18,17 @@ import { formatRelativeTime } from "@/lib/format-relative-time";
 import { hojeNoFusoDoOperador } from "@/lib/fuso";
 import type { ItemFilaPrompt } from "@/core/prompts/tipos";
 import {
+  POSTO_ESTIMATIVA,
+  POSTO_OPERADOR,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
+  custoAoCancelarUsd,
+  custoNaTela,
   descricaoExecucao,
   formatarUsd,
+  livroAceita,
   origemDoCusto,
   semSinal,
-  textoOrigemDoCusto,
   textoSemAjuste,
 } from "@/core/prompts/tipos";
 
@@ -88,16 +92,16 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
 
 /**
  * MÉDIO 6 (rodada 9): quanto o cancelamento DESTE item vai lançar no gasto de
- * hoje. Espelho literal de `fila_prompts_cancelar` (0019 §13, cláusula D12):
- * item que JÁ TEVE DONO — está em execução, ou voltou para a fila depois de
- * pelo menos uma tentativa — lança o custo estimado, limitado a 500. Item que
- * nunca foi pego não lança nada; item que já tem custo gravado também não.
+ * hoje. Espelho de `fila_prompts_cancelar` (0027 §10, cláusula D12).
+ *
+ * MÉDIO 3 (rodada 13): a regra inteira mudou de casa — ela vive em
+ * `custoAoCancelarUsd`, junto da leitura do livro, porque a metade que faltava
+ * aqui era justamente a do livro: a estimativa da casa tem posto 10 e é
+ * RECUSADA quando a entidade do item já guarda medição. Esta função continua
+ * existindo como o nome que a linha chama.
  */
 function custoAoCancelar(item: ItemFilaPrompt): number {
-  const jaTeveDono = item.estado === "pega" || item.tentativas > 0;
-  if (!jaTeveDono) return 0;
-  if (item.custoUsd !== null) return 0;
-  return Math.min(item.custoEstimadoUsd, 500);
+  return custoAoCancelarUsd(item);
 }
 
 /**
@@ -120,6 +124,13 @@ function custoAoCancelar(item: ItemFilaPrompt): number {
  * deixou de ser a porta dos fundos que reabria tudo.
  */
 export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
+  // MÉDIO 3 (rodada 13): A PRIMEIRA PERGUNTA É A DO BANCO. `fila_prompts_
+  // ajustar_custo` recusa quando o lançamento ATIVO da entidade tem posto
+  // acima do operador (D53) — e a coluna do item não sabe disso. Medido: item
+  // `cancelada`, `custo_origem=estimativa`, sessão com US$ 300 publicados; o
+  // botão aparecia e a RPC respondia "Este custo já foi medido pela sessão".
+  // Nenhuma superfície convida para o que o banco vai recusar.
+  if (!livroAceita(item, POSTO_OPERADOR)) return false;
   const origem = origemDoCusto(item);
   if (origem !== "estimativa" && origem !== "medido-zero" && origem !== "ajustado") return false;
   if (item.estado !== "falhou" && item.estado !== "cancelada") return false;
@@ -134,13 +145,13 @@ export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
  * "medido pela sessão" é uma frase, não um silêncio.
  */
 function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
-  if (item.custoUsd === null) return <span className="text-bone-500">—</span>;
-  const origem = origemDoCusto(item);
-  const nota = textoOrigemDoCusto(item);
-  const atencao = origem === "estimativa" || origem === "medido-zero";
+  // MÉDIO 3 (rodada 13): o número impresso é o que o DIA cobra — o do livro
+  // quando ele discorda da coluna do item.
+  const { valorUsd, nota, atencao } = custoNaTela(item);
+  if (valorUsd === null) return <span className="text-bone-500">—</span>;
   return (
     <span className={atencao ? "text-state-progress" : undefined}>
-      {formatarUsd(item.custoUsd)}
+      {formatarUsd(valorUsd)}
       {nota ? (
         <span
           className={`block text-[11px] ${atencao ? "text-state-progress" : "text-bone-400"}`}
@@ -300,6 +311,7 @@ function AcoesDaLinha({
         emExecucao={item.estado === "pega"}
         podeCancelar={podeCancelar(item)}
         custoAoCancelarUsd={custoAoCancelar(item)}
+        jaMedidoPelaSessao={!livroAceita(item, POSTO_ESTIMATIVA)}
         pendente={acaoCancelar.pendente}
         confirmando={confirmandoCancelar}
         aoMudarConfirmando={aoMudarConfirmarCancelar}
@@ -505,9 +517,9 @@ export function FilaTabela({
             </div>
             <div className="mt-2 flex items-start justify-between gap-2">
               <p className="text-xs text-bone-400">
-                {item.custoUsd !== null
-                  ? `${formatarUsd(item.custoUsd)}${
-                      textoOrigemDoCusto(item) ? ` (${textoOrigemDoCusto(item)})` : ""
+                {custoNaTela(item).valorUsd !== null
+                  ? `${formatarUsd(custoNaTela(item).valorUsd as number)}${
+                      custoNaTela(item).nota ? ` (${custoNaTela(item).nota})` : ""
                     }`
                   : "sem custo ainda"}
                 {item.sessaoUrl ? (

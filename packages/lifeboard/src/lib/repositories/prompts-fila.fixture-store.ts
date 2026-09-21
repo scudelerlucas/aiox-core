@@ -79,6 +79,9 @@ import {
   CONTAS,
   JANELA_HEARTBEAT_MS,
   MAX_TENTATIVAS,
+  POSTO_ESTIMATIVA,
+  POSTO_OPERADOR,
+  POSTO_POR_ORIGEM,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
   TETO_DIARIO_PADRAO_USD,
@@ -370,6 +373,41 @@ function antesDoCursor(item: ItemFilaPrompt, antesDe: string, antesId: string | 
   return antesId !== null && item.id < antesId;
 }
 
+/**
+ * MÉDIO 3 (rodada 13) · O ESPELHO DO LIVRO, no fixture.
+ *
+ * A RPC `fila_prompts_listar` passou a mandar, por item, a origem e o POSTO do
+ * lançamento ATIVO da entidade canônica dele (migration 0028 §2) — é isso que
+ * a tela usa para não oferecer o que o banco recusa. O fixture não tem
+ * livro-razão; tem `sessoesPublicadas`, que é o mesmo fato em outra forma:
+ * sessão vinculada que publicou custo É o lançamento vivo, com posto 40 (a
+ * medição publicada pela rotina da conta). Sem sessão publicada, quem responde
+ * é a coluna do próprio item.
+ *
+ * Espelhar é obrigação, não conveniência: o modo fixture é o que entra em
+ * screenshot e o que o Chromium mede.
+ */
+function livroDoItemFixture(item: ItemFilaPrompt): Pick<
+  ItemFilaPrompt,
+  "livroOrigem" | "livroPrecedencia" | "livroLiquidoUsd"
+> {
+  if (item.sessionId !== null) {
+    const publicada = loja().sessoesPublicadas.get(item.sessionId);
+    if (publicada !== undefined && publicada.custoUsd !== null && publicada.custoUsd !== 0) {
+      return { livroOrigem: "medido", livroPrecedencia: 40, livroLiquidoUsd: publicada.custoUsd };
+    }
+  }
+  if (item.custoUsd === null) {
+    return { livroOrigem: null, livroPrecedencia: null, livroLiquidoUsd: null };
+  }
+  const origem = item.custoOrigem ?? (item.custoEEstimativa ? "estimativa" : "medido");
+  return {
+    livroOrigem: origem,
+    livroPrecedencia: POSTO_POR_ORIGEM[origem],
+    livroLiquidoUsd: item.custoUsd,
+  };
+}
+
 /** D15: mesma paginação KEYSET e o MESMO truncamento em 300 caracteres da RPC. */
 export function listarFilaFixture(
   limite = 50,
@@ -379,7 +417,11 @@ export function listarFilaFixture(
   const elegiveis = itens().filter((i) => (antesDe === null ? true : antesDoCursor(i, antesDe, antesId)));
   return ordenadaDesc(elegiveis)
     .slice(0, Math.min(Math.max(limite, 1), 200))
-    .map((i) => ({ ...i, prompt: i.prompt.slice(0, LIMITE_PROMPT_RPC) }));
+    .map((i) => ({
+      ...i,
+      ...livroDoItemFixture(i),
+      prompt: i.prompt.slice(0, LIMITE_PROMPT_RPC),
+    }));
 }
 
 export function filaTemMaisFixture(
@@ -576,7 +618,18 @@ export function cancelarFixture(id: string, agora: number = Date.now()): Resulta
         : "cancelado_nunca_pego";
   // D26: o cancelamento também é uma perda de posse — a memória fica.
   if (item.workerId !== null) estado.ultimoDono.set(id, item.workerId);
-  const lanca = motivoCancelamento !== "cancelado_nunca_pego" && item.custoUsd === null;
+  // MÉDIO 3 (rodada 13): o livro RECUSA a estimativa da casa (posto 10) quando
+  // a entidade do item já guarda medição publicada (posto 40) — é o que
+  // `fila_prompts_cancelar` devolve como `custo_lancado_usd = 0` com
+  // `recusado_por_precedencia = true`. Sem isto o fixture continuava lançando
+  // US$ 50 sobre um item cuja sessão já tinha publicado US$ 300.
+  const livro = livroDoItemFixture(item);
+  const livroAceitaEstimativa =
+    livro.livroPrecedencia === null || livro.livroPrecedencia === undefined
+      ? true
+      : POSTO_ESTIMATIVA >= livro.livroPrecedencia;
+  const lanca =
+    motivoCancelamento !== "cancelado_nunca_pego" && item.custoUsd === null && livroAceitaEstimativa;
   const custoLancadoUsd = lanca ? Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD) : 0;
 
   estado.fila.set(id, {
@@ -634,6 +687,18 @@ export function ajustarCustoFixture(
   const origem = origemDoCusto(item);
   if (origem === "medido") {
     return { erro: "Este custo foi medido pela sessão — não dá para corrigi-lo aqui." };
+  }
+  // MÉDIO 3 (rodada 13): a MESMA guarda, olhando o LIVRO. A coluna do item
+  // pode dizer `estimativa` enquanto a entidade dele já guarda a medição
+  // publicada pela sessão — e é essa a recusa que o banco devolve
+  // (`fila_prompts_ajustar_custo`, 0027 §10).
+  const livroDoAjuste = livroDoItemFixture(item);
+  if (
+    livroDoAjuste.livroPrecedencia !== null &&
+    livroDoAjuste.livroPrecedencia !== undefined &&
+    POSTO_OPERADOR < livroDoAjuste.livroPrecedencia
+  ) {
+    return { erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui." };
   }
   // D26 (rodada 6): sem o vínculo de sessão, o dia soma a estimativa do item
   // MAIS o custo real da sessão que rodou (o crítico mediu 200 num trabalho de

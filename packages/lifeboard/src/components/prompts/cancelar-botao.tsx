@@ -47,6 +47,7 @@ export function CancelarBotao({
   pendente = false,
   confirmando = false,
   custoAoCancelarUsd = 0,
+  jaMedidoPelaSessao = false,
   aoMudarConfirmando,
   aoConfirmar,
 }: {
@@ -61,6 +62,15 @@ export function CancelarBotao({
    * devolvido para a fila depois de uma tentativa — lança o custo estimado.
    */
   custoAoCancelarUsd?: number;
+  /**
+   * MÉDIO 3 (rodada 13) · POR QUE não entra nada. `custoAoCancelarUsd = 0`
+   * tem duas causas muito diferentes — "este item nunca rodou" e "a sessão já
+   * publicou o número real, e a estimativa da casa vai ser recusada pelo
+   * livro". A segunda precisa ser dita: na linha o operador está vendo
+   * US$ 50,00 de estimativa, e um silêncio ali é a frase falsa de antes com
+   * outra roupa.
+   */
+  jaMedidoPelaSessao?: boolean;
   /** BAIXO 2: o passo da confirmação mora na LINHA — as duas instâncias o compartilham. */
   confirmando?: boolean;
   aoMudarConfirmando?: (id: string, armado: boolean) => void;
@@ -149,9 +159,21 @@ export function CancelarBotao({
   const oQueAcontece = emExecucao
     ? "A sessão que está rodando vai ser interrompida no próximo sinal de vida."
     : "Ele sai da fila e não vai rodar.";
+  /*
+    MÉDIO 3 (rodada 13) · A FRASE DIZIA DUAS COISAS FALSAS SOBRE DINHEIRO.
+    Medido pelo crítico, na única pergunta destrutiva da página: item em
+    execução cuja sessão já publicou US$ 300; a confirmação prometia
+    "US$ 50,00 entram no gasto de hoje como estimativa — dá para ajustar na
+    linha depois". Entravam US$ 0,00 (o livro recusa posto 10 sobre posto 40) e
+    NÃO dava para ajustar (a mesma recusa, pela outra porta).
+    Agora as duas metades vêm da MESMA leitura do livro que decide o botão de
+    ajuste: quando ela deixa lançar, a promessa de ajustar também vale.
+  */
   const oQueCusta = lanca
     ? ` ${formatarUsd(custoAoCancelarUsd)} entram no gasto de hoje como estimativa — dá para ajustar na linha depois.`
-    : " Não entra nada no gasto de hoje.";
+    : jaMedidoPelaSessao
+      ? " O gasto de hoje não muda: a sessão já publicou o número real deste item."
+      : " Não entra nada no gasto de hoje.";
   const consequencia = `${oQueAcontece}${oQueCusta} Esc cancela.`;
   /**
    * B3 (rodada 11) · O SEGUNDO CLIQUE ERA RECUSADO EM SILÊNCIO.

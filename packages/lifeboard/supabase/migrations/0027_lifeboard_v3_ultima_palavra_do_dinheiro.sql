@@ -115,7 +115,7 @@ begin
 
   -- D32c (rodada 7): a recusa vem ANTES de qualquer escrita.
   if v_exigir and (v_defasagem is null or v_defasagem > 12) then
-    v_medido   := public.painel_fila_consumo_hoje(p_conta);
+    v_medido   := greatest(public.painel_fila_consumo_hoje(p_conta), 0);
     v_execucao := public.painel_fila_reservado(p_conta);
     return jsonb_build_object(
       'ok', true, 'item', null,
@@ -206,7 +206,14 @@ begin
     v_mortos_usd := greatest(v_mortos_usd, 0);
   end if;
 
-  v_medido       := public.painel_fila_consumo_hoje(p_conta);
+  -- CRÍTICO 1 (rodada 13) · SEGUNDA PAREDE. A primeira é D54, no livro: nenhum
+  -- dia soma negativo porque nenhum estorno tira de hoje mais do que hoje tem.
+  -- Esta linha é a que vale mesmo se um dia negativo chegar por outro caminho
+  -- (dado antigo, escrita fora da porta): o número que DESPACHA nunca lê gasto
+  -- negativo. Antes, `greatest(...)` existia só nos campos RELATADOS — a
+  -- condição `f.custo_estimado_usd <= v_headroom` usava o valor cru, e um dia
+  -- de −360 devolvia 860 de espaço num teto de 500.
+  v_medido       := greatest(public.painel_fila_consumo_hoje(p_conta), 0);
   v_execucao     := public.painel_fila_reservado(p_conta);
   v_headroom     := v_teto - v_medido - v_execucao;
   v_em_espera    := public.painel_fila_em_espera(p_conta);
@@ -454,8 +461,10 @@ begin
      where id = p_id
     returning * into v_row;
 
-    -- D38: a estimativa lançada no dia da morte é ESTORNADA HOJE e o número
-    -- real é lançado HOJE. Ontem continua valendo o que foi relatado.
+    -- D38 + D54 (rodada 13): o número real é lançado HOJE, e o estorno da
+    -- estimativa é limitado ao que ela pôs em HOJE. Quando a morte foi ontem,
+    -- ontem continua valendo o que foi relatado e hoje fica em zero — nunca
+    -- negativo, nunca virando teto (era hoje = −117 com estimativa 120 e real 3).
     v_caixa := public.painel_caixa_lancar_item(
       v_row.id, p_custo_usd, 'medido', now(),
       'fechamento pelo último dono de item que tinha morrido sem fechar');
@@ -716,6 +725,9 @@ declare
   v_novo           uuid;
   v_prec           smallint;
   v_prec_atual     smallint;
+  v_hoje_ent       numeric;
+  v_estornar       numeric;
+  v_liquido_novo   numeric;
 begin
   if p_entidade_tipo is null or p_entidade_id is null or btrim(p_entidade_id) = '' then
     raise exception 'painel_caixa_lancar: entidade é obrigatória.' using errcode = 'check_violation';
@@ -836,13 +848,54 @@ begin
   -- D37: o dia é SEMPRE o de hoje, no fuso do operador.
   v_dia := public.painel_dia_operador();
 
+  -- ══ D54 (rodada 13) · CRÍTICO 1 — O ESTORNO NÃO TIRA DE HOJE MAIS DO QUE
+  --    HOJE TEM. ESCOLHA DE DESENHO, e o porquê em uma linha: entre mexer no
+  --    dia passado (a rodada 9 fechou isso de propósito) e deixar um crédito
+  --    de um dia FECHADO virar teto de hoje, a casa escolhe NÃO DAR TETO —
+  --    crédito sem dia onde caber simplesmente não vira teto.
+  --
+  -- O mecanismo. O estorno é limitado ao que ESTA entidade já pôs no dia de
+  -- HOJE (mais o número novo). Consequências, todas medidas:
+  --   · correção DENTRO do dia (o caso comum: estimativa de 120 lançada hoje,
+  --     fechamento real de 3 hoje) — o estorno continua INTEIRO, o dia cai de
+  --     120 para 3. Nada de crédito legítimo é jogado fora.
+  --   · correção de um dia ANTERIOR (item morreu ontem e fecha hoje mais
+  --     barato; rotina publica 400 ontem e recalcula 40 hoje) — o que ontem
+  --     contou fica em ontem, e a contribuição de hoje é ZERO em vez de −117
+  --     ou −360. O dia deixa de poder ficar negativo, e `headroom` deixa de
+  --     nascer inflado (era 617 e 860 num teto de 500).
+  -- O custo, dito em voz alta: o total HISTÓRICO da casa pode ficar ACIMA do
+  -- gasto real, porque o dia fechado guarda um número que depois se provou
+  -- menor. Num teto, errar para cima é freio; errar para baixo é buraco.
+  select coalesce(sum(l.valor_usd), 0)
+    into v_hoje_ent
+    from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
+     and l.dia = v_dia;
+
+  v_estornar := v_liquido;
+  if v_liquido > 0 then
+    v_estornar := least(v_liquido, greatest(v_hoje_ent, 0) + v_alvo);
+  end if;
+  v_liquido_novo := v_liquido - v_estornar + v_alvo;
+
+  -- Crédito que não achou dia: nada a gravar hoje. Não é erro — é a recusa
+  -- explícita de transformar em teto um dinheiro que já foi contado ontem.
+  if v_estornar = 0 and v_alvo = 0 then
+    return jsonb_build_object(
+      'ok', true, 'movimentou', false, 'conta', v_conta,
+      'liquido_usd', round(v_liquido, 2), 'dia', null,
+      'credito_sem_dia', true,
+      'credito_sem_dia_usd', round(v_liquido, 2));
+  end if;
+
   -- D38: a correção é um ESTORNO DATADO do líquido anterior, seguido do
   -- lançamento novo.
-  if v_liquido <> 0 then
+  if v_estornar <> 0 then
     insert into public.painel_caixa_lancamentos
       (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
     values
-      (v_dia, v_conta, -v_liquido, 'estorno', p_entidade_tipo, p_entidade_id,
+      (v_dia, v_conta, -v_estornar, 'estorno', p_entidade_tipo, p_entidade_id,
        p_item_id, p_sessao_id, v_ultimo,
        coalesce(p_nota, 'estorno do líquido anterior desta entidade'),
        coalesce(v_prec_atual, v_prec))
@@ -860,11 +913,15 @@ begin
     returning id into v_novo;
   end if;
 
+  -- D54: `delta_usd` é o que ESTE lançamento moveu NO DIA DE HOJE — não a
+  -- diferença contra o líquido da entidade, que pode estar em outro dia.
   return jsonb_build_object(
     'ok', true, 'movimentou', true, 'conta', v_conta, 'dia', v_dia,
     'liquido_anterior_usd', round(v_liquido, 2),
-    'liquido_usd', round(v_alvo, 2),
-    'delta_usd', round(v_alvo - v_liquido, 2),
+    'liquido_usd', round(v_liquido_novo, 2),
+    'delta_usd', round(v_alvo - v_estornar, 2),
+    'credito_sem_dia', v_estornar < v_liquido,
+    'credito_sem_dia_usd', round(greatest(v_liquido - v_estornar, 0), 2),
     'origem_anterior', v_origem_atual, 'origem', p_origem,
     'recusado_por_precedencia', false,
     'precedencia_vigente', v_prec_atual, 'precedencia', v_prec,
@@ -872,7 +929,7 @@ begin
 end;
 $$;
 comment on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) is
-  'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53: cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta) e um lançamento de posto menor NÃO derruba um de posto maior — em nenhuma ordem de chegada. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos dois fatos darem o mesmo total nos dois sentidos (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção.';
+  'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53: cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta) e um lançamento de posto menor NÃO derruba um de posto maior — em nenhuma ordem de chegada. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos dois fatos darem o mesmo total nos dois sentidos (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção. D54 (rodada 13): o ESTORNO é limitado ao que a entidade já pôs no dia de HOJE — crédito que anula dinheiro de um dia FECHADO não vira teto de hoje, e por isso nenhum dia pode somar negativo.';
 revoke all on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) from public, anon, authenticated;
 
 -- ── 7 · CRÍTICO 2 · a fusão de entidade deixa de ser só a órfã `item:` ─────
@@ -1019,6 +1076,12 @@ end;
 $$;
 comment on function public.painel_frentes_sessoes_lancar() is
   'D37/D39 + D53 (rodada 12): toda publicação de custo de sessão entra no livro-razão NO INSTANTE em que acontece, sob a entidade canônica `sessao:<id>`, na conta do primeiro lançamento dela e com POSTO 40 — o mais alto. É por isso que a estimativa da casa não a apaga e que a ordem entre esta rotina e o fechamento do item deixou de decidir o total do dia.';
+-- BAIXO 4 (rodada 13): função de GATILHO também perde o execute público. O
+-- Postgres já recusa chamada direta a função que retorna `trigger`, então isto
+-- não fecha buraco — fecha a EXCEÇÃO ao padrão, que é o que uma varredura de
+-- permissão procura. As outras quatro estão na 0028 §3, porque nascem em
+-- migrations anteriores a esta.
+revoke all on function public.painel_frentes_sessoes_lancar() from public, anon, authenticated;
 
 drop trigger if exists painel_frentes_sessoes_lancar_caixa on public.painel_frentes_sessoes;
 create trigger painel_frentes_sessoes_lancar_caixa

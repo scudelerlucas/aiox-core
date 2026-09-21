@@ -81,10 +81,29 @@ export function ContaCard({
   semEspacoHoje,
   agora = Date.now(),
 }: ContaCardProps): JSX.Element {
-  const emUso = consumo.consumoHojeUsd + consumo.reservadoUsd;
+  /*
+    CRÍTICO 1 (rodada 13) · A TERCEIRA PAREDE, e a única que fica DENTRO da
+    tela. As duas primeiras estão no banco (o estorno que não tira de hoje mais
+    do que hoje tem, migration 0027 §6; o piso do número que governa o teto,
+    0028 §1), e é lá que o defeito nasce e morre. Esta existe porque a promessa
+    do DEPLOY.md D13 — "a tela nunca mostra número negativo" — era guardada só
+    na SAÍDA (`textoEspacoLivre` clampa) e nunca na ENTRADA: com
+    `consumoHojeUsd = -358,50` o cartão imprimia "US$ -358,50 de US$ 500,00 ·
+    US$ 858,50 livres", a barra saía com `style="width:-72%"` (CSS inválido: o
+    navegador cai no `w-full` da classe e desenha 100% CHEIA, em verde) e o
+    `aria-valuenow="-72"` ficava fora da faixa declarada `0..100`.
+    Nenhum número que chegue aqui, de qualquer banco e de qualquer versão,
+    consegue mais desenhar uma barra inválida.
+  */
+  const gastoHoje = Math.max(0, consumo.consumoHojeUsd);
+  const emUso = gastoHoje + consumo.reservadoUsd;
+  // Uma clampagem só, e ela é a de cima: com `gastoHoje` no piso zero e
+  // `reservadoUsd` nunca negativo, `emUso` não tem como ser negativo. Um
+  // segundo `Math.max` aqui seria linha que nenhum teste consegue deixar
+  // vermelha — guarda que não se prova é guarda que se acredita.
   const razao = consumo.tetoUsd > 0 ? Math.min(1, emUso / consumo.tetoUsd) : 1;
-  const faixa = faixaConsumo(consumo.consumoHojeUsd, consumo.reservadoUsd, consumo.tetoUsd);
-  const atingiu = tetoAtingido(consumo.consumoHojeUsd, consumo.reservadoUsd, consumo.tetoUsd);
+  const faixa = faixaConsumo(gastoHoje, consumo.reservadoUsd, consumo.tetoUsd);
+  const atingiu = tetoAtingido(gastoHoje, consumo.reservadoUsd, consumo.tetoUsd);
   const headroom = headroomUsd(consumo);
   const cores = FAIXA_CLASSES[faixa];
   const previsao = textoPrevisaoComFila(consumo);
@@ -110,7 +129,7 @@ export function ContaCard({
     mediu. Com consumo lançado, o número aparece, e a proveniência (sem medição
     nenhuma · a parcela estimada) continua dita na linha de baixo.
   */
-  const semNumero = semMedicao && consumo.consumoHojeUsd === 0;
+  const semNumero = semMedicao && gastoHoje === 0;
   const realidade = textoTetoVsRealidade(consumo);
   // D36: o banco recusaria QUALQUER disparo desta conta agora.
   const travada = bancoRecusaria(consumo, agora);
@@ -192,8 +211,8 @@ export function ContaCard({
             semNumero
               ? `Nada medido ainda nesta conta; ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
               : semMedicao
-                ? `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} lançado sem medição de sessão (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
-                : `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+                ? `Gasto de hoje: ${formatarUsd(gastoHoje)} lançado sem medição de sessão (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+                : `Gasto de hoje: ${formatarUsd(gastoHoje)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
           }
           className="h-2.5 w-full overflow-hidden rounded-full bg-navy-600"
         >
@@ -217,7 +236,7 @@ export function ContaCard({
         <p
           className={`mt-1.5 text-xs font-medium ${semNumero ? "text-state-blocked" : cores.texto}`}
         >
-          {semNumero ? "nada medido ainda" : formatarUsd(consumo.consumoHojeUsd)}
+          {semNumero ? "nada medido ainda" : formatarUsd(gastoHoje)}
           {consumo.reservadoUsd > 0 ? ` + ${formatarUsd(consumo.reservadoUsd)} em execução` : ""}
           {" de "}
           {formatarUsd(consumo.tetoUsd)}

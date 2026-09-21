@@ -62,9 +62,9 @@ jobs:
               - 'docs/stories/**'
             # MÉDIO 1 (rodada 12): o caminho do DINHEIRO do lifeboard. A
             # guarda de comportamento dele é SQL rodado contra um Postgres de
-            # verdade (`lifeboard-sql` abaixo), e ela é a única coisa que
-            # distingue um pull que respeita o teto de um que estoura o
-            # orçamento — o vitest lê a GRAFIA do .sql e passa nos dois casos.
+            # verdade (`lifeboard-sql` abaixo) — o vitest lê a GRAFIA do .sql e
+            # passa mesmo quando o comportamento muda. O que a suíte cobre, e o
+            # que ela ainda NÃO cobre, está escrito no cabeçalho do job.
             lifeboard_sql:
               - 'packages/lifeboard/supabase/**'
               - 'packages/lifeboard/scripts/rodar-suite-sql.sh'
@@ -264,6 +264,26 @@ jobs:
   # `… <= v_headroom + 100000` na migration faz o pull ignorar o teto do dia, e
   # os 1387 testes do vitest ficam VERDES, porque eles conferem a GRAFIA do
   # .sql, não o que o banco faz.
+  #
+  # O QUE ESTE JOB NÃO GARANTE (ALTO 2 da rodada 12 — a frase de antes prometia
+  # cobertura que não existe). A suíte cobre o que os blocos dela NOMEIAM, e
+  # nada mais. O crítico provou isso apagando `- v_execucao` do cálculo do
+  # headroom: 68/68 blocos verdes, e seis pulls despachando US$ 720 contra um
+  # teto de 500. Esse caso ganhou bloco (T69) na rodada 13; os buracos que
+  # SOBRAM, medidos e nomeados, são:
+  #   · 19 das 44 funções do esquema não são chamadas por bloco nenhum — entre
+  #     elas as PORTAS COM SEGREDO `fila_prompts_pegar` e `fila_prompts_fechar`
+  #     (a suíte exercita as `_interno` que elas embrulham), o extrato do dia
+  #     e os gatilhos, que só são conferidos por permissão (T19/T73);
+  #   · nenhum bloco abre uma conexão como `anon`: as permissões são lidas por
+  #     `has_function_privilege`, não exercidas;
+  #   · a TELA não passa por aqui — quem a guarda é o vitest, o `tsc` e o
+  #     `checar-contraste.mjs`;
+  #   · o ambiente é um Postgres 16 com os stubs de `00-ambiente-de-teste.sql`,
+  #     não o esquema completo do Supabase.
+  # Em uma frase: este job pega mudança de comportamento no caminho que os
+  # blocos percorrem, e é o único que pega. Ele não é prova de que o resto está
+  # certo — é prova de que estes 74 casos continuam valendo.
   #
   # Este job aplica as migrations `0001` … `NNNN` EM ORDEM num Postgres 16
   # limpo — o mesmo caminho do DEPLOY.md, que é o que pega migration fora de

@@ -11,9 +11,15 @@ import {
 import { alvoAposExclusaoDeNota, focarComAlternativa } from "@/components/task/foco";
 import { ContaCard } from "@/components/prompts/conta-card";
 import {
+  POSTO_ESTIMATIVA,
+  custoAoCancelarUsd,
+  custoNaTela,
   estadoDaMedicao,
   fraseDoCancelamento,
+  headroomUsd,
   horasDeDefasagem,
+  livroAceita,
+  textoSemAjuste,
   textoTetoVsRealidade,
 } from "@/core/prompts/tipos";
 
@@ -708,8 +714,21 @@ describe("MÉDIO 6 (rodada 9) — a confirmação diz o DINHEIRO antes, não dep
   it("a LINHA calcula pela mesma régua do banco (D12), e passa o número ao botão", () => {
     const fonte = FONTE("fila-tabela.tsx");
     expect(fonte).toContain("function custoAoCancelar(item: ItemFilaPrompt): number");
-    expect(fonte).toContain('item.estado === "pega" || item.tentativas > 0');
     expect(fonte).toContain("custoAoCancelarUsd={custoAoCancelar(item)}");
+    // MÉDIO 3 (rodada 13): A REGRA MUDOU DE CASA, e este espelho vai atrás
+    // dela. Ela vive em `tipos.ts`, com a leitura do livro ao lado — era a
+    // metade que faltava aqui (a estimativa da casa tem posto 10 e o livro a
+    // recusa quando a entidade já guarda medição). A linha delega; o teste
+    // confere as duas pontas, para a regra não voltar a existir em dois
+    // lugares com dois comportamentos.
+    expect(fonte).toContain("return custoAoCancelarUsd(item);");
+    expect(fonte).toContain("jaMedidoPelaSessao={!livroAceita(item, POSTO_ESTIMATIVA)}");
+    const tipos = readFileSync(
+      join(__dirname, "..", "..", "src", "core", "prompts", "tipos.ts"),
+      "utf8",
+    );
+    expect(tipos).toContain('item.estado === "pega" || item.tentativas > 0');
+    expect(tipos).toContain("if (!livroAceita(item, POSTO_ESTIMATIVA)) return 0;");
   });
 });
 
@@ -841,5 +860,152 @@ describe("BAIXO 3 (rodada 8) — a AÇÃO PRIMÁRIA era o menor alvo da tela", (
     expect(fonte).not.toContain("min-h-[40px]");
     expect(fonte).not.toContain("min-h-[36px]");
     expect(fonte.split("min-h-[44px]").length - 1).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("MÉDIO 3 (rodada 13) — a tela sabe o que o BANCO sabe", () => {
+  /*
+    O ESTADO MEDIDO PELO CRÍTICO, por porta real: item em execução cuja sessão
+    já publicou US$ 300; o operador cancela. A LINHA fica
+    `estado=cancelada custo_usd=50 custo_origem=estimativa`, e sobre ela o
+    banco respondia `custo_lancado_usd=0.00` e
+    `ERRO(Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.)`.
+
+    A tela, lendo só a COLUNA do item, oferecia o botão que a RPC recusa,
+    prometia "US$ 50,00 entram no gasto de hoje … dá para ajustar na linha
+    depois" (entram US$ 0,00 e não dá) e imprimia "US$ 50,00 · estimativa da
+    casa" para um item que pesa 300 no dia.
+
+    A CAUSA é uma só, e a cura é uma só: `fila_prompts_listar` passou a mandar
+    o lançamento VIVO da entidade (`livroOrigem`, `livroPrecedencia`,
+    `livroLiquidoUsd`, migration 0028 §2) e tudo o que a tela decide sobre
+    dinheiro deriva dele.
+  */
+  const sessaoPublicou = {
+    estado: "cancelada",
+    custoUsd: 50,
+    custoEstimadoUsd: 50,
+    custoEEstimativa: true,
+    custoOrigem: "estimativa",
+    sessionId: "sess-medida",
+    tentativas: 1,
+    livroOrigem: "medido",
+    livroPrecedencia: 40,
+    livroLiquidoUsd: 300,
+  };
+
+  it("o botão de ajuste NÃO aparece para o que o banco vai recusar", () => {
+    expect(podeAjustarCusto(item(sessaoPublicou), AGORA)).toBe(false);
+    const saida = renderToStaticMarkup(
+      <FilaTabela itens={[item(sessaoPublicou)]} agora={AGORA} />,
+    );
+    expect(saida).not.toContain("ajustar custo");
+    expect(textoSemAjuste(item(sessaoPublicou))).toContain("a sessão já publicou o número");
+  });
+
+  it("a pergunta destrutiva não promete dinheiro que não entra", () => {
+    const emExecucao = {
+      ...sessaoPublicou,
+      estado: "pega",
+      custoUsd: null,
+      workerId: "w-1",
+      concluidoEm: null,
+    };
+    expect(custoAoCancelarUsd(item(emExecucao))).toBe(0);
+    const saida = renderToStaticMarkup(
+      <CancelarBotao
+        id="i-1"
+        emExecucao
+        confirmando
+        custoAoCancelarUsd={custoAoCancelarUsd(item(emExecucao))}
+        jaMedidoPelaSessao={!livroAceita(item(emExecucao), POSTO_ESTIMATIVA)}
+        aoMudarConfirmando={() => {}}
+      />,
+    );
+    expect(saida).not.toContain("entram no gasto de hoje");
+    expect(saida).not.toContain("dá para ajustar na linha depois");
+    expect(saida).toContain("a sessão já publicou o número real deste item");
+  });
+
+  it("a célula imprime o número que o DIA cobra, não o do item", () => {
+    const naTela = custoNaTela(item(sessaoPublicou));
+    expect(naTela.valorUsd).toBe(300);
+    expect(naTela.nota).toContain("medido pela sessão");
+    expect(naTela.nota).toContain("a casa estimava US$ 50,00");
+    const saida = renderToStaticMarkup(
+      <FilaTabela itens={[item(sessaoPublicou)]} agora={AGORA} />,
+    );
+    expect(saida).toContain("US$ 300,00");
+    expect(saida).not.toContain("US$ 50,00 ·");
+  });
+
+  it("sem lançamento vivo no livro, nada muda — a tela degrada para a coluna", () => {
+    // Banco anterior à 0028 (os três campos vêm `undefined`) e item que nunca
+    // custou nada: a régua antiga continua valendo, inteira.
+    expect(podeAjustarCusto(item({ custoUsd: 120, custoOrigem: "estimativa" }), AGORA)).toBe(true);
+    expect(custoNaTela(item({ custoUsd: 120, custoOrigem: "estimativa" })).valorUsd).toBe(120);
+    expect(
+      custoAoCancelarUsd(item({ estado: "pega", custoUsd: null, custoEstimadoUsd: 120, tentativas: 0 })),
+    ).toBe(120);
+  });
+
+  it("o livro de posto BAIXO não trava nada — só o posto acima do operador trava", () => {
+    // A casa lançou a estimativa (posto 10) e ninguém mediu: o operador
+    // continua dono do número, como sempre foi.
+    const soEstimativa = {
+      custoUsd: 120,
+      custoOrigem: "estimativa",
+      livroOrigem: "estimativa",
+      livroPrecedencia: 10,
+      livroLiquidoUsd: 120,
+    };
+    expect(podeAjustarCusto(item(soEstimativa), AGORA)).toBe(true);
+    expect(textoSemAjuste(item(soEstimativa))).toBeNull();
+  });
+});
+
+describe("CRÍTICO 1 (rodada 13) — crédito de um dia fechado não vira teto NA TELA", () => {
+  /*
+    O defeito nasce e morre no banco (o estorno limitado ao que hoje tem,
+    migration 0027 §6; o piso do número que governa o teto, 0028 §1). Este
+    bloco guarda a TERCEIRA parede, a única dentro da tela — porque a promessa
+    do DEPLOY.md D13 ("a tela nunca mostra número negativo") era guardada só na
+    saída (`textoEspacoLivre` clampa) e nunca na ENTRADA.
+
+    Medido no Chromium com `consumoHojeUsd = -358,50` e teto 500, ANTES:
+      · cartão: "US$ -358,50 + US$ 15,00 em execução de US$ 500,00 · US$ 843,50 livres"
+      · barra:  aria-valuenow="-69", style="width:-69%", 220 de 220 px — o CSS
+                é inválido, o navegador cai no `w-full` da classe e desenha a
+                barra CHEIA, em verde, sobre uma conta estourada.
+    DEPOIS: aria-valuenow="3", style="width:3%", 7 de 220 px, e nenhum número
+    negativo na tela.
+  */
+  const diaNegativo = consumoDeProva({
+    tetoUsd: 500,
+    consumoHojeUsd: -358.5,
+    reservadoUsd: 15,
+    medidoAteEm: new Date(AGORA - 3_600_000).toISOString(),
+    defasagemHoras: 1,
+  });
+
+  it("o espaço livre não cresce com o crédito — é a mesma régua do pull", () => {
+    // 500 − max(0, −358,50) − 15 = 485. Com o defeito: 500 + 358,50 − 15 = 843,50.
+    expect(headroomUsd(diaNegativo)).toBe(485);
+  });
+
+  it("a barra é CSS válido e ARIA válida, com qualquer número que chegue", () => {
+    const html = renderToStaticMarkup(<ContaCard consumo={diaNegativo} agora={AGORA} />);
+    expect(html).not.toContain("width:-");
+    expect(html).not.toContain('aria-valuenow="-');
+    const valor = /aria-valuenow="(-?\d+)"/.exec(html)?.[1];
+    expect(Number(valor)).toBeGreaterThanOrEqual(0);
+    expect(Number(valor)).toBeLessThanOrEqual(100);
+  });
+
+  it("nenhum número negativo chega ao olho do operador", () => {
+    const html = renderToStaticMarkup(<ContaCard consumo={diaNegativo} agora={AGORA} />);
+    expect(html).not.toContain("US$ -358,50");
+    expect(html).not.toContain("US$ 843,50 livres");
+    expect(html).toContain("US$ 485,00 livres");
   });
 });
