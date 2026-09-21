@@ -81,6 +81,7 @@ import {
   MAX_TENTATIVAS,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
+  bancoRecusaria,
   contaValida,
   custoEstimadoParaComplexidade,
   formatarUsd,
@@ -457,10 +458,18 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
   const headroom = headroomUsd(c);
   const cabeHoje = custoEstimado <= headroom;
   const itensNaFrente = itens().filter((i) => i.conta === conta && i.estado === "na_fila").length;
+  // D46 + D51 (pós-merge): a escolha MANUAL passa pela mesma trava de medição
+  // que `fila_prompts_pegar_interno` aplica, e a recusa por medição velha tem
+  // código próprio — `manual_nao_cabe_hoje` fala de espaço livre, e o problema
+  // aqui não é dinheiro. Espelho de `fila_prompts_enfileirar` (migration 0025).
+  const recusaPorMedicao = manual && bancoRecusaria(c, Date.now());
+  const manualCabe = cabeHoje && !recusaPorMedicao;
   const motivoCodigo: MotivoEnfileirar = manual
-    ? cabeHoje
+    ? manualCabe
       ? "manual_cabe"
-      : "manual_nao_cabe_hoje"
+      : recusaPorMedicao
+        ? "manual_medicao_velha"
+        : "manual_nao_cabe_hoje"
     : cabeHoje
       ? "auto_maior_espaco"
       : "auto_nao_cabe_hoje";
@@ -500,7 +509,9 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     conta,
     complexidade: input.complexidade,
     motivoCodigo,
-    cabeHoje,
+    // D46: a trava de medição também derruba o `cabe_hoje` da escolha manual —
+    // o SQL faz `v_cabe_hoje := false` no mesmo caso.
+    cabeHoje: manual ? manualCabe : cabeHoje,
     headroomUsd: headroom,
     espacoLivreUsd: headroom - c.naFilaUsd,
     custoEstimadoUsd: custoEstimado,

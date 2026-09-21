@@ -166,6 +166,12 @@ export function AtomosForm({
   }
 
   function salvar(): void {
+    // [pós-merge, CodeRabbit] AS DUAS PORTAS, UM CAMPO DE ERRO SÓ. `CampoErro`
+    // mostra `portaSalvar.erroDoCampo ?? portaLimpar.erroDoCampo`, e cada porta
+    // limpa só a si mesma. Sem isto, um "limpar" que dá certo depois de um
+    // "salvar" que falhou continuava exibindo o erro do salvar — a tela
+    // acusando o que acabou de funcionar.
+    portaLimpar.aoMudarCampo();
     const trio = chaveDoTrio(todosEscolhidos ? { opcionalidade, esforco, custo } : null);
     trioRef.current = trio;
     portaSalvar.escrever(
@@ -180,6 +186,8 @@ export function AtomosForm({
   }
 
   function limpar(): void {
+    // Mesma razão do `salvar`, na direção oposta.
+    portaSalvar.aoMudarCampo();
     portaLimpar.escrever({ task_id: taskId });
   }
 

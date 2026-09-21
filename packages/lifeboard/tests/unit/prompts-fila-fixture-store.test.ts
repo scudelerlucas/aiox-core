@@ -226,10 +226,20 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 describe("D3 — admissão só recusa o impossível", () => {
   it("item que não cabe HOJE é ACEITO e espera espaço", () => {
     resetarFilaFixtureStore();
+    // D51 (pós-merge): este bloco usava a ALMA, que no fixture tem medição
+    // ATRASADA de 13 h E `exigeMedicaoRecente: true` — dois motivos de recusa
+    // ao mesmo tempo. Desde a D46 o pull recusa aquela conta categoricamente,
+    // então o código honesto ali passou a ser `manual_medicao_velha`, e este
+    // bloco deixaria de medir o que o nome dele diz. A Pandora não tem a
+    // trava de medição: com o teto em 150, uma tarefa máxima (US$ 120) não
+    // cabe no headroom de US$ 86,50 e continua sendo admitida — que é
+    // exatamente o desenho D3. A recusa por medição tem bloco próprio em
+    // `pos-merge-fila-e-atomos.test.tsx`.
+    ajustarTetoFixture(PANDORA, 150);
     const r = enfileirarFixture({
       prompt: "não cabe hoje",
       complexidade: "maxima",
-      conta: ALMA, // 150/150 medido
+      conta: PANDORA,
       agora: AGORA,
     });
     expect("ok" in r && r.ok).toBe(true);

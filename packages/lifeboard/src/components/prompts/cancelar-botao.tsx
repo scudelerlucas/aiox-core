@@ -82,6 +82,23 @@ export function CancelarBotao({
     };
   }, []);
 
+  /**
+   * [pós-merge, CodeRabbit] O RELÓGIO É LOCAL, O `confirmando` É COMPARTILHADO.
+   * `FilaTabela` monta esta linha duas vezes (tabela do desktop e cartão do
+   * telefone) sobre o MESMO item, e as duas dividem `confirmando` pelo pai.
+   * Quando uma instância confirma, a outra fica com um relógio correndo sem
+   * dono: cinco segundos depois ele chama `aoMudarConfirmando(id, false)` e
+   * desarma uma confirmação NOVA, que o operador acabou de armar. Desarmou por
+   * fora, o relógio desta instância morre junto.
+   */
+  useEffect(() => {
+    if (confirmando) return;
+    if (relogio.current !== null) {
+      window.clearTimeout(relogio.current);
+      relogio.current = null;
+    }
+  }, [confirmando]);
+
   function desarmar(): void {
     if (relogio.current !== null) window.clearTimeout(relogio.current);
     relogio.current = null;
