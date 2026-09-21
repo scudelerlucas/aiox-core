@@ -1,0 +1,12 @@
+{
+  "medidoEm": "2026-09-21",
+  "medidoPor": "packages/lifeboard/scripts/guarda-no-navegador.mjs (Chromium 1194, LIFEBOARD_DATA_MODE=fixture)",
+  "toleranciaPx": 2,
+  "panes": {
+    "390x800": { "largura": 390, "altura": 552 },
+    "1024x800": { "largura": 1024, "altura": 507 },
+    "1280x800": { "largura": 1280, "altura": 507 },
+    "1440x900": { "largura": 1440, "altura": 607 },
+    "1920x1080": { "largura": 1920, "altura": 787 }
+  }
+}

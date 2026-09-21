@@ -595,6 +595,7 @@ function BarraDoGrafo({
   fecharPaineisSinal,
   larguraDoPane,
   alturaDoPane,
+  colunasDoLayout,
   onAltura,
   onZoom,
   camadas,
@@ -614,6 +615,7 @@ function BarraDoGrafo({
   fecharPaineisSinal: number;
   larguraDoPane: number;
   alturaDoPane: number;
+  colunasDoLayout: number;
   onAltura: (altura: number) => void;
   onZoom: (zoom: number) => void;
   camadas: UseCamadasDoGrafo;
@@ -652,12 +654,17 @@ function BarraDoGrafo({
    * 0,85 era desfeito em menos de 400ms (6 cliques, 6 vezes, em 1280 e 1440) e
    * o modo CARTÃO não existia no produto. A lista agora é uma função pura
    * (`dependenciasDoReenquadramento`) e o gesto do operador é soberano.
+   *
+   * P4i (achado ALTO #2 da rodada 8): o tamanho do pane entra QUANTIZADO —
+   * 2 px de resize devolviam o zoom do teto (1,8) ao enquadramento (0,849) nas
+   * quatro larguras de desktop. Ver `reenquadramento-automatico.ts`.
    */
   useReenquadramentoAutomatico({
     nodesInitialized,
     assinaturaDoFiltro,
     larguraDoPane,
     alturaDoPane,
+    colunasDoLayout,
     enquadrar,
     alvo,
   });
@@ -1248,6 +1255,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             fecharPaineisSinal={fecharPaineisSinal}
             larguraDoPane={pane.largura}
             alturaDoPane={pane.altura}
+            colunasDoLayout={maxColunas}
             onAltura={aoMedirAltura}
             onZoom={aoMudarZoom}
             camadas={camadas}

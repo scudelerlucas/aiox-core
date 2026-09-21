@@ -2,38 +2,75 @@
 import { useEffect, useRef } from "react";
 
 /**
- * OS-LIFEBOARD · P4h — quando o reenquadramento automático pode rodar (achado
- * CRÍTICO #1 do crítico hostil ROUND 8).
+ * OS-LIFEBOARD · P4i — quando o reenquadramento automático pode rodar.
  *
- * O que ele mediu na rota real: a 1440×900 o zoom inicial era 0,7997; cada
- * clique em "Aumentar zoom" subia para 0,9597 e **2 segundos depois estava de
- * volta em 0,7997** — seis cliques, seis vezes, `tx/ty` idênticos até a décima.
- * A roda do mouse (o mesmo caminho do pinch) idem. Consequência: em 7 de 7
- * sondagens o modo era SEMPRE mapa, e o modo CARTÃO inteiro (os 180px, o S, o
- * A, a folga, o chip de estado) **nunca aparecia, sem nenhum caminho até ele**.
+ * **Rodada 8** (achado CRÍTICO #1): a lista de dependências do efeito tinha
+ * `enquadrar` dentro. `enquadrar` nasce de novo a cada troca de MODO do cartão,
+ * que depende do zoom vivo — então todo zoom do operador que cruzava 0,85 era
+ * desfeito em menos de 400 ms. A lista saiu para uma função pura e o gesto
+ * virou soberano.
  *
- * A causa cabia numa lista de dependências:
+ * **Rodada 9** (achado ALTO #2 do crítico hostil): a correção acima resolvia
+ * o zoom, e abria a porta ao lado. Medido no Chromium em 21/09, nas quatro
+ * larguras: seis cliques levavam o zoom ao teto (1,8) e ele ficava lá — até o
+ * painel mudar **2 px de largura**, e o zoom voltar para 0,849. Dois pixels.
+ * Uma barra de rolagem que aparece, um `dvh` que se acerta quando o teclado do
+ * sistema some, a própria faixa "Hoje" ganhando altura: qualquer um desses
+ * apagava o gesto. E a suíte da rodada 8 **afirmava isso como desejado** — o
+ * teste "redimensionar o painel reenquadra" media um resize de 1280→390.
  *
- * ```ts
- * }, [nodesInitialized, assinaturaDoFiltro, larguraDoPane, alturaDoPane, enquadrar]);
- * ```
+ * Decisão da rodada 9: **o reenquadramento automático só responde a mudança
+ * MATERIAL de tamanho** — a que muda o número de colunas do layout, ou que
+ * passa de `LIMIAR_DE_REENQUADRAMENTO_PX` em qualquer eixo. A régua é contra o
+ * último tamanho que DISPAROU (não contra o render anterior), então uma
+ * sucessão de 2 px acumulada até 48 px ainda dispara — o que não dispara é
+ * ruído.
  *
- * `enquadrar` nasce de `useEnquadramentos`, que depende de `caixaParaAltura`,
- * que depende do `layout`, que depende de `nodeHEfetivo`, que depende do
- * `modo`, que depende do ZOOM VIVO. Cruzar 0,85 trocava o modo → novo layout →
- * nova identidade de `enquadrar` → **o efeito refiring e `setViewport`
- * desfazendo o gesto do operador**. O comentário dizia que o efeito existia
- * para "filtro ou tamanho do pane"; a lista o fazia competir com o dedo.
- *
- * Decisão fixa da rodada 8: **o gesto do operador é soberano.** O
- * reenquadramento automático roda quando muda o FILTRO ou o TAMANHO do painel,
- * nunca por mudança de modo ou de zoom.
- *
- * Por isso as dependências saem de uma função PURA e EXPORTADA: é ela que o
- * simulador de `tests/unit/zoom-do-operador.test.ts` consome para medir o zoom
- * depois de N cliques. Devolver `enquadrar` à lista (a mutação) deixa aquele
- * teste vermelho — que é a única prova que vale.
+ * A lista de dependências e a régua de materialidade são funções PURAS e
+ * exportadas, e o hook é chamado no teste com os hooks falsos de
+ * `tests/unit/hooks-falsos.ts`: o que o teste lê é o array que este arquivo
+ * entrega ao `useEffect` de verdade, não uma cópia. Pôr `enquadrar` de volta
+ * — na função pura OU direto no `useEffect` — deixa
+ * `tests/unit/reenquadramento-gatilho.test.ts` vermelho.
  */
+
+export interface TamanhoDoPane {
+  largura: number;
+  altura: number;
+  /** Quantas colunas o layout usa nessa largura (D2). */
+  colunas: number;
+}
+
+/**
+ * Abaixo disto, mudar o tamanho do painel não muda o desenho o bastante para
+ * justificar desfazer o que o operador fez com as próprias mãos. 48 px é
+ * maior que qualquer barra de rolagem (≈15), que o acerto de `100dvh` no
+ * celular (≈0–4) e que o teaser da faixa de baixo (44).
+ */
+export const LIMIAR_DE_REENQUADRAMENTO_PX = 48;
+
+/** A mudança de tamanho muda o DESENHO — ou é ruído? */
+export function mudancaMaterialDeTamanho(
+  anterior: TamanhoDoPane,
+  atual: TamanhoDoPane,
+): boolean {
+  if (anterior.colunas !== atual.colunas) return true;
+  if (Math.abs(anterior.largura - atual.largura) >= LIMIAR_DE_REENQUADRAMENTO_PX) return true;
+  return Math.abs(anterior.altura - atual.altura) >= LIMIAR_DE_REENQUADRAMENTO_PX;
+}
+
+/**
+ * O tamanho que vale como gatilho: o atual quando a mudança é material, senão
+ * o último que já disparou. É o que trava o efeito contra ruído de sub-pixel
+ * e de barra de rolagem sem travá-lo contra um resize de verdade.
+ */
+export function tamanhoQueDisparou(
+  anterior: TamanhoDoPane | null,
+  atual: TamanhoDoPane,
+): TamanhoDoPane {
+  if (anterior === null) return atual;
+  return mudancaMaterialDeTamanho(anterior, atual) ? atual : anterior;
+}
 
 export interface GatilhoDoReenquadramento<Alvo> {
   /** O ReactFlow já mediu os nós? Antes disso não há o que enquadrar. */
@@ -42,6 +79,8 @@ export interface GatilhoDoReenquadramento<Alvo> {
   assinaturaDoFiltro: string;
   larguraDoPane: number;
   alturaDoPane: number;
+  /** Colunas do layout nessa largura — o que a largura de fato decide. */
+  colunasDoLayout: number;
   /**
    * A função que aplica o enquadramento. Entra AQUI de propósito, e de
    * propósito NÃO sai em `dependenciasDoReenquadramento`: a identidade dela
@@ -54,16 +93,19 @@ export interface GatilhoDoReenquadramento<Alvo> {
 
 /**
  * A lista de dependências do efeito de reenquadramento. Só gatilhos do MUNDO
- * (filtro, tamanho do painel) — nunca funções, que nascem novas a cada render.
+ * (filtro, tamanho material do painel) — nunca funções, que nascem novas a
+ * cada render, e nunca o tamanho cru, que treme sozinho.
  */
 export function dependenciasDoReenquadramento<Alvo>(
   gatilho: GatilhoDoReenquadramento<Alvo>,
+  tamanho: TamanhoDoPane,
 ): readonly unknown[] {
   return [
     gatilho.nodesInitialized,
     gatilho.assinaturaDoFiltro,
-    gatilho.larguraDoPane,
-    gatilho.alturaDoPane,
+    tamanho.largura,
+    tamanho.altura,
+    tamanho.colunas,
   ];
 }
 
@@ -71,7 +113,7 @@ export function dependenciasDoReenquadramento<Alvo>(
 export const ATRASO_DO_REENQUADRAMENTO_MS = 60;
 export const DURACAO_DO_REENQUADRAMENTO_MS = 200;
 
-/** O corpo do efeito — puro o bastante para o simulador chamar o MESMO código. */
+/** O corpo do efeito. */
 export function aplicarReenquadramentoAutomatico<Alvo>(
   gatilho: GatilhoDoReenquadramento<Alvo>,
 ): void {
@@ -80,15 +122,24 @@ export function aplicarReenquadramentoAutomatico<Alvo>(
 }
 
 /**
- * Reenquadra quando — e só quando — o filtro ou o tamanho do painel mudam.
- * O alvo e a função vivem num ref: são lidos na hora de aplicar, nunca
- * disparam.
+ * Reenquadra quando — e só quando — o filtro muda ou o painel muda de tamanho
+ * de forma material. O alvo e a função vivem num ref: são lidos na hora de
+ * aplicar, nunca disparam.
  */
 export function useReenquadramentoAutomatico<Alvo>(
   gatilho: GatilhoDoReenquadramento<Alvo>,
 ): void {
   const vivo = useRef(gatilho);
   vivo.current = gatilho;
+
+  const ultimoTamanho = useRef<TamanhoDoPane | null>(null);
+  const tamanho = tamanhoQueDisparou(ultimoTamanho.current, {
+    largura: gatilho.larguraDoPane,
+    altura: gatilho.alturaDoPane,
+    colunas: gatilho.colunasDoLayout,
+  });
+  ultimoTamanho.current = tamanho;
+
   useEffect(() => {
     const id = window.setTimeout(
       () => aplicarReenquadramentoAutomatico(vivo.current),
@@ -96,5 +147,5 @@ export function useReenquadramentoAutomatico<Alvo>(
     );
     return () => window.clearTimeout(id);
     // A lista é a decisão inteira deste arquivo — ver o cabeçalho.
-  }, dependenciasDoReenquadramento(gatilho));
+  }, dependenciasDoReenquadramento(gatilho, tamanho));
 }
