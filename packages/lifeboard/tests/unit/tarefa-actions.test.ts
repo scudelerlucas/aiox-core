@@ -214,6 +214,60 @@ describe("tarefa/actions — validação", () => {
     expect(r.erro).toBe("A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5).");
   });
 
+  /**
+   * ══════════════════════════════════════════════ BAIXO #1, rodada 12 ═
+   * `" "` (SÓ ESPAÇO) NA DURAÇÃO ERA TRATADO COMO REMOÇÃO.
+   *
+   * Medido no Chromium em `/tarefa/task-docs` (duração 2): apagar o número,
+   * digitar um espaço, "Salvar duração" → a tela diz "Duração removida." e o
+   * banco fica `null`. Mesma família do CRÍTICO da rodada 11 — um campo que
+   * PARECE preenchido apaga o dado. As outras entradas ilegíveis (`2e`,
+   * `1,5`) já recusavam; esta passava porque o `.trim()` acontecia antes da
+   * pergunta "veio alguma coisa?".
+   *
+   * MUTAÇÃO: voltar `duracaoBrutaOuErro` a `textoOu(...).trim()`.
+   */
+  for (const branco of [" ", "   ", "\t", "\n", " \t "]) {
+    it(`estimativaSetAction: ${JSON.stringify(branco)} NÃO remove a duração — recusa`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: branco }),
+      );
+      expect(r.erro, `${JSON.stringify(branco)} apagou a duração`).toBeDefined();
+      expect(r.ok).toBeUndefined();
+      nenhumaChamadaFoiFeita();
+    });
+  }
+
+  it("estimativaSetAction: a recusa do branco ensina como REMOVER de verdade", async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: " " }));
+    expect(r.erro).toContain("deixe a caixa vazia");
+  });
+
+  it('estimativaSetAction: a caixa VAZIA de verdade continua removendo', async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "" }));
+    expect(r.ok).toBe(true);
+    expect(fixtureStore.estimativaSetFixture).toHaveBeenCalledWith("task-build", null);
+  });
+
+  it('estimativaSetAction: "  4  " continua gravando 4 (o branco em volta não estorva)', async () => {
+    const r = await estimativaSetAction(
+      {},
+      form({ task_id: "task-build", estimativa_dias: "  4  " }),
+    );
+    expect(r.ok).toBe(true);
+    expect(fixtureStore.estimativaSetFixture).toHaveBeenCalledWith("task-build", 4);
+  });
+
+  it('subtarefaAddAction: " " na duração recusa — a subtarefa não nasce sem duração por um espaço', async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: " " }),
+    );
+    expect(r.erro).toBeDefined();
+    nenhumaChamadaFoiFeita();
+  });
+
   it('subtarefaAddAction: "2e" na duração recusa — a subtarefa NÃO nasce sem duração', async () => {
     const r = await subtarefaAddAction(
       {},

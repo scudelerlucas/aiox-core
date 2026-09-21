@@ -80,12 +80,28 @@ export interface RelacoesPainelProps {
   tituloPorId: ReadonlyMap<string, string>;
 }
 
-/** O payload que recria uma aresta idêntica (achado BAIXO #5, rodada 5). */
+/**
+ * O payload que recria uma aresta idêntica (achado BAIXO #5, rodada 5).
+ *
+ * [CRÍTICO, rodada 12] `nota` ENTROU AQUI. Antes a janela guardava cinco
+ * campos e a nota da relação não era um deles: `arestaAdd` lê `nota` de
+ * `campos`, o campo não chegava, `textoOuNulo` devolvia `null` — e a relação
+ * renascia SEM a nota, com a tela dizendo "Relação restaurada.". Medido no
+ * Chromium em `/tarefa/task-docs`: a aresta `edge-docs-correlaciona-build`
+ * voltou com `"nota": null` no lugar de *"Documentação e motor andam juntos,
+ * sem ordem."*. O gêmeo em `notas-painel.tsx` já carregava texto, autor E
+ * data — era a relação que esquecia um campo que o modelo (`TaskEdge.nota`),
+ * a semente (as 6 arestas têm nota) e o servidor (`ARESTA_NOTA_MAX`) tratam
+ * como dado de verdade. **Campo do modelo que o desfazer não carrega é campo
+ * que o botão "Desfazer" apaga.**
+ */
 interface ArestaExcluida {
   origem: string;
   destino: string;
   tipo: EdgeTipo;
   peso: number;
+  /** A nota da relação — `null` quando a relação não tinha nota. */
+  nota: string | null;
   /** [MÉDIO #4, rodada 7] a data ORIGINAL — devolve a relação à sua posição. */
   criadoEm: string;
 }
@@ -206,6 +222,7 @@ export function RelacoesPainel({
         destino: aresta.destino,
         tipo: aresta.tipo,
         peso: aresta.peso,
+        nota: aresta.nota,
         criadoEm: aresta.createdAt,
       },
     });
@@ -223,18 +240,30 @@ export function RelacoesPainel({
 
   function desfazerExclusao(): void {
     const janela = desfazerRef.current;
-    portaDesfazer.escrever(
-      {
-        origem: janela?.aresta.origem ?? "",
-        destino: janela?.aresta.destino ?? "",
-        tipo: janela?.aresta.tipo ?? "",
-        peso: String(janela?.aresta.peso ?? ""),
-        // [MÉDIO #4, rodada 7] a data original volta junto (migration 0017) —
-        // a lista de relações ordena por `created_at`, então a posição também.
-        criado_em: janela?.aresta.criadoEm ?? "",
-      },
-      { valido: janela !== null },
-    );
+    if (janela === null) {
+      // Sem janela não há o que restaurar. `valido: false` NUNCA grava; o que
+      // a porta ainda faz neste clique é falar se houver gravação em voo.
+      portaDesfazer.escrever({}, { valido: false });
+      return;
+    }
+    const a = janela.aresta;
+    const campos: Record<string, string> = {
+      origem: a.origem,
+      destino: a.destino,
+      tipo: a.tipo,
+      // [CRÍTICO, rodada 12] a nota volta junto — ver `ArestaExcluida`.
+      nota: a.nota ?? "",
+      // [MÉDIO #4, rodada 7] a data original volta junto (migration 0017) —
+      // a lista de relações ordena por `created_at`, então a posição também.
+      criado_em: a.criadoEm,
+    };
+    // [ALTO A2, rodada 11 + revisão da rodada 12] `peso` AUSENTE é o neutro 1;
+    // `peso` VAZIO é recusa. `String(peso ?? "")` mandava a string vazia para
+    // qualquer peso que não fosse um número — e o desfazer virava uma recusa
+    // que o operador não pediu. Aqui só se manda o peso quando ele É um
+    // número; do contrário o campo não vai, e o servidor usa o neutro.
+    if (Number.isFinite(a.peso)) campos.peso = String(a.peso);
+    portaDesfazer.escrever(campos, { valido: true });
   }
 
   return (
@@ -450,6 +479,15 @@ function LinhaAresta({
         </Link>
         {aresta.tipo === "sinergia" ? (
           <span className="ml-2 font-mono text-xs text-bone-400">desconto {aresta.peso}</span>
+        ) : null}
+        {/* [CRÍTICO, rodada 12] A NOTA DA RELAÇÃO, NA TELA. Ela existia no
+            modelo, na semente e na validação do servidor, e não era
+            desenhada em lugar nenhum do app — então o operador não tinha como
+            perceber que o "Desfazer" a apagava. Mesmo tratamento que a nota
+            da tarefa já recebe em `notas-painel.tsx`: o texto, em uma linha
+            abaixo, sem enfeite. */}
+        {aresta.nota !== null && aresta.nota.length > 0 ? (
+          <p className="mt-1 text-xs text-bone-400">{aresta.nota}</p>
         ) : null}
       </div>
       <button

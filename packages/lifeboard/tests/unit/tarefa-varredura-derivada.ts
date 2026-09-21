@@ -434,3 +434,42 @@ export function tiposDeInput(): { arquivo: string; linha: number; tipo: string }
   }
   return achados;
 }
+
+/**
+ * [ALTO #2, rodada 12] A SEGUNDA REDE DO CAMPO — o que a árvore não vê.
+ *
+ * A trava principal agora mede o elemento RENDERIZADO
+ * (`tarefa-campos-renderizados.test.tsx`), e é ela que pega espalhamento,
+ * variável e objeto importado. Sobra uma família que nenhuma árvore de
+ * elementos alcança: mexer no nó do DOM por fora do React —
+ * `ref={(el) => { el.type = "number"; }}`, `setAttribute("type", …)`,
+ * `dangerouslySetInnerHTML`. Nestes três arquivos de formulário não existe
+ * motivo legítimo para nenhuma das três, então aqui elas são proibidas por
+ * inteiro, sem julgar o valor: o que estiver na tela tem de estar na árvore.
+ */
+export function atribuicoesDeTipoNoDom(): {
+  arquivo: string;
+  linha: number;
+  trecho: string;
+}[] {
+  const achados: { arquivo: string; linha: number; trecho: string }[] = [];
+  const padroes: [RegExp, string][] = [
+    [/\.type\s*=[^=]/g, ".type ="],
+    [/setAttribute\s*\(/g, "setAttribute("],
+    [/dangerouslySetInnerHTML/g, "dangerouslySetInnerHTML"],
+  ];
+  for (const arquivo of arquivosVarridos()) {
+    const src = codigo(arquivo);
+    for (const [re, rotulo] of padroes) {
+      for (const m of src.matchAll(re)) {
+        achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), trecho: rotulo });
+      }
+    }
+  }
+  return achados;
+}
+
+/** Os arquivos da página da tarefa que declaram um `<input>` no JSX. */
+export function arquivosComInput(): string[] {
+  return arquivosVarridos().filter((a) => /<input\b/.test(codigo(a)));
+}

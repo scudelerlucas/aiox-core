@@ -127,6 +127,39 @@ function temCampo(campos: CamposDeEscrita, campo: string): boolean {
   return Object.prototype.hasOwnProperty.call(campos, campo);
 }
 
+/**
+ * [BAIXO #1, rodada 12] `" "` NÃO É CAMPO VAZIO.
+ *
+ * A duração só é REMOVIDA quando a caixa está de fato vazia. Antes, o
+ * `.trim()` acontecia antes da pergunta "veio alguma coisa?", e um espaço em
+ * branco — uma caixa que parece preenchida — virava `""`, que virava
+ * `estimativa_dias: null`: a tela dizia "Duração removida." e o banco
+ * apagava o número. Medido no Chromium em `/tarefa/task-docs` (duração 2):
+ * digitar um espaço, "Salvar duração" → banco `null`.
+ *
+ * É a mesma família do CRÍTICO da rodada 11 (o campo que apaga o dado
+ * dizendo que salvou). As outras entradas ilegíveis (`2e`, `1,5`) já
+ * recusavam; esta passava porque o branco desaparece antes de ser visto.
+ *
+ * Devolve `{ bruta }` (já aparada, para `  4  ` continuar gravando 4) ou
+ * `{ erro }` quando havia texto e ele era só espaço.
+ */
+function duracaoBrutaOuErro(
+  campos: CamposDeEscrita,
+  campo: string,
+): { bruta: string } | { erro: string } {
+  const cru = textoOu(campos, campo);
+  const bruta = cru.trim();
+  if (bruta.length === 0 && cru.length > 0) {
+    return {
+      erro:
+        "A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5) — " +
+        "só espaço em branco não remove nada. Para remover a duração, deixe a caixa vazia.",
+    };
+  }
+  return { bruta };
+}
+
 function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
   const v = textoOu(campos, campo).trim();
   return v.length > 0 ? v : null;
@@ -190,7 +223,10 @@ async function notaDel(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
 async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
   const parentId = textoOu(campos, "parent_id");
   const title = textoOu(campos, "title");
-  const estimativaBruta = textoOu(campos, "estimativa_dias").trim();
+  // [BAIXO #1, rodada 12] mesma régua do campo da tarefa — ver `duracaoBrutaOuErro`.
+  const lidaDaCaixa = duracaoBrutaOuErro(campos, "estimativa_dias");
+  if ("erro" in lidaDaCaixa) return { erro: lidaDaCaixa.erro };
+  const estimativaBruta = lidaDaCaixa.bruta;
 
   if (parentId.length === 0) return { erro: "Tarefa mãe não identificada." };
   if (title.trim().length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
@@ -283,7 +319,10 @@ async function estimativaSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa>
   const taskId = textoOu(campos, "task_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
-  const bruta = textoOu(campos, "estimativa_dias").trim();
+  // [BAIXO #1, rodada 12] `" "` não apaga a duração — ver `duracaoBrutaOuErro`.
+  const lida = duracaoBrutaOuErro(campos, "estimativa_dias");
+  if ("erro" in lida) return { erro: lida.erro };
+  const bruta = lida.bruta;
   let estimativaDias: number | null = null;
   if (bruta.length > 0) {
     const n = numeroDigitado(bruta);

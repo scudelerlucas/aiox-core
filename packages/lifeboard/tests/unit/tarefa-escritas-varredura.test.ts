@@ -777,13 +777,24 @@ describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4,
     expect(ANUNCIO_DE_SUCESSO.relacao_desfazer_exclusao).not.toContain("como nova");
   });
 
+  /**
+   * [rodada 12] A MEDIÇÃO DE VERDADE MUDOU DE LUGAR. Este teste casava a
+   * EXPRESSÃO exata (`criado_em: janela?.x.criadoEm ?? ""`) — é a mesma
+   * classe de trava que o ALTO #2 desta rodada derrubou: ela mede a forma do
+   * texto, não o que o pedido carrega. Quem mede o pedido agora é
+   * `tarefa-handlers-vivos.test.tsx` ("o pedido do desfazer carrega a NOTA
+   * original" e "tipo, peso e data original continuam viajando"), disparando
+   * o botão de verdade contra a Server Action espiã. Aqui fica só a segunda
+   * rede, e frouxa de propósito: a data original é MENCIONADA nos dois
+   * painéis.
+   */
   it("PRONTO QUANDO: os dois painéis mandam a data original junto do desfazer", () => {
     for (const arquivo of [
       "components/task/notas-painel.tsx",
       "components/task/relacoes-painel.tsx",
     ]) {
       const src = codigoDoArquivo(arquivo);
-      expect(src, arquivo).toMatch(/criado_em: janela\?\.\w+\.criadoEm \?\? ""/);
+      expect(src, arquivo).toMatch(/criado_em:\s*[^,\n]*criadoEm/);
     }
   });
 });

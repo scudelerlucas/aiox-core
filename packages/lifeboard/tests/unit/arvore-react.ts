@@ -1,5 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
 
+import { montar, novaInstancia } from "./hooks-falsos";
+
 /**
  * OS-LIFEBOARD · P6 — ANDAR NA ÁRVORE QUE O COMPONENTE DEVOLVE.
  *
@@ -159,4 +161,62 @@ export function oQueATelaDiz(raiz: ReactNode): string {
     }
   }
   return ditos.join(" | ");
+}
+
+
+/**
+ * ═══════════════════════════════════════════════════════ ALTO #2, rodada 12 ═
+ * A ÁRVORE ATÉ O FIM — onde as `props` já estão FUNDIDAS.
+ *
+ * A trava da rodada 10 era uma expressão regular sobre o TEXTO do arquivo
+ * (`tarefa-varredura-derivada.ts` → `tiposDeInput`). O crítico da rodada 11
+ * passou por ela com três linhas de um padrão banal:
+ *
+ *     const AJUSTES_DO_TECLADO: Record<string, string> = { type: "number", … };
+ *     <input type="text" inputMode="decimal" {...AJUSTES_DO_TECLADO} … />
+ *
+ * O texto do arquivo continha `type="text"`; o navegador recebia
+ * `type="number"` (o espalhamento vem depois e vence), e o CRÍTICO da rodada
+ * 10 voltava inteiro — dado do operador apagado em silêncio — com `tsc`,
+ * `eslint` e 1412 testes verdes.
+ *
+ * `nos()` sozinho não basta: ele para na FRONTEIRA do componente — um
+ * `<CampoNumerico …/>` é um nó de função, e o `<input>` de verdade só existe
+ * depois de chamá-la. `expandir` chama: para todo nó cujo `type` é uma
+ * função, monta o componente com as props DAQUELE nó (hooks falsos, uma
+ * instância por montagem) e põe o resultado no lugar dele. O que sobra é a
+ * árvore de elementos de HTML — a mesma que o React entregaria ao DOM, com o
+ * espalhamento já resolvido.
+ *
+ * O que isto pega e a regex não pegava: tipo vindo de variável, de objeto
+ * importado de outro arquivo, de espalhamento, de um componente que envolve
+ * o campo — e a variante que ninguém imaginou ainda, porque a pergunta
+ * deixou de ser "que texto está escrito" e passou a ser "o que o elemento
+ * renderizado diz".
+ *
+ * O que ele continua NÃO sendo: um navegador. Um `type` posto à mão num nó
+ * do DOM por uma `ref` não aparece aqui — essa forma é vigiada pela segunda
+ * rede, léxica (`atribuicoesDeTipoNoDom`), e medida no Chromium.
+ */
+export function expandir(raiz: ReactNode, limite = 40): ReactNode {
+  const passo = (n: ReactNode, profundidade: number): ReactNode => {
+    if (profundidade > limite) {
+      throw new Error(`componentes aninhados além de ${String(limite)} níveis`);
+    }
+    if (Array.isArray(n)) return n.map((f) => passo(f as ReactNode, profundidade));
+    if (!ehElemento(n)) return n;
+    if (typeof n.type === "function") {
+      const fn = n.type as (props: Record<string, unknown>) => ReactNode;
+      return passo(montar(novaInstancia(), fn, n.props), profundidade + 1);
+    }
+    // `n` está estreitado para `ReactNode & ElementoComFilhos`, e o TS recusa
+    // espalhar essa interseção (TS2698). O elemento em si é um objeto — o
+    // cast diz só isso, e nada além disso.
+    const el = n as unknown as Record<string, unknown> & ElementoComFilhos;
+    return {
+      ...el,
+      props: { ...el.props, children: passo(el.props.children, profundidade) },
+    } as unknown as ReactNode;
+  };
+  return passo(raiz, 0);
 }

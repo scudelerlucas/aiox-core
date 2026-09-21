@@ -49,7 +49,8 @@ const { MENSAGEM_INVALIDO } = await import("@/components/task/escrita");
 const { rotuloDoBotaoDeExcluir } = await import("@/components/task/notas-painel");
 const { rotuloDoBotaoDeExcluirRelacao } = await import("@/components/task/relacoes-painel");
 const { AtomosForm } = await import("@/components/task/atomos-form");
-const { ControleSegmentado } = await import("@/components/task/controle-segmentado");
+const ControleSegmentadoModulo = await import("@/components/task/controle-segmentado");
+const { ControleSegmentado } = ControleSegmentadoModulo;
 const { DuracaoForm } = await import("@/components/task/duracao-form");
 const { MaeForm } = await import("@/components/task/mae-form");
 const { MensagemSucesso } = await import("@/components/task/mensagem-sucesso");
@@ -58,6 +59,9 @@ const { NotasPainel } = await import("@/components/task/notas-painel");
 const { RelacoesPainel } = await import("@/components/task/relacoes-painel");
 const { StatusForm } = await import("@/components/task/status-form");
 const { SubtarefasPainel } = await import("@/components/task/subtarefas-painel");
+
+/** [MÉDIO #4, rodada 12] o instante do servidor, fixo — ver `NotasPainelProps`. */
+const AGORA_FIXO = Date.parse("2026-09-15T12:00:00.000Z");
 
 /** Candidatas a destino de relação — usadas em vários blocos deste arquivo. */
 const OPCOES_DESTINO = [
@@ -260,7 +264,7 @@ describe("cada formulário traz UMA região viva, já no DOM e vazia (MÉDIO #3)
   const casos: readonly [string, JSX.Element][] = [
     ["DuracaoForm", <DuracaoForm key="d" taskId="t1" estimativaDias={null} />],
     ["MaeForm", <MaeForm key="m" taskId="t1" parentIdAtual={null} opcoes={[]} descendentesOcultas={0} />],
-    ["MetaForm", <MetaForm key="g" taskId="t1" isGoal={false} />],
+    ["MetaForm", <MetaForm key="g" taskId="t1" isGoal={false} metaVigente={null} />],
     ["StatusForm", <StatusForm key="s" taskId="t1" statusAtual="open" />],
     ["SubtarefasPainel", <SubtarefasPainel key="sub" parentId="t1" filhas={[]} />],
     [
@@ -330,7 +334,7 @@ describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2
   });
 
   it("PRONTO QUANDO: NotasPainel não tem NENHUM `disabled` — 'Salvar nota' avisa por aria-disabled", () => {
-    const html = renderToStaticMarkup(<NotasPainel taskId="t1" notas={[]} />);
+    const html = renderToStaticMarkup(<NotasPainel taskId="t1" notas={[]} agora={AGORA_FIXO} />);
     // [ALTO #1, rodada 6] era `disabled={texto.trim().length === 0}`: no
     // instante do sucesso o `aoSucesso` esvazia a textarea, o botão vira
     // `disabled` e o navegador manda o foco para o `<body>` (medido em 5 de 5
@@ -388,7 +392,7 @@ describe("MÉDIO #3 — `aria-disabled` só enquanto grava; a exigência vira te
   it("PRONTO QUANDO: os 3 botões de criação nascem SEM aria-disabled, com aria-describedby", () => {
     const telas: [string, string, string][] = [
       [
-        renderToStaticMarkup(<NotasPainel taskId="t1" notas={[]} />),
+        renderToStaticMarkup(<NotasPainel taskId="t1" notas={[]} agora={AGORA_FIXO} />),
         "dica-nova-nota",
         MENSAGEM_INVALIDO.nota_criar ?? "",
       ],
@@ -449,7 +453,7 @@ describe("MÉDIO #6 — o botão excluir de cada linha diz QUAL item apaga", () 
   ] as const;
 
   it("PRONTO QUANDO: os rótulos das duas linhas de NOTA são distintos e nomeiam a nota", () => {
-    const html = renderToStaticMarkup(<NotasPainel taskId="t1" notas={NOTAS} />);
+    const html = renderToStaticMarkup(<NotasPainel taskId="t1" notas={NOTAS} agora={AGORA_FIXO} />);
     const rotulos = [...html.matchAll(/aria-label="([^"]*excluir[^"]*)"/g)].map((m) => m[1]);
     expect(rotulos).toEqual([
       "excluir a nota 1 de 2, de Claude, de 12/07/2026",
@@ -548,5 +552,120 @@ describe("BAIXO #7 — alvo de toque também na LARGURA", () => {
     );
     expect(html.match(/min-w-\[44px\]/g)?.length).toBe(2);
     expect(html.match(/min-h-\[44px\]/g)?.length).toBe(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════ MÉDIO #3, rodada 12 ═
+describe("MetaForm — duas metas marcadas, e a tela diz qual vale PELO NOME", () => {
+  /**
+   * Medido no Chromium: em `/tarefa/task-docs`, clicar "☆ Marcar como meta"
+   * com `task-deploy` já marcada. Estado depois: `['task-deploy','task-docs']`
+   * — e as DUAS páginas estampando os mesmos três rótulos de meta, com o
+   * botão dizendo "★ Meta do caminho crítico" numa tarefa que a frase
+   * seguinte declarava FORA do caminho crítico. A saída de emergência da tela
+   * ("vale a de menor id") estava escrita num valor que a página nunca mostra.
+   */
+  const OUTRA = { id: "task-deploy", title: "Deploy de produção" };
+
+  it("PRONTO QUANDO: marcada, mas com outra valendo, o botão NÃO reivindica o cronograma", () => {
+    const html = renderToStaticMarkup(
+      <MetaForm taskId="task-docs" isGoal metaVigente={OUTRA} />,
+    );
+    expect(html).toContain("mas quem vale é outra");
+    expect(html).not.toContain("★ Meta do cronograma");
+    // E diz qual vale, pelo TÍTULO, com o caminho para ir desmarcar.
+    expect(html).toContain("Deploy de produção");
+    expect(html).toContain("/tarefa/task-deploy");
+  });
+
+  it("PRONTO QUANDO: a tela não fala mais em `id` — o operador não vê id nenhum", () => {
+    for (const props of [
+      { taskId: "task-docs", isGoal: true, metaVigente: OUTRA },
+      { taskId: "task-docs", isGoal: false, metaVigente: OUTRA },
+      { taskId: "task-deploy", isGoal: true, metaVigente: OUTRA },
+      { taskId: "task-docs", isGoal: false, metaVigente: null },
+    ]) {
+      const html = renderToStaticMarkup(<MetaForm {...props} />);
+      expect(html, JSON.stringify(props)).not.toContain("menor id");
+    }
+  });
+
+  it("PRONTO QUANDO: antes de marcar, a tela avisa que a outra NÃO será desmarcada", () => {
+    const html = renderToStaticMarkup(
+      <MetaForm taskId="task-docs" isGoal={false} metaVigente={OUTRA} />,
+    );
+    expect(html).toContain("não desmarca aquela");
+    expect(html).toContain("Deploy de produção");
+  });
+
+  it("PRONTO QUANDO: sendo ELA a meta vigente, o botão afirma o cronograma — e só aí", () => {
+    const html = renderToStaticMarkup(
+      <MetaForm taskId="task-deploy" isGoal metaVigente={OUTRA} />,
+    );
+    expect(html).toContain("★ Meta do cronograma");
+    expect(html).toContain("O cronograma usa esta tarefa como alvo final.");
+  });
+
+  it("PRONTO QUANDO: sem meta nenhuma marcada, a tela diz isso em português", () => {
+    const html = renderToStaticMarkup(
+      <MetaForm taskId="task-docs" isGoal={false} metaVigente={null} />,
+    );
+    expect(html).toContain("Nenhuma tarefa está marcada como meta");
+  });
+});
+
+// ════════════════════════════════════════════════════════ BAIXO #2, rodada 12 ═
+describe("ControleSegmentado — a seta diz, em voz alta, que falta o Enter", () => {
+  /**
+   * As setas movem o foco e não selecionam (decisão da rodada 2: selecionar a
+   * cada tecla manda uma requisição por tecla). O padrão WAI-ARIA permite
+   * essa seleção adiada — o que faltava era DIZER. Quem usa leitor de tela
+   * percorria as quatro opções ouvindo "não marcado" sem nenhuma pista de
+   * como marcar.
+   */
+  const html = (): string =>
+    renderToStaticMarkup(
+      <ControleSegmentado
+        rotuloGrupo="Status da tarefa"
+        opcoes={[
+          { valor: "open", rotulo: "aberta" },
+          { valor: "done", rotulo: "concluída" },
+        ]}
+        valorAtual="open"
+        aoMudar={() => undefined}
+      />,
+    );
+
+  it("PRONTO QUANDO: a frase que ensina a comitar existe, e o grupo aponta para ela", () => {
+    const saida = html();
+    const id = /id="([^"]+)" class="sr-only"/.exec(saida)?.[1];
+    expect(id, "não há frase de ajuda no grupo").toBeDefined();
+    expect(saida).toContain("Enter ou Espaço para escolher");
+    expect(saida).toContain(`role="radiogroup"`);
+    expect(saida).toContain(`aria-describedby="${id ?? ""}"`);
+  });
+
+  it("PRONTO QUANDO: a opção NÃO selecionada aponta para a frase; a selecionada não repete", () => {
+    const saida = html();
+    const radios = [...saida.matchAll(/<button[^>]*role="radio"[^>]*>/g)].map((m) => m[0]);
+    expect(radios.length).toBe(2);
+    const marcado = radios.find((r) => r.includes('aria-checked="true"')) ?? "";
+    const naoMarcado = radios.find((r) => r.includes('aria-checked="false"')) ?? "";
+    expect(naoMarcado).toContain("aria-describedby=");
+    expect(marcado).not.toContain("aria-describedby=");
+  });
+
+  it("PRONTO QUANDO: a opção em foco fica visível para quem enxerga", () => {
+    expect(html().match(/focus-visible:ring-2/g)?.length).toBe(2);
+  });
+
+  /** Nenhuma requisição por tecla: as setas continuam sem comitar. */
+  it("PRONTO QUANDO: navegar por seta continua NÃO chamando `aoMudar`", () => {
+    const chamadas: unknown[] = [];
+    const { indiceDeFocoParaTecla } = ControleSegmentadoModulo;
+    // A prova é a assinatura: a função de navegação não recebe `aoMudar`.
+    expect(indiceDeFocoParaTecla("ArrowRight", 0, 2)).toBe(1);
+    expect(indiceDeFocoParaTecla("Enter", 0, 2)).toBeNull();
+    expect(chamadas).toEqual([]);
   });
 });

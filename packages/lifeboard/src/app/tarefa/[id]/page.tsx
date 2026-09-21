@@ -103,6 +103,10 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
   const goalId =
     [...tasks].filter((t) => t.isGoal === true).sort((a, b) => a.id.localeCompare(b.id))[0]?.id ??
     null;
+  const metaVigente =
+    goalId === null
+      ? null
+      : { id: goalId, title: tasks.find((t) => t.id === goalId)?.title ?? goalId };
   const cpm = caminhoCritico(tasks, edges, goalId);
   // [BAIXO #7, rodada 5] `scoreAssimetria` agora devolve o par
   // `{ valor, motivo }`: a tela precisa distinguir "ninguém declarou os
@@ -178,7 +182,10 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
           acima da régua de ≤ 8. Movida para logo após o cabeçalho: agora são
           2 paradas (o link "← painel" e a textarea). */}
       <Secao titulo={`Notas (${notasDaTarefa.length})`}>
-        <NotasPainel taskId={task.id} notas={notasDaTarefa} />
+        {/* [MÉDIO #4, rodada 12] o relógio do servidor viaja com o HTML: sem
+            ele, o "há 1 min" calculado na hidratação discordava do "agora
+            mesmo" que o servidor escreveu, e o React descartava a árvore. */}
+        <NotasPainel taskId={task.id} notas={notasDaTarefa} agora={Date.now()} />
       </Secao>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -190,7 +197,15 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
             em cima de jargão numa página em português. O título diz o que é;
             o subtítulo explica o conceito uma vez. */}
         <Secao titulo="Meta (o alvo final do cronograma)">
-          <MetaForm taskId={task.id} isGoal={task.isGoal === true} />
+          {/* [MÉDIO #3, rodada 12] a meta VIGENTE (pelo título, não pelo id)
+              vai junto: era ela que a tela escondia atrás de "vale a de menor
+              id" enquanto duas tarefas se declaravam o alvo final. Sai da
+              MESMA escolha que o cronograma faz logo acima (`goalId`). */}
+          <MetaForm
+            taskId={task.id}
+            isGoal={task.isGoal === true}
+            metaVigente={metaVigente}
+          />
           {janela ? (
             /* [MÉDIO A7] `ES 0 · EF 3 · LS 0 · LF 3` não tinha glossário em
                lugar nenhum da tela. Cada sigla é traduzida na primeira (e

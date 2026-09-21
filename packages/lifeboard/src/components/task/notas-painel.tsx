@@ -32,6 +32,31 @@ import type { TaskNote } from "@/types/canonical";
 export interface NotasPainelProps {
   taskId: string;
   notas: readonly TaskNote[];
+  /**
+   * ═════════════════════════════════════════════════════ MÉDIO #4, rodada 12 ═
+   * O INSTANTE DO SERVIDOR, VIAJANDO JUNTO COM O HTML.
+   *
+   * `NotaLinha` chamava `formatRelativeTime(nota.createdAt)`, e essa função
+   * usa `Date.now()` quando ninguém lhe dá um `now`. Este é um componente
+   * CLIENTE: o servidor o renderiza com o relógio dele e o navegador o
+   * hidrata com o dele, mais tarde. Qualquer fronteira de arredondamento
+   * atravessada entre os dois momentos ("agora mesmo" → "há 1 min") produz
+   * textos diferentes, e o React joga fora a árvore inteira do servidor e
+   * refaz tudo no cliente.
+   *
+   * Medido no Chromium, sem mexer em relógio nenhum: salvar uma nota, esperar
+   * 45 s, recarregar com os scripts atrasados em 20 s (celular em rede ruim)
+   * → `pageerror` *"Hydration failed because the server rendered text didn't
+   * match the client"*, com o próprio React apontando o nó (`<NotaLinha>`) e
+   * a troca (`+ há 1 min` / `- agora mesmo`) e nomeando a causa: *"Variable
+   * input such as `Date.now()`"*.
+   *
+   * A correção é a que o próprio React recomenda no lugar de `suppressHydration
+   * Warning`: **mandar o instantâneo junto com o HTML**. O servidor decide que
+   * horas são, o número viaja no payload, e as duas renderizações fazem a
+   * MESMA conta — independentemente de quanto tempo passar entre elas.
+   */
+  agora: number;
 }
 
 /** 10 s — mesma janela do "Desfazer" da relação criada (`relacoes-painel.tsx`). */
@@ -69,7 +94,7 @@ interface JanelaDeDesfazerNota {
  * colado ao "Desfazer" da 1ª: *"Confirme: clique de novo em excluir para
  * apagar a nota. Desfazer"*.
  */
-export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
+export function NotasPainel({ taskId, notas, agora }: NotasPainelProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** Botões "excluir" por índice — o alvo do foco quando a nota some. */
   const botoesExcluirRef = useRef<Map<number, HTMLButtonElement>>(new Map());
@@ -226,6 +251,7 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
               key={n.id}
               nota={n}
               taskId={taskId}
+              agora={agora}
               indice={indice}
               total={notas.length}
               refDoBotao={(el) => {
@@ -398,6 +424,7 @@ export function rotuloDoBotaoDeExcluir(
 function NotaLinha({
   nota,
   taskId,
+  agora,
   indice,
   total,
   refDoBotao,
@@ -413,6 +440,8 @@ function NotaLinha({
 }: {
   nota: TaskNote;
   taskId: string;
+  /** [MÉDIO #4, rodada 12] o relógio do SERVIDOR — ver `NotasPainelProps`. */
+  agora: number;
   indice: number;
   /** Quantas notas a lista tem — o "de 5" do rótulo (MÉDIO #6). */
   total: number;
@@ -503,7 +532,11 @@ function NotaLinha({
         </button>
       </div>
       <p className="mt-1.5 text-xs text-bone-400">
-        {nota.autor ?? "sem autor"} · {formatRelativeTime(nota.createdAt)}
+        {/* [MÉDIO #4, rodada 12] `agora` vem do servidor: o texto é o mesmo
+            no HTML e na hidratação, por mais tarde que ela aconteça. */}
+        {nota.autor ?? "sem autor"} · <time dateTime={nota.createdAt}>
+          {formatRelativeTime(nota.createdAt, agora)}
+        </time>
       </p>
       <CampoErro mensagem={porta.erroDoCampo} />
     </li>

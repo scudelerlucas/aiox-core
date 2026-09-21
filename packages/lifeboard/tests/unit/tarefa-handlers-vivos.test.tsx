@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   componenteFilho,
   disparar,
+  expandir,
   oQueATelaDiz,
   porTag,
   propsDe,
@@ -70,6 +71,9 @@ async function assentar(): Promise<void> {
 function digitar(props: Record<string, unknown>, texto: string): void {
   (props.aoMudar as (t: string) => void)(texto);
 }
+
+/** [MÉDIO #4, rodada 12] o relógio vem de fora — ver `NotasPainelProps`. */
+const AGORA = Date.parse("2026-07-09T12:00:00.000Z");
 
 const HERANCA = {
   esforco: 2,
@@ -270,7 +274,7 @@ describe("NotasPainel — salvar a nota apaga o rascunho", () => {
    */
   it("PRONTO QUANDO: depois do sucesso, o depósito não guarda mais o rascunho", async () => {
     const inst = novaInstancia();
-    const props = { taskId: "task-build", notas: [] };
+    const props = { taskId: "task-build", notas: [], agora: AGORA };
     const painel = montar(inst, NotasPainel, props);
     const filho = componenteFilho(painel, "FormularioNovaNota");
     const instFilho = novaInstancia();
@@ -295,7 +299,7 @@ describe("NotasPainel — salvar a nota apaga o rascunho", () => {
     janela.deposito.set(chaveRascunhoNota("task-build"), "meia nota");
     janela.deposito.set(chaveRascunhoAutorNota("task-build"), "Lucas");
     const inst = novaInstancia();
-    const painel = montar(inst, NotasPainel, { taskId: "task-build", notas: [] });
+    const painel = montar(inst, NotasPainel, { taskId: "task-build", notas: [], agora: AGORA });
     const filho = componenteFilho(painel, "FormularioNovaNota");
     const instFilho = novaInstancia();
     montar(instFilho, filho.fn, filho.props);
@@ -322,7 +326,7 @@ describe("NotasPainel — a janela de 'Desfazer' fecha sozinha em 10 s", () => {
 
   async function excluirComSucesso(): Promise<{ inst: Instancia; props: unknown }> {
     const inst = novaInstancia();
-    const props = { taskId: "task-build", notas: [NOTA] };
+    const props = { taskId: "task-build", notas: [NOTA], agora: AGORA };
     let painel = montar(inst, NotasPainel, props);
     const linha = componenteFilho(painel, "NotaLinha");
     const instLinha = novaInstancia();
@@ -401,5 +405,183 @@ describe("RelacoesPainel — o desconto só viaja quando a relação é de siner
     const valores = todasAsTags(form, "option").map((o) => o.props.value);
     expect(valores).toEqual(["", "task-docs"]);
     expect(texto(form)).toContain("1 tarefa está fora desta lista");
+  });
+});
+
+// ══════════════════════════════════ CRÍTICO, rodada 12: o desfazer da RELAÇÃO ═
+describe("RelacoesPainel — 'Desfazer' devolve a relação INTEIRA, nota incluída", () => {
+  const ARESTA = {
+    id: "edge-docs-correlaciona-build",
+    origem: "task-docs",
+    destino: "task-build",
+    tipo: "correlacao" as const,
+    peso: 1,
+    nota: "Documentação e motor andam juntos, sem ordem.",
+    createdAt: "2026-07-09T10:01:00.000Z",
+  };
+
+  function props() {
+    return {
+      taskId: "task-docs",
+      saindo: [ARESTA],
+      entrando: [],
+      elosDerivados: [],
+      opcoesDestino: [{ id: "task-build", title: "Implementar motor", bloqueadaPara: [] }],
+      tituloPorId: new Map([["task-build", "Implementar motor"]]),
+    };
+  }
+
+  /** Exclui de verdade (dois cliques) e devolve o painel com a janela aberta. */
+  async function excluir(): Promise<{ inst: Instancia; p: ReturnType<typeof props> }> {
+    const inst = novaInstancia();
+    const p = props();
+    let painel = montar(inst, RelacoesPainel, p);
+    const linha = componenteFilho(painel, "LinhaAresta");
+    const instLinha = novaInstancia();
+    let li = montar(instLinha, linha.fn, linha.props);
+    disparar(porTag(li, "button"), "onClick"); // 1º clique: pede confirmação
+    painel = montar(inst, RelacoesPainel, p);
+    const linha2 = componenteFilho(painel, "LinhaAresta");
+    li = montar(instLinha, linha2.fn, linha2.props);
+    disparar(porTag(li, "button"), "onClick"); // 2º clique: apaga
+    await assentar();
+    return { inst, p };
+  }
+
+  /**
+   * MUTAÇÃO (obrigatória, rodada 12): tirar `nota` da janela de desfazer.
+   *
+   * O que ia — e foi — para produção: `arestaAdd` lê `nota` de `campos`;
+   * ausente, `textoOuNulo` devolve `null`, e a relação renasce SEM a nota.
+   * Medido no Chromium em `/tarefa/task-docs`: a aresta voltou com
+   * `"nota": null`, e a tela disse "Relação restaurada.".
+   */
+  it("PRONTO QUANDO: o pedido do desfazer carrega a NOTA original", async () => {
+    const { inst, p } = await excluir();
+    acao.mockClear();
+    const comDesfazer = montar(inst, RelacoesPainel, p);
+    const botao = todasAsTags(comDesfazer, "button").find(
+      (b) => texto(b.props.children) === "Desfazer",
+    );
+    disparar(botao ?? { type: "", props: {} }, "onClick");
+    await assentar();
+    const pedido = pedidos()[0];
+    expect(pedido?.op).toBe("relacao_desfazer_exclusao");
+    expect(pedido?.campos.nota).toBe(ARESTA.nota);
+  });
+
+  /** Os outros campos continuam indo — nenhum deles foi trocado pela nota. */
+  it("PRONTO QUANDO: tipo, peso e data original continuam viajando", async () => {
+    const { inst, p } = await excluir();
+    acao.mockClear();
+    const comDesfazer = montar(inst, RelacoesPainel, p);
+    const botao = todasAsTags(comDesfazer, "button").find(
+      (b) => texto(b.props.children) === "Desfazer",
+    );
+    disparar(botao ?? { type: "", props: {} }, "onClick");
+    await assentar();
+    expect(pedidos()[0]?.campos).toMatchObject({
+      origem: "task-docs",
+      destino: "task-build",
+      tipo: "correlacao",
+      peso: "1",
+      criado_em: ARESTA.createdAt,
+    });
+  });
+
+  /**
+   * O agravante do achado: a nota existia no modelo e não era desenhada em
+   * lugar nenhum — então a perda era invisível ao operador.
+   */
+  it("PRONTO QUANDO: a nota da relação aparece na linha da lista", () => {
+    const painel = montar(novaInstancia(), RelacoesPainel, props());
+    expect(texto(expandir(painel))).toContain(ARESTA.nota);
+  });
+});
+
+// ═════════════════════════════════════════ MÉDIO #4, rodada 12: a hidratação ═
+describe("NotasPainel — o mesmo painel diz a MESMA coisa em dois instantes", () => {
+  /**
+   * MUTAÇÃO: `formatRelativeTime(nota.createdAt, agora)` → `formatRelativeTime(nota.createdAt)`.
+   *
+   * O que ia — e foi — para produção: o servidor renderiza com o relógio dele
+   * e o navegador hidrata com o dele. Atravessada uma fronteira de
+   * arredondamento ("agora mesmo" → "há 1 min"), o React descarta a árvore do
+   * servidor e refaz tudo no cliente. Medido no Chromium, com os scripts
+   * atrasados em 20 s: `pageerror` *"Hydration failed because the server
+   * rendered text didn't match the client"*, com `+ há 1 min` / `- agora
+   * mesmo` no nó `<NotaLinha>`.
+   *
+   * A propriedade, medida direto: com as MESMAS props, a saída não pode
+   * depender de QUANDO se renderiza. É o servidor e o cliente, lado a lado.
+   */
+  it("PRONTO QUANDO: renderizar 90 s depois, com as mesmas props, dá o mesmo texto", () => {
+    const criadaEm = "2026-07-09T12:00:00.000Z";
+    const doServidor = Date.parse(criadaEm) + 30_000;
+    const props = {
+      taskId: "task-docs",
+      notas: [{ id: "n1", taskId: "task-docs", texto: "nota", autor: "Claude", createdAt: criadaEm }],
+      agora: doServidor,
+    };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(doServidor));
+      const noServidor = texto(expandir(montar(novaInstancia(), NotasPainel, props)));
+      // O navegador só hidrata 90 s depois (rede ruim, scripts atrasados).
+      vi.setSystemTime(new Date(doServidor + 90_000));
+      const naHidratacao = texto(expandir(montar(novaInstancia(), NotasPainel, props)));
+      expect(naHidratacao).toBe(noServidor);
+      // E o texto é o que o relógio do SERVIDOR diz — não "há 1 min".
+      expect(noServidor).toContain("agora mesmo");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ══════════════════════════════════ o GÊMEO: o desfazer da NOTA, medido igual ═
+describe("NotasPainel — 'Desfazer' devolve texto, autor e data da nota", () => {
+  /**
+   * [rodada 12] O desfazer da nota já carregava os três campos — e não havia
+   * teste disparando o botão para PROVAR. A trava lexical que existia
+   * (`tarefa-escritas-varredura.test.ts`) casava a expressão exata do fonte,
+   * que é justamente a classe de trava que esta rodada derrubou. Agora os
+   * dois desfazeres desta página são medidos pelo PEDIDO que sai.
+   */
+  const NOTA = {
+    id: "n1",
+    taskId: "task-build",
+    texto: "a nota que volta inteira",
+    autor: "Claude",
+    createdAt: "2026-07-09T11:00:00.000Z",
+  };
+
+  it("PRONTO QUANDO: o pedido do desfazer traz texto, autor e criado_em", async () => {
+    const inst = novaInstancia();
+    const props = { taskId: "task-build", notas: [NOTA], agora: AGORA };
+    let painel = montar(inst, NotasPainel, props);
+    const linha = componenteFilho(painel, "NotaLinha");
+    const instLinha = novaInstancia();
+    let li = montar(instLinha, linha.fn, linha.props);
+    disparar(porTag(li, "button"), "onClick");
+    painel = montar(inst, NotasPainel, props);
+    const linha2 = componenteFilho(painel, "NotaLinha");
+    li = montar(instLinha, linha2.fn, linha2.props);
+    disparar(porTag(li, "button"), "onClick");
+    await assentar();
+    acao.mockClear();
+
+    const comDesfazer = montar(inst, NotasPainel, props);
+    const botao = todasAsTags(comDesfazer, "button").find(
+      (b) => texto(b.props.children) === "Desfazer",
+    );
+    disparar(botao ?? { type: "", props: {} }, "onClick");
+    await assentar();
+    expect(pedidos()[0]?.op).toBe("nota_desfazer");
+    expect(pedidos()[0]?.campos).toMatchObject({
+      texto: NOTA.texto,
+      autor: NOTA.autor,
+      criado_em: NOTA.createdAt,
+    });
   });
 });
