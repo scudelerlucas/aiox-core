@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
+import { CampoNumerico } from "@/components/task/campo-numerico";
 import { MENSAGEM_INVALIDO } from "@/components/task/escrita";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
@@ -95,26 +96,24 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           className="min-h-[44px] rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
-        Duração (dias)
-        <input
-          type="number"
-          min={0.25}
-          step={0.25}
-          value={estimativa}
-          // [Minor do CodeRabbit, rodada 10] o campo do título já limpava o
-          // erro velho do servidor ao mudar; este não. Quando a recusa vinha
-          // POR CAUSA da duração, o operador corrigia a duração e continuava
-          // lendo a acusação antiga — a mesma contradição que a porta existe
-          // para remover.
-          onChange={(e) => {
-            setEstimativa(e.target.value);
-            porta.aoMudarCampo();
-          }}
-          placeholder="opcional"
-          className="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
-        />
-      </label>
+      {/* [CRÍTICO, rodada 11] o mesmo buraco da duração da tarefa: `2e` na
+          caixa chegava ao programa como `""` e a subtarefa nascia sem duração
+          nenhuma, com a tela dizendo "Subtarefa criada.". */}
+      <CampoNumerico
+        rotulo="Duração (dias)"
+        valor={estimativa}
+        // [Minor do CodeRabbit, rodada 10] o campo do título já limpava o
+        // erro velho do servidor ao mudar; este não. Quando a recusa vinha
+        // POR CAUSA da duração, o operador corrigia a duração e continuava
+        // lendo a acusação antiga — a mesma contradição que a porta existe
+        // para remover.
+        aoMudar={(texto) => {
+          setEstimativa(texto);
+          porta.aoMudarCampo();
+        }}
+        placeholder="opcional"
+        classeDoCampo="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+      />
       <button
         type="submit"
         // [ALTO #1, rodada 6] SEM `disabled` — nem por validade (ver

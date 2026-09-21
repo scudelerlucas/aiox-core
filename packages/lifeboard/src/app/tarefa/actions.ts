@@ -73,7 +73,15 @@ const ASSIMETRIA_BYTES_MAX = 2_048;
  * vem de `tipos-v3.ts` — mesmo valor usado pela migration 0010.
  */
 function estimativaValidaOuErro(n: number): string | null {
-  if (!Number.isFinite(n) || n < DURACAO_MINIMA_DIAS) {
+  // [CRÍTICO, rodada 11] `NaN` é o caminho do que a caixa mostra e o
+  // `Number()` não converte (`2e`, `1,5`, `--`): `NaN < x` e `NaN > y` são
+  // AMBOS falsos, então sem este ramo o valor atravessaria a régua inteira e
+  // chegaria à RPC. Ramo próprio, e não `||`, para a frase dizer a coisa
+  // certa: o problema não é ser pequeno demais, é não ser número.
+  if (!Number.isFinite(n)) {
+    return "A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5).";
+  }
+  if (n < DURACAO_MINIMA_DIAS) {
     // Vírgula decimal (pt-BR), não o ponto do `toString()` do JS — mesmo
     // formato que a mensagem já tinha antes desta função existir.
     const minimoFormatado = String(DURACAO_MINIMA_DIAS).replace(".", ",");
@@ -94,6 +102,29 @@ function revalidar(taskId: string): void {
 function textoOu(campos: CamposDeEscrita, campo: string): string {
   const v = campos[campo];
   return typeof v === "string" ? v : "";
+}
+
+/**
+ * [CRÍTICO, rodada 11] O NÚMERO QUE O OPERADOR DIGITOU — ou `NaN`.
+ *
+ * `Number()` sozinho é generoso demais para ser a régua de um campo que a
+ * pessoa preenche: `Number("0x10")` é 16, `Number("1e3")` é 1000,
+ * `Number("Infinity")` é infinito, `Number(" ")` é 0. Com o campo virando
+ * texto (`campo-numerico.tsx`), essas formas passam a CHEGAR aqui — e
+ * gravar 16 dias porque alguém escreveu `0x10` é a mesma família de defeito
+ * que apagar a duração porque alguém escreveu `2e`: o banco fica com um
+ * número que a tela nunca mostrou.
+ *
+ * A régua é a forma que o campo promete: dígitos, com um ponto decimal
+ * opcional. Tudo que não é isso vira `NaN` e cai na frase em português.
+ */
+function numeroDigitado(bruto: string): number {
+  return /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(bruto) ? Number(bruto) : Number.NaN;
+}
+
+/** O campo VEIO no pedido? (vazio é diferente de ausente — ver `arestaAdd`.) */
+function temCampo(campos: CamposDeEscrita, campo: string): boolean {
+  return Object.prototype.hasOwnProperty.call(campos, campo);
 }
 
 function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
@@ -170,7 +201,7 @@ async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> 
 
   let estimativaDias: number | null = null;
   if (estimativaBruta.length > 0) {
-    const n = Number(estimativaBruta);
+    const n = numeroDigitado(estimativaBruta);
     const erro = estimativaValidaOuErro(n);
     if (erro) return { erro };
     estimativaDias = n;
@@ -255,7 +286,7 @@ async function estimativaSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa>
   const bruta = textoOu(campos, "estimativa_dias").trim();
   let estimativaDias: number | null = null;
   if (bruta.length > 0) {
-    const n = Number(bruta);
+    const n = numeroDigitado(bruta);
     // [BAIXO #10, rodada 2] mesma função de `subtarefaAddAction` — uma só régua.
     const erro = estimativaValidaOuErro(n);
     if (erro) return { erro };
@@ -303,9 +334,18 @@ async function arestaAdd(
   if (!TIPOS_DE_ARESTA.includes(tipo)) {
     return { erro: "O tipo de relação precisa ser um de: predecessor, correlação, sinergia, obsolescência." };
   }
+  // [ALTO A2, rodada 11] `peso` AUSENTE e `peso` VAZIO não são a mesma coisa.
+  // Ausente = a relação não é de sinergia e o desconto não se aplica (1, o
+  // neutro). Vazio/ilegível = o operador tinha algo na caixa e o programa não
+  // entendeu — e o `let peso = 1` de antes gravava calado o EXTREMO OPOSTO da
+  // escala que a tela mostrava (0.5 na caixa, 1 no banco), direto na conta do
+  // HIERARQ, com "Relação criada." anunciado.
   let peso = 1;
-  if (pesoBruto.length > 0) {
-    peso = Number(pesoBruto);
+  if (temCampo(campos, "peso")) {
+    if (pesoBruto.length === 0) {
+      return { erro: "O desconto precisa ser um número entre 0 e 1." };
+    }
+    peso = numeroDigitado(pesoBruto);
     if (!pesoValido(peso)) return { erro: "O desconto precisa ser um número entre 0 e 1." };
   }
   if (nota !== null && nota.length > ARESTA_NOTA_MAX) {

@@ -111,6 +111,24 @@ export const ANUNCIO_DE_CONFIRMACAO: Record<
 export const MENSAGEM_AGUARDE = "Aguarde: a gravação anterior ainda está em andamento.";
 
 /**
+ * [BAIXO, rodada 11] O TEXTO QUE FALTAVA DURANTE A GRAVAÇÃO.
+ *
+ * Medido: numa gravação de 2,5 s a tela mudava `aria-busy`, `aria-disabled` e
+ * a opacidade do botão — e as regiões `role="status"` ficavam com ZERO texto.
+ * Quem usa leitor de tela não recebe opacidade: só descobria que tinha
+ * acontecido alguma coisa no fim, quando "Duração salva." chegava. Entre o
+ * clique e a resposta havia silêncio.
+ *
+ * É `persistente` (sem relógio de 4 s): enquanto a gravação não volta, a
+ * frase é verdade. Quem a apaga é a própria porta, no instante em que a
+ * resposta chega — e é esse apagamento que também tirou da tela o par
+ * contraditório *"Excluída. Desfazer"* + *"Confirme: clique de novo em
+ * excluir…"*, que ficava 2,6 s junto porque o pedido de confirmação só sumia
+ * por relógio.
+ */
+export const MENSAGEM_GRAVANDO = "Salvando…";
+
+/**
  * [ALTO #1, rodada 6] O que substitui o `disabled` por validade: o botão
  * continua clicável (e focável — `disabled` é justamente o que tirava o foco
  * dele), o handler recusa, e ESTA frase explica por quê. Antes, um clique no

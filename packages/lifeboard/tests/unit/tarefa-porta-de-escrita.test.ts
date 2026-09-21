@@ -60,7 +60,7 @@ vi.mock("@/app/tarefa/actions", () => ({
 }));
 
 import type { EstadoAcaoTarefa } from "@/app/tarefa/pedido";
-import { ANUNCIO_DE_CONFIRMACAO, ANUNCIO_DE_SUCESSO, MENSAGEM_AGUARDE, saidaPorConfirmacao, transicaoDeConfirmacao } from "@/components/task/escrita";
+import { ANUNCIO_DE_CONFIRMACAO, ANUNCIO_DE_SUCESSO, MENSAGEM_AGUARDE, MENSAGEM_GRAVANDO, saidaPorConfirmacao, transicaoDeConfirmacao } from "@/components/task/escrita";
 import { usarPortaDeEscrita, type ConfigDaPorta, type PortaDeEscrita } from "@/components/task/porta-de-escrita";
 
 interface Anuncio {
@@ -137,7 +137,10 @@ describe("a porta de escrita, rodada de verdade (ALTO #1)", () => {
     expect(porta.escrever({ task_id: "t" }, { mudou: true })).toBe("gravar");
     expect(porta.escrever({ task_id: "t" }, { mudou: true })).toBe("aguardar");
     expect(acao).toHaveBeenCalledTimes(1);
-    expect(regiao).toEqual([MENSAGEM_AGUARDE]);
+    // [BAIXO, rodada 11] a 1ª escrita agora DIZ que está gravando (era o único
+    // canal mudo durante os 2,5 s de uma gravação lenta); a recusa do 2º
+    // disparo continua sendo a última coisa dita, e continua sendo dita.
+    expect(regiao).toEqual([MENSAGEM_GRAVANDO, MENSAGEM_AGUARDE]);
   });
 
   it("PRONTO QUANDO: o sucesso entrega o foco ANTES de anunciar, e depois refresca", async () => {
@@ -160,7 +163,17 @@ describe("a porta de escrita, rodada de verdade (ALTO #1)", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(doc.activeElement).toBe(focado);
-    expect(ordem).toEqual(["foco", `anuncio:${ANUNCIO_DE_SUCESSO.duracao}`]);
+    // "Salvando…" entra no clique e sai quando a resposta chega (rodada 11);
+    // a ordem que este teste existe para medir — FOCO antes do anúncio do
+    // sucesso — continua intacta.
+    expect(ordem).toEqual([
+      `anuncio:${MENSAGEM_GRAVANDO}`,
+      "foco",
+      `anuncio:${ANUNCIO_DE_SUCESSO.duracao}`,
+    ]);
+    expect(ordem.indexOf("foco")).toBeLessThan(
+      ordem.indexOf(`anuncio:${ANUNCIO_DE_SUCESSO.duracao}`),
+    );
     expect(refrescou).toHaveBeenCalledTimes(1);
   });
 
@@ -170,7 +183,10 @@ describe("a porta de escrita, rodada de verdade (ALTO #1)", () => {
     porta.escrever({ task_id: "t" }, { mudou: true });
     await Promise.resolve();
     await Promise.resolve();
-    expect(regiao).toEqual([]);
+    // Nenhum SUCESSO é anunciado — só o "Salvando…" do clique, que a porta
+    // apaga quando a recusa chega.
+    expect(regiao).toEqual([MENSAGEM_GRAVANDO]);
+    expect(regiao).not.toContain(ANUNCIO_DE_SUCESSO.duracao);
     expect(refrescou).not.toHaveBeenCalled();
     // E o erro aparece no campo, resolvido pela porta (ALTO #2).
     expect(render().erroDoCampo).toBe("A duração não pode passar de 9999.99 dias.");
@@ -259,14 +275,19 @@ describe("MÉDIO #3 — a trilha da região viva no clique que APAGA", () => {
     const textos = trilha.map((a) => a.texto);
     expect(textos).toEqual([
       ANUNCIO_DE_CONFIRMACAO.nota_excluir.entrou,
+      // [rodada 11] o clique que apaga passou a DIZER que está gravando — o
+      // que a região recebia antes, no lugar disto, era a frase falsa.
+      MENSAGEM_GRAVANDO,
       ANUNCIO_DE_SUCESSO.nota_excluir,
     ]);
     // A frase falsa não existe em lugar nenhum da trilha.
     expect(textos).not.toContain(ANUNCIO_DE_CONFIRMACAO.nota_excluir.saiu);
-    // E entre o clique e "Excluída." a região não recebeu NADA — antes ela
-    // recebia a frase de cancelamento e a segurava pela latência inteira.
-    expect(trilha).toHaveLength(2);
-    const intervalo = (trilha[1]?.ms ?? 0) - (trilha[0]?.ms ?? 0);
+    expect(trilha).toHaveLength(3);
+    // "Salvando…" é imediato (mede o clique, não a resposta) e "Excluída."
+    // só chega depois da latência inteira.
+    const inicio = trilha[1]?.ms ?? 0;
+    expect(inicio - (trilha[0]?.ms ?? 0)).toBeLessThan(200);
+    const intervalo = (trilha[2]?.ms ?? 0) - inicio;
     expect(intervalo).toBeGreaterThanOrEqual(LATENCIA_MS - 60);
     console.log("Trilha da região viva (MÉDIO #3, latência de 1,2 s):");
     for (const a of trilha) console.log(`  ${String(a.ms).padStart(6)}ms  "${a.texto}"`);

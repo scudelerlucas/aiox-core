@@ -11,6 +11,7 @@ import {
   camposDeErro,
   codigo as codigoDoArquivo,
   convertemOSelo,
+  exportsDeValor,
   handlerDaConfirmacaoExecutada,
   importacoes,
   opDoBloco,
@@ -20,6 +21,8 @@ import {
   quantasPortas,
   rotasDeFuga,
   SUPERFICIE_DE_ESCRITA,
+  temExportAnonimo,
+  tiposDeInput,
   tocamAEscrita,
   varrer,
 } from "./tarefa-varredura-derivada";
@@ -239,6 +242,64 @@ describe("ALTO #1 — a escrita só existe através da porta (arquitetura, não 
 
   it("PRONTO QUANDO: a conversão do selo existe em UM arquivo só — a porta", () => {
     expect(convertemOSelo()).toEqual(["components/task/porta-de-escrita.ts"]);
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════ ALTO A3, rodada 11 ═
+   * O PERÍMETRO DO SELO TEM O TAMANHO DE UM ARQUIVO — E NINGUÉM O MEDIA.
+   *
+   * MUTAÇÃO 13: acrescentar a `porta-de-escrita.ts`
+   *   `export function despacharCru(op, campos) {
+   *      return escreverTarefaAction({}, selar(op, campos));
+   *    }`
+   * Três linhas, `tsc` limpo, 1350/1350 verdes — e qualquer componente ganha
+   * escrita crua: sem trava de voo, sem foco entregue, sem anúncio, sem
+   * `router.refresh()`, sem aviso de saída. A varredura checava os exports de
+   * `actions.ts` e NUNCA os do único módulo que consegue forjar o selo.
+   *
+   * A régua: a porta exporta UMA função de valor, `usarPortaDeEscrita`.
+   * Qualquer export novo de valor aqui é uma segunda porta.
+   */
+  it("PRONTO QUANDO: a porta exporta UMA função de valor — nada que despache cru", () => {
+    expect(exportsDeValor(ARQUIVO_DA_PORTA)).toEqual(["usarPortaDeEscrita"]);
+    expect(temExportAnonimo(ARQUIVO_DA_PORTA)).toBe(false);
+    // E `selar` — a única fábrica de pedido do `src/` — continua privada.
+    const src = codigoDoArquivo(ARQUIVO_DA_PORTA);
+    expect(src).toMatch(/\nfunction selar\(/);
+    expect(src).not.toMatch(/export\s+(async\s+)?function\s+selar\b/);
+    expect(src).not.toMatch(/export\s*\{[^}]*\bselar\b/);
+  });
+
+  it("PRONTO QUANDO: a MESMA régua vale para os dois lados da porta", () => {
+    // O lado servidor já era medido; agora as duas medições saem da mesma
+    // função, e uma não pode ser endurecida esquecendo a outra.
+    expect(exportsDeValor("app/tarefa/actions.ts")).toEqual(["escreverTarefaAction"]);
+    expect(temExportAnonimo("app/tarefa/actions.ts")).toBe(false);
+  });
+
+  /**
+   * ═════════════════════════════════════════════════════ CRÍTICO, rodada 11 ═
+   * NENHUM CAMPO DESTA PÁGINA GUARDA ESTADO QUE O PROGRAMA NÃO VÊ.
+   *
+   * `<input type="number">` em `badInput` (`2e`, `1,5`, `--`) mostra o texto
+   * na caixa e reporta `value === ""`. Medido no Chromium: `/tarefa/task-docs`
+   * com duração 2, digitar `e`, salvar → "Duração salva." e a duração some.
+   * Os três campos numéricos da página tinham o mesmo buraco.
+   *
+   * A trava que impede a volta é esta: `type="number"` não existe mais aqui.
+   */
+  it("PRONTO QUANDO: nenhum campo da página é `type=\"number\"`", () => {
+    const numericos = tiposDeInput()
+      .filter((i) => i.tipo === "number")
+      .map((i) => `${i.arquivo}:${String(i.linha)}`);
+    expect(
+      numericos,
+      `campo que esconde o que o operador digitou:\n${numericos.join("\n")}`,
+    ).toEqual([]);
+    // E o campo que os substitui declara o teclado decimal do celular.
+    const campo = codigoDoArquivo("components/task/campo-numerico.tsx");
+    expect(campo).toContain('type="text"');
+    expect(campo).toContain('inputMode="decimal"');
   });
 
   it("PRONTO QUANDO: a porta não devolve despacho cru (era o que a forma M8 usava)", () => {

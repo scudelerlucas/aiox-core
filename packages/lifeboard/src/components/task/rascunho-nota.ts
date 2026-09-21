@@ -29,6 +29,18 @@ export function chaveRascunhoNota(taskId: string): string {
   return `tarefa:${taskId}:nota`;
 }
 
+/**
+ * [BAIXO, rodada 11] O CAMPO "autor" NÃO VOLTAVA.
+ *
+ * Medido: o texto da nota sobrevivia ao F5 e o autor não — quem escrevia
+ * "Lucas" e recarregava perdia só metade do formulário, que é o pior dos três
+ * desfechos possíveis (voltar tudo, voltar nada, voltar metade sem avisar).
+ * Mesma chave, mesmo depósito, mesmo tratamento de falha.
+ */
+export function chaveRascunhoAutorNota(taskId: string): string {
+  return `tarefa:${taskId}:nota:autor`;
+}
+
 /** `null` quando não há `sessionStorage` utilizável (SSR, ou acesso que lança). */
 export function depositoPadrao(): DepositoRascunho | null {
   try {
@@ -43,9 +55,20 @@ export function lerRascunhoNota(
   taskId: string,
   deposito: DepositoRascunho | null = depositoPadrao(),
 ): string {
+  return lerChave(chaveRascunhoNota(taskId), deposito);
+}
+
+export function lerRascunhoAutorNota(
+  taskId: string,
+  deposito: DepositoRascunho | null = depositoPadrao(),
+): string {
+  return lerChave(chaveRascunhoAutorNota(taskId), deposito);
+}
+
+function lerChave(chave: string, deposito: DepositoRascunho | null): string {
   if (!deposito) return "";
   try {
-    return deposito.getItem(chaveRascunhoNota(taskId)) ?? "";
+    return deposito.getItem(chave) ?? "";
   } catch {
     return "";
   }
@@ -56,17 +79,30 @@ export function gravarRascunhoNota(
   texto: string,
   deposito: DepositoRascunho | null = depositoPadrao(),
 ): void {
+  gravarChave(chaveRascunhoNota(taskId), texto, deposito);
+}
+
+export function gravarRascunhoAutorNota(
+  taskId: string,
+  autor: string,
+  deposito: DepositoRascunho | null = depositoPadrao(),
+): void {
+  gravarChave(chaveRascunhoAutorNota(taskId), autor, deposito);
+}
+
+function gravarChave(chave: string, valor: string, deposito: DepositoRascunho | null): void {
   if (!deposito) return;
   try {
     // Rascunho vazio não é rascunho — apagar evita deixar lixo na sessão e
     // faz "limpei o campo de propósito" voltar limpo na próxima visita.
-    if (texto.length === 0) deposito.removeItem(chaveRascunhoNota(taskId));
-    else deposito.setItem(chaveRascunhoNota(taskId), texto);
+    if (valor.length === 0) deposito.removeItem(chave);
+    else deposito.setItem(chave, valor);
   } catch {
     // Cota/permissão: perder o rascunho é aceitável; derrubar a página não.
   }
 }
 
+/** Apaga o rascunho INTEIRO — texto e autor saem juntos, ou nenhum sai. */
 export function limparRascunhoNota(
   taskId: string,
   deposito: DepositoRascunho | null = depositoPadrao(),
@@ -74,6 +110,7 @@ export function limparRascunhoNota(
   if (!deposito) return;
   try {
     deposito.removeItem(chaveRascunhoNota(taskId));
+    deposito.removeItem(chaveRascunhoAutorNota(taskId));
   } catch {
     // idem
   }

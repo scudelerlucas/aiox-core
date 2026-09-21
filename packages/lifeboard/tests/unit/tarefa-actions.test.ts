@@ -188,6 +188,84 @@ describe("tarefa/actions — validação", () => {
     nenhumaChamadaFoiFeita();
   });
 
+  /**
+   * ═════════════════════════════════════════════ CRÍTICO + MUTAÇÃO 2, rodada 11 ═
+   * `NaN` é o caminho do que a caixa mostra e o `Number()` não converte —
+   * `2e`, `1,5`, `--`. `NaN < x` e `NaN > y` são AMBOS falsos: trocar
+   * `if (!Number.isFinite(n) || n < MIN)` por `if (n < MIN)` faz o valor
+   * atravessar a régua inteira e chegar à RPC, que é exatamente o caminho do
+   * CRÍTICO desta rodada. Cada forma tem o seu caso — uma só deixaria o ramo
+   * meio provado.
+   */
+  for (const bruto of ["2e", "1,5", "--", "abc", "e", "Infinity", "0x10"]) {
+    it(`estimativaSetAction: "${bruto}" não é número — recusa em português, sem tocar a rede`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: bruto }),
+      );
+      expect(r.erro, `"${bruto}" passou pela régua`).toBeDefined();
+      expect(r.ok).toBeUndefined();
+      nenhumaChamadaFoiFeita();
+    });
+  }
+
+  it('estimativaSetAction: "2e" diz que o problema é NÃO SER NÚMERO, não ser pequeno', async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "2e" }));
+    expect(r.erro).toBe("A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5).");
+  });
+
+  it('subtarefaAddAction: "2e" na duração recusa — a subtarefa NÃO nasce sem duração', async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: "2e" }),
+    );
+    expect(r.erro).toBeDefined();
+    nenhumaChamadaFoiFeita();
+  });
+
+  /**
+   * [ALTO A2, rodada 11] O desconto VAZIO não é o desconto AUSENTE. Com
+   * `let peso = 1; if (pesoBruto.length > 0)`, a tela mostrando `0.5` e o
+   * programa recebendo `""` gravava **1** — o extremo oposto da escala —
+   * dentro da conta do HIERARQ, anunciando "Relação criada.".
+   */
+  it("arestaAddAction: `peso` presente e VAZIO é recusado (nunca vira o default 1)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "" }),
+    );
+    expect(r.erro).toBe("O desconto precisa ser um número entre 0 e 1.");
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("arestaAddAction: `peso` ilegível é recusado (0.5e, 0,5, abc)", async () => {
+    for (const bruto of ["0.5e", "0,5", "abc"]) {
+      vi.clearAllMocks();
+      const r = await arestaAddAction(
+        {},
+        form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: bruto }),
+      );
+      expect(r.erro, `"${bruto}" passou`).toBe("O desconto precisa ser um número entre 0 e 1.");
+      nenhumaChamadaFoiFeita();
+    }
+  });
+
+  it("arestaAddAction: `peso` AUSENTE continua valendo 1 (relação que não é sinergia)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "predecessor" }),
+    );
+    expect(r.ok).toBe(true);
+    expect(fixtureStore.arestaAddFixture).toHaveBeenCalledWith(
+      "task-build",
+      "task-docs",
+      "predecessor",
+      1,
+      null,
+      null,
+    );
+  });
+
   it("estimativaSetAction: abaixo do mínimo (0,25)", async () => {
     const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "0.1" }));
     expect(r.erro).toMatch(/0,25/);

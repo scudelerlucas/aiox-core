@@ -289,8 +289,11 @@ export function AtomosForm({
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">
         {score ? (
           <>
+            {/* [MÉDIO A7, rodada 11] `A = 18` era uma letra sem dono numa
+                página em português: o "A" de assimetria só existia na cabeça
+                de quem escreveu o modelo. */}
             <p className="font-mono text-base font-bold text-gold-300">
-              A = {score.valor}
+              assimetria (A) = {score.valor}
               {score.obsoleta ? <span className="ml-2 text-xs text-state-blocked">(obsoleta)</span> : null}
             </p>
             <p className="mt-1 text-xs text-bone-400">{score.porque}</p>

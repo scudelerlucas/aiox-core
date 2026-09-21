@@ -19,7 +19,9 @@ import { alvoAposExclusaoDeNota, type Focavel } from "@/components/task/foco";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita, type RegiaoViva } from "@/components/task/porta-de-escrita";
 import {
+  gravarRascunhoAutorNota,
   gravarRascunhoNota,
+  lerRascunhoAutorNota,
   lerRascunhoNota,
   limparRascunhoNota,
 } from "@/components/task/rascunho-nota";
@@ -271,6 +273,7 @@ function FormularioNovaNota({
     alvo: () => textareaRef.current,
     aoSucesso: () => {
       setTexto("");
+      setAutor("");
       // [BAIXO #6, rodada 5] salvou: o rascunho deixou de existir.
       limparRascunhoNota(taskId);
     },
@@ -285,12 +288,22 @@ function FormularioNovaNota({
   useEffect(() => {
     const rascunho = lerRascunhoNota(taskId);
     if (rascunho.length > 0) setTexto(rascunho);
+    // [BAIXO, rodada 11] o autor volta junto: o texto sobrevivia ao F5 e o
+    // autor não, e meio formulário restaurado em silêncio é pior que nenhum.
+    const autorSalvo = lerRascunhoAutorNota(taskId);
+    if (autorSalvo.length > 0) setAutor(autorSalvo);
   }, [taskId]);
 
   function aoDigitar(valor: string): void {
     setTexto(valor);
     porta.aoMudarCampo();
     gravarRascunhoNota(taskId, valor);
+  }
+
+  function aoDigitarAutor(valor: string): void {
+    setAutor(valor);
+    porta.aoMudarCampo();
+    gravarRascunhoAutorNota(taskId, valor);
   }
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
@@ -317,8 +330,7 @@ function FormularioNovaNota({
         <input
           value={autor}
           onChange={(e) => {
-            setAutor(e.target.value);
-            porta.aoMudarCampo();
+            aoDigitarAutor(e.target.value);
           }}
           placeholder="autor (opcional)"
           aria-label="Autor da nota (opcional)"

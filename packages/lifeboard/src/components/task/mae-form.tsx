@@ -14,12 +14,28 @@ export interface OpcaoTarefa {
 export interface MaeFormProps {
   taskId: string;
   parentIdAtual: string | null;
-  /** Candidatas a mãe — o chamador já exclui a própria tarefa (`page.tsx`). */
+  /**
+   * Candidatas a mãe — o chamador já exclui a própria tarefa (`page.tsx`) e,
+   * desde a rodada 11, também as DESCENDENTES dela (MÉDIO A6).
+   */
   opcoes: readonly OpcaoTarefa[];
+  /**
+   * [MÉDIO A6, rodada 11] Quantas descendentes ficaram de fora da lista.
+   * O `<select>` oferecia as próprias filhas e netas: escolher uma ia ao
+   * servidor e voltava com "Isso criaria um ciclo de hierarquia…". A régua
+   * pede prevenir antes de avisar (F5) — mas sumir em silêncio seria o outro
+   * defeito, então o número aparece com o motivo.
+   */
+  descendentesOcultas: number;
 }
 
 /** Seletor de mãe (`parent_id`) — "nenhuma" limpa a hierarquia. */
-export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.Element {
+export function MaeForm({
+  taskId,
+  parentIdAtual,
+  opcoes,
+  descendentesOcultas,
+}: MaeFormProps): JSX.Element {
   const [valor, setValor] = useState(parentIdAtual ?? "");
   const selectRef = useRef<HTMLSelectElement | null>(null);
   // [MÉDIO #1, rodada 3] `confirmadoRef` = o último valor que o SERVIDOR
@@ -93,6 +109,14 @@ export function MaeForm({ taskId, parentIdAtual, opcoes }: MaeFormProps): JSX.El
           </option>
         ))}
       </select>
+      {descendentesOcultas > 0 ? (
+        <p className="mt-1.5 text-xs text-bone-400">
+          {descendentesOcultas === 1
+            ? "1 subtarefa desta tarefa está fora da lista"
+            : `${String(descendentesOcultas)} subtarefas desta tarefa estão fora da lista`}
+          : uma tarefa não pode ter a própria subtarefa como mãe.
+        </p>
+      ) : null}
       <CampoErro mensagem={porta.erroDoCampo} />
       <MensagemSucesso mensagem={porta.mensagem} />
     </div>

@@ -367,3 +367,70 @@ export function handlerDaConfirmacaoExecutada(
   if (i === -1) return null;
   return { nome, corpo: blocoDepois(src, i) };
 }
+
+/**
+ * ═══════════════════════════════════════════════════════ ALTO A3, rodada 11 ═
+ * O PERÍMETRO DO SELO TINHA UM ARQUIVO DE LARGURA.
+ *
+ * A tese da rodada 9 é "a porta é o transporte; `selar` é privada". O crítico
+ * acrescentou TRÊS linhas a `porta-de-escrita.ts` —
+ * `export function despacharCru(op, campos) { return escreverTarefaAction({}, selar(op, campos)); }`
+ * — e qualquer componente ganhou escrita crua: sem trava, sem foco, sem
+ * anúncio, sem `router.refresh()`, sem aviso de saída. `tsc` limpo,
+ * 1350/1350 verdes.
+ *
+ * A varredura fazia whitelist dos exports de `actions.ts` (e por isso pegava
+ * o buraco equivalente LÁ) e nunca conferia os exports do ÚNICO módulo que
+ * consegue forjar o selo. Esta função é a mesma leitura, agora aplicável a
+ * qualquer arquivo — `actions.ts` e a porta usam as duas a MESMA régua.
+ *
+ * Só exports de VALOR contam: `export type`/`export interface` somem na
+ * compilação e não dão acesso a nada em runtime.
+ */
+export function exportsDeValor(arquivo: string): string[] {
+  const src = codigo(arquivo)
+    .replace(/export\s+type\s*\{[^}]*\}[^;]*;/g, "")
+    .replace(/export\s+(?:type|interface)\s+\w+/g, "");
+  const nomes: string[] = [];
+  for (const m of src.matchAll(
+    /export\s+(?:async\s+)?(?:function|const|let|var|class)\s+(\w+)/g,
+  )) {
+    nomes.push(m[1] ?? "");
+  }
+  for (const m of src.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const parte of (m[1] ?? "").split(",")) {
+      const cru = parte.trim();
+      if (cru.length === 0 || cru.startsWith("type ")) continue;
+      nomes.push((cru.split(/\s+as\s+/).pop() ?? "").trim());
+    }
+  }
+  return nomes.filter((n) => n.length > 0).sort();
+}
+
+/** `export default` e `export *` não nomeiam nada — e por isso escapam da lista acima. */
+export function temExportAnonimo(arquivo: string): boolean {
+  // A variável não se chama `src` de propósito: casar uma regex contra a
+  // fonte inteira é a assinatura da regressão do buraco 1 (resolver a `op` de
+  // um SÍTIO contra o arquivo todo), e um teste desta suíte vigia essa
+  // string. Aqui o arquivo inteiro É o alvo legítimo — a pergunta é sobre os
+  // exports DELE, não sobre um sítio dentro dele.
+  const arquivoInteiro = codigo(arquivo);
+  return /export\s+default/.test(arquivoInteiro) || /export\s*\*/.test(arquivoInteiro);
+}
+
+/**
+ * [CRÍTICO, rodada 11] Todo `<input type="...">` dos componentes da tarefa.
+ * `type="number"` é proibido: em `badInput` (`2e`, `1,5`, `--`) ele MOSTRA o
+ * texto e reporta `value === ""`, e foi assim que a página apagou a duração
+ * do operador dizendo "Duração salva.".
+ */
+export function tiposDeInput(): { arquivo: string; linha: number; tipo: string }[] {
+  const achados: { arquivo: string; linha: number; tipo: string }[] = [];
+  for (const arquivo of arquivosVarridos()) {
+    const src = codigo(arquivo);
+    for (const m of src.matchAll(/<input\b[^>]*?\btype=\{?["']([a-z]+)["']\}?/g)) {
+      achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), tipo: m[1] ?? "" });
+    }
+  }
+  return achados;
+}

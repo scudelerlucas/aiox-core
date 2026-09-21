@@ -61,8 +61,11 @@ const { SubtarefasPainel } = await import("@/components/task/subtarefas-painel")
 
 /** Candidatas a destino de relação — usadas em vários blocos deste arquivo. */
 const OPCOES_DESTINO = [
-  { id: "t2", title: "Outra tarefa" },
-  { id: "t3", title: "Mais uma" },
+  // `bloqueadaPara: []` = nenhuma relação seria recusada contra esta
+  // candidata (MÉDIO A6, rodada 11 — o `<select>` deixou de oferecer o que o
+  // servidor recusa).
+  { id: "t2", title: "Outra tarefa", bloqueadaPara: [] },
+  { id: "t3", title: "Mais uma", bloqueadaPara: [] },
 ];
 
 const HERANCA = {
@@ -163,6 +166,7 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
         taskId="t1"
         saindo={[]}
         entrando={[]}
+        elosDerivados={[]}
         opcoesDestino={OPCOES}
         tituloPorId={new Map()}
       />,
@@ -189,6 +193,7 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
         taskId="t1"
         saindo={[]}
         entrando={[]}
+        elosDerivados={[]}
         opcoesDestino={OPCOES}
         tituloPorId={new Map()}
       />,
@@ -217,6 +222,7 @@ describe("RelacoesPainel — destino vazio e botão desabilitado (regressão da 
         taskId="t1"
         saindo={[aresta]}
         entrando={[]}
+        elosDerivados={[]}
         opcoesDestino={OPCOES}
         tituloPorId={new Map([["t2", "Outra tarefa"]])}
       />,
@@ -253,7 +259,7 @@ describe("MensagemSucesso — região viva PERSISTENTE (achado MÉDIO #3, rodada
 describe("cada formulário traz UMA região viva, já no DOM e vazia (MÉDIO #3)", () => {
   const casos: readonly [string, JSX.Element][] = [
     ["DuracaoForm", <DuracaoForm key="d" taskId="t1" estimativaDias={null} />],
-    ["MaeForm", <MaeForm key="m" taskId="t1" parentIdAtual={null} opcoes={[]} />],
+    ["MaeForm", <MaeForm key="m" taskId="t1" parentIdAtual={null} opcoes={[]} descendentesOcultas={0} />],
     ["MetaForm", <MetaForm key="g" taskId="t1" isGoal={false} />],
     ["StatusForm", <StatusForm key="s" taskId="t1" statusAtual="open" />],
     ["SubtarefasPainel", <SubtarefasPainel key="sub" parentId="t1" filhas={[]} />],
@@ -313,7 +319,12 @@ describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2
 
   it("MaeForm: o <select> nunca nasce `disabled` (era ele que mandava o foco ao body)", () => {
     const html = renderToStaticMarkup(
-      <MaeForm taskId="t1" parentIdAtual={null} opcoes={[{ id: "t2", title: "Outra" }]} />,
+      <MaeForm
+        taskId="t1"
+        parentIdAtual={null}
+        opcoes={[{ id: "t2", title: "Outra" }]}
+        descendentesOcultas={0}
+      />,
     );
     expect(html).not.toContain('disabled=""');
   });
@@ -392,6 +403,7 @@ describe("MÉDIO #3 — `aria-disabled` só enquanto grava; a exigência vira te
             taskId="t1"
             saindo={[]}
             entrando={[]}
+            elosDerivados={[]}
             opcoesDestino={OPCOES_DESTINO}
             tituloPorId={new Map()}
           />,
@@ -472,6 +484,7 @@ describe("MÉDIO #6 — o botão excluir de cada linha diz QUAL item apaga", () 
             createdAt: "2026-07-13T15:00:00.000Z",
           },
         ]}
+        elosDerivados={[]}
         opcoesDestino={OPCOES_DESTINO}
         tituloPorId={new Map([["t2", "Publicar"], ["t3", "Desenhar"]])}
       />,

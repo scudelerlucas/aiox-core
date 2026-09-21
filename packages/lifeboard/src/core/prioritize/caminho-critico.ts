@@ -53,6 +53,7 @@ import "server-only";
  */
 
 import { detectCycleIds } from "@/core/prioritize/dag";
+import { elosDePrecedencia } from "@/core/prioritize/elos-de-precedencia";
 import {
   DURACAO_PLACEHOLDER,
   EPSILON_FOLGA,
@@ -147,12 +148,12 @@ export function caminhoCritico(
     adj.get(origem)?.add(destino);
     radj.get(destino)?.add(origem);
   };
-  for (const t of nodes) {
-    for (const p of t.predecessorIds) adicionaPrecedencia(p, t.id);
-    for (const s of t.successorIds) adicionaPrecedencia(t.id, s);
-  }
-  for (const e of edges) {
-    if (e.tipo === "predecessor") adicionaPrecedencia(e.origem, e.destino);
+  // [ALTO A5, rodada 11] A SOMA DAS 3 FONTES MORA EM UM LUGAR SÓ
+  // (`elos-de-precedencia.ts`) — era a página da tarefa listar as arestas e o
+  // CPM somar as três que deixava o caminho crítico invisível na tela que o
+  // estampava. As duas leem esta função agora, e não podem mais divergir.
+  for (const elo of elosDePrecedencia(nodes, edges, (id) => nodeIds.has(id))) {
+    adicionaPrecedencia(elo.origem, elo.destino);
   }
 
   // ── 3. Duração por nó ──────────────────────────────────────────────────────

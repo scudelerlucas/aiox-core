@@ -3,6 +3,7 @@
 import { useRef, useState, type FormEvent } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
+import { CampoNumerico } from "@/components/task/campo-numerico";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 
@@ -28,6 +29,11 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
   const porta = usarPortaDeEscrita({
     op: "duracao",
     alvo: () => botaoRef.current,
+    // [BAIXO, rodada 11] esvaziar o campo REMOVE a duração, e a tela dizia
+    // "Duração salva." mesmo assim — a mesma frase dos dois desfechos
+    // opostos. (`MaeForm` já distinguia: "Tarefa mãe removida.".)
+    texto: () =>
+      valorEnviadoRef.current.trim() === "" ? "Duração removida." : "Duração salva.",
     aoSucesso: () => {
       confirmadoRef.current = valorEnviadoRef.current;
     },
@@ -47,24 +53,23 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
     // NATIVA do Chrome (inglês, fora do CampoErro) antes da action rodar —
     // `noValidate` desativa isso; a régua de verdade é a Server Action.
     <form onSubmit={aoEnviar} noValidate className="flex flex-wrap items-end gap-2">
-      <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
-        Duração (dias, p80)
-        <input
-          type="number"
-          min={0.25}
-          step={0.25}
-          value={valor}
-          // [ALTO #2, rodada 9] mexer no campo descarta o erro velho do
-          // servidor — era ele que sobrevivia à correção e contradizia a
-          // recusa nova na mesma tela.
-          onChange={(e) => {
-            setValor(e.target.value);
-            porta.aoMudarCampo();
-          }}
-          placeholder="ex.: 2"
-          className="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
-        />
-      </label>
+      {/* [CRÍTICO, rodada 11] campo de TEXTO: um `type="number"` em estado
+          `badInput` (`2e`) mostrava `2e` na caixa e entregava `""` ao
+          programa — e o servidor apagava a duração salva dizendo "Duração
+          salva.". Ver `campo-numerico.tsx`. */}
+      <CampoNumerico
+        rotulo="Duração (dias, p80 — o prazo que acerta em 8 de 10 vezes)"
+        valor={valor}
+        // [ALTO #2, rodada 9] mexer no campo descarta o erro velho do
+        // servidor — era ele que sobrevivia à correção e contradizia a
+        // recusa nova na mesma tela.
+        aoMudar={(texto) => {
+          setValor(texto);
+          porta.aoMudarCampo();
+        }}
+        placeholder="ex.: 2"
+        classeDoCampo="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+      />
       <button
         ref={botaoRef}
         type="submit"

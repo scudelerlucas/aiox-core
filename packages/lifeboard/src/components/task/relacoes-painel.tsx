@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
+import { CampoNumerico } from "@/components/task/campo-numerico";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import {
   anuncioComDesfazerPerdido,
@@ -43,6 +44,27 @@ const JANELA_DESFAZER_MS = 10_000;
 export interface OpcaoTarefaRelacao {
   id: string;
   title: string;
+  /**
+   * [MÉDIO A6, rodada 11] Os tipos de relação que o SERVIDOR recusaria contra
+   * esta candidata — porque já existe uma relação daquele tipo entre as duas,
+   * ou porque um `predecessor` daqui para lá fecharia um ciclo. Prevenir
+   * antes de avisar (F5 da régua): o `<select>` não oferece o que vai voltar
+   * com erro. Calculado no servidor, em `page.tsx`, com a MESMA régua da
+   * gravação.
+   */
+  bloqueadaPara: readonly EdgeTipo[];
+}
+
+/**
+ * [ALTO A5, rodada 11] Um elo de precedência que o CRONOGRAMA usa e que esta
+ * tela não consegue editar: ele nasce dos campos `predecessorIds`/
+ * `successorIds` da própria tarefa, não de uma aresta. Antes esses elos
+ * simplesmente não apareciam — o caminho crítico `task-setup → task-build →
+ * task-deploy` era invisível na mesma tela que estampava "folga 0 · crítico".
+ */
+export interface EloDerivado {
+  origem: string;
+  destino: string;
 }
 
 export interface RelacoesPainelProps {
@@ -51,6 +73,8 @@ export interface RelacoesPainelProps {
   saindo: readonly TaskEdge[];
   /** Arestas em que esta tarefa é o DESTINO (apontam para cá). */
   entrando: readonly TaskEdge[];
+  /** Os elos de precedência desta tarefa que não vêm de uma aresta (A5). */
+  elosDerivados: readonly EloDerivado[];
   /** Candidatas a destino — o chamador já exclui a própria tarefa. */
   opcoesDestino: readonly OpcaoTarefaRelacao[];
   tituloPorId: ReadonlyMap<string, string>;
@@ -105,6 +129,7 @@ export function RelacoesPainel({
   taskId,
   saindo,
   entrando,
+  elosDerivados,
   opcoesDestino,
   tituloPorId,
 }: RelacoesPainelProps): JSX.Element {
@@ -214,7 +239,7 @@ export function RelacoesPainel({
 
   return (
     <div className="space-y-3">
-      {linhas.length === 0 ? (
+      {linhas.length === 0 && elosDerivados.length === 0 ? (
         <p className="text-sm text-bone-400">Nenhuma relação ainda.</p>
       ) : (
         <ul className="space-y-2">
@@ -241,6 +266,16 @@ export function RelacoesPainel({
               aoCancelarConfirmacao={cancelarConfirmacao}
               aoConfirmarExecutado={confirmacaoExecutada}
               aoExcluir={aoExcluirComSucesso}
+            />
+          ))}
+          {/* [ALTO A5] os elos que o CRONOGRAMA usa e esta tela não edita —
+              visíveis, com o motivo escrito, em vez de ausentes. */}
+          {elosDerivados.map((elo) => (
+            <LinhaEloDerivado
+              key={`derivado:${elo.origem}:${elo.destino}`}
+              elo={elo}
+              taskId={taskId}
+              tituloPorId={tituloPorId}
             />
           ))}
         </ul>
@@ -286,6 +321,48 @@ export function RelacoesPainel({
         botaoAdicionarRef={botaoAdicionarRef}
       />
     </div>
+  );
+}
+
+/**
+ * [ALTO A5, rodada 11] Uma linha SOMENTE-LEITURA: o elo existe no cronograma,
+ * a tela mostra, e diz em português por que o botão "excluir" não está aqui.
+ * Um elo invisível é pior do que um elo que a tela declara não editar — era
+ * esse o achado.
+ */
+function LinhaEloDerivado({
+  elo,
+  taskId,
+  tituloPorId,
+}: {
+  elo: EloDerivado;
+  taskId: string;
+  tituloPorId: ReadonlyMap<string, string>;
+}): JSX.Element {
+  const saindo = elo.origem === taskId;
+  const outraPontaId = saindo ? elo.destino : elo.origem;
+  const rotulo = tituloPorId.get(outraPontaId) ?? outraPontaId;
+  return (
+    <li className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-navy-700 bg-navy-850 p-3">
+      <div className="min-w-0 flex-1">
+        <span className="mr-2 rounded-full bg-navy-800 px-2 py-0.5 font-mono text-xs font-semibold text-bone-300">
+          predecessor
+        </span>
+        <span className="text-xs text-bone-400">{saindo ? "→" : "←"}</span>{" "}
+        <Link
+          href={`/tarefa/${outraPontaId}`}
+          prefetch={false}
+          className="inline-flex min-h-[44px] items-center text-sm text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
+        >
+          {rotulo}
+        </Link>
+        <p className="mt-1 text-xs text-bone-400">
+          O cronograma usa esta ordem, mas ela não se edita aqui: ela vem da lista de
+          tarefas anteriores/seguintes da própria tarefa, e esta tela só edita relações
+          criadas no formulário abaixo.
+        </p>
+      </div>
+    </li>
   );
 }
 
@@ -430,6 +507,16 @@ function FormularioNovaAresta({
   // uma aresta de verdade contra a 1ª tarefa da lista.
   const [destino, setDestino] = useState("");
   const [tipo, setTipo] = useState<EdgeTipo>("predecessor");
+  /**
+   * [MÉDIO A6, rodada 11] AS CANDIDATAS QUE ESTE TIPO ACEITA. O `<select>`
+   * oferecia as que o servidor recusaria — escolher uma ia à rede e voltava
+   * com "Essa aresta criaria um ciclo de dependências" ou "Já existe uma
+   * aresta desse tipo…". A régua pede prevenir antes de avisar: a lista não
+   * mostra o que não dá, e uma linha embaixo diz quantas ficaram de fora e
+   * por quê (sumir em silêncio seria o outro defeito).
+   */
+  const disponiveis = opcoesDestino.filter((o) => !o.bloqueadaPara.includes(tipo));
+  const ocultas = opcoesDestino.length - disponiveis.length;
   const [peso, setPeso] = useState("0.5");
   const [criada, setCriada] = useState<JanelaDeDesfazerCriacao | null>(null);
   /**
@@ -573,37 +660,55 @@ function FormularioNovaAresta({
           className="min-h-[44px] w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         >
           <option value="">Escolha a tarefa…</option>
-          {opcoesDestino.map((t) => (
+          {disponiveis.map((t) => (
             <option key={t.id} value={t.id}>
               {t.title}
             </option>
           ))}
         </select>
       </label>
+      {ocultas > 0 ? (
+        <p className="text-xs text-bone-400">
+          {ocultas === 1
+            ? "1 tarefa está fora desta lista"
+            : `${String(ocultas)} tarefas estão fora desta lista`}
+          : já existe uma relação deste tipo com ela, ou a ordem criaria um ciclo (A
+          depende de B e B depende de A).
+        </p>
+      ) : null}
       <ControleSegmentado
         rotuloGrupo="Tipo de relação"
         opcoes={OPCOES_TIPO}
         valorAtual={tipo}
-        aoMudar={setTipo}
+        // Trocar o tipo pode tirar da lista a tarefa que já estava escolhida
+        // (um `predecessor` que fecharia ciclo, por exemplo). Nesse caso o
+        // campo volta a "Escolha a tarefa…" em vez de ficar com um valor que
+        // não está mais entre as opções — um `<select>` mentindo sobre o que
+        // vai enviar.
+        aoMudar={(novoTipo) => {
+          setTipo(novoTipo);
+          if (opcoesDestino.some((o) => o.id === destino && o.bloqueadaPara.includes(novoTipo))) {
+            setDestino("");
+          }
+          porta.aoMudarCampo();
+        }}
         desabilitado={porta.pendente}
       />
       <div className="flex flex-wrap items-end gap-2">
         {tipo === "sinergia" ? (
-          <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
-            Desconto (0–1)
-            <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              value={peso}
-              onChange={(e) => {
-                setPeso(e.target.value);
-                porta.aoMudarCampo();
-              }}
-              className="min-h-[44px] w-24 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
-            />
-          </label>
+          /* [CRÍTICO + ALTO A2, rodada 11] aqui o estrago era o pior dos
+             três: com `0.5e` na caixa o programa recebia `""` e gravava o
+             DEFAULT `1` — o extremo oposto da escala — e isso entrava na
+             conta do HIERARQ com a tela anunciando "Relação criada.". */
+          <CampoNumerico
+            rotulo="Desconto (0–1 — quanto a sinergia barateia a outra tarefa)"
+            valor={peso}
+            aoMudar={(texto) => {
+              setPeso(texto);
+              porta.aoMudarCampo();
+            }}
+            classeDoCampo="min-h-[44px] w-24 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+          />
         ) : null}
         <button
           ref={botaoAdicionarRef}
