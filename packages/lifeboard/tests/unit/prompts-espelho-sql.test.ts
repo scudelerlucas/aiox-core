@@ -512,16 +512,30 @@ describe("D33/D34/D35 — 0018 (a migration da rodada 8)", () => {
 
   it("BAIXO 8 — todo bloco que MEDE dinheiro limpa a conta de prova antes", () => {
     const teste = readFileSync(TESTE_SQL, "utf8");
-    const blocos = teste.match(/(?:^|\n)do \$\$/g) ?? [];
-    const limpezas = teste.match(/delete from public\.painel_frentes_sessoes where conta/g) ?? [];
+    const blocos = teste.split(/(?:^|\n)do \$\$/).slice(1);
     expect(blocos.length).toBeGreaterThanOrEqual(51);
-    // D43 (rodada 9): a suíte ganhou blocos que NÃO tocam a conta de prova —
-    // T42 roda o chooser como função pura sobre uma tabela de casos, e T51 só
-    // olha os gatilhos do catálogo. Eles não limpam porque não medem dinheiro.
-    // A régua deixou de ser "um delete por bloco" e virou "quase todo bloco
-    // limpa"; quem garante que NADA persiste não é mais o `delete`, é a
-    // barreira diferida de D43, provada por T51.
-    expect(limpezas.length).toBeGreaterThanOrEqual(blocos.length - 3);
+
+    /**
+     * D43 (rodada 9): a suíte tem blocos que NÃO tocam a conta de prova — T42
+     * roda o chooser como função pura sobre uma tabela de casos, T51 só olha
+     * os gatilhos do catálogo, T62 (pós-merge) só confere que a checagem de
+     * dono pede o lock da entidade certa. Eles não limpam porque não medem
+     * dinheiro.
+     *
+     * [pós-merge] A régua era `limpezas >= blocos - 3`: um número mágico que
+     * todo bloco novo sem dinheiro obrigava a mexer, e que dizia "3" sem
+     * apontar QUAIS. Agora ela pergunta bloco a bloco — quem ESCREVE dinheiro
+     * limpa antes —, e quando falha ela NOMEIA o bloco em vez de mostrar dois
+     * números.
+     */
+    const escreveDinheiro = (b: string): boolean =>
+      /public\.painel_caixa_lancar/.test(b) ||
+      /public\.fila_prompts_(enfileirar|pegar|fechar|cancelar|ajustar|heartbeat)/.test(b);
+    const semLimpeza = blocos
+      .filter(escreveDinheiro)
+      .filter((b) => !/delete from public\.painel_frentes_sessoes where conta/.test(b))
+      .map((b) => /T\d+/.exec(b)?.[0] ?? "bloco sem marca");
+    expect(semLimpeza, "bloco que escreve dinheiro sem limpar a conta de prova antes").toEqual([]);
   });
 });
 

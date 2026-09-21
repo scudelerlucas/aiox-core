@@ -542,6 +542,10 @@ export const MOTIVOS_ENFILEIRAR = [
   "auto_nao_cabe_hoje",
   "manual_cabe",
   "manual_nao_cabe_hoje",
+  // D51 (pós-merge, CodeRabbit): a conta manual recusada por MEDIÇÃO VELHA
+  // devolvia `manual_nao_cabe_hoje`, cuja frase fala de espaço livre — a tela
+  // explicava falta de dinheiro onde o problema é medição parada.
+  "manual_medicao_velha",
 ] as const;
 export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
 
@@ -605,6 +609,13 @@ export function fraseDoEnfileiramento(
         `para uma tarefa ${complexidade} contando a fila parada — a mais folgada tem ` +
         `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. ` +
         `Entra na fila e roda quando houver espaço.`
+      );
+    case "manual_medicao_velha":
+      return (
+        `Enfileirado para ${conta} (escolha manual): esta conta está com a medição parada há mais de ` +
+        `${LIMITE_DEFASAGEM_HORAS} h, e enquanto ela não for medida de novo o disparo é recusado — ` +
+        `não é falta de espaço (há ${formatarUsd(espaco)} livres para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. Entra na fila e roda quando a medição voltar.`
       );
     case "manual_nao_cabe_hoje":
       return (

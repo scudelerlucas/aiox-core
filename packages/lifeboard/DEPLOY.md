@@ -321,9 +321,26 @@ leitura** e não escrevem nada.
 | 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`: mostra o que já rodou naquele banco. Nome de outro sistema **não** quer dizer projeto errado — o `quiz-diagnosys` divide o banco com ~15 sistemas. Quer dizer que há aplicação viva ali e que aplicar o LifeBoard vai somar ~40 objetos ao banco dela. **Nenhum script identifica o projeto** — nem este nem o `PASSO-0`. A identidade vem do project ref, de fonte autoritativa (ver o aviso no topo). |
 | 0 | `PASSO-0-diagnostico.sql` | Confere 20 marcadores de objeto, um por migration; só a 0011 sai como `NAO VERIFICAVEL`. Diz se o LifeBoard já mora naquele banco, não se o banco é o certo. Em banco novo: 20/20 `FALTA`. |
 | 0c | `PASSO-0c-drift.sql` | **Só leitura.** Compara o histórico do banco com os arquivos de `supabase/migrations/` e nomeia os três casos: o que está **só no banco** (e, se o banco guardar o SQL, devolve o SQL para virar arquivo), o que está **só no repositório**, e que nome foi **registrado duas vezes**. Fecha o vão que o `PASSO-0` não alcança: ele confere os objetos que o repositório conhece e **não pode sentir falta do que nunca foi escrito** — um banco reconstruído sem essas migrations passa 20/20 verde. Não é versionado: gerar com `node scripts/gerar-conferencia-drift.mjs > supabase/aplicar/PASSO-0c-drift.sql`. |
-| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0021`, depois o `alter ... teto_usd set default 500`. |
+| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0025`, depois o `alter ... teto_usd set default 500`. |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
-| — | `tests/fila_prompts.test.sql` | A guarda comportamental: 59 blocos. |
+| — | `tests/fila_prompts.test.sql` | A guarda comportamental: 62 blocos. Os três últimos (T60, T61, T62) são da rodada pós-merge e só passam com a `0025` aplicada. |
+
+### A `0025`, e por que ela existe
+
+A `0025_lifeboard_v3_medicao_fresca_e_dono.sql` corrige três coisas que
+CodeRabbit e Codex apontaram **depois** do último envio do PR #21 e que entraram
+na `main` junto com o merge dele. É re-aplicável (tudo é `create or replace`) e
+não cria tabela nem coluna nenhuma — só troca o corpo de três funções.
+
+| | O que estava errado | O que muda |
+|---|---|---|
+| **D50** | Medir de novo o mesmo valor jogava fora a hora da medição nova. Passadas 12 h, a trava de medição recente passava a recusar **todo** disparo daquela conta — com a medição chegando normalmente o tempo todo. | Carimbo mais novo com valor igual volta a ser gravado (estorno + lançamento novo no mesmo dia, que se anulam: o dinheiro não anda). |
+| **D51** | A conta escolhida à mão e recusada por medição parada recebia a frase de *falta de espaço* — explicava dinheiro onde o problema era medição. | Código e frase próprios (`manual_medicao_velha`). |
+| **D52** | A checagem de "de quem é esta sessão" lia sem trava; publicar a sessão ao mesmo tempo podia fixar a conta errada para sempre. | A leitura passa a pegar o mesmo lock de entidade que o caixa usa. |
+
+Provado no banco real em 21/09/2026, dentro de transações que se desfazem: antes
+da correção o livro ficava com 1 linha e o carimbo 20 h atrás; depois, 3 linhas,
+soma ainda US$ 80 e carimbo renovado.
 
 **Dependência externa, obrigatória antes da 0007:** as tabelas `painel_frentes_*`
 e a função `painel_frentes_leitor_autorizado()` **não são criadas por nenhuma
@@ -334,7 +351,7 @@ uma a uma, aplique a do hub primeiro.
 
 **Depois de aplicar, o banco está pronto mas VAZIO** — e o app continua sem ler
 dele até `LIFEBOARD_DATA_MODE` virar `live` na Vercel. São duas decisões
-separadas de propósito: "o banco está certo" (provável pelos 59 blocos) e "o app
+separadas de propósito: "o banco está certo" (provável pelos 62 blocos) e "o app
 mostra isso pros usuários" (sua, no seu tempo).
 
 Ainda falta, num banco novo: o `insert` do `load_secret` (item 5 do Passo 3

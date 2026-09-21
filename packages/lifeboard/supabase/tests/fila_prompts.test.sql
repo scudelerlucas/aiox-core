@@ -3100,3 +3100,128 @@ begin
   raise exception 'FALHA: T59 D49 % entidade(s) com linha de abertura POSTERIOR a um lançamento comum (ex.: %) — assinatura de 0019 reaplicada sobre sessões pós-abertura, dinheiro possivelmente dobrado',
     v_suspeitas, v_exemplo;
 end $$;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- RODADA PÓS-MERGE · os achados que CodeRabbit e Codex postaram DEPOIS do
+-- último push do PR #21, e que entraram na `main` sem correção quando ele foi
+-- mergeado. Migration que os corrige: 0025.
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T60 · D50 — MEDIR DE NOVO O MESMO VALOR TAMBÉM É MEDIR
+-- `painel_frentes_sessoes_lancar` dispara em `atualizado_em` de propósito. Com
+-- valor e origem iguais, a versão anterior devolvia "nada a fazer" e jogava
+-- fora o `medido_em` novo: `painel_fila_medido_ate` congelava no instante
+-- antigo e, passadas 12 h, `exigir_medicao_recente` recusava TODO pull daquela
+-- conta — com a medição chegando normalmente o tempo todo.
+-- MEDIDO no banco real em 21/09/2026, antes do conserto: 1 linha no livro e o
+-- carimbo 20 h atrás. Depois: 3 linhas (estorno + novo), soma ainda 80 — o
+-- dinheiro NÃO anda — e o carimbo renovado.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta  text := 'lsgpandora@gmail.com';
+  v_ent    text := 'T60-medicao-repetida';
+  v_t1     timestamptz := now() - interval '20 hours';
+  v_t2     timestamptz := now();
+  v_medido timestamptz;
+  v_soma   numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where entidade_id = v_ent;
+
+  perform public.painel_caixa_lancar('sessao', v_ent, v_conta, 80, 'medido', null, v_ent, v_t1);
+  perform public.painel_caixa_lancar('sessao', v_ent, v_conta, 80, 'medido', null, v_ent, v_t2);
+
+  select coalesce(sum(valor_usd), 0) into v_soma
+    from public.painel_caixa_lancamentos where entidade_id = v_ent;
+  select l.medido_em into v_medido
+    from public.painel_caixa_lancamentos l
+   where l.entidade_id = v_ent and l.origem <> 'estorno'
+     and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id);
+
+  if v_medido = v_t2 and v_soma = 80 then
+    raise exception 'RESULTADO: ok — T60 D50 medição repetida renovou o carimbo (% ) sem mover dinheiro (soma=%)',
+      v_medido, v_soma;
+  end if;
+  raise exception 'FALHA: T60 D50 carimbo=% (esperado %) soma=% (esperado 80)',
+    coalesce(v_medido::text, 'null'), v_t2, v_soma;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T61 · D51 — a recusa por MEDIÇÃO VELHA tem código próprio
+-- A D46 fez a manual passar pela trava, mas o código continuou
+-- `manual_nao_cabe_hoje` — cuja frase em português fala de espaço livre ("só
+-- US$ X livres", "sem espaço livre agora"). A tela explicava falta de dinheiro
+-- onde o problema é medição parada, e a conta tinha o teto inteiro livre.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_r jsonb;
+  v_codigo text;
+  v_espaco numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  update public.painel_teto_diario set exigir_medicao_recente = true where conta = v_conta;
+
+  v_r := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T61 D51', 'complexidade', 'baixa', 'conta', v_conta));
+  v_codigo := v_r->>'motivo_codigo';
+  v_espaco := (v_r->>'espaco_livre_usd')::numeric;
+
+  -- A conta foi limpa acima: sem medição, a trava morde. E sobra espaço — logo
+  -- "não cabe hoje" seria uma explicação FALSA do que está acontecendo.
+  if v_codigo = 'manual_medicao_velha' and v_espaco > 0 then
+    raise exception 'RESULTADO: ok — T61 D51 recusa nomeada pela causa certa: codigo=% com US$ % livres',
+      v_codigo, v_espaco;
+  end if;
+  raise exception 'FALHA: T61 D51 codigo=% (esperado manual_medicao_velha) espaco_livre=%',
+    coalesce(v_codigo, 'null'), coalesce(v_espaco::text, 'null');
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T62 · D52 — a checagem de dono da sessão trava a MESMA entidade do caixa
+-- Publicar a sessão e vincular a sessão a um item podem correr juntas: a
+-- checagem lia NULL antes do insert commitar (e passava, porque sessão não
+-- publicada é o caso normal) enquanto o gatilho lançava na conta DELE. Como a
+-- conta do lançamento é imutável (D39), todo lançamento posterior herdava a
+-- conta errada.
+--
+-- O QUE ESTE BLOCO É, HONESTAMENTE: uma conferência de que a trava existe e
+-- usa a MESMA chave do caixa. A corrida de duas conexões não é reproduzível de
+-- dentro de uma transação só (mesma limitação declarada em T55/T59); o que dá
+-- para provar aqui é que o lock é pedido e que a chave bate — se as chaves
+-- divergirem, a serialização não acontece e o defeito volta em silêncio.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_sessao text := 'T62-sessao-de-prova';
+  v_fonte  text := pg_get_functiondef('public.painel_sessao_dona(text)'::regprocedure);
+  v_locks  integer;
+  v_chave  bigint := hashtextextended('sessao:' || v_sessao, 0);
+begin
+  if position('pg_advisory_xact_lock' in v_fonte) = 0 then
+    raise exception 'FALHA: T62 D52 painel_sessao_dona não pede lock nenhum — a checagem de dono corre solta';
+  end if;
+
+  perform public.painel_sessao_dona(v_sessao);
+
+  -- `pg_locks` parte a chave de 64 bits em duas metades de 32 (`classid` alta,
+  -- `objid` baixa). Comparar as metades evita a remontagem, que erra o sinal
+  -- quando o hash é negativo.
+  select count(*)::int into v_locks
+    from pg_locks
+   where locktype = 'advisory'
+     and pid = pg_backend_pid()
+     and classid::bigint = ((v_chave >> 32) & 4294967295)
+     and objid::bigint   = (v_chave & 4294967295);
+
+  if v_locks > 0 then
+    raise exception 'RESULTADO: ok — T62 D52 a leitura do dono segura o lock da entidade sessao:% (mesma chave de painel_caixa_lancar)', v_sessao;
+  end if;
+  raise exception 'FALHA: T62 D52 nenhum lock advisory com a chave da entidade sessao:% — a chave do dono não bate com a do caixa', v_sessao;
+end $$;
