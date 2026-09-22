@@ -4,7 +4,7 @@
  * PÁGINA, dentro do Chromium. Declarados como globais para o ESLint saber
  * disso — é declaração de ambiente, não silenciamento de regra.
  */
-/* global document, getComputedStyle */
+/* global document, getComputedStyle, requestAnimationFrame */
 /**
  * OS-LIFEBOARD · P4 — O PIXEL DO GRAFO, NÃO O ATRIBUTO DECLARADO.
  *
@@ -157,18 +157,56 @@ export const TOLERANCIA_DE_COR = 20;
  * continua ocupando a MESMA caixa, então a foto "sem" difere da "com"
  * exatamente nos pixels que ele pintava, e em nenhum outro.
  */
+/**
+ * Dois quadros de verdade depois de mexer no DOM.
+ *
+ * P4 rodada 13 (família do achado MÉDIO 9, "a guarda reprova por ambiente"):
+ * `page.screenshot({clip})` pode devolver o quadro ANTERIOR quando a máquina
+ * está carregada — e aí a foto "sem" sai idêntica à foto "com". O sintoma é
+ * inconfundível e foi medido nesta rodada: `0 pixels mudam ao esconder` numa
+ * aresta que a MESMA amostra reporta com `364 pixels na cor` dela. Isso não é
+ * o produto apagado; é a foto velha.
+ *
+ * Dois `requestAnimationFrame` encadeados devolvem só DEPOIS que o compositor
+ * desenhou o quadro seguinte — é a espera pelo próprio desenho, não um
+ * `sleep` calibrado no olho.
+ */
+async function esperarOProximoQuadro(pagina) {
+  /*
+   * P4 rodada 14 — a armadilha que a P5 e a P6 já pagaram: sob relógio de
+   * mentira (`clock.install()`), o `requestAnimationFrame` da página é
+   * SUBSTITUÍDO, e esperar um quadro ali é esperar por uma coisa que só a
+   * guarda pode causar — impasse por construção, 60 s de teto por foto. Com o
+   * relógio na mão, a guarda CAUSA o quadro em vez de esperar por ele.
+   */
+  if (pagina.__relogioDeMentira === true) {
+    await pagina.clock.runFor(32).catch(() => undefined);
+    return;
+  }
+  await pagina
+    .evaluate(
+      () =>
+        new Promise((resolver) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolver(null)));
+        }),
+    )
+    .catch(() => undefined);
+}
+
 export async function fotosComESem(pagina, alvo, janela) {
   const opcoes = janela ? { clip: janela } : undefined;
   let com;
   let sem;
   let anterior = "";
   try {
+    await esperarOProximoQuadro(pagina);
     com = lerPng(await pagina.screenshot(opcoes));
     anterior = await alvo.evaluate((el) => {
       const v = el.style.visibility;
       el.style.visibility = "hidden";
       return v;
     });
+    await esperarOProximoQuadro(pagina);
     sem = lerPng(await pagina.screenshot(opcoes));
   } catch (e) {
     return { erro: `não consegui fotografar: ${String(e?.message ?? e)}` };

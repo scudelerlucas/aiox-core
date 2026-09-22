@@ -55,7 +55,28 @@ export interface ArestaSvgSpec
   camada: Exclude<CamadaGrafo, "critico">;
   /** `true` quando esta aresta de sucessão está no caminho crítico E a camada "critico" está ativa. */
   critica: boolean;
+  /**
+   * As DUAS pontas estão fora do filtro de fontes (§5) — a aresta esmaece,
+   * como o cartão já esmaecia.
+   *
+   * Rodada 13, achado MÉDIO 7: isto era `style: { opacity: … }` no objeto de
+   * aresta do ReactFlow, e no ReactFlow 11 o `EdgeWrapper` **não** aplica
+   * `style` ao `<g>` — ele passa a prop ao componente customizado, e `V3Edge`
+   * desestrutura só `{ data }`. Medido: `opacity: 0` em TODAS as arestas não
+   * mudava um pixel, e `getComputedStyle` devolvia `style = null`. Era código
+   * morto que parecia vivo: aresta de fonte desligada nunca esmaeceu. Agora o
+   * esmaecimento chega por `data` e é aplicado aqui, no `<g>`, onde o
+   * compositor o enxerga.
+   */
+  esmaecida?: boolean;
 }
+
+/**
+ * Opacidade da aresta esmaecida. É o MESMO 0,2 de `opacity-20` que o cartão
+ * fora do filtro já usava (`task-node.tsx`) — uma régua de esmaecimento para o
+ * grafo inteiro, não duas.
+ */
+export const OPACIDADE_DA_ARESTA_ESMAECIDA = 0.2;
 
 const DASH_POR_CAMADA: Partial<Record<Exclude<CamadaGrafo, "critico">, string>> = {
   correlacao: "4 5",
@@ -138,8 +159,22 @@ function GlifoFim({
         />
       );
     case "circulo":
+      /*
+       * P4 rodada 13 (achado BAIXO 13, 1ª parte, "olho de usuário"): o crítico
+       * mediu o círculo da correlação como *"uma caixa de 7×7 px com 9 pixels
+       * pintados a 3,39:1 (piso 3:1), metade atrás do cartão e visualmente
+       * idêntico aos handles do cartão a 3 px"*. Os três defeitos são o mesmo
+       * número: o raio de 3,5 px de MUNDO. Metade do glifo sempre cai dentro do
+       * cartão (ele é ancorado no fim do path, que encosta na borda), então o
+       * que sobra de um disco de 7 px é uma meia-lua de 9 pixels — e 7 px é a
+       * ordem de grandeza dos handles.
+       *
+       * 6,5 é a mesma meia-largura do ❌ (13 px de lado), o glifo que já passa
+       * folgado na medição de pixel. Com ela a meia-lua visível passa a ter
+       * área de sobra e deixa de se confundir com um handle.
+       */
       return (
-        <circle className="lb-edge-glifo" cx={x} cy={y} r={3.5} fill={cor} transform={transform} />
+        <circle className="lb-edge-glifo" cx={x} cy={y} r={6.5} fill={cor} transform={transform} />
       );
     case "losango":
       return (
@@ -295,6 +330,9 @@ export function ArestaSvgGroup({
 }: ArestaSvgGroupProps): JSX.Element {
   const cor = corDaAresta(spec);
   const forma = FORMA_POR_CAMADA[spec.camada];
+  /* Ver `ArestaSvgSpec.esmaecida` (achado MÉDIO 7): aplicado no `<g>` — o
+     único lugar em que o compositor o enxerga. */
+  const opacidadeDoGrupo = spec.esmaecida === true ? OPACIDADE_DA_ARESTA_ESMAECIDA : undefined;
   const dasharray = spec.critica ? undefined : DASH_POR_CAMADA[spec.camada];
   const classes = [
     "lb-edge",
@@ -326,9 +364,14 @@ export function ArestaSvgGroup({
   return (
     <g
       className={classes}
+      opacity={opacidadeDoGrupo}
       data-aresta-id={spec.id}
       data-camada={spec.camada}
       data-critica={spec.critica}
+      /* Declarado para quem mede: uma aresta esmaecida tem de PARECER
+         esmaecida, e uma aresta que se diz esmaecida sem filtro de fonte
+         ligado é defeito. A guarda cobra as duas coisas. */
+      data-esmaecida={spec.esmaecida === true}
       // P4c: `id` não é parseável de volta em origem/destino pra TODAS as
       // camadas (só "sucessao:origem->destino" é; sinergia/correlação/
       // obsolescência usam o id do dado bruto, ex. "sinergia:edge-xyz") —

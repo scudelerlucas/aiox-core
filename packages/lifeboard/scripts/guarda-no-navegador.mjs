@@ -4,7 +4,7 @@
  * Node — `document`, `window` e `getComputedStyle` existem lá. A linha abaixo
  * só declara isso ao analisador; nenhuma regra é desligada.
  */
-/* global document, window, getComputedStyle */
+/* global document, window, getComputedStyle, Element, Node, MutationObserver, KeyboardEvent, PointerEvent, MouseEvent */
 /**
  * OS-LIFEBOARD · P4 — A GUARDA QUE MEDE O PRODUTO, NO NAVEGADOR.
  *
@@ -84,13 +84,22 @@
  * | 5 | 2 px de resize não apagam o gesto | Δzoom = 0 |
  * | 6 | …mas um resize DE VERDADE ainda reenquadra | Δzoom ≠ 0 |
  * | 7 | **toda aresta desenhada PINTA** (cor composta + pixel que muda) | por papel, piso derivado |
- * | 8 | **a faixa do caminho crítico é larga de PIXEL**, não 3 atributos | ≥ 2× a simples, e separada onde dá |
+ * | 8 | **a faixa do caminho crítico é larga de PIXEL**, não 3 atributos | ≥ 2× a simples |
+ * | 8b | **cada um dos três traços pinta, e num lugar diferente dos outros** | 3 `<path>`, cada um medido |
  * | 9 | **todo glifo (seta/círculo/losango/❌) PINTA** | pixel que muda; ❌ também na cor |
  * | 10 | **teclado e leitor alcançam toda aresta do grafo** | 0 arestas fora da lista |
  * | 11 | **§1, §5 E §7–§10/§12 em TODO estado da tela**, derivados de `[aria-expanded]` | idem |
  * | 12 | **o canvas × o DADO, nos dois sentidos** | conjuntos e contagens iguais |
  * | 13 | **desmarcar uma camada apaga as arestas dela do canvas** | previsão canvas+checkbox |
- * | 14 | **o estado em que a tela NASCE** (`CAMADAS_DEFAULT`) | nada fora do default |
+ * | 14 | **o estado em que a tela NASCE** (`CAMADAS_DEFAULT`) | nada fora do default, **e em PIXEL** |
+ * | 15 | **o desenho DEPOIS do gesto do operador** (zoom e pan) | canvas × universo; cartão não anda, fundo anda |
+ * | 16 | **a lista acessível obedece ao painel "Camadas"** | camada desmarcada não é anunciada |
+ * | 17 | **fonte desligada esmaece a aresta DE VERDADE** | α da esmaecida < metade do α da vizinha |
+ * | 18 | **as camadas sobrevivem ao F5** | estado depois do recarregamento = estado antes |
+ * | 19 | **o desenho continua de pé depois de o TEMPO REAL passar** (sentinela viva as medidas inteiras daquela largura) | desenho refeito = desenho do nascimento, 0 escrita anotada |
+ * | 20 | **idem, com o relógio adiantado meia hora DUAS vezes**, com a tela exercida entre elas | idem |
+ * | 21 | **o alcance de tempo declarado cobre tudo o que a guarda mede** | 1 sentinela de cada tipo por largura |
+ * | 0 | **o universo do dado é grosso o bastante para provar a classe** | ≥ 2 arestas por camada base |
  *
  * ═════════════════════════════════════════════════════════════════════════
  * RODADA 11 — A GUARDA COMPARAVA O DESENHO COM ELE MESMO
@@ -126,6 +135,90 @@
  * • **MÉDIO 5** — o traço desenhado entre o par ERRADO de cartões. Cura:
  *   `conferirExtremos`, as duas pontas do `d` contra a caixa dos cartões que
  *   `data-origem`/`data-destino` nomeiam.
+ *
+ * ═════════════════════════════════════════════════════════════════════════
+ * RODADA 13 — A GUARDA MEDIA A HIPÓTESE, NÃO O PRODUTO
+ * ═════════════════════════════════════════════════════════════════════════
+ *
+ * Nove sabotagens de uma linha passaram pelos cinco portões. Elas não são
+ * nove defeitos: são cinco formas do MESMO vício, e cada correção abaixo diz
+ * qual delas fecha.
+ *
+ * • **ALTO 1 — §12 "o canvas × o DADO" não comparava com dado nenhum.**
+ *   `contratoDoCanvas` e o `useMemo` de `edges` nasciam os dois de
+ *   `arestasVisuais`, a 16 linhas um do outro. Trocar o conjunto de ids
+ *   críticos que alimenta as ARESTAS deixava os cinco portões verdes, com a
+ *   saída imprimindo `críticas 1/1` e `sucessao=3/3` — a mentira medida e
+ *   chamada de sucesso. É a **forma 1** (a guarda conta a si mesma), um andar
+ *   acima do que a rodada 11 fechou. Cura: `§0`/`§12` derivam o universo
+ *   esperado do CPM e do dado bruto (`GET /api/grafo-bruto`, servido por
+ *   `core/prioritize/grafo-do-dia.ts`) e comparam par a par com o desenho. O
+ *   contrato publicado vira o TERCEIRO lado, não "o dado".
+ *
+ * • **ALTO 2 — o estado em que a tela NASCE nunca era medido em pixel.**
+ *   §7–§12 só rodavam depois de `ligarTodasAsCamadas`; §14 lia ids e texto.
+ *   `className: camadasAtivas.size <= 2 ? "opacity-0" : undefined` apagava
+ *   TODAS as arestas no único estado que todo mundo vê, e a guarda passava.
+ *   É a **forma 4** (mede um instante só). Cura: §14 roda o desenho inteiro.
+ *
+ * • **ALTO 3 — depois do zoom, nada mais era medido.** `return null` acima de
+ *   zoom 1,2 dentro de `v3-edge.tsx` apagava as arestas do DOM depois de seis
+ *   cliques, e a guarda já tinha ido embora. **Forma 4** de novo, agora no
+ *   eixo do gesto. Cura: §15 mede o canvas × o universo depois do zoom E
+ *   depois de um pan — e, no mesmo gesto, prova que o cartão NÃO se arrasta.
+ *
+ * • **ALTO 4 — com um cartão selecionado, §12 e §10 não rodavam.** O estado
+ *   com seleção era medido por `medirPinturaDasArestas` sozinha, com piso de
+ *   1 aresta por papel. Apagar uma sucessão SÓ quando há seleção passava.
+ *   **Forma 5** (confere o caso, não a classe). Cura: o estado com seleção
+ *   passa pelo mesmo `medirODesenhoInteiro` de todos os outros.
+ *
+ * • **MÉDIO 5 — §10 era unidirecional.** Perguntava "toda aresta desenhada
+ *   está na lista?" e nunca "tudo o que a lista anuncia existe?". Uma relação
+ *   inventada em 10 das 11 tarefas passava. **Forma 3** (universo por
+ *   convenção). Cura: a lista é comparada, item a item, com o universo
+ *   derivado — nos dois sentidos.
+ *
+ * • **MÉDIO 8 — §9 lia a FORMA do glifo e nunca conferia QUAL.** Três setas
+ *   idênticas melhoravam os números. Cura: a assinatura geométrica de cada
+ *   camada, e a exigência de que elas sejam distintas entre si — sem tabela
+ *   escrita aqui, que seria a forma 1 outra vez.
+ *
+ * • **MÉDIO 9 — a guarda reprovava por CARGA**, com rastro de pilha e código
+ *   1 onde o cabeçalho promete 2. Cura (adaptada da peça P6): teto por
+ *   medida, teto de corrida, teto em todo `page.evaluate`, congelamento de
+ *   aba desligado no Chromium, anúncio de cada etapa enquanto roda — e, no
+ *   veredito, **"não consegui medir" é código 2 e "o produto está errado" é
+ *   código 1**, nunca os dois no mesmo balde.
+ *
+ * • **MÉDIO 10 — §8 aceitava barra sólida no lugar do traço triplo**, pelo
+ *   escape "uma faixa 3× mais larga". Cura: cada um dos três `<path>` é
+ *   medido POR SI — tem de pintar, e tem de pintar num lugar diferente dos
+ *   outros dois, à distância que a separação do mundo prevê para aquele zoom.
+ *
+ * • **BAIXO 11/12/13** — o F5 nunca era dado depois de mexer nas caixas (§18);
+ *   o universo do dado tinha UMA aresta em três camadas (§0 cobra ≥ 2, e o
+ *   fixture cresceu); e o rótulo de sinergia era escrito em cima do próprio
+ *   traço (§7 cobra que nenhum traço cruze a caixa de nenhum rótulo).
+ *
+ * ═════════════════════════════════════════════════════════════════════════
+ * RODADA 14 — A GUARDA NÃO TINHA SENTINELA DE TEMPO NENHUMA
+ * ═════════════════════════════════════════════════════════════════════════
+ *
+ * **ALTO — tudo era medido no começo da vida da página.** A carga, o estado
+ * default, o zoom, o pan: quatro instantes, todos nos primeiros segundos. Uma
+ * regressão que ARMA DEPOIS era invisível. Quatro linhas dentro de
+ * `v3-edge.tsx` — um `setTimeout` de 45 s que devolve `null` para toda aresta
+ * não crítica — passaram pelos CINCO portões:
+ *
+ *     t =  2s  {"arestasNoCanvas":4,"porCamada":{"sucessao":4}}
+ *     t = 50s  {"arestasNoCanvas":4,"porCamada":{"sucessao":2}}
+ *
+ * É a **forma 4** do vício desta casa (*a guarda mede um instante só*) e era a
+ * última das cinco que esta peça ainda tinha aberta. Cura: as sentinelas de
+ * tempo, §19, §20 e §21 — o bloco com o desenho inteiro e o alcance de tempo
+ * escrito por extenso está algumas centenas de linhas abaixo; procure por
+ * "QUAL É O ALCANCE DE TEMPO DESTAS MEDIDAS".
  */
 
 import { createRequire } from "node:module";
@@ -313,6 +406,21 @@ function derivarContrato() {
     );
   }
 
+  /*
+   * A SEPARAÇÃO DO TRAÇO TRIPLO, em px de MUNDO, lida de quem a decide
+   * (`geometria-da-aresta.ts`). §8 precisa dela para saber A QUE DISTÂNCIA os
+   * três `<path>` do caminho crítico devem estar uns dos outros naquele zoom —
+   * escrever o número aqui seria a guarda decidindo o que ela mede.
+   */
+  const separacao = /export const SEPARACAO_DA_TRIPLA_MUNDO\s*=\s*([\d.]+)\s*;/.exec(geometria);
+  if (!separacao) {
+    throw new Error("não achei SEPARACAO_DA_TRIPLA_MUNDO em src/lib/geometria-da-aresta.ts");
+  }
+  const separacaoDaTripla = Number(separacao[1]);
+  if (!Number.isFinite(separacaoDaTripla) || separacaoDaTripla <= 0) {
+    throw new Error(`SEPARACAO_DA_TRIPLA_MUNDO ilegível: "${separacao[1]}"`);
+  }
+
   const semCor = papeis.filter((p) => !cores[p]);
   if (semCor.length > 0) {
     throw new Error(
@@ -323,7 +431,7 @@ function derivarContrato() {
   if (camadasSemRotulo.length > 0) {
     throw new Error(`camada sem rótulo em CAMADA_LABEL: ${camadasSemRotulo.join(", ")}`);
   }
-  return { papeis, camadas, camadasDefault, rotulos, cores, pisoDeContraste };
+  return { papeis, camadas, camadasDefault, rotulos, cores, pisoDeContraste, separacaoDaTripla };
 }
 
 let CONTRATO;
@@ -334,6 +442,139 @@ try {
   process.exit(2);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// §0 · O UNIVERSO ESPERADO, DERIVADO DO CPM E DO DADO BRUTO  (achado ALTO 1)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * A rodada 11 criou `data-lb-contrato-do-canvas` e a rodada 12 o chamou de "o
+ * lado do DADO". Não era: ele e as arestas do ReactFlow nascem da MESMA
+ * variável (`arestasVisuais`), a dezesseis linhas um do outro, no mesmo
+ * componente. Qualquer erro acima dela era publicado como "o dado" e depois
+ * confirmado pelo desenho — o crítico trocou o conjunto de ids críticos que
+ * alimenta as ARESTAS e os cinco portões ficaram verdes, com a saída
+ * imprimindo `críticas 1/1` onde o CPM diz 2 e `sucessao=3/3` onde o dado diz
+ * 2. A tela dizia que o gargalo é outra cadeia, e os cartões continuavam com a
+ * moldura na cadeia certa: a tela se contradizendo sozinha, medida e aprovada.
+ *
+ * O dado agora entra por um caminho que **não atravessa o componente que
+ * desenha**: `GET /api/grafo-bruto` (`core/prioritize/grafo-do-dia.ts`), a
+ * mesma função que a home usa para calcular o CPM. Dali saem as tarefas com as
+ * duas listas de precedência, as arestas declaradas e o conjunto `critico`.
+ *
+ * E a derivação abaixo é DESTA guarda — de propósito. Ela espelha as regras
+ * que `camadas-do-grafo.ts` documenta (união das três fontes de precedência,
+ * dedupe por par, id `sucessao:origem->destino`, crítica quando as duas pontas
+ * estão em `critico`). Se as duas divergirem, a guarda fica VERMELHA — que é o
+ * lado seguro da divergência, e o contrário de perguntar ao desenho o que ele
+ * acha que devia desenhar.
+ */
+async function lerDadoBruto(base) {
+  const resposta = await fetch(`${base}/api/grafo-bruto`, {
+    signal: globalThis.AbortSignal.timeout(30000),
+  });
+  if (!resposta.ok) throw new Error(`GET /api/grafo-bruto respondeu ${String(resposta.status)}`);
+  const bruto = await resposta.json();
+  if (!Array.isArray(bruto?.tarefas) || !Array.isArray(bruto?.arestas) || !Array.isArray(bruto?.critico)) {
+    throw new Error("GET /api/grafo-bruto não devolveu tarefas/arestas/critico");
+  }
+  return bruto;
+}
+
+/** As arestas que o grafo DEVE ter, derivadas do dado bruto + do CPM. */
+function derivarUniversoDeArestas(bruto) {
+  const ids = new Set(bruto.tarefas.map((t) => t.id));
+  const critico = new Set(bruto.critico);
+  const vistos = new Set();
+  const universo = [];
+  const addSucessao = (origem, destino) => {
+    if (!ids.has(origem) || !ids.has(destino) || origem === destino) return;
+    const chave = `${origem}|${destino}`;
+    if (vistos.has(chave)) return;
+    vistos.add(chave);
+    const critica = critico.has(origem) && critico.has(destino);
+    universo.push({
+      id: `sucessao:${origem}->${destino}`,
+      origem,
+      destino,
+      camada: "sucessao",
+      critica,
+      camadas: critica ? ["sucessao", "critico"] : ["sucessao"],
+    });
+  };
+  for (const t of bruto.tarefas) {
+    for (const p of t.predecessorIds ?? []) addSucessao(p, t.id);
+    for (const sc of t.successorIds ?? []) addSucessao(t.id, sc);
+  }
+  for (const e of bruto.arestas) if (e.tipo === "predecessor") addSucessao(e.origem, e.destino);
+  for (const e of bruto.arestas) {
+    if (!ids.has(e.origem) || !ids.has(e.destino)) continue;
+    if (e.tipo !== "correlacao" && e.tipo !== "sinergia" && e.tipo !== "obsolescencia") continue;
+    universo.push({
+      id: `${e.tipo}:${e.id}`,
+      origem: e.origem,
+      destino: e.destino,
+      camada: e.tipo,
+      critica: false,
+      camadas: [e.tipo],
+      pesoPercent: e.tipo === "sinergia" ? Math.round(e.peso * 100) : undefined,
+    });
+  }
+  return universo;
+}
+
+/** O universo depois do painel "Camadas": OR entre as camadas marcadas. */
+function universoNasCamadas(universo, camadasAtivas) {
+  const ativas = new Set(camadasAtivas);
+  return universo
+    .filter((a) => a.camadas.some((c) => ativas.has(c)))
+    .map((a) => ({ ...a, critica: a.critica && ativas.has("critico") }));
+}
+
+/** O título de cada tarefa, pelo dado bruto (nunca pelo que a tela escreve). */
+function titulosDoDado(bruto) {
+  const m = new Map();
+  for (const t of bruto.tarefas) m.set(t.id, t.titulo);
+  return m;
+}
+
+/**
+ * ── §0 · MEDIR A CLASSE EXIGE MAIS DE UM CASO DA CLASSE (achado BAIXO 12) ──
+ *
+ * O universo do fixture tinha 7 arestas, com UMA em três das quatro camadas
+ * base. O piso "cada papel tem ao menos 1 aresta na tela" repousava, em três
+ * papéis, sobre um único objeto — tão marginal que mudar o layout já o
+ * derrubava, e uma sabotagem na *outra* aresta daquele papel não teria onde
+ * ser vista, porque não havia outra. O piso cobra o dado, não a tela: é do
+ * lado do dado que a magreza nasce.
+ */
+const MINIMO_DE_ARESTAS_POR_CAMADA = 2;
+
+function medirEspessuraDoUniverso(universo, bruto) {
+  const problemas = [];
+  const base = CONTRATO.camadas.filter((c) => c !== "critico");
+  for (const camada of base) {
+    const n = universo.filter((a) => a.camada === camada).length;
+    if (n < MINIMO_DE_ARESTAS_POR_CAMADA) {
+      problemas.push(
+        `camada "${camada}" tem ${String(n)} aresta(s) no dado (piso ${String(MINIMO_DE_ARESTAS_POR_CAMADA)}) — com uma só, o piso "cada papel tem aresta na tela" repousa num objeto e não prova a classe`,
+      );
+    }
+  }
+  const criticas = universo.filter((a) => a.critica).length;
+  if (criticas < MINIMO_DE_ARESTAS_POR_CAMADA) {
+    problemas.push(
+      `o caminho crítico tem ${String(criticas)} aresta(s) no CPM (piso ${String(MINIMO_DE_ARESTAS_POR_CAMADA)}) — uma só não distingue "o traço triplo funciona" de "aquele traço funciona"`,
+    );
+  }
+  exigir(
+    problemas.length === 0,
+    `§0 o universo do dado é fino demais para provar a classe: ${problemas.join(" ; ")}`,
+  );
+  return `${String(bruto.tarefas.length)} tarefas · ${String(universo.length)} arestas (${base
+    .map((c) => `${c} ${String(universo.filter((a) => a.camada === c).length)}`)
+    .join(", ")}) · críticas ${String(criticas)} · goal ${String(bruto.goalId)}`;
+}
+
 /**
  * A tabela de panes que `tests/unit/panes-medidos.ts` usa. Lida daqui para que
  * ela não possa apodrecer: se o DOM vivo divergir, esta guarda reprova.
@@ -341,9 +582,138 @@ try {
 const TABELA_DE_PANES = JSON.parse(lerFonte("tests/unit/panes-medidos.json"));
 
 const falhas = [];
+/**
+ * ── DUAS LISTAS, DOIS CÓDIGOS DE SAÍDA (achado MÉDIO 9 da rodada 13) ───────
+ *
+ * O cabeçalho deste arquivo promete: *"Falhou, sai com código 1; não
+ * conseguiu medir, sai com 2 dizendo o que falta."* A guarda tinha UMA lista,
+ * e três de cinco corridas completas morreram sob carga misturando as duas
+ * coisas: um `TimeoutError` não tratado saiu com rastro de pilha e código 1,
+ * e "o canvas não apareceu em 4 tentativas" entrou na mesma lista que "a
+ * aresta pinta na cor errada".
+ *
+ * Isso não é detalhe de formatação. **Um portão que fica vermelho por carga
+ * ensina a repetir até passar — e é assim que um vermelho de verdade também
+ * some.** Agora:
+ *
+ *   `falhas`      → o PRODUTO não cumpre a promessa. Código 1.
+ *   `impedimentos`→ a guarda NÃO CONSEGUIU medir (a página não subiu, um
+ *                   `evaluate` não voltou, uma etapa estourou o teto). Código
+ *                   2, com o nome da etapa. Nunca 0, nunca confundido com o 1.
+ *
+ * A fronteira é declarada, não sentida: só o que a guarda classifica
+ * explicitamente como impedimento entra na segunda lista. Toda régua de
+ * produto continua caindo em `exigir`.
+ */
+const impedimentos = [];
 const medicoes = {};
 function exigir(condicao, mensagem) {
   if (!condicao) falhas.push(mensagem);
+}
+function naoConsegui(mensagem) {
+  impedimentos.push(mensagem);
+  console.log("%s", `[${carimbo()}] ✗ não consegui medir: ${mensagem}`);
+}
+
+/**
+ * A falha veio do AMBIENTE, não do produto?
+ *
+ * Provado ao demonstrar o teto (achado MÉDIO 9): quando uma etapa estoura o
+ * tempo, a guarda segue para a seguinte e as fotos daquela página abandonada
+ * voltam com *"Target page, context or browser has been closed"*. Isso é o
+ * rastro da etapa que morreu — e entrava na lista de FALHAS DE PRODUTO,
+ * misturando de novo as duas coisas que esta rodada separou. Página fechada e
+ * navegador fechado são impedimento com nome; qualquer outro erro de foto
+ * continua sendo reprovação.
+ */
+function ehErroDeAmbiente(mensagem) {
+  const texto = String(mensagem ?? "");
+  return (
+    texto.includes("has been closed") ||
+    texto.includes("Target page") ||
+    texto.includes("Target closed") ||
+    texto.includes("browser has disconnected")
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// O RELÓGIO DA CORRIDA, E AS TRÊS TRAVAS DE TEMPO  (achado MÉDIO 9)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Adaptado da peça P6 (`tests/navegador/guarda-p6.mjs`, rodada 17), que já
+ * tinha resolvido esta classe: `page.evaluate` **não tem tempo limite no
+ * Playwright** — nem o padrão do contexto o alcança —, então uma aba que o
+ * sistema operacional resolveu não escalonar trava a corrida para sempre. Três
+ * travas, e a quarta na linha de comando do Chromium (congelamento de aba de
+ * segundo plano desligado).
+ */
+const INICIO_DA_CORRIDA = Date.now();
+/** Teto de UMA etapa. Escrito à mão: teto que a corrida afrouxa não é teto. */
+const TETO_POR_ETAPA_MS = 600000;
+/** Teto da corrida inteira. */
+const TETO_DA_CORRIDA_MS = 5400000;
+/** Teto de um `page.evaluate` — a única chamada do Playwright sem tempo limite. */
+const TETO_DO_EVALUATE_MS = 60000;
+
+class EstourouOTeto extends Error {}
+
+function carimbo() {
+  const s = Math.round((Date.now() - INICIO_DA_CORRIDA) / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Corre a promessa contra um relógio; estourar é erro com nome, nunca espera. */
+async function comTeto(promessa, ms, oQue) {
+  let relogio;
+  try {
+    return await Promise.race([
+      promessa,
+      new Promise((_, rejeitar) => {
+        relogio = setTimeout(() => rejeitar(new EstourouOTeto(`${oQue} passou de ${String(ms)} ms sem voltar`)), ms);
+      }),
+    ]);
+  } finally {
+    if (relogio !== undefined) clearTimeout(relogio);
+  }
+}
+
+/**
+ * Roda uma etapa com nome, teto e anúncio. Estouro ou exceção viram
+ * IMPEDIMENTO com o nome da etapa — nunca um rastro de pilha, nunca as etapas
+ * seguintes caladas.
+ *
+ * Só o que a própria etapa registrar por `exigir` conta como falha de produto.
+ */
+async function etapa(nome, fn) {
+  const restante = TETO_DA_CORRIDA_MS - (Date.now() - INICIO_DA_CORRIDA);
+  if (restante <= 0) {
+    naoConsegui(`${nome}: a corrida estourou o teto de ${String(Math.round(TETO_DA_CORRIDA_MS / 60000))} min antes desta etapa começar`);
+    return null;
+  }
+  console.log("%s", `[${carimbo()}] → ${nome}`);
+  const t0 = Date.now();
+  try {
+    const saida = await comTeto(fn(), Math.min(TETO_POR_ETAPA_MS, restante), `a etapa "${nome}"`);
+    console.log("%s", `[${carimbo()}] ← ${nome} — ${String(Math.round((Date.now() - t0) / 1000))}s`);
+    return saida;
+  } catch (erro) {
+    const msg = erro instanceof Error ? erro.message.split("\n")[0] : String(erro);
+    naoConsegui(
+      `${nome}: ${erro instanceof EstourouOTeto ? "estourou o teto de tempo" : "a etapa morreu"} — ${msg}`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Põe teto em TODO `page.evaluate` desta página. Página que não responde vira
+ * impedimento com nome, nunca espera infinita.
+ */
+function comTetoNoEvaluate(pagina) {
+  const original = pagina.evaluate.bind(pagina);
+  pagina.evaluate = async (fn, arg) =>
+    comTeto(original(fn, arg), TETO_DO_EVALUATE_MS, "um page.evaluate desta página");
+  return pagina;
 }
 
 function carregarPlaywright() {
@@ -362,11 +732,20 @@ function carregarPlaywright() {
 /** Abre o painel "Camadas" e marca as cinco caixas. */
 async function ligarTodasAsCamadas(page) {
   const pill = page.locator('button[aria-label="Camadas"]').first();
-  if ((await pill.count()) === 0) return;
+  /* Saía em silêncio quando o pill não existia — e "a guarda não achou o
+     controle" virava "as camadas estão ligadas". Agora é reprovação. */
+  if ((await pill.count()) === 0) {
+    exigir(false, 'não achei o pill "Camadas" — sem ele nenhuma camada pode ser ligada, e medir o grafo com o default fingindo que são as cinco é medir outra coisa');
+    return;
+  }
   if ((await pill.getAttribute("aria-expanded")) !== "true") await pill.click();
   await page.waitForSelector('[role="dialog"][aria-label="Camadas do grafo"]', { timeout: 10000 });
   const caixas = page.locator('[role="dialog"][aria-label="Camadas do grafo"] input[type="checkbox"]');
   const n = await caixas.count();
+  exigir(
+    n === CONTRATO.camadas.length,
+    `o painel "Camadas" tem ${String(n)} caixas e o código declara ${String(CONTRATO.camadas.length)} camadas (${CONTRATO.camadas.join(", ")})`,
+  );
   for (let i = 0; i < n; i++) {
     const caixa = caixas.nth(i);
     if (!(await caixa.isChecked())) await caixa.check();
@@ -379,6 +758,25 @@ async function ligarTodasAsCamadas(page) {
   await page.waitForTimeout(200);
 }
 
+/**
+ * Some com o selo do `next dev` (`<nextjs-portal>`).
+ *
+ * Ele não é produto: a guarda sobe `next dev` porque é o que ela tem, não
+ * porque o operador usa dev. A 390 px o selo fica no canto de baixo e cobre a
+ * ÚLTIMA caixa da folha "Camadas" — o clique não chega lá.
+ *
+ * Existe como função (e não como uma linha dentro de `abrirPagina`) por causa
+ * do achado desta rodada: `page.reload()` apaga o `addStyleTag`, e o F5 de
+ * §18 devolvia o selo à tela. O sintoma era um `locator.uncheck: Timeout
+ * 15000ms exceeded` a 390 px, que o veredito classificava como impedimento —
+ * certo quanto à classe, e ainda assim uma medida que não acontecia.
+ */
+async function esconderSeloDoNext(page) {
+  await page
+    .addStyleTag({ content: "nextjs-portal { display: none !important; }" })
+    .catch(() => undefined);
+}
+
 function escalaDe(transform) {
   const m = /matrix\(([-0-9.e]+)/.exec(transform ?? "");
   return m ? Number(m[1]) : null;
@@ -388,7 +786,10 @@ function escalaDe(transform) {
 async function abrirPagina(browser, caso) {
   const ctx = await browser.newContext({ viewport: { width: caso.largura, height: caso.altura } });
   await ctx.addInitScript({ content: AJUDANTES_NA_PAGINA });
-  const page = await ctx.newPage();
+  /* Todo `page.evaluate` desta guarda com teto (achado MÉDIO 9): é a única
+     chamada do Playwright sem tempo limite, e três das cinco corridas
+     completas do crítico morreram sob carga por causa disso. */
+  const page = comTetoNoEvaluate(await ctx.newPage());
   const errosDePagina = [];
   page.on("pageerror", (e) => errosDePagina.push(String(e)));
   await page.goto(BASE, { waitUntil: "networkidle" });
@@ -399,12 +800,12 @@ async function abrirPagina(browser, caso) {
    * mas sem dizer nada. Tenta de novo, e só então desiste com a mensagem.
    */
   const abaGrafo = page.locator('nav[aria-label="Painéis"] button', { hasText: "Grafo" });
-  for (let tentativa = 0; tentativa < 4; tentativa += 1) {
+  for (let tentativa = 0; tentativa < 5; tentativa += 1) {
     if (!caso.desktop && (await abaGrafo.count()) > 0) {
       await abaGrafo.first().click().catch(() => undefined);
     }
     try {
-      await page.waitForSelector(".react-flow__viewport", { timeout: 15000 });
+      await page.waitForSelector(".react-flow__viewport", { timeout: 25000 });
       /*
        * O selo do Next em modo dev (`<nextjs-portal>`) fica no canto de baixo
        * e, a 390 px, cobre a ÚLTIMA caixa da folha "Camadas" — o clique do
@@ -414,16 +815,36 @@ async function abrirPagina(browser, caso) {
        * `pageerror` acima (nada é silenciado, só um selo de ferramenta sai da
        * frente).
        */
-      await page
-        .addStyleTag({ content: "nextjs-portal { display: none !important; }" })
-        .catch(() => undefined);
+      await esconderSeloDoNext(page);
       await page.waitForTimeout(1200);
       return { ctx, page, errosDePagina };
     } catch {
       await page.waitForTimeout(1000);
     }
   }
-  exigir(false, `${caso.largura}x${caso.altura}: o canvas do grafo não apareceu na tela em 4 tentativas`);
+  /*
+   * ── "NÃO APARECEU" É PRODUTO OU É CARGA? (achado MÉDIO 9) ───────────────
+   *
+   * Sob carga de outros agentes, "o canvas não apareceu em 4 tentativas"
+   * aparecia na MESMA lista que "a aresta pinta na cor errada", e arrastava
+   * seis falhas em cascata. Repetida sozinha, a mesma corrida ficava verde —
+   * e um portão que fica vermelho por carga ensina a repetir até passar.
+   *
+   * A fronteira: se a PÁGINA lançou erro, o produto quebrou (falha). Se não
+   * lançou nada e simplesmente não coube no tempo, a guarda não conseguiu
+   * medir (impedimento, saída 2, com o nome da largura). Nunca verde.
+   */
+  const chaveDaPagina = `${caso.largura}x${caso.altura}`;
+  if (errosDePagina.length > 0) {
+    exigir(
+      false,
+      `${chaveDaPagina}: o canvas do grafo não apareceu e a página lançou ${String(errosDePagina.length)} erro(s): ${errosDePagina[0] ?? ""}`,
+    );
+  } else {
+    naoConsegui(
+      `${chaveDaPagina}: o canvas do grafo não apareceu em 5 tentativas e a página não lançou erro nenhum — máquina carregada, não produto reprovado`,
+    );
+  }
   await page.waitForTimeout(500);
   return { ctx, page, errosDePagina, semCanvas: true };
 }
@@ -459,15 +880,37 @@ async function gestoDeZoom(page) {
   const trilha = [escalaDe(await transformDoCanvas(page))];
   for (let i = 0; i < 6; i++) {
     try {
-      await botao.click({ timeout: 4000 });
+      await botao.click({ timeout: 10000 });
     } catch {
       /*
+       * ── "INALCANÇÁVEL" SE MEDE, NÃO SE INFERE DE UM TEMPO ESGOTADO ─────
+       *
        * A folha modal do celular cobre o canvas inteiro — ali o operador
-       * REALMENTE não alcança o zoom, e isso não é defeito. Devolve-se
-       * `alcancavel: false` e quem chama decide: a §11 só aceita isso se a
-       * tela de fato tiver um `[role="dialog"][aria-modal="true"]` aberto
-       * (exceção com conferência própria, nunca um `continue` mudo).
+       * REALMENTE não alcança o zoom, e isso não é defeito. Mas até a rodada
+       * 12 o veredito "inalcançável" saía do TEMPO do clique, e sob carga o
+       * clique estoura sem nada estar cobrindo nada: foi assim que
+       * `1280x800: §11 o botão "Aumentar zoom" ficou inalcançável` apareceu
+       * numa corrida e sumiu na repetição (achado MÉDIO 9).
+       *
+       * Agora pergunta-se ao DOM quem está por cima do botão. Coberto de
+       * fato → `alcancavel: false`, e quem chama confere se é a folha modal.
+       * Ninguém por cima → o clique só não coube no tempo: impedimento com
+       * nome, nunca uma reprovação de produto disfarçada.
        */
+      const cobertura = await botao.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const acima = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return {
+          livre: acima === el || el.contains(acima),
+          quem: acima === null ? "nada" : `${acima.tagName.toLowerCase()}.${String(acima.className).slice(0, 40)}`,
+        };
+      });
+      if (cobertura.livre) {
+        naoConsegui(
+          `o clique em "Aumentar zoom" não voltou em 10 s e NADA está por cima do botão (${cobertura.quem}) — máquina carregada, não produto reprovado`,
+        );
+        return { trilha, achouBotao: true, alcancavel: true, fim: escalaDe(await transformDoCanvas(page)), semMedida: true };
+      }
       return { trilha, achouBotao: true, alcancavel: false, fim: null };
     }
     await page.waitForTimeout(150);
@@ -511,6 +954,7 @@ const LEITURA_DAS_ARESTAS = `(() => {
       origem: g.getAttribute("data-origem"),
       destino: g.getAttribute("data-destino"),
       critica: g.getAttribute("data-critica") === "true",
+      esmaecida: g.getAttribute("data-esmaecida") === "true",
       papel: papel,
       corComputada: getComputedStyle(path).stroke,
       corEsperada: window.__lbp4.corEsperada(path, "stroke"),
@@ -646,6 +1090,14 @@ const PISO_DE_PIXEIS_VISIVEIS = 4;
 const PISO_DE_PIXEIS_VISIVEIS_DO_GLIFO = 4;
 
 /**
+ * Quantos pixels UM dos três traços da tripla tem de mover ao ser escondido
+ * sozinho (§8b). Baixo de propósito: a linha lateral tem 2 px de mundo e, em
+ * zoom baixo, pinta pouco — o que se exige aqui é que ela exista na tela, não
+ * que seja grossa. A largura da faixa inteira já é cobrada pela régua 1 de §8.
+ */
+const PISO_DE_PIXEIS_DE_UM_TRACO = 4;
+
+/**
  * O caminho lento do glifo ocluído: o α DE PICO dele contra o α de pico do
  * TRAÇO DA MESMA ARESTA, medido na mesma tela. Os dois saem do mesmo
  * componente, com a mesma cor e a mesma cadeia de `opacity`.
@@ -669,7 +1121,14 @@ function hexEmRgb(hex) {
  * com seleção (§7b). É exceção declarada com conferência própria, nunca um
  * papel que some da conta e ninguém nota.
  */
-async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONTRATO.papeis, papeisComProvaDeCor = CONTRATO.papeis) {
+async function medirPinturaDasArestas(
+  page,
+  chave,
+  estado,
+  papeisExigidos = CONTRATO.papeis,
+  papeisComProvaDeCor = CONTRATO.papeis,
+  esperaEsmaecidas = false,
+) {
   const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
   const arestas = leitura.arestas;
   const cartoes = leitura.cartoes ?? {};
@@ -721,7 +1180,8 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
     }
     const fotos = await fotosComESem(page, g, janela);
     if (fotos.erro) {
-      problemas.push(`${a.id}: ${fotos.erro}`);
+      if (ehErroDeAmbiente(fotos.erro)) naoConsegui(`${chave}${estado} · ${a.id}: ${fotos.erro}`);
+      else problemas.push(`${a.id}: ${fotos.erro}`);
       continue;
     }
     let medidos = 0;
@@ -908,7 +1368,11 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
     const visivel =
       melhorContraste >= CONTRATO.pisoDeContraste && pixeisVisiveis >= PISO_DE_PIXEIS_VISIVEIS;
     if (visivel) resumo[a.papel].visivel = (resumo[a.papel].visivel ?? 0) + 1;
-    if (!visivel) {
+    /* Aresta ESMAECIDA por filtro de fonte não responde ao piso de 3:1 — ela
+       está apagada de propósito, e é isso que §17 mede. A exceção só existe no
+       estado que a guarda liga o filtro (`esperaEsmaecidas`); fora dele,
+       declarar-se esmaecida já é falha, conferida logo abaixo. */
+    if (!visivel && !(esperaEsmaecidas && a.esmaecida)) {
       problemas.push(
         `${a.id} (papel "${a.papel}"): quase invisível — o MELHOR pixel do traço inteiro mede ${melhorContraste.toFixed(2)}:1 contra o fundo do próprio lugar (piso ${String(CONTRATO.pisoDeContraste)}:1, lido de scripts/checar-contraste.mjs) e ${String(pixeisVisiveis)} pixel(es) chegam lá (piso ${String(PISO_DE_PIXEIS_VISIVEIS)}). A cor DECLARADA continua ${a.corComputada}: a opacidade é aplicada na composição, e é por isso que a régua de tokens não vê`,
       );
@@ -930,6 +1394,56 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
       pixeisVisiveis,
       alfaPicoDoTraco: Number(alfaPicoDoTraco.toFixed(3)),
     });
+  }
+
+  /*
+   * ── BAIXO 13: O RÓTULO NÃO É ESCRITO EM CIMA DE TRAÇO NENHUM ───────────
+   *
+   * Olho de usuário do crítico: *"o rótulo '50%' da sinergia é desenhado em
+   * cima do próprio traço tracejado (o colocador desvia de cartões, não de
+   * arestas)"*. Era estrutural: o candidato nascia SOBRE a polilinha da
+   * própria aresta, então o tracejado sempre atravessava os dígitos.
+   *
+   * A régua aqui é geométrica e usa o que §7 já leu: a caixa de tela de cada
+   * rótulo desenhado, contra os pontos que ESTÃO SOBRE os traços de todas as
+   * arestas. Um ponto de traço dentro da caixa de um rótulo é o rótulo escrito
+   * por cima de uma linha.
+   */
+  for (const comRotulo of arestas) {
+    const caixaR = comRotulo.caixaDoRotulo;
+    if (!caixaR) continue;
+    for (const outra of arestas) {
+      if (!Array.isArray(outra.pontos)) continue;
+      const dentro = outra.pontos.filter(
+        (ponto) =>
+          ponto.x >= caixaR.x &&
+          ponto.x <= caixaR.x + caixaR.largura &&
+          ponto.y >= caixaR.y &&
+          ponto.y <= caixaR.y + caixaR.altura,
+      );
+      if (dentro.length > 0) {
+        problemas.push(
+          `o rótulo de ${comRotulo.id} é desenhado EM CIMA do traço de ${outra.id} (${String(dentro.length)} ponto(s) do traço dentro da caixa do texto) — texto sobre linha não é informação, é ruído com aparência de informação`,
+        );
+      }
+    }
+  }
+
+  /*
+   * ── MÉDIO 7: NINGUÉM SE DECLARA ESMAECIDO SEM FILTRO DE FONTE LIGADO ───
+   *
+   * `data-esmaecida` existe para §17 medir o esmaecimento de verdade. Nos
+   * estados em que nenhum filtro de fonte está ligado — que são todos, menos
+   * §17 — nenhuma aresta pode estar esmaecida. Sem esta trava, "declarar-se
+   * esmaecida" viraria a porta de saída da régua de visibilidade.
+   */
+  if (!esperaEsmaecidas) {
+    const esmaecidasIndevidas = arestas.filter((a) => a.esmaecida);
+    if (esmaecidasIndevidas.length > 0) {
+      problemas.push(
+        `${String(esmaecidasIndevidas.length)} aresta(s) se declaram esmaecidas sem nenhum filtro de fonte ligado: ${esmaecidasIndevidas.map((a) => a.id).slice(0, 3).join(", ")}`,
+      );
+    }
   }
 
   // Piso do universo: cada papel do contrato tem de ter aresta na tela.
@@ -1010,84 +1524,132 @@ async function lerContratoDoCanvas(page) {
   });
 }
 
-function medirCoberturaContraODado(chave, estado, contrato, arestas) {
-  if (contrato === null || contrato.erroDeLeitura || !Array.isArray(contrato.esperadas)) {
-    exigir(
-      false,
-      `${chave}${estado}: §12 não consegui ler o contrato do canvas (data-lb-contrato-do-canvas) — sem o lado do DADO não há com o que comparar o desenho${
-        contrato?.erroDeLeitura ? `: ${contrato.erroDeLeitura}` : ""
-      }`,
-    );
-    return "sem contrato";
-  }
+function medirCanvasContraOUniverso(chave, estado, contrato, arestas, camadasAtivas) {
+  const esperadas = universoNasCamadas(UNIVERSO, camadasAtivas);
   const problemas = [];
-  const semRota = contrato.esperadas.filter((e) => !e.temRota);
-  if (semRota.length > 0) {
-    problemas.push(
-      `${String(semRota.length)} aresta(s) do dado ficaram sem rota no layout e o canvas cala sobre elas: ${semRota.map((e) => e.id).slice(0, 3).join(", ")}`,
-    );
-  }
   const desenhadas = arestas.filter((a) => !a.semPath);
+  /* §21 precisa saber quanto a GUARDA chegou a ver em cada largura: é o piso
+     que impede uma sentinela de nascer encolhida e concordar com a tela por
+     encolher junto. Registrado aqui porque §12 roda em TODO estado medido. */
+  registrarDesenhoVisto(chave, desenhadas.length);
   const porId = new Map(desenhadas.map((a) => [a.id, a]));
-  const esperadasPorId = new Map(contrato.esperadas.map((e) => [e.id, e]));
+  const esperadasPorId = new Map(esperadas.map((e) => [e.id, e]));
 
-  const faltando = contrato.esperadas.filter((e) => !porId.has(e.id));
+  // ── 1. O DESENHO × O UNIVERSO DERIVADO DO CPM E DO DADO BRUTO ───────────
+  const faltando = esperadas.filter((e) => !porId.has(e.id));
   if (faltando.length > 0) {
     problemas.push(
-      `${String(faltando.length)} aresta(s) que o DADO manda desenhar não estão no canvas: ${faltando.map((e) => `${e.id} (camada "${e.camada}"${e.critica ? ", caminho crítico" : ""})`).slice(0, 3).join(" ; ")}`,
+      `${String(faltando.length)} aresta(s) que o DADO BRUTO manda desenhar não estão no canvas: ${faltando
+        .map((e) => `${e.id} (camada "${e.camada}"${e.critica ? ", caminho crítico" : ""})`)
+        .slice(0, 3)
+        .join(" ; ")}`,
     );
   }
   const sobrando = desenhadas.filter((a) => !esperadasPorId.has(a.id));
   if (sobrando.length > 0) {
     problemas.push(
-      `${String(sobrando.length)} aresta(s) desenhadas que o DADO não pede: ${sobrando.map((a) => a.id).slice(0, 3).join(", ")}`,
+      `${String(sobrando.length)} aresta(s) desenhadas que o DADO BRUTO não pede: ${sobrando.map((a) => a.id).slice(0, 3).join(", ")}`,
     );
   }
   for (const a of desenhadas) {
     const e = esperadasPorId.get(a.id);
     if (!e) continue;
     if (e.camada !== a.camada) {
-      problemas.push(`${a.id}: o dado diz camada "${e.camada}" e o canvas desenhou "${String(a.camada)}"`);
+      problemas.push(`${a.id}: o dado bruto diz camada "${e.camada}" e o canvas desenhou "${String(a.camada)}"`);
     }
     if (Boolean(e.critica) !== Boolean(a.critica)) {
       problemas.push(
-        `${a.id}: o dado diz caminho crítico = ${String(Boolean(e.critica))} e o canvas desenhou ${String(Boolean(a.critica))}`,
+        `${a.id}: o CPM diz caminho crítico = ${String(Boolean(e.critica))} e o canvas desenhou ${String(Boolean(a.critica))}`,
       );
     }
     if (e.origem !== a.origem || e.destino !== a.destino) {
       problemas.push(
-        `${a.id}: o dado liga "${String(e.origem)}"→"${String(e.destino)}" e o canvas nomeia "${String(a.origem)}"→"${String(a.destino)}"`,
+        `${a.id}: o dado bruto liga "${String(e.origem)}"→"${String(e.destino)}" e o canvas nomeia "${String(a.origem)}"→"${String(a.destino)}"`,
       );
     }
   }
-
-  // As contagens, contra o dado — nunca contra um piso de 1.
-  const contar = (lista, chaveDaCamada) => {
+  // Contagens por camada, contra o dado — nunca contra um piso de 1.
+  const contar = (lista) => {
     const m = {};
-    for (const x of lista) m[x[chaveDaCamada]] = (m[x[chaveDaCamada]] ?? 0) + 1;
+    for (const x of lista) m[x.camada] = (m[x.camada] ?? 0) + 1;
     return m;
   };
-  const noDado = contar(contrato.esperadas, "camada");
-  const naTela = contar(desenhadas, "camada");
+  const noDado = contar(esperadas);
+  const naTela = contar(desenhadas);
   for (const camada of new Set([...Object.keys(noDado), ...Object.keys(naTela)])) {
     if ((noDado[camada] ?? 0) !== (naTela[camada] ?? 0)) {
       problemas.push(
-        `camada "${camada}": o dado tem ${String(noDado[camada] ?? 0)} aresta(s) e o canvas desenhou ${String(naTela[camada] ?? 0)}`,
+        `camada "${camada}": o dado bruto tem ${String(noDado[camada] ?? 0)} aresta(s) e o canvas desenhou ${String(naTela[camada] ?? 0)}`,
       );
     }
   }
-  const criticasNoDado = contrato.esperadas.filter((e) => e.critica).length;
+  const criticasNoDado = esperadas.filter((e) => e.critica).length;
   const criticasNaTela = desenhadas.filter((a) => a.critica).length;
   if (criticasNoDado !== criticasNaTela) {
     problemas.push(
-      `caminho crítico: o dado tem ${String(criticasNoDado)} aresta(s) e o canvas desenhou ${String(criticasNaTela)}`,
+      `caminho crítico: o CPM tem ${String(criticasNoDado)} aresta(s) nesta combinação de camadas e o canvas desenhou ${String(criticasNaTela)}`,
     );
   }
+
+  /*
+   * ── 2. O TERCEIRO LADO: O QUE O COMPONENTE DECLARA ──────────────────────
+   *
+   * `data-lb-contrato-do-canvas` deixou de ser "o dado" (ALTO 1) e passou a
+   * ser um terceiro depoimento: é ele que denuncia o componente DECLARAR uma
+   * coisa e DESENHAR outra, e é dele que sai o `temRota`, que só o layout
+   * sabe. Ele é conferido contra o universo derivado, igual ao desenho — não
+   * contra o desenho, que era o vício.
+   */
+  if (contrato === null || contrato.erroDeLeitura || !Array.isArray(contrato.esperadas)) {
+    problemas.push(
+      `não consegui ler o contrato publicado pelo componente (data-lb-contrato-do-canvas)${
+        contrato?.erroDeLeitura ? `: ${contrato.erroDeLeitura}` : ""
+      }`,
+    );
+  } else {
+    const noContrato = Array.isArray(contrato.camadasAtivas) ? [...contrato.camadasAtivas].sort() : null;
+    if (noContrato === null || noContrato.join(",") !== [...camadasAtivas].sort().join(",")) {
+      problemas.push(
+        `o componente declara as camadas [${noContrato === null ? "ilegíveis" : noContrato.join("+")}] e as marcadas no painel são [${[...camadasAtivas].sort().join("+")}]`,
+      );
+    }
+    const semRota = contrato.esperadas.filter((e) => !e.temRota);
+    if (semRota.length > 0) {
+      problemas.push(
+        `${String(semRota.length)} aresta(s) ficaram sem rota no layout e o canvas cala sobre elas: ${semRota.map((e) => e.id).slice(0, 3).join(", ")}`,
+      );
+    }
+    const declaradasPorId = new Map(contrato.esperadas.map((e) => [e.id, e]));
+    const naoDeclaradas = esperadas.filter((e) => !declaradasPorId.has(e.id));
+    if (naoDeclaradas.length > 0) {
+      problemas.push(
+        `${String(naoDeclaradas.length)} aresta(s) do dado bruto que o componente NEM declara: ${naoDeclaradas.map((e) => e.id).slice(0, 3).join(", ")}`,
+      );
+    }
+    const declaradasASobrar = contrato.esperadas.filter((e) => !esperadasPorId.has(e.id));
+    if (declaradasASobrar.length > 0) {
+      problemas.push(
+        `${String(declaradasASobrar.length)} aresta(s) declaradas pelo componente que o dado bruto não pede: ${declaradasASobrar.map((e) => e.id).slice(0, 3).join(", ")}`,
+      );
+    }
+    for (const e of esperadas) {
+      const d = declaradasPorId.get(e.id);
+      if (!d) continue;
+      if (Boolean(d.critica) !== Boolean(e.critica) || d.camada !== e.camada) {
+        problemas.push(
+          `${e.id}: o componente declara camada "${String(d.camada)}"/crítica ${String(Boolean(d.critica))} e o CPM + dado bruto dizem "${e.camada}"/${String(Boolean(e.critica))}`,
+        );
+      }
+    }
+  }
+
   exigir(
-    problemas.length === 0 && desenhadas.length > 0,
-    `${chave}${estado}: §12 o canvas × o dado — ${desenhadas.length === 0 ? "NENHUMA aresta desenhada; " : ""}${problemas.slice(0, 4).join(" ; ")}`,
+    problemas.length === 0 && desenhadas.length > 0 && esperadas.length > 0,
+    `${chave}${estado}: §12 o canvas × o DADO BRUTO — ${
+      desenhadas.length === 0 ? "NENHUMA aresta desenhada; " : ""
+    }${esperadas.length === 0 ? "o universo derivado ficou VAZIO nesta combinação de camadas; " : ""}${problemas.slice(0, 4).join(" ; ")}`,
   );
-  return `${String(desenhadas.length)}/${String(contrato.esperadas.length)} do dado · críticas ${String(criticasNaTela)}/${String(criticasNoDado)} · ${String(contrato.totalNoDado)} no grafo inteiro`;
+  return `${String(desenhadas.length)}/${String(esperadas.length)} do dado bruto · críticas ${String(criticasNaTela)}/${String(criticasNoDado)} · ${String(UNIVERSO.length)} no grafo inteiro`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1182,12 +1744,34 @@ async function medirDesligarCamada(browser, caso) {
       );
       return linhas;
     }
+    /*
+     * O painel pode não estar aberto: o F5 de §18 fecha a folha, e no celular
+     * ela ainda é modal com backdrop. Marcar uma caixa que não está na tela é
+     * um tempo esgotado de 30 s que vira "a etapa morreu" — medido a 390×800
+     * na corrida de um núcleo. Então a função GARANTE o painel aberto, e tenta
+     * de novo uma vez antes de desistir: reabrir é barato, e um tempo esgotado
+     * por painel fechado não é nem produto reprovado nem medição honesta.
+     */
+    const garantirPainelAberto = async () => {
+      const dialogo = page.locator('[role="dialog"][aria-label="Camadas do grafo"]');
+      if ((await dialogo.count()) === 0) await abrirPainelDeCamadas(page);
+    };
     const marcarCaixa = async (camada, valor) => {
-      const caixas = page.locator('[role="dialog"][aria-label="Camadas do grafo"] input[type="checkbox"]');
-      const caixa = caixas.nth(indiceDaCamada.get(camada));
-      if (valor) await caixa.check();
-      else await caixa.uncheck();
-      await page.waitForTimeout(600);
+      for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+        await garantirPainelAberto();
+        const caixas = page.locator('[role="dialog"][aria-label="Camadas do grafo"] input[type="checkbox"]');
+        const caixa = caixas.nth(indiceDaCamada.get(camada));
+        try {
+          if (valor) await caixa.check({ timeout: 15000 });
+          else await caixa.uncheck({ timeout: 15000 });
+          await page.waitForTimeout(600);
+          return;
+        } catch (erro) {
+          if (tentativa === 1) throw erro;
+          await fecharPainelDeCamadas(page).catch(() => undefined);
+          await page.waitForTimeout(400);
+        }
+      }
     };
 
     const antes = await idsDesenhadosComCamada(page);
@@ -1237,6 +1821,52 @@ async function medirDesligarCamada(browser, caso) {
         );
         linhas.push(`${camada}: ${String(antes.length)}→${String(depois.length)} arestas (−${String(removidas.length)} previstas)`);
       }
+
+      /*
+       * ── §18 · AS CAMADAS SOBREVIVEM AO F5 (achado BAIXO 11) ────────────
+       *
+       * O painel promete persistência (`localStorage`, chave namespaced) e a
+       * guarda nunca recarregava a página depois de mexer nas caixas: a
+       * promessa podia mentir inteira sem ninguém ver. Aqui, com a camada
+       * desmarcada, dá-se F5 e exige-se o MESMO estado — no painel e no
+       * canvas. É a mesma disciplina do "chegou ao banco?" da peça P6: pedir,
+       * recarregar, e exigir o que foi pedido.
+       */
+      await page.reload({ waitUntil: "networkidle" });
+      /* No celular o grafo vive numa aba, e o F5 devolve a tela à aba inicial:
+         sem voltar para "Grafo" o canvas simplesmente não existe, e a espera
+         pelo seletor estourava (medido a 390×800). */
+      await irParaAba(page, caso, "Grafo");
+      await page.waitForSelector(".react-flow__viewport", { timeout: 30000 });
+      /* O F5 apaga o `addStyleTag` de `abrirPagina` e o selo do `next dev`
+         volta a cobrir a última caixa da folha a 390 px. */
+      await esconderSeloDoNext(page);
+      await page.waitForTimeout(700);
+      const depoisDoF5 = await idsDesenhadosComCamada(page);
+      const contratoDepoisDoF5 = await lerContratoDoCanvas(page);
+      const noContratoDepoisDoF5 = Array.isArray(contratoDepoisDoF5?.camadasAtivas)
+        ? [...contratoDepoisDoF5.camadasAtivas].sort()
+        : null;
+      exigir(
+        noContratoDepoisDoF5 !== null &&
+          noContratoDepoisDoF5.join(",") === [...marcadasDepois].sort().join(","),
+        `${chave}: §18 depois do F5 com "${CONTRATO.rotulos[camada]}" desmarcada, a tela volta com ${
+          noContratoDepoisDoF5 === null ? "camadas ilegíveis" : noContratoDepoisDoF5.join("+")
+        } e o operador tinha deixado ${marcadasDepois.join("+")} — a persistência do painel está mentindo`,
+      );
+      exigir(
+        depoisDoF5.length === depois.length,
+        `${chave}: §18 depois do F5 o canvas desenha ${String(depoisDoF5.length)} aresta(s) e antes do F5 desenhava ${String(depois.length)} com as mesmas camadas`,
+      );
+      const painelDepoisDoF5 = await abrirPainelDeCamadas(page);
+      const marcadasNoF5 = (painelDepoisDoF5?.rotulos ?? [])
+        .filter((r) => r.marcada)
+        .map((r) => r.texto)
+        .sort();
+      exigir(
+        marcadasNoF5.join(",") === marcadasDepois.map((c) => CONTRATO.rotulos[c]).sort().join(","),
+        `${chave}: §18 depois do F5 o painel mostra [${marcadasNoF5.join(", ")}] marcadas e o operador tinha deixado [${marcadasDepois.map((c) => CONTRATO.rotulos[c]).sort().join(", ")}]`,
+      );
 
       /* O painel e o dado que alimenta o canvas têm de dizer a MESMA coisa —
          é o casamento que o `camadasAtivas` fixo quebra em silêncio. */
@@ -1301,7 +1931,31 @@ async function medirEstadoDefault(browser, caso) {
       `${chave}: §14 o painel nasce com [${marcadas.join(", ")}] marcadas e o default é [${esperadasNoPainel.join(", ")}]`,
     );
     if (painel !== null) await fecharPainelDeCamadas(page);
-    linha = `${String(desenhadas.length)} arestas, camadas ${noContrato === null ? "?" : noContrato.join("+")}, painel [${marcadas.join(", ")}]`;
+
+    /*
+     * ── ALTO 2: O ESTADO EM QUE A TELA NASCE, MEDIDO EM PIXEL ────────────
+     *
+     * §7/§8/§9/§10/§12 só rodavam dentro de `medirODesenhoInteiro`, e as duas
+     * chamadas vinham logo depois de `ligarTodasAsCamadas`. O único lugar que
+     * observava o default era esta §14 — lendo ids de DOM e texto, nenhuma
+     * foto, nenhum pixel. Provado pelo crítico com uma linha
+     * (`className: camadasAtivas.size <= 2 ? "opacity-0" : undefined`): ao
+     * abrir a página, 11 cartões soltos e ZERO arestas visíveis; os cinco
+     * portões verdes. Era o CRÍTICO da rodada 10 voltando pelo único estado
+     * que todo mundo vê.
+     *
+     * Agora o default passa pelo mesmo `medirODesenhoInteiro` de todos os
+     * outros estados, com o universo filtrado por `CAMADAS_DEFAULT`.
+     */
+    const desenhoNoDefault = await medirODesenhoInteiro(
+      page,
+      chave,
+      " [default]",
+      CONTRATO.camadasDefault,
+    );
+    linha = `${String(desenhadas.length)} arestas, camadas ${
+      noContrato === null ? "?" : noContrato.join("+")
+    }, painel [${marcadas.join(", ")}] · ${desenhoNoDefault.pintura.linha} · dado ${desenhoNoDefault.contraODado} · tripla ${desenhoNoDefault.tripla} · lista ${desenhoNoDefault.alcance}`;
   } finally {
     await ctx.close();
   }
@@ -1396,9 +2050,160 @@ function medirTracoTriplo(chave, estado, bandasPorCritica, detalhePorAresta) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// §8b · TRÊS TRAÇOS, CADA UM PINTANDO, CADA UM NO SEU LUGAR  (achado MÉDIO 10)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * A régua 2 de §8 tinha um escape: *"2 faixas separadas OU uma faixa 3× mais
+ * larga que a simples"*. O crítico obteve `{"1":20}` — UM perfil, UMA faixa,
+ * em todos os 20 pontos — sem §8 levantar falha: uma barra sólida passava por
+ * traço triplo, e a única coisa no repositório que exigia três `<path>` era um
+ * teste de unidade sobre um componente instanciado fora do canvas.
+ *
+ * Por que o escape existia, e por que ele não podia ser só apagado: a
+ * separação é em px de MUNDO, então em zoom baixo as três linhas encostam e o
+ * perfil perpendicular vira uma faixa só. Exigir "3 faixas sempre" é exigir
+ * uma resolução que o produto não promete.
+ *
+ * A saída não é afrouxar a régua; é medir a coisa certa. **Cada um dos três
+ * `<path>` é medido POR SI:**
+ *
+ *   1. ele existe (três, não um);
+ *   2. ele PINTA — foto com e sem ELE, pixels que mudam (uma lateral com
+ *      `opacity: 0` cai aqui, e uma barra sólida não tem laterais para medir);
+ *   3. ele está em LUGAR DIFERENTE dos outros dois, e à distância que a
+ *      separação do mundo prevê PARA AQUELE ZOOM — `SEPARACAO_DA_TRIPLA_MUNDO`
+ *      é lida de `geometria-da-aresta.ts` (quem a decide), nunca escrita aqui,
+ *      e o zoom sai da matriz do próprio canvas.
+ *
+ * Três linhas sobrepostas no mesmo ponto continuam sendo uma barra — e agora
+ * a barra reprova pelo item 3, mesmo quando o zoom fecha o buraco do perfil.
+ */
+const LEITURA_DOS_PATHS_CRITICOS = `(() => {
+  const saida = [];
+  for (const g of document.querySelectorAll(".react-flow g[data-camada]")) {
+    if (g.getAttribute("data-critica") !== "true") continue;
+    const paths = [...g.querySelectorAll("path.lb-edge-path")];
+    const pontos = paths.map((p) => {
+      const lista = window.__lbp4.pontosDaAresta(p, 3);
+      return lista.length > 0 ? lista[Math.floor(lista.length / 2)] : null;
+    });
+    saida.push({ id: g.getAttribute("data-aresta-id"), n: paths.length, pontos: pontos });
+  }
+  return saida;
+})()`;
+
+/** Quantos traços o caminho crítico promete — o desenho de `aresta-svg.tsx`. */
+const TRACOS_DA_TRIPLA = 3;
+
+async function medirCadaTracoDaTripla(page, chave, estado, zoomDoCanvas) {
+  const criticas = await page.evaluate(LEITURA_DOS_PATHS_CRITICOS);
+  if (criticas.length === 0) {
+    exigir(
+      false,
+      `${chave}${estado}: §8b nenhuma aresta do caminho crítico na tela — os três traços não foram medidos, e não medir é reprovar`,
+    );
+    return "sem críticas";
+  }
+  const problemas = [];
+  const linha = [];
+  const zoom = zoomDoCanvas !== null && zoomDoCanvas > 0 ? zoomDoCanvas : 1;
+  const separacaoNaTela = CONTRATO.separacaoDaTripla * zoom;
+  for (const c of criticas) {
+    if (c.n < TRACOS_DA_TRIPLA) {
+      problemas.push(
+        `${c.id}: o caminho crítico é desenhado com ${String(c.n)} <path> e a promessa são ${String(TRACOS_DA_TRIPLA)} — uma barra grossa não é um traço triplo`,
+      );
+      continue;
+    }
+    const alvos = await page.$$(`${SELETOR_DA_ARESTA}[data-aresta-id="${c.id}"] path.lb-edge-path`);
+    const centros = [];
+    let falhou = false;
+    for (let i = 0; i < c.n; i += 1) {
+      const ponto = c.pontos[i];
+      const alvo = alvos[i];
+      if (!ponto || !alvo) {
+        problemas.push(`${c.id}: não consegui achar o traço nº ${String(i + 1)} para medir — não medir é reprovar`);
+        falhou = true;
+        break;
+      }
+      const janela = janelaDosPontos([ponto], RAIO_DA_AMOSTRA + 3, page.viewportSize());
+      if (janela === null) {
+        problemas.push(`${c.id}: o traço nº ${String(i + 1)} caiu fora da janela de visão — não medir é reprovar`);
+        falhou = true;
+        break;
+      }
+      const fotos = await fotosComESem(page, alvo, janela);
+      if (fotos.erro) {
+        if (ehErroDeAmbiente(fotos.erro)) naoConsegui(`${chave}${estado} · ${c.id} traço ${String(i + 1)}: ${fotos.erro}`);
+        else problemas.push(`${c.id}: traço nº ${String(i + 1)}: ${fotos.erro}`);
+        falhou = true;
+        break;
+      }
+      const amostra = amostraNoPonto(fotos, ponto, "rgb(0, 0, 0)", RAIO_DA_AMOSTRA);
+      if (!amostra.dentro || amostra.mudaram < PISO_DE_PIXEIS_DE_UM_TRACO) {
+        problemas.push(
+          `${c.id}: o traço nº ${String(i + 1)} dos três não pinta — ${String(amostra.mudaram)} pixels mudam ao escondê-lo (piso ${String(PISO_DE_PIXEIS_DE_UM_TRACO)}). Três <path> com um deles apagado continuam sendo três no DOM`,
+        );
+        falhou = true;
+        break;
+      }
+      centros.push(ponto);
+    }
+    if (falhou) continue;
+    let menor = Infinity;
+    let maior = 0;
+    for (let i = 0; i < centros.length; i += 1) {
+      for (let j = i + 1; j < centros.length; j += 1) {
+        const d = Math.hypot(centros[i].x - centros[j].x, centros[i].y - centros[j].y);
+        if (d < menor) menor = d;
+        if (d > maior) maior = d;
+      }
+    }
+    const esperadoMaior = 2 * separacaoNaTela;
+    if (menor < 0.8) {
+      problemas.push(
+        `${c.id}: dois dos três traços são desenhados no MESMO lugar (${menor.toFixed(2)}px de distância) — sobrepostos, os três viram uma barra`,
+      );
+    } else if (maior < 0.5 * esperadoMaior) {
+      problemas.push(
+        `${c.id}: os três traços ocupam ${maior.toFixed(1)}px de largura e a separação do mundo (${String(CONTRATO.separacaoDaTripla)}px, de geometria-da-aresta.ts) prevê ${esperadoMaior.toFixed(1)}px no zoom ${zoom.toFixed(3)}`,
+      );
+    }
+    linha.push(`${c.id.split(":")[1] ?? c.id}:${String(c.n)}x/${maior.toFixed(1)}px`);
+  }
+  exigir(problemas.length === 0, `${chave}${estado}: §8b cada traço da tripla — ${problemas.slice(0, 3).join(" ; ")}`);
+  return linha.join(" ");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // §9 · TODO GLIFO PINTA (a seta, o círculo, o losango e o ❌)
 // ═══════════════════════════════════════════════════════════════════════════
 const LEITURA_DOS_GLIFOS = `(() => {
+  /*
+   * A ASSINATURA GEOMÉTRICA do glifo: o nome do elemento SVG mais os números
+   * que descrevem a forma, transladados para a origem e arredondados. É ela
+   * que distingue uma seta de um losango (os dois são <polygon>) sem consultar
+   * nenhuma tabela — a tabela viria do mesmo arquivo que decide a forma, e
+   * seria a guarda concordando consigo mesma.
+   */
+  const assinaturaDaForma = (el) => {
+    const t = el.tagName.toLowerCase();
+    if (t === "circle") return "circle|r=" + Number(el.getAttribute("r") || 0).toFixed(1);
+    const bruto = t === "polygon" ? (el.getAttribute("points") || "") : (el.getAttribute("d") || "");
+    const nums = (bruto.match(/-?\\d+(?:\\.\\d+)?/g) || []).map(Number);
+    const comandos = t === "path" ? (bruto.match(/[A-Za-z]/g) || []).join("") : "";
+    if (nums.length < 4) return t + "|" + comandos + "|" + nums.join(",");
+    let minX = Infinity, minY = Infinity;
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      if (nums[i] < minX) minX = nums[i];
+      if (nums[i + 1] < minY) minY = nums[i + 1];
+    }
+    const rel = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      rel.push((nums[i] - minX).toFixed(1) + " " + (nums[i + 1] - minY).toFixed(1));
+    }
+    return t + "|" + comandos + "|" + rel.join(",");
+  };
   const saida = [];
   for (const el of document.querySelectorAll(".react-flow g[data-camada] .lb-edge-glifo")) {
     const grupo = el.closest(".react-flow g[data-camada]");
@@ -1409,6 +2214,7 @@ const LEITURA_DOS_GLIFOS = `(() => {
       camada: grupo.getAttribute("data-camada"),
       aresta: grupo.getAttribute("data-aresta-id"),
       forma: el.tagName,
+      assinatura: assinaturaDaForma(el),
       caixa: { x: r.x, y: r.y, largura: r.width, altura: r.height },
       cor: window.__lbp4.corEsperada(el, usaFill ? "fill" : "stroke"),
       retrato: window.__lbp4.retrato(el),
@@ -1423,6 +2229,91 @@ async function medirGlifos(page, chave, estado, arestas, alfaPicoPorAresta) {
   const problemas = [];
   const linha = [];
   const comGlifo = new Set(glifos.map((g) => g.aresta));
+  /*
+   * ── O QUE ESTÁ FORA DO CANVAS NÃO SE MEDE EM PIXEL, E ISSO NÃO É DISPENSA
+   *
+   * O canvas RECORTA o que sai dele, e o produto já ANUNCIA isso: o chip
+   * "N tarefas fora da tela" existe justamente porque nem todo grafo cabe em
+   * 1024 ou em 390. Medido nesta rodada, na árvore honesta: o glifo de uma das
+   * sinergias fica fora do retângulo do canvas em 1024, 1280 e 390 — exigir
+   * pixel dele é reprovar o recorte, não o produto.
+   *
+   * A troca não abre buraco porque o piso muda de lugar: cada CAMADA presente
+   * na tela tem de ter ao menos UM glifo medido de verdade. Camada inteira
+   * fora da tela, ou camada em que nenhum glifo pôde ser medido, continua
+   * reprovando — e é isso que impede "empurrar o glifo para fora" de virar
+   * saída.
+   */
+  const caixaDoCanvas = await page.evaluate(() => {
+    const el = document.querySelector(".react-flow");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+  });
+  const vistaDaPagina = page.viewportSize();
+  const dentroDoCanvas = (caixa) => {
+    if (caixaDoCanvas === null) return true;
+    const cx = caixa.x + caixa.largura / 2;
+    const cy = caixa.y + caixa.altura / 2;
+    return (
+      cx >= caixaDoCanvas.x &&
+      cx <= caixaDoCanvas.x + caixaDoCanvas.largura &&
+      cy >= caixaDoCanvas.y &&
+      cy <= caixaDoCanvas.y + caixaDoCanvas.altura &&
+      cx >= 0 &&
+      cy >= 0 &&
+      cx < vistaDaPagina.width &&
+      cy < vistaDaPagina.height
+    );
+  };
+  const medidosPorCamada = new Map();
+  const foraDaTela = [];
+
+  /*
+   * ── MÉDIO 8: A FORMA É O QUE DISTINGUE A CAMADA — ENTÃO ELAS TÊM DE SER
+   *    DIFERENTES ENTRE SI ───────────────────────────────────────────────
+   *
+   * Este arquivo prometia, por escrito, que *"a forma é o que distingue a
+   * camada para quem não vê cor"* — e `forma: el.tagName` só reaparecia na
+   * mensagem de erro. O crítico trocou correlação e sinergia para `"seta"` em
+   * `aresta-svg.tsx`: três setas idênticas na tela, a promessa morta, e a
+   * guarda MELHOROU o número (`correlacao:9px/3.4:1/α0.72` virou
+   * `15px/11.5:1/α1.00`), porque uma seta pinta mais que um circulinho.
+   *
+   * A régua não pode ser uma tabela "correlação = círculo" escrita aqui: ela
+   * sairia do mesmo arquivo que decide a forma (forma 1, a guarda contando a
+   * si mesma). O que se pode exigir sem tabela nenhuma é a PROPRIEDADE que a
+   * promessa afirma: **glifos de camadas diferentes são geometrias
+   * diferentes, e dentro de uma camada são sempre a mesma.**
+   */
+  const assinaturaPorCamada = new Map();
+  for (const g of glifos) {
+    const vistas = assinaturaPorCamada.get(g.camada) ?? new Set();
+    vistas.add(g.assinatura);
+    assinaturaPorCamada.set(g.camada, vistas);
+  }
+  for (const [camada, vistas] of assinaturaPorCamada) {
+    if (vistas.size > 1) {
+      problemas.push(
+        `a camada "${camada}" desenha ${String(vistas.size)} formas diferentes de glifo (${[...vistas].join(" | ").slice(0, 120)}) — dentro de uma camada a forma tem de ser uma só`,
+      );
+    }
+  }
+  const camadasPorAssinatura = new Map();
+  for (const [camada, vistas] of assinaturaPorCamada) {
+    for (const a of vistas) {
+      const donas = camadasPorAssinatura.get(a) ?? [];
+      if (!donas.includes(camada)) donas.push(camada);
+      camadasPorAssinatura.set(a, donas);
+    }
+  }
+  for (const [assinatura, donas] of camadasPorAssinatura) {
+    if (donas.length > 1) {
+      problemas.push(
+        `as camadas ${donas.join(" e ")} desenham o MESMO glifo (${assinatura.slice(0, 100)}) — a forma deixou de distinguir a camada para quem não vê cor, que é a promessa escrita neste arquivo`,
+      );
+    }
+  }
   for (const a of arestas) {
     if (!a.semPath && !comGlifo.has(a.id)) {
       problemas.push(`${a.id}: aresta desenhada SEM glifo de fim — a forma é o que distingue a camada para quem não vê cor`);
@@ -1436,16 +2327,21 @@ async function medirGlifos(page, chave, estado, arestas, alfaPicoPorAresta) {
       problemas.push(`glifo de ${g.aresta}: sem caixa de layout (${JSON.stringify(g.caixa)})`);
       continue;
     }
+    if (!dentroDoCanvas(g.caixa)) {
+      foraDaTela.push(`${g.camada}/${String(g.aresta)}`);
+      continue;
+    }
     const centro = { x: g.caixa.x + g.caixa.largura / 2, y: g.caixa.y + g.caixa.altura / 2 };
     const raio = Math.max(3, Math.round(Math.min(g.caixa.largura, g.caixa.altura) / 2));
-    const janela = janelaDosPontos([centro], raio + 3, page.viewportSize());
+    const janela = janelaDosPontos([centro], raio + 3, vistaDaPagina);
     if (janela === null) {
-      problemas.push(`glifo de ${g.aresta}: a caixa dele ficou fora da janela de visão — não consegui medir, e isso é reprovação`);
+      foraDaTela.push(`${g.camada}/${String(g.aresta)}`);
       continue;
     }
     const fotos = await fotosComESem(page, alvo, janela);
     if (fotos.erro) {
-      problemas.push(`glifo de ${g.aresta}: ${fotos.erro}`);
+      if (ehErroDeAmbiente(fotos.erro)) naoConsegui(`${chave}${estado} · glifo de ${g.aresta}: ${fotos.erro}`);
+      else problemas.push(`glifo de ${g.aresta}: ${fotos.erro}`);
       continue;
     }
     const daAresta = arestas.find((a) => a.id === g.aresta);
@@ -1473,15 +2369,21 @@ async function medirGlifos(page, chave, estado, arestas, alfaPicoPorAresta) {
      * "Pixels que mudam" não pega: a 12% de opacidade eles continuam mudando
      * (medido: o círculo da correlação muda os MESMOS 9 pixels).
      *
-     * **Por que aqui a régua não é o 3:1 absoluto do traço.** Medido nesta
-     * rodada, na árvore honesta a 1440×900: o círculo da correlação tem caixa
-     * de 7×7 px e pinta só NOVE pixels — uma meia-lua de 2 linhas; o resto
-     * está atrás do cartão para onde ele aponta. O melhor pixel dele chega a
-     * 3,39:1, um fio acima do piso, com UM pixel no piso. Um portão calibrado
-     * a 13% do vermelho sobre a árvore honesta é um portão que apita sozinho —
-     * e a oclusão é exatamente o motivo legítimo que a rodada 11 já tinha
-     * nomeado. (Que o círculo apareça tão pouco é observação de PRODUTO, e vai
-     * no relatório desta rodada; mudar o desenho não é trabalho de guarda.)
+     * **Por que existe um caminho lento, mesmo agora.** Na rodada 12 o
+     * círculo da correlação tinha caixa de 7×7 px e pintava NOVE pixels — uma
+     * meia-lua de duas linhas, com o resto atrás do cartão para onde ele
+     * aponta —, e o melhor pixel chegava a 3,39:1, um fio acima do piso. Era
+     * um portão calibrado a 13% do vermelho sobre a árvore honesta: apitaria
+     * sozinho. O crítico levantou isso como olho de usuário (BAIXO 13), e o
+     * PRODUTO mudou nesta rodada: o círculo passou a ter a mesma meia-largura
+     * do ❌ (6,5), e agora mede 46–79 pixels a 11,5:1 com α 1,00 — passa
+     * folgado pelo caminho rápido.
+     *
+     * O caminho lento FICA, e não por nostalgia: oclusão continua sendo um
+     * motivo legítimo para um glifo aparecer pouco (um cartão maior, um zoom
+     * menor, uma rota que chega por trás), e a comparação com o α do traço da
+     * MESMA aresta é a régua que distingue "está escondido" de "foi apagado"
+     * sem constante nenhuma escrita aqui.
      *
      * A régua que serve é a de §8: comparar com uma REFERÊNCIA MEDIDA NA
      * MESMA TELA, não com uma constante escrita aqui. O glifo e o traço da
@@ -1512,13 +2414,25 @@ async function medirGlifos(page, chave, estado, arestas, alfaPicoPorAresta) {
         }`,
       );
     }
+    medidosPorCamada.set(g.camada, (medidosPorCamada.get(g.camada) ?? 0) + 1);
     linha.push(`${g.camada}:${String(amostra.mudaram)}px/${amostra.melhorContraste.toFixed(1)}:1/α${amostra.alfaPico.toFixed(2)}`);
+  }
+  /* O piso: cada camada com glifo no DOM tem de ter ao menos UM medido em
+     pixel nesta tela. Empurrar tudo para fora do canvas não é saída. */
+  for (const camada of assinaturaPorCamada.keys()) {
+    if ((medidosPorCamada.get(camada) ?? 0) === 0) {
+      problemas.push(
+        `a camada "${camada}" tem glifo no DOM e NENHUM deles pôde ser medido em pixel nesta tela (todos fora do canvas) — medir zero nunca é sucesso`,
+      );
+    }
   }
   exigir(
     problemas.length === 0 && glifos.length > 0,
     `${chave}${estado}: §9 os glifos — ${glifos.length === 0 ? "NENHUM glifo no DOM; " : ""}${problemas.slice(0, 3).join(" ; ")}`,
   );
-  return linha.join(" ");
+  return `${linha.join(" ")} · ${String(camadasPorAssinatura.size)} forma(s) distinta(s) em ${String(assinaturaPorCamada.size)} camada(s)${
+    foraDaTela.length > 0 ? ` · ${String(foraDaTela.length)} glifo(s) fora do canvas` : ""
+  }`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1531,24 +2445,62 @@ async function medirGlifos(page, chave, estado, arestas, alfaPicoPorAresta) {
  * título do outro lado por escrito. E cada item da lista tem de ser alcançável
  * por Tab — uma lista que o leitor lê e o teclado não alcança é meia lista.
  */
-async function medirAlcanceSemMouse(page, chave, estado, arestas, contrato) {
-  const desenhadas = arestas.filter((a) => !a.semPath);
-  /*
-   * O universo da conferência é a UNIÃO do que o canvas desenhou com o que o
-   * DADO manda desenhar (rodada 11, ALTO 2): comparar só com o desenho deixa
-   * a lista e o canvas calarem juntos. Aresta que o dado tem e o canvas não
-   * desenhou continua tendo de aparecer na lista — e a falta dela no canvas é
-   * o que §12 reprova.
-   */
-  const doDado = Array.isArray(contrato?.esperadas) ? contrato.esperadas : [];
-  const universo = [...desenhadas];
-  for (const e of doDado) {
-    if (!universo.some((a) => a.id === e.id)) {
-      universo.push({ id: e.id, camada: e.camada, origem: e.origem, destino: e.destino, critica: e.critica });
+/**
+ * As relações que a lista acessível DEVE anunciar, tarefa por tarefa e camada
+ * por camada, derivadas do universo (dado bruto + CPM) — nunca da lista.
+ *
+ * Espelha as frases de `relacoesAcessiveisDaTarefa` (`camadas-do-grafo.ts`):
+ * a sucessão tem direção ("depende de" / "habilita"), as outras três são
+ * simétricas para quem lê ("com"), e o caminho crítico entra como uma linha
+ * PRÓPRIA ("vem de" / "segue para") quando a camada está marcada.
+ */
+function relacoesEsperadasPorTarefa(esperadas, titulos) {
+  const porTarefa = new Map();
+  const guardar = (taskId, camada, texto) => {
+    const camadas = porTarefa.get(taskId) ?? new Map();
+    const itens = camadas.get(camada) ?? new Set();
+    itens.add(texto);
+    camadas.set(camada, itens);
+    porTarefa.set(taskId, camadas);
+  };
+  for (const a of esperadas) {
+    const nomeOrigem = titulos.get(a.origem) ?? a.origem;
+    const nomeDestino = titulos.get(a.destino) ?? a.destino;
+    if (a.camada === "sucessao") {
+      guardar(a.destino, "sucessao", `depende de ${nomeOrigem}`);
+      guardar(a.origem, "sucessao", `habilita ${nomeDestino}`);
+    } else {
+      guardar(a.destino, a.camada, `com ${nomeOrigem}`);
+      guardar(a.origem, a.camada, `com ${nomeDestino}`);
+    }
+    if (a.critica) {
+      guardar(a.destino, "critico", `vem de ${nomeOrigem}`);
+      guardar(a.origem, "critico", `segue para ${nomeDestino}`);
     }
   }
+  return porTarefa;
+}
+
+/** Os itens de um span da lista: `"Rótulo: a, b"` → `["a", "b"]`. */
+function itensDoSpan(texto, rotulo) {
+  const corpo = texto.startsWith(`${rotulo}:`) ? texto.slice(rotulo.length + 1) : texto;
+  return corpo
+    .split(", ")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+async function medirAlcanceSemMouse(page, chave, estado, arestas, contrato, camadasAtivas) {
+  const desenhadas = arestas.filter((a) => !a.semPath);
+  /*
+   * O universo da conferência é o DERIVADO (dado bruto + CPM), filtrado pelas
+   * camadas marcadas — não o desenho, e não o que o componente declara.
+   * Comparar a lista só com o desenho deixa os dois calarem juntos; comparar
+   * com o contrato do componente deixa os três calarem juntos (ALTO 1).
+   */
+  const universo = universoNasCamadas(UNIVERSO, camadasAtivas);
   if (universo.length === 0) {
-    exigir(false, `${chave}${estado}: §10 nenhuma aresta (nem no canvas, nem no dado) para comparar com a lista acessível`);
+    exigir(false, `${chave}${estado}: §10 o universo derivado ficou vazio nesta combinação de camadas — não há o que comparar com a lista acessível`);
     return "0/0";
   }
   /*
@@ -1636,29 +2588,80 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas, contrato) {
       );
     }
   }
-  for (const a of universo) {
-    const rotulo = CONTRATO.rotulos[a.camada];
-    const paraConferir = [
-      { eu: a.origem, outro: a.destino },
-      { eu: a.destino, outro: a.origem },
-    ];
-    const achou = paraConferir.some(({ eu, outro }) => {
-      const item = lista[eu];
-      if (!item) return false;
-      const texto = item.porCamada[a.camada] ?? "";
-      const nomeDoOutro = lista[outro]?.titulo ?? outro;
-      return texto.includes(rotulo) && texto.includes(nomeDoOutro);
-    });
-    if (!achou) {
+  /*
+   * ── MÉDIO 5: A LISTA NOS DOIS SENTIDOS ─────────────────────────────────
+   *
+   * §10 percorria o universo e perguntava *"está na lista?"*. Nunca o
+   * contrário. Acrescentar uma relação de obsolescência FALSA fazia 10 das 11
+   * tarefas anunciarem, para quem usa leitor de tela, um vínculo que não
+   * existe em lugar nenhum — com os quatro portões verdes. É a forma 3
+   * (universo por convenção): a lista tinha permissão de inventar.
+   *
+   * Agora a conferência é de CONJUNTO, nas duas direções: o que o dado bruto
+   * manda anunciar, tarefa por tarefa e camada por camada, tem de ser
+   * exatamente o que a lista anuncia. Nada a menos (o ALTO 3 da rodada 10) e
+   * nada a mais (este).
+   */
+  const titulos = titulosDoDado(BRUTO);
+  const esperadoPorTarefa = relacoesEsperadasPorTarefa(universo, titulos);
+  /* O separador de itens é ", " — se um título contiver essa sequência, a
+     guarda não sabe separar e diz isso em vez de medir errado. */
+  const tituloAmbiguo = [...titulos.values()].find((t) => typeof t === "string" && t.includes(", "));
+  if (tituloAmbiguo !== undefined) {
+    problemas.push(
+      `o título "${tituloAmbiguo}" contém ", " e esta guarda separa os itens da lista por ", " — não consigo conferir a lista item a item`,
+    );
+  }
+  const tarefasDoDado = new Set(titulos.keys());
+  for (const id of tarefasDoDado) {
+    const item = lista[id];
+    if (!item) {
+      problemas.push(`a tarefa "${id}" existe no dado bruto e NÃO tem linha na lista acessível`);
+      continue;
+    }
+    const esperadoDaTarefa = esperadoPorTarefa.get(id) ?? new Map();
+    const camadasNaLista = Object.keys(item.porCamada).filter((c) => c !== "nenhuma");
+    for (const camada of new Set([...esperadoDaTarefa.keys(), ...camadasNaLista])) {
+      const rotulo = CONTRATO.rotulos[camada];
+      const esperados = [...(esperadoDaTarefa.get(camada) ?? new Set())].sort();
+      const textoDoSpan = item.porCamada[camada];
+      if (esperados.length > 0 && (textoDoSpan === undefined || !textoDoSpan.startsWith(`${rotulo}:`))) {
+        problemas.push(
+          `a tarefa "${String(item.titulo)}" deveria anunciar "${rotulo}: ${esperados.join(", ")}" e a lista diz ${
+            textoDoSpan === undefined ? "NADA sobre essa camada" : `"${textoDoSpan}"`
+          }`,
+        );
+        continue;
+      }
+      if (esperados.length === 0) {
+        problemas.push(
+          `a tarefa "${String(item.titulo)}" anuncia "${String(textoDoSpan)}" e o dado bruto não tem NENHUMA relação dela nessa camada — a lista está inventando vínculo`,
+        );
+        continue;
+      }
+      const naLista = itensDoSpan(textoDoSpan, rotulo).sort();
+      const aMenos = esperados.filter((x) => !naLista.includes(x));
+      const aMais = naLista.filter((x) => !esperados.includes(x));
+      if (aMenos.length > 0) {
+        problemas.push(
+          `a tarefa "${String(item.titulo)}", camada "${camada}": a lista NÃO anuncia ${aMenos.map((x) => `"${x}"`).join(", ")}`,
+        );
+      }
+      if (aMais.length > 0) {
+        problemas.push(
+          `a tarefa "${String(item.titulo)}", camada "${camada}": a lista anuncia ${aMais.map((x) => `"${x}"`).join(", ")} e isso NÃO existe no dado bruto`,
+        );
+      }
+    }
+    if (esperadoDaTarefa.size === 0 && item.porCamada["nenhuma"] === undefined && camadasNaLista.length === 0) {
       problemas.push(
-        `a aresta "${a.id}" (camada "${a.camada}") existe no grafo e NÃO está na lista acessível de nenhuma das duas pontas`,
+        `a tarefa "${String(item.titulo)}" não tem relação nenhuma no dado bruto e a lista não diz "sem ligação com outra tarefa"`,
       );
     }
-    if (a.critica) {
-      const achouCritico = paraConferir.some(({ eu }) => (lista[eu]?.porCamada["critico"] ?? "") !== "");
-      if (!achouCritico) {
-        problemas.push(`a aresta "${a.id}" é do caminho crítico e a lista acessível não diz isso em nenhuma das pontas`);
-      }
+  }
+  for (const id of Object.keys(lista)) {
+    if (!tarefasDoDado.has(id)) {
+      problemas.push(`a lista acessível tem uma linha para "${id}", que não existe no dado bruto`);
     }
   }
 
@@ -1745,8 +2748,39 @@ async function canvasCobertoPorFolhaModal(page) {
   });
 }
 
-async function medirODesenhoInteiro(page, chave, estado) {
-  const PAPEIS_SEM_SELECAO = CONTRATO.papeis.filter((p) => p !== "destacada");
+/**
+ * As medidas do desenho num estado da tela. `camadasAtivas` é o que o operador
+ * tem MARCADO ali (a guarda sabe porque foi ela que marcou) — e é contra isso
+ * que o universo derivado do dado bruto é filtrado.
+ *
+ * `opcoes.comSelecao` liga o papel "destacada" no piso de papéis exigidos
+ * (achado ALTO 4: o estado com um cartão selecionado era medido por
+ * `medirPinturaDasArestas` sozinha, sem §8, §9, §10 nem §12, e com piso de 1
+ * aresta por papel — apagar uma sucessão SÓ quando há seleção passava).
+ */
+async function medirODesenhoInteiro(page, chave, estado, camadasAtivas, opcoes = {}) {
+  const comSelecao = opcoes.comSelecao === true;
+  const esperaEsmaecidas = opcoes.esperaEsmaecidas === true;
+  /*
+   * O piso de papéis deste estado é DERIVADO do universo filtrado pelas
+   * camadas marcadas — não uma lista escrita aqui. Com só "Sucessão" e
+   * "Caminho crítico" ligadas (o default da casa), correlação, sinergia e
+   * obsolescência não estão na tela e exigi-las seria reprovar o produto por
+   * ele obedecer ao próprio painel; exigir a lista inteira sempre foi o que
+   * impediu §7–§12 de rodarem no estado em que a tela NASCE (ALTO 2).
+   */
+  const papeisDoEstado = [
+    ...new Set(
+      universoNasCamadas(UNIVERSO, camadasAtivas).map((e) => (e.critica ? "critico" : e.camada)),
+    ),
+  ].concat(comSelecao ? ["destacada"] : []);
+  /*
+   * O papel "destacada" só existe com um nó selecionado; e no estado COM
+   * seleção uma das sucessões VIRA destacada, então a cor de cada papel se
+   * prova no estado SEM seleção (onde todos têm todas as suas arestas) e o
+   * estado com seleção prova a cor só do papel que ele é o único a produzir.
+   */
+  const papeisComProvaDeCor = comSelecao ? ["destacada"] : papeisDoEstado;
   const contrato = await lerContratoDoCanvas(page);
   const cobertura = await canvasCobertoPorFolhaModal(page);
   if (cobertura.coberto) {
@@ -1755,26 +2789,1335 @@ async function medirODesenhoInteiro(page, chave, estado) {
       `${chave}${estado}: §7 alguma coisa cobre o CENTRO do canvas e NÃO é a folha modal do painel: ${cobertura.quem}`,
     );
     const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
-    const contraODado = medirCoberturaContraODado(chave, estado, contrato, leitura.arestas);
+    const contraODado = medirCanvasContraOUniverso(chave, estado, contrato, leitura.arestas, camadasAtivas);
     return {
       pintura: { linha: "canvas debaixo da folha modal — §7/§8/§9 não se medem através dela", detalhePorAresta: [], arestas: leitura.arestas },
       triplo: "n/d (folha modal)",
+      tripla: "n/d (folha modal)",
       glifos: "n/d (folha modal)",
       alcance: "n/d (folha modal)",
       contraODado,
     };
   }
-  const pintura = await medirPinturaDasArestas(page, chave, estado, PAPEIS_SEM_SELECAO, PAPEIS_SEM_SELECAO);
+  const pintura = await medirPinturaDasArestas(
+    page,
+    chave,
+    estado,
+    papeisDoEstado,
+    papeisComProvaDeCor,
+    esperaEsmaecidas,
+  );
   const triplo = medirTracoTriplo(chave, estado, pintura.bandasPorCritica, pintura.detalhePorAresta);
-  const contraODado = medirCoberturaContraODado(chave, estado, contrato, pintura.arestas);
+  const tripla = await medirCadaTracoDaTripla(page, chave, estado, escalaDe(await transformDoCanvas(page)));
+  const contraODado = medirCanvasContraOUniverso(chave, estado, contrato, pintura.arestas, camadasAtivas);
   const glifos = await medirGlifos(page, chave, estado, pintura.arestas, pintura.alfaPicoPorAresta);
-  const alcance = await medirAlcanceSemMouse(page, chave, estado, pintura.arestas, contrato);
-  return { pintura, triplo, glifos, alcance, contraODado };
+  const alcance = await medirAlcanceSemMouse(page, chave, estado, pintura.arestas, contrato, camadasAtivas);
+  return { pintura, triplo, tripla, glifos, alcance, contraODado };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §16 · A LISTA ACESSÍVEL OBEDECE AO PAINEL "CAMADAS"  (achado MÉDIO 6)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Dois defeitos de PRODUTO, um dentro do outro, e nenhuma medida via nenhum:
+ *
+ *  1. `AccessibleGraphList` recebia `arestas={arestasVisuais}` — as arestas
+ *     CRUAS, sem passar por `filtrarArestasPorCamada`. Com só "Sucessão"
+ *     marcada, o canvas mostrava 4 arestas de sucessão e a lista continuava
+ *     anunciando Correlação, Sinergia, Obsolescência e Caminho crítico.
+ *  2. o ramo `if (accessibleFallback)` devolvia SÓ a `<ol>`, deixando a barra
+ *     do grafo — e com ela o pill "Camadas" — fora da tela. Quem troca o
+ *     canvas pela lista (o caminho de quem não usa mouse) perdia o único
+ *     controle que a peça nomeia: não havia como desligar camada nenhuma.
+ *
+ * Os dois foram consertados no produto. Esta medida cobra os dois: o painel
+ * EXISTE no modo lista, e desmarcar uma camada some com ela da lista —
+ * conferido contra o universo derivado, camada por camada, em TODAS as
+ * camadas (não numa amostra).
+ */
+async function medirListaObedeceAsCamadas(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page } = await abrirPagina(browser, caso);
+  const linhas = [];
+  try {
+    await ligarTodasAsCamadas(page);
+    await page.waitForTimeout(400);
+    const botao = page.locator("button", { hasText: "ver como lista" }).first();
+    if ((await botao.count()) === 0) {
+      exigir(false, `${chave}: §16 não achei o botão "ver como lista"`);
+      return linhas;
+    }
+    await botao.click();
+    await page.waitForSelector("ol[aria-label] li[data-lb-tarefa]", { timeout: 10000 });
+    await page.waitForTimeout(300);
+
+    const pill = page.locator('button[aria-label="Camadas"]').first();
+    const temPainel = (await pill.count()) > 0;
+    exigir(
+      temPainel,
+      `${chave}: §16 o modo LISTA não tem o pill "Camadas" — quem não usa mouse fica sem o único controle que a peça nomeia`,
+    );
+    if (!temPainel) return linhas;
+
+    const lerCamadasAnunciadas = async () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("ol[aria-label] li[data-lb-tarefa] [data-lb-camada]")].map((el) =>
+          el.getAttribute("data-lb-camada"),
+        ),
+      );
+
+    const painel = await abrirPainelDeCamadas(page);
+    if (painel === null) {
+      exigir(false, `${chave}: §16 o pill "Camadas" existe no modo lista e não abre o painel`);
+      return linhas;
+    }
+    const porRotulo = new Map(CONTRATO.camadas.map((c) => [CONTRATO.rotulos[c], c]));
+    const indiceDaCamada = new Map();
+    painel.rotulos.forEach((r, i) => {
+      const camada = porRotulo.get(r.texto);
+      if (camada) indiceDaCamada.set(camada, i);
+    });
+    const semCaixa = CONTRATO.camadas.filter((c) => !indiceDaCamada.has(c));
+    if (semCaixa.length > 0) {
+      exigir(false, `${chave}: §16 camada sem caixa no painel do modo lista: ${semCaixa.join(", ")}`);
+      return linhas;
+    }
+    const marcar = async (camada, valor) => {
+      const caixas = page.locator('[role="dialog"][aria-label="Camadas do grafo"] input[type="checkbox"]');
+      const caixa = caixas.nth(indiceDaCamada.get(camada));
+      if (valor) await caixa.check();
+      else await caixa.uncheck();
+      await page.waitForTimeout(450);
+    };
+
+    for (const camada of CONTRATO.camadas) {
+      await marcar(camada, false);
+      const marcadasAgora = CONTRATO.camadas.filter((c) => c !== camada);
+      const anunciadas = await lerCamadasAnunciadas();
+      const esperadas = universoNasCamadas(UNIVERSO, marcadasAgora);
+      const camadasEsperadas = new Set();
+      for (const e of esperadas) {
+        camadasEsperadas.add(e.camada);
+        if (e.critica) camadasEsperadas.add("critico");
+      }
+      const aMais = [...new Set(anunciadas)].filter((c) => c !== "nenhuma" && !camadasEsperadas.has(c));
+      const aMenos = [...camadasEsperadas].filter((c) => !anunciadas.includes(c));
+      exigir(
+        aMais.length === 0,
+        `${chave}: §16 com "${CONTRATO.rotulos[camada]}" DESMARCADA, a lista acessível continua anunciando ${aMais.join(", ")} — ela não obedece ao painel`,
+      );
+      exigir(
+        aMenos.length === 0,
+        `${chave}: §16 com "${CONTRATO.rotulos[camada]}" desmarcada, a lista acessível deixou de anunciar ${aMenos.join(", ")}, que continuam no dado`,
+      );
+      linhas.push(
+        `${camada} off: lista anuncia [${[...new Set(anunciadas)].filter((c) => c !== "nenhuma").sort().join("+") || "nada"}]`,
+      );
+      await marcar(camada, true);
+    }
+    await fecharPainelDeCamadas(page);
+  } finally {
+    await ctx.close();
+  }
+  return linhas;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §17 · FONTE DESLIGADA ESMAECE A ARESTA DE VERDADE  (achado MÉDIO 7)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * `style: { opacity: dimmed ? 0.15 : 1 }` era CÓDIGO MORTO: no ReactFlow 11 o
+ * `EdgeWrapper` não aplica `style` ao `<g>` — ele o passa como prop ao
+ * componente customizado, e `V3Edge` desestruturava só `{ data }`. Provado:
+ * `opacity: 0` em todas as arestas não mudava nada na tela e
+ * `getComputedStyle` devolvia `style = null`. Consequência real: aresta de
+ * fonte desligada NUNCA esmaeceu, enquanto o cartão da mesma fonte esmaecia.
+ *
+ * Consertado o produto (o esmaecimento anda por `data` e é aplicado no `<g>`),
+ * a régua aqui mede o que o olho recebe: com um filtro de fonte ligado, a
+ * aresta cujas DUAS pontas estão fora tem de ficar visivelmente mais apagada
+ * que uma vizinha que continua dentro — comparação na MESMA tela, como §8 e §9
+ * já fazem, nunca contra uma constante escrita aqui.
+ *
+ * O filtro é escolhido pelo DADO: a fonte que deixa alguma aresta com as duas
+ * pontas fora e alguma outra com pelo menos uma dentro. Se nenhuma fonte fizer
+ * isso, não há o que medir — e isso é reprovação, nunca dispensa.
+ */
+const FRACAO_MAXIMA_DO_ALFA_ESMAECIDO = 0.6;
+
+/** No celular cada painel é uma ABA; o filtro de fontes mora na aba "Fontes". */
+async function irParaAba(page, caso, nome) {
+  if (caso.desktop) return;
+  const aba = page.locator('nav[aria-label="Painéis"] button', { hasText: nome });
+  if ((await aba.count()) > 0) {
+    await aba.first().click();
+    await page.waitForTimeout(600);
+  }
+}
+
+async function medirEsmaecimentoPorFonte(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page } = await abrirPagina(browser, caso);
+  try {
+    await ligarTodasAsCamadas(page);
+    await page.waitForTimeout(400);
+    await irParaAba(page, caso, "Fontes");
+    const caixas = page.locator('fieldset input[type="checkbox"]');
+    const n = await caixas.count();
+    if (n < 2) {
+      exigir(false, `${chave}: §17 não achei o filtro de fontes (${String(n)} caixas) — sem ele o esmaecimento não tem como ser exercido`);
+      return "sem filtro";
+    }
+    /* Deixa só a PRIMEIRA fonte marcada: alguma aresta fica com as duas pontas
+       fora (esmaecida) e alguma fica com uma ponta dentro (normal). Se a
+       escolha não produzir os dois lados, a medida reprova logo abaixo. */
+    for (let i = 1; i < n; i += 1) {
+      const caixa = caixas.nth(i);
+      if (await caixa.isChecked()) await caixa.uncheck();
+      await page.waitForTimeout(80);
+    }
+    await page.waitForTimeout(700);
+    await irParaAba(page, caso, "Grafo");
+    await page.waitForSelector(".react-flow__viewport", { timeout: 20000 });
+    await page.waitForTimeout(700);
+
+    const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+    const esmaecidas = leitura.arestas.filter((a) => a.esmaecida && !a.semPath);
+    const inteiras = leitura.arestas.filter((a) => !a.esmaecida && !a.semPath);
+    exigir(
+      esmaecidas.length > 0 && inteiras.length > 0,
+      `${chave}: §17 com uma fonte só marcada, o canvas tem ${String(esmaecidas.length)} aresta(s) esmaecida(s) e ${String(inteiras.length)} inteira(s) — precisa das duas para comparar na mesma tela. Aresta que nunca esmaece é o código morto que esta medida existe para pegar`,
+    );
+    if (esmaecidas.length === 0 || inteiras.length === 0) return "sem os dois lados";
+
+    const grupos = await page.$$(SELETOR_DA_ARESTA);
+    const alfaDe = async (a) => {
+      const i = leitura.arestas.indexOf(a);
+      const g = grupos[i];
+      if (!g || !Array.isArray(a.pontos) || a.pontos.length === 0) return null;
+      const janela = janelaDosPontos(a.pontos, RAIO_DA_AMOSTRA + 3, page.viewportSize());
+      if (janela === null) return null;
+      const fotos = await fotosComESem(page, g, janela);
+      if (fotos.erro) return null;
+      let pico = 0;
+      for (const ponto of a.pontos) {
+        const amostra = amostraNoPonto(
+          fotos,
+          ponto,
+          a.corEsperada,
+          RAIO_DA_AMOSTRA,
+          hexEmRgb(CONTRATO.cores[a.papel] ?? "#000000"),
+          CONTRATO.pisoDeContraste,
+        );
+        if (amostra.dentro && amostra.alfaPico > pico) pico = amostra.alfaPico;
+      }
+      return pico;
+    };
+
+    let piorInteira = 0;
+    for (const a of inteiras) {
+      const alfa = await alfaDe(a);
+      if (alfa !== null && alfa > piorInteira) piorInteira = alfa;
+    }
+    const problemas = [];
+    const medidos = [];
+    for (const a of esmaecidas) {
+      const alfa = await alfaDe(a);
+      if (alfa === null) {
+        problemas.push(`${a.id}: não consegui medir o α dela na tela, e não medir é reprovar`);
+        continue;
+      }
+      medidos.push(`${a.id.split(":")[0]} α${alfa.toFixed(2)}`);
+      if (piorInteira <= 0) continue;
+      if (alfa > FRACAO_MAXIMA_DO_ALFA_ESMAECIDO * piorInteira) {
+        problemas.push(
+          `${a.id}: as duas pontas estão fora do filtro e a aresta pinta com α ${alfa.toFixed(2)} contra ${piorInteira.toFixed(2)} da vizinha que ficou dentro (teto ${String(FRACAO_MAXIMA_DO_ALFA_ESMAECIDO)}×) — ela não esmaeceu`,
+        );
+      }
+    }
+    exigir(
+      piorInteira > 0,
+      `${chave}: §17 nenhuma aresta INTEIRA pôde ser medida nesta tela — sem a referência, o α da esmaecida não diz nada`,
+    );
+    exigir(problemas.length === 0, `${chave}: §17 o esmaecimento por fonte — ${problemas.slice(0, 3).join(" ; ")}`);
+    return `${String(esmaecidas.length)} esmaecida(s) [${medidos.join(", ")}] contra α ${piorInteira.toFixed(2)} da inteira`;
+  } finally {
+    await ctx.close();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §15 · O DESENHO DEPOIS DO GESTO DO OPERADOR  (achado ALTO 3)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * §3–§6 rodavam numa página limpa própria e mediam SÓ a escala do viewport;
+ * §7–§12 rodavam antes, sempre no zoom inicial. A varredura de estados (§11)
+ * fechou a porta dos popovers e deixou a do gesto escancarada — é a forma 4
+ * (medir um instante só), aplicada ao eixo que o operador mexe toda hora.
+ *
+ * Provado pelo crítico com uma linha em `v3-edge.tsx` (`if (zoomSeguro > 1.2)
+ * return null`): zoom inicial com 4 arestas no DOM, e ZERO depois de seis
+ * cliques no botão de zoom do próprio produto — com os cinco portões verdes.
+ *
+ * O que se mede aqui, depois do gesto:
+ *   • o canvas × o universo derivado (DOM, robusto a aresta fora da janela);
+ *   • que alguma aresta continua PINTANDO de fato (pixel) — e não medir
+ *     nenhuma é reprovação, nunca dispensa;
+ *   • o mesmo depois de um PAN de verdade (arrastar o fundo);
+ *   • e, no mesmo gesto, que arrastar um CARTÃO não o move — a posição é
+ *     derivada do grafo, e isto é contrato (achado BAIXO 13, 3ª parte).
+ */
+async function medirPinturaLeve(page, chave, estado, arestas, cartoes, pane) {
+  const problemas = [];
+  const grupos = await page.$$(SELETOR_DA_ARESTA);
+  const vista = page.viewportSize();
+  const caixas = Object.values(cartoes ?? {});
+  /* O canvas RECORTA o que sai dele (`.react-flow` tem overflow escondido):
+     depois de um zoom de 1,8 pedaços de traço passam a cair acima da barra do
+     grafo e simplesmente não são pintados ali. Medido na árvore honesta: duas
+     arestas com 6 a 15 pontos "na tela" e ZERO pixels mudando, porque os
+     pontos estavam fora do retângulo do canvas. A régua é o retângulo do
+     CANVAS, não o da janela. */
+  const dentroDoPane = (p) =>
+    pane === undefined ||
+    pane === null ||
+    (p.x >= pane.x && p.x <= pane.x + pane.largura && p.y >= pane.y && p.y <= pane.y + pane.altura);
+  /*
+   * ── O QUE É "MEDÍVEL" DEPOIS DO GESTO, E POR QUE ISSO NÃO É DISPENSA ───
+   *
+   * Depois de seis cliques de zoom o mundo fica maior que a tela: pedaços de
+   * traço saem da janela de visão, e outros passam a correr ATRÁS de um
+   * cartão (o cartão também cresceu). Exigir que TODA aresta do DOM pinte
+   * seria reprovar a oclusão e o recorte — nenhum dos dois é defeito, e os
+   * dois foram medidos na árvore honesta.
+   *
+   * A régua, então, é geométrica e decidida ANTES de olhar o pixel: um ponto
+   * do traço só vota se estiver DENTRO da janela E FORA de todo cartão. Onde
+   * sobra ponto assim, a aresta TEM de pintar — e "nenhuma aresta sobrou para
+   * medir" é reprovação, nunca silêncio (é exatamente a forma 2 do vício
+   * desta esteira: aprovar por ausência).
+   */
+  const foraDeCartao = (p) =>
+    !caixas.some(
+      (c) => p.x >= c.x - 2 && p.x <= c.x + c.largura + 2 && p.y >= c.y - 2 && p.y <= c.y + c.altura + 2,
+    );
+  let medidas = 0;
+  let pintam = 0;
+  for (let i = 0; i < arestas.length; i += 1) {
+    const a = arestas[i];
+    const g = grupos[i];
+    if (!g || a.semPath || !Array.isArray(a.pontos) || a.pontos.length === 0) continue;
+    const livres = a.pontos.filter(
+      (p) =>
+        p.x >= 0 &&
+        p.y >= 0 &&
+        p.x < vista.width &&
+        p.y < vista.height &&
+        dentroDoPane(p) &&
+        foraDeCartao(p),
+    );
+    if (livres.length === 0) continue; // fora da tela ou atrás de cartão: não é defeito
+    const janela = janelaDosPontos(livres, RAIO_DA_AMOSTRA + 3, vista);
+    if (janela === null) continue;
+    const fotos = await fotosComESem(page, g, janela);
+    if (fotos.erro) {
+      if (ehErroDeAmbiente(fotos.erro)) naoConsegui(`${chave}${estado} · ${a.id}: ${fotos.erro}`);
+      else problemas.push(`${a.id}: ${fotos.erro}`);
+      continue;
+    }
+    let mudaram = 0;
+    let dentro = false;
+    for (const ponto of livres) {
+      const amostra = amostraNoPonto(fotos, ponto, a.corEsperada, RAIO_DA_AMOSTRA);
+      if (!amostra.dentro) continue;
+      dentro = true;
+      mudaram += amostra.mudaram;
+    }
+    if (!dentro) continue;
+    medidas += 1;
+    if (mudaram >= 12) pintam += 1;
+    else {
+      problemas.push(
+        `${a.id} (papel "${a.papel}"): tem ${String(livres.length)} ponto(s) de traço na tela e fora de qualquer cartão, e não pinta em nenhum — ${String(mudaram)} pixels mudam ao escondê-la`,
+      );
+    }
+  }
+  exigir(
+    medidas > 0 && problemas.length === 0,
+    `${chave}${estado}: §15 a pintura depois do gesto — ${
+      medidas === 0
+        ? "NENHUMA aresta caiu na janela de visão para ser medida em pixel, e não medir é reprovar"
+        : problemas.slice(0, 3).join(" ; ")
+    }`,
+  );
+  return `${String(pintam)}/${String(medidas)} pintam`;
+}
+
+async function medirDepoisDoGesto(page, chave, camadasAtivas) {
+  const linhas = [];
+  const caixaDoCanvas = await page.evaluate(() => {
+    const el = document.querySelector(".react-flow");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+  });
+
+  // ── depois do ZOOM (o gesto já foi aplicado por quem chama) ─────────────
+  const zoom = escalaDe(await transformDoCanvas(page));
+  const leituraZoom = await page.evaluate(LEITURA_DAS_ARESTAS);
+  const contratoZoom = await lerContratoDoCanvas(page);
+  const dadoZoom = medirCanvasContraOUniverso(
+    chave,
+    ` (depois do zoom ${String(zoom)})`,
+    contratoZoom,
+    leituraZoom.arestas,
+    camadasAtivas,
+  );
+  const pinturaZoom = await medirPinturaLeve(
+    page,
+    chave,
+    ` (depois do zoom ${String(zoom)})`,
+    leituraZoom.arestas,
+    leituraZoom.cartoes,
+    caixaDoCanvas,
+  );
+  linhas.push(`zoom ${String(zoom)}: ${dadoZoom} · ${pinturaZoom}`);
+
+  // ── e depois de um PAN de verdade (arrastar o fundo) ────────────────────
+  const antesDoPan = await page.evaluate(() => {
+    const el = document.querySelector(".react-flow__viewport");
+    return el ? getComputedStyle(el).transform : null;
+  });
+  /*
+   * O ponto de partida do arrasto tem de ser FUNDO de verdade. Medido a
+   * 390×800 na árvore honesta: o centro do pane cai em cima de um cartão (a
+   * 1,8 de zoom um cartão ocupa quase a largura inteira), o `mousedown` vai
+   * para o nó e o pan não acontece — a guarda acusava "arrastar o fundo não
+   * moveu nada" sobre um produto que estava certo. Procura-se um ponto cuja
+   * pilha de elementos comece no próprio `.react-flow__pane`.
+   */
+  const pontoDeFundo = await page.evaluate(() => {
+    const pane = document.querySelector(".react-flow__pane");
+    if (!pane) return null;
+    const r = pane.getBoundingClientRect();
+    for (const fx of [0.5, 0.15, 0.85, 0.3, 0.7, 0.05, 0.95]) {
+      for (const fy of [0.5, 0.12, 0.88, 0.3, 0.7]) {
+        const x = r.x + r.width * fx;
+        const y = r.y + r.height * fy;
+        const acima = document.elementFromPoint(x, y);
+        if (acima === pane) return { x: x, y: y };
+      }
+    }
+    return null;
+  });
+  if (pontoDeFundo === null) {
+    exigir(
+      false,
+      `${chave}: §15 não achei um ponto do FUNDO do canvas livre de cartão para arrastar — sem isso o pan não pode ser exercido`,
+    );
+    return linhas;
+  }
+  const centro = pontoDeFundo;
+  await page.mouse.move(centro.x, centro.y);
+  await page.mouse.down();
+  await page.mouse.move(centro.x - 70, centro.y - 50, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const depoisDoPan = await page.evaluate(() => {
+    const el = document.querySelector(".react-flow__viewport");
+    return el ? getComputedStyle(el).transform : null;
+  });
+  exigir(
+    depoisDoPan !== null && depoisDoPan !== antesDoPan,
+    `${chave}: §15 arrastar o FUNDO do canvas não moveu nada (transform ${String(antesDoPan)} antes e depois) — o pan é o único arrasto que esta peça promete`,
+  );
+  exigir(
+    Math.abs((escalaDe(depoisDoPan) ?? 0) - (zoom ?? 0)) < 1e-6,
+    `${chave}: §15 o pan mexeu no ZOOM (${String(zoom)} → ${String(escalaDe(depoisDoPan))}) — arrastar o fundo desloca, não amplia`,
+  );
+  const leituraPan = await page.evaluate(LEITURA_DAS_ARESTAS);
+  const contratoPan = await lerContratoDoCanvas(page);
+  const dadoPan = medirCanvasContraOUniverso(chave, " (depois do pan)", contratoPan, leituraPan.arestas, camadasAtivas);
+  const pinturaPan = await medirPinturaLeve(
+    page,
+    chave,
+    " (depois do pan)",
+    leituraPan.arestas,
+    leituraPan.cartoes,
+    caixaDoCanvas,
+  );
+  linhas.push(`pan: ${dadoPan} · ${pinturaPan}`);
+
+  /*
+   * ── E O CARTÃO NÃO SE ARRASTA (achado BAIXO 13, 3ª parte) ──────────────
+   *
+   * A peça é descrita por fora como "canvas de nós arrastáveis" e passa
+   * `nodesDraggable={false}`: a posição de cada cartão é DERIVADA do grafo.
+   * Ou a descrição está errada, ou o produto está — e nenhuma medida dizia
+   * qual. Esta diz: o `transform` do nó (a posição em px de MUNDO) tem de ser
+   * o mesmo antes e depois de um arrasto de 80×60 px em cima dele.
+   */
+  const noParaArrastar = await page.evaluate(() => {
+    const no = document.querySelector(".react-flow__node[data-id]");
+    if (!no) return null;
+    const r = no.getBoundingClientRect();
+    return {
+      id: no.getAttribute("data-id"),
+      transform: getComputedStyle(no).transform,
+      centro: { x: r.x + r.width / 2, y: r.y + r.height / 2 },
+    };
+  });
+  if (noParaArrastar === null) {
+    exigir(false, `${chave}: §15 nenhum cartão no canvas para provar que ele não se arrasta`);
+    return linhas;
+  }
+  await page.mouse.move(noParaArrastar.centro.x, noParaArrastar.centro.y);
+  await page.mouse.down();
+  await page.mouse.move(noParaArrastar.centro.x + 80, noParaArrastar.centro.y + 60, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const depoisDoArrasto = await page.evaluate((id) => {
+    const no = [...document.querySelectorAll(".react-flow__node[data-id]")].find(
+      (n) => n.getAttribute("data-id") === id,
+    );
+    return no ? getComputedStyle(no).transform : null;
+  }, noParaArrastar.id);
+  exigir(
+    depoisDoArrasto === noParaArrastar.transform,
+    `${chave}: §15 arrastar o cartão "${String(noParaArrastar.id)}" MOVEU o cartão (${String(noParaArrastar.transform)} → ${String(depoisDoArrasto)}) — a posição é derivada do grafo, não do mouse`,
+  );
+  linhas.push(`cartão arrastado: ${depoisDoArrasto === noParaArrastar.transform ? "não saiu do lugar" : "SAIU DO LUGAR"}`);
+  return linhas;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // §1–§9 numa largura
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// §19/§20/§21 · AS SENTINELAS DE TEMPO  (achado ALTO da rodada 14)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * **O que estava aberto, e por quê.** Esta guarda media a carga, o estado
+ * default, o zoom e o pan — tudo no COMEÇO da vida da página. Nenhuma medida
+ * olhava para trás depois que o tempo passou, e uma regressão que ARMA DEPOIS
+ * era invisível. Medido pelo coordenador, com quatro linhas dentro de
+ * `v3-edge.tsx` (um `setTimeout` de 45 s que devolve `null` para toda aresta
+ * não crítica):
+ *
+ *     t =  2s  {"arestasNoCanvas":4,"porCamada":{"sucessao":4}}
+ *     t = 50s  {"arestasNoCanvas":4,"porCamada":{"sucessao":2}}
+ *
+ * Duas dependências somem da tela do operador, em silêncio, e os CINCO
+ * portões ficavam verdes — esta guarda inclusive, imprimindo "todas as
+ * promessas medidas no navegador se sustentam".
+ *
+ * É a **forma 4** do vício desta casa (*a guarda mede um instante só*), e era
+ * a última das cinco que a peça P4 ainda tinha aberta. As outras quatro
+ * continuam fechadas onde já estavam: forma 1 (conta a si mesma) em §0/§12,
+ * forma 2 (aprova por ausência) nos pisos derivados de §7, forma 3 (universo
+ * por convenção) em `derivarContrato`, forma 5 (o caso, não a classe) em §11.
+ *
+ * ## As três medidas, e as três redes de cada uma
+ *
+ * | # | medida | régua |
+ * |---|---|---|
+ * | §19 V | o DESENHO continua de pé depois de o tempo real passar (sentinela viva as medidas inteiras daquela largura) | desenho refeito = desenho do nascimento, 0 escrita anotada |
+ * | §20 W | idem, com o relógio adiantado meia hora DUAS vezes, com a tela exercida entre elas | idem |
+ * | §21 X | o alcance de tempo declarado cobre tudo o que a guarda mede | 1 sentinela de cada tipo por largura, e nenhuma enxergando menos que a guarda |
+ *
+ * Três redes independentes em cada sentinela, porque uma só sempre tem um
+ * ponto cego:
+ *
+ *   1. **a MEDIÇÃO DO PRODUTO REFEITA** — `medirODesenhoInteiro` inteiro, o
+ *      mesmo de §7–§12: pixel que muda ao esconder, cor composta por aresta,
+ *      o traço triplo medido traço a traço, o glifo de cada camada, a lista
+ *      acessível e o canvas × o dado bruto. **Não é olhar atributo**: é o
+ *      desenho medido de novo, tarde. Aqui o que envelhece é o CANVAS, e as
+ *      regressões desta peça têm cara de aresta que some, cor que muda, glifo
+ *      que desaparece e traço triplo que vira simples — nenhuma delas se vê
+ *      lendo `tabindex`;
+ *   2. **a FOTOGRAFIA do nascimento comparada com a do fim** — o que mudou
+ *      entre os dois instantes, aresta por aresta: quem sumiu, quem nasceu,
+ *      quem trocou de camada, de papel, de cor, de número de traços, de
+ *      glifo, de opacidade ou de rota. Pega também a mudança que continua
+ *      LEGAL (uma cor de contrato trocada por outra cor de contrato), que a
+ *      rede 1 aprovaria;
+ *   3. **o VIGIA dentro da página**, instalado por `addInitScript` ANTES da
+ *      hidratação: ele intercepta a remoção de nó (`removeChild`/`remove`) e a
+ *      escrita de atributo de desenho, e diz QUEM mudou, de quê para quê e AOS
+ *      QUANTOS SEGUNDOS. É o que transforma "8 arestas sumiram" em "aos 45,0 s
+ *      o React removeu 8 `g[data-camada]`".
+ *
+ * ## QUAL É O ALCANCE DE TEMPO DESTAS MEDIDAS — dito por extenso
+ *
+ * **O que está DENTRO:** qualquer coisa que mude o DESENHO do grafo — aresta
+ * que some ou nasce, camada, papel, cor, opacidade, rota, número de traços da
+ * tripla, glifo, rótulo — na rota que esta guarda visita, em CADA largura de
+ * `LARGURAS`, com as cinco camadas ligadas, (a) a qualquer momento da vida
+ * real das medidas DAQUELA LARGURA — a sentinela nasce antes da primeira e é
+ * lida depois da última —, medida e impressa em cada §19, com piso escrito à
+ * mão de `PISO_DE_VIDA_DA_SENTINELA_MS` (e, se a largura correr mais rápido
+ * que o piso, a sentinela espera pelo piso em vez de declarar um alcance que
+ * não teve); e (b) agendada para até 30 minutos depois da carga, mais outros
+ * 30 minutos depois de a tela ser exercida (§20).
+ *
+ * **O que está FORA, e não se finge o contrário:** (a) atraso maior que os
+ * dois adiantamentos de meia hora de §20; (b) mutação disparada por algo que
+ * o relógio de mentira não controla e que só aconteça depois do fim da
+ * corrida — a resposta de uma requisição de rede real que demore mais que
+ * isso, por exemplo; (b′) regressão de tempo real mais lenta que as medidas
+ * de UMA largura: §19 cobre a vida da sentinela daquela largura, não a corrida
+ * inteira — quem cobre o longo prazo é §20, pelo relógio, sem pagar o relógio
+ * de parede; (c) estados da tela que a sentinela não estabelece: ela
+ * vive com as cinco camadas LIGADAS e sem seleção, então uma regressão que só
+ * arme com um cartão selecionado, com uma camada desligada, depois do zoom ou
+ * depois do F5 está fora — quem mede esses estados são §11, §13, §14, §15 e
+ * §18, e eles continuam medindo um instante cada; (d) interação que o
+ * exercício de §20 não faz: arrastar, rolar e o CLIQUE de verdade (clicar
+ * aqui abriria painel e mudaria o estado que a sentinela vigia); (e) mutação
+ * num nó que ainda não entrou na árvore — isso é montagem, não
+ * envelhecimento, e quem a mede é a FOTOGRAFIA do nascimento, não o vigia.
+ *
+ * E **§21 é quem impede as duas de valerem para menos do que dizem**: toda
+ * largura em que a guarda mediu o desenho tem de ter as suas duas sentinelas,
+ * e nenhuma sentinela pode ter nascido enxergando menos arestas do que a
+ * guarda enxergou naquela largura — sentinela que nasce encolhida concorda
+ * com a tela por encolher junto.
+ */
+
+/** Piso de vida da sentinela de tempo real, escrito à mão — não derivado da corrida. */
+const PISO_DE_VIDA_DA_SENTINELA_MS = 60000;
+
+/** Quanto §20 adianta o relógio de uma vez. É o alcance agendado declarado. */
+const ADIANTAMENTO_DO_RELOGIO_MS = 1800000;
+
+/** O canal pelo qual o vigia entrega cada anotação AO NODE. */
+const CANAL_DO_VIGIA_DO_DESENHO = "__vigiaDesenhoP4Envia";
+
+/** Os atributos que decidem como (ou se) uma aresta é desenhada. */
+const ATRIBUTOS_DO_DESENHO = [
+  "d",
+  "style",
+  "class",
+  "opacity",
+  "display",
+  "visibility",
+  "hidden",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "fill",
+  "fill-opacity",
+  "transform",
+  "points",
+  "r",
+  "data-camada",
+  "data-critica",
+  "data-esmaecida",
+];
+
+/** O que o vigia considera "peça do desenho" para efeito de ATRIBUTO. */
+const SELETOR_DO_DESENHO =
+  ".react-flow g[data-camada], .react-flow g[data-camada] path, .react-flow g[data-camada] polygon, .react-flow g[data-camada] circle, .react-flow g[data-camada] text";
+
+/** O que o vigia considera "peça do desenho" para efeito de NÓ QUE SOME. */
+const SELETOR_DE_PECA_QUE_SOME = ".react-flow g[data-camada], .react-flow__node";
+
+/**
+ * Este corpo NÃO roda no Node: o Playwright o serializa e o executa dentro do
+ * Chromium, antes de qualquer script da página (`addInitScript`). Por isso ele
+ * fala com `window.` em tudo.
+ */
+function VIGIA_DO_DESENHO(config) {
+  const { canal, atributos, seletorDeAtributo, seletorDePeca } = config;
+  /* Instalar duas vezes dobraria cada anotação — e contagem dobrada mente
+     tanto quanto zerada. */
+  if (Object.prototype.hasOwnProperty.call(window, "__vigiaDesenhoP4")) return;
+  const inicio = Date.now();
+  const anotacoes = [];
+  let marcoMs = null;
+  const enviar = typeof window[canal] === "function" ? window[canal] : null;
+  const vigiados = new Set(atributos);
+
+  const nomeDe = (el) => {
+    const g = el.closest === undefined ? null : el.closest("[data-aresta-id]");
+    const id = g === null ? el.getAttribute("data-id") : g.getAttribute("data-aresta-id");
+    return `<${el.tagName.toLowerCase()}>${id === null ? "" : ` [${id}]`}`;
+  };
+
+  const anotar = (rede, el, oQue, de, para) => {
+    if (!(el instanceof Element)) return;
+    if (String(de) === String(para)) return;
+    const m = {
+      rede,
+      oQue,
+      de: String(de).slice(0, 60),
+      para: String(para).slice(0, 60),
+      alvo: nomeDe(el),
+      aosMs: Date.now() - inicio,
+    };
+    anotacoes.push(m);
+    if (enviar !== null) {
+      try {
+        enviar(m);
+      } catch {
+        // o canal caiu; as outras cópias continuam
+      }
+    }
+  };
+
+  /** Quantas peças de desenho existem dentro (ou são) este nó. */
+  const pecasDentro = (no) => {
+    if (!(no instanceof Element)) return [];
+    const achadas = [];
+    try {
+      if (no.matches(seletorDePeca)) achadas.push(no);
+      for (const d of no.querySelectorAll(seletorDePeca)) achadas.push(d);
+    } catch {
+      /* seletor impossível neste nó */
+    }
+    return achadas;
+  };
+
+  /*
+   * Rede 1 — o observador. Pega TODA mudança de atributo e TODA remoção,
+   * inclusive as que não passam pelas funções embrulhadas abaixo.
+   */
+  const observador = new MutationObserver((registros) => {
+    for (const r of registros) {
+      if (r.type === "attributes" && r.attributeName !== null) {
+        const el = r.target;
+        if (!(el instanceof Element) || !el.isConnected) continue;
+        let casa = false;
+        try {
+          casa = el.matches(seletorDeAtributo);
+        } catch {
+          casa = false;
+        }
+        if (!casa) continue;
+        anotar(
+          "MutationObserver",
+          el,
+          `atributo ${r.attributeName}`,
+          r.oldValue,
+          el.getAttribute(r.attributeName),
+        );
+        continue;
+      }
+      if (r.type !== "childList") continue;
+      for (const no of r.removedNodes) {
+        const pecas = pecasDentro(no);
+        if (pecas.length > 0) {
+          anotar("MutationObserver", pecas[0], `${String(pecas.length)} peça(s) do desenho SAÍRAM da árvore`, "na tela", "removida");
+        }
+      }
+      for (const no of r.addedNodes) {
+        const pecas = pecasDentro(no);
+        if (pecas.length > 0) {
+          anotar("MutationObserver", pecas[0], `${String(pecas.length)} peça(s) do desenho ENTRARAM na árvore`, "ausente", "na tela");
+        }
+      }
+    }
+  });
+  observador.observe(document, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeOldValue: true,
+    attributeFilter: atributos,
+  });
+
+  /*
+   * Rede 2 — a remoção pela porta que o React usa de verdade. Não depende de
+   * o observador acima sobreviver: quem desligar o `MutationObserver` ainda
+   * cai aqui.
+   */
+  const remover0 = Node.prototype.removeChild;
+  Node.prototype.removeChild = function (filho) {
+    const pecas = pecasDentro(filho);
+    const r = remover0.call(this, filho);
+    if (pecas.length > 0) {
+      anotar("removeChild", pecas[0], `${String(pecas.length)} peça(s) do desenho removidas por removeChild`, "na tela", "removida");
+    }
+    return r;
+  };
+  const remover1 = Element.prototype.remove;
+  Element.prototype.remove = function () {
+    const pecas = pecasDentro(this);
+    const alvo = pecas.length > 0 ? pecas[0] : null;
+    const quantas = pecas.length;
+    const r = remover1.call(this);
+    if (alvo !== null) {
+      anotar("Element.remove", alvo, `${String(quantas)} peça(s) do desenho removidas por remove()`, "na tela", "removida");
+    }
+    return r;
+  };
+
+  /*
+   * Rede 3 — a escrita de atributo que não passa pelo observador porque
+   * alguém o desligou. `setAttribute` é a porta pela qual o React escreve em
+   * SVG.
+   */
+  const set0 = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (nome, valor) {
+    const chave = String(nome).toLowerCase();
+    if (!vigiados.has(chave)) {
+      set0.call(this, nome, valor);
+      return;
+    }
+    let casa = false;
+    try {
+      casa = this.isConnected && this.matches(seletorDeAtributo);
+    } catch {
+      casa = false;
+    }
+    const de = this.getAttribute(nome);
+    set0.call(this, nome, valor);
+    if (casa) anotar("setAttribute", this, `atributo ${chave}`, de, this.getAttribute(nome));
+  };
+
+  window.__vigiaDesenhoP4 = {
+    instalado: true,
+    redes: ["MutationObserver", "removeChild/remove", "setAttribute"],
+    /* O nascimento: daqui para a frente, toda anotação é ENVELHECIMENTO. */
+    marcar: () => {
+      marcoMs = Date.now() - inicio;
+      return marcoMs;
+    },
+    marco: () => marcoMs,
+    vidaMs: () => Date.now() - inicio,
+    todas: () => anotacoes.slice(),
+    depoisDoNascimento: () => (marcoMs === null ? [] : anotacoes.filter((m) => m.aosMs >= marcoMs)),
+  };
+}
+
+/** Lê o vigia; não estar instalado é reprovação, nunca silêncio. */
+async function lerVigiaDoDesenho(pagina) {
+  try {
+    return await pagina.evaluate(() => {
+      const v = window.__vigiaDesenhoP4;
+      if (v === undefined || v === null) {
+        return { instalado: false, redes: [], marco: null, vidaMs: 0, antes: 0, depois: [] };
+      }
+      const depois = v.depoisDoNascimento();
+      return {
+        instalado: v.instalado === true,
+        redes: v.redes,
+        marco: v.marco(),
+        vidaMs: v.vidaMs(),
+        antes: v.todas().length - depois.length,
+        depois: depois.slice(0, 40),
+        quantasDepois: depois.length,
+      };
+    });
+  } catch (erro) {
+    return {
+      instalado: false,
+      redes: [],
+      marco: null,
+      vidaMs: 0,
+      antes: 0,
+      depois: [],
+      quantasDepois: 0,
+      quebrou: erro instanceof Error ? erro.message.split("\n")[0] : String(erro),
+    };
+  }
+}
+
+/**
+ * A FOTOGRAFIA DO DESENHO — o retrato de tudo o que o canvas está afirmando
+ * naquele instante, com uma identidade estável no tempo (o id da aresta, que
+ * vem do dado, nunca a posição no documento: se o sabotador some com uma
+ * aresta, a posição de todas as outras anda junto).
+ *
+ * Ela NÃO substitui a medição do produto — é a segunda rede, a que pega a
+ * mudança que continuaria passando na primeira: uma cor de contrato trocada
+ * por outra cor de contrato, um traço a menos na tripla, um glifo que virou o
+ * glifo de outra camada.
+ */
+const FOTOGRAFIA_DO_DESENHO = `(() => {
+  const assinaturaDaForma = (el) => {
+    const t = el.tagName.toLowerCase();
+    if (t === "circle") return "circle|r=" + Number(el.getAttribute("r") || 0).toFixed(1);
+    const bruto = t === "polygon" ? (el.getAttribute("points") || "") : (el.getAttribute("d") || "");
+    const nums = (bruto.match(/-?\\d+(?:\\.\\d+)?/g) || []).map(Number);
+    const comandos = t === "path" ? (bruto.match(/[A-Za-z]/g) || []).join("") : "";
+    if (nums.length < 4) return t + "|" + comandos + "|" + nums.join(",");
+    let minX = Infinity, minY = Infinity;
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      if (nums[i] < minX) minX = nums[i];
+      if (nums[i + 1] < minY) minY = nums[i + 1];
+    }
+    const rel = [];
+    for (let i = 0; i + 1 < nums.length; i += 2) {
+      rel.push((nums[i] - minX).toFixed(1) + " " + (nums[i + 1] - minY).toFixed(1));
+    }
+    return t + "|" + comandos + "|" + rel.join(",");
+  };
+  const arestas = [];
+  for (const g of document.querySelectorAll(".react-flow g[data-camada]")) {
+    const path = g.querySelector("path.lb-edge-path");
+    const retrato = window.__lbp4.retrato(g);
+    const glifos = [...g.querySelectorAll(".lb-edge-glifo")].map(assinaturaDaForma).sort();
+    arestas.push({
+      id: g.getAttribute("data-aresta-id"),
+      camada: g.getAttribute("data-camada"),
+      origem: g.getAttribute("data-origem"),
+      destino: g.getAttribute("data-destino"),
+      critica: g.getAttribute("data-critica") === "true",
+      esmaecida: g.getAttribute("data-esmaecida") === "true",
+      papel: g.classList.contains("lb-edge-destacada")
+        ? "destacada"
+        : g.getAttribute("data-critica") === "true" ? "critico" : g.getAttribute("data-camada"),
+      semPath: path === null,
+      cor: path === null ? "" : getComputedStyle(path).stroke,
+      corComposta: path === null ? "" : window.__lbp4.corEsperada(path, "stroke"),
+      tracejado: path === null ? "" : (path.getAttribute("stroke-dasharray") || ""),
+      rota: path === null ? "" : (path.getAttribute("d") || ""),
+      nTracos: g.querySelectorAll("path.lb-edge-path").length,
+      glifos: glifos.join(" + "),
+      temRotulo: g.querySelector(".lb-edge-label") !== null,
+      alfa: Number(retrato.opacidadeAcumulada.toFixed(3)),
+      visivel: retrato.visivelHerdado,
+    });
+  }
+  arestas.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const porCamada = {};
+  for (const a of arestas) porCamada[a.camada] = (porCamada[a.camada] || 0) + 1;
+  return {
+    arestas: arestas,
+    porCamada: porCamada,
+    criticas: arestas.filter((a) => a.critica).length,
+    cartoes: document.querySelectorAll(".react-flow__node[data-id]").length,
+    contrato: (() => {
+      const el = document.querySelector("[data-lb-contrato-do-canvas]");
+      return el === null ? null : el.getAttribute("data-lb-contrato-do-canvas");
+    })(),
+  };
+})()`;
+
+/** Os campos da fotografia cuja mudança é, por si, uma regressão do desenho. */
+const CAMPOS_DA_FOTOGRAFIA = [
+  "camada",
+  "origem",
+  "destino",
+  "critica",
+  "esmaecida",
+  "papel",
+  "semPath",
+  "cor",
+  "corComposta",
+  "tracejado",
+  "rota",
+  "nTracos",
+  "glifos",
+  "temRotulo",
+  "visivel",
+];
+
+/** Quanto a opacidade composta pode oscilar entre duas leituras sem ser regressão. */
+const FOLGA_DO_ALFA_DA_FOTOGRAFIA = 0.02;
+
+/**
+ * Compara a fotografia do nascimento com a do fim e devolve, em português, o
+ * que envelheceu. Esta rede não depende de o vigia ter sobrevivido nem de o
+ * sabotador ter usado uma escrita conhecida: ela olha o desenho, e pronto.
+ */
+function oQueODesenhoPerdeu(foto0, foto1) {
+  const problemas = [];
+  const por0 = new Map(foto0.arestas.map((a) => [a.id, a]));
+  const por1 = new Map(foto1.arestas.map((a) => [a.id, a]));
+  const sumiram = foto0.arestas.filter((a) => !por1.has(a.id));
+  const nasceram = foto1.arestas.filter((a) => !por0.has(a.id));
+  if (sumiram.length > 0) {
+    problemas.push(
+      `${String(sumiram.length)} de ${String(foto0.arestas.length)} aresta(s) que o canvas desenhava no nascimento SUMIRAM da tela: ${sumiram
+        .slice(0, 4)
+        .map((a) => `${String(a.id)} (camada "${String(a.camada)}"${a.critica ? ", caminho crítico" : ""})`)
+        .join(" · ")}`,
+    );
+  }
+  if (nasceram.length > 0) {
+    problemas.push(
+      `${String(nasceram.length)} aresta(s) APARECERAM sem ninguém tocar na página: ${nasceram
+        .slice(0, 4)
+        .map((a) => String(a.id))
+        .join(" · ")}`,
+    );
+  }
+  const mudaram = [];
+  for (const a of foto1.arestas) {
+    const antes = por0.get(a.id);
+    if (antes === undefined) continue;
+    for (const campo of CAMPOS_DA_FOTOGRAFIA) {
+      if (String(antes[campo]) !== String(a[campo])) {
+        mudaram.push(
+          `${String(a.id)}: ${campo} "${String(antes[campo]).slice(0, 40)}" → "${String(a[campo]).slice(0, 40)}"`,
+        );
+      }
+    }
+    if (Math.abs(antes.alfa - a.alfa) > FOLGA_DO_ALFA_DA_FOTOGRAFIA) {
+      mudaram.push(`${String(a.id)}: opacidade composta ${String(antes.alfa)} → ${String(a.alfa)}`);
+    }
+  }
+  if (mudaram.length > 0) {
+    problemas.push(
+      `${String(mudaram.length)} mudança(s) no desenho entre o nascimento e o fim: ${mudaram.slice(0, 4).join(" · ")}`,
+    );
+  }
+  if (foto0.cartoes !== foto1.cartoes) {
+    problemas.push(`os cartões do canvas foram de ${String(foto0.cartoes)} para ${String(foto1.cartoes)}`);
+  }
+  if (foto0.criticas !== foto1.criticas) {
+    problemas.push(
+      `o caminho crítico foi de ${String(foto0.criticas)} para ${String(foto1.criticas)} aresta(s) desenhada(s)`,
+    );
+  }
+  if (String(foto0.contrato) !== String(foto1.contrato)) {
+    problemas.push("o contrato que o canvas publica (`data-lb-contrato-do-canvas`) mudou sozinho");
+  }
+  return problemas;
+}
+
+/**
+ * O estado ABSOLUTO no fim: não basta "não mudou" — o canvas tem de estar
+ * desenhando, AGORA, tudo o que o dado bruto manda. Sem isto, uma sentinela
+ * que nascesse já quebrada ficaria verde por coerência consigo mesma (a forma
+ * 1 do vício).
+ */
+function oQueFaltaNoDesenhoAgora(foto, quando, camadasAtivas) {
+  const problemas = [];
+  const esperadas = universoNasCamadas(UNIVERSO, camadasAtivas);
+  const desenhadas = foto.arestas.filter((a) => !a.semPath);
+  const porId = new Set(desenhadas.map((a) => a.id));
+  const faltando = esperadas.filter((e) => !porId.has(e.id));
+  if (faltando.length > 0) {
+    problemas.push(
+      `${quando}: ${String(faltando.length)} de ${String(esperadas.length)} aresta(s) que o DADO BRUTO manda desenhar não estão no canvas: ${faltando
+        .slice(0, 4)
+        .map((e) => `${e.id} (camada "${e.camada}")`)
+        .join(" · ")}`,
+    );
+  }
+  const semPath = foto.arestas.filter((a) => a.semPath);
+  if (semPath.length > 0) {
+    problemas.push(
+      `${quando}: ${String(semPath.length)} grupo(s) de aresta sem nenhum <path> dentro: ${semPath.slice(0, 3).map((a) => String(a.id)).join(", ")}`,
+    );
+  }
+  const invisiveis = desenhadas.filter((a) => !a.visivel);
+  if (invisiveis.length > 0) {
+    problemas.push(
+      `${quando}: ${String(invisiveis.length)} aresta(s) no DOM e fora da vista (visibility/display herdados): ${invisiveis.slice(0, 3).map((a) => String(a.id)).join(", ")}`,
+    );
+  }
+  return problemas;
+}
+
+/** O que o vigia viu depois do nascimento, transformado em problema nomeado. */
+function oQueOVigiaDoDesenhoViu(vigia) {
+  const problemas = [];
+  if (!vigia.instalado) {
+    problemas.push(
+      `o vigia do desenho não respondeu nesta página${vigia.quebrou === undefined ? "" : `: ${vigia.quebrou}`} — sem ele, a terceira rede não existe`,
+    );
+    return problemas;
+  }
+  if (vigia.marco === null) {
+    problemas.push("o vigia nunca foi marcado no nascimento — não dá para separar montagem de envelhecimento");
+    return problemas;
+  }
+  if (vigia.quantasDepois > 0) {
+    problemas.push(
+      `o vigia anotou ${String(vigia.quantasDepois)} escrita(s) no desenho DEPOIS do nascimento: ${vigia.depois
+        .slice(0, 3)
+        .map((m) => `${m.oQue} ${m.de}→${m.para} em ${m.alvo} aos ${(m.aosMs / 1000).toFixed(1)}s (rede: ${m.rede})`)
+        .join(" · ")}`,
+    );
+  }
+  return problemas;
+}
+
+/**
+ * Deixa a página assentar. **Com relógio de mentira, quem causa o quadro é a
+ * guarda**: `clock.install()` SUBSTITUI o `requestAnimationFrame` da página,
+ * e esperar um quadro ali é esperar por uma coisa que só nós podemos causar —
+ * impasse por construção. A peça P5 pagou esse pedágio na rodada 15 e a P6 na
+ * 16; aqui a regra já nasce escrita.
+ */
+async function assentarSentinela(pagina, ms) {
+  if (pagina.__relogioDeMentira === true) {
+    await pagina.clock.runFor(ms);
+    await pagina.waitForTimeout(Math.min(ms, 250));
+    return;
+  }
+  await pagina.waitForTimeout(ms);
+}
+
+/** Os eventos que §20 dispara em cada peça da tela. */
+const EVENTOS_EXERCIDOS = [
+  "pointerover",
+  "pointerenter",
+  "pointermove",
+  "pointerdown",
+  "pointerup",
+  "mouseover",
+  "mousemove",
+  "mousedown",
+  "mouseup",
+  "keydown",
+  "keyup",
+];
+
+/** O que §20 exerce: os controles da tela e as peças do grafo. */
+const SELETOR_EXERCIDO = 'button, a[href], .react-flow__node, .react-flow g[data-camada]';
+
+/**
+ * Exerce a tela: foco de verdade nos controles + uma bateria de eventos em
+ * cada peça. Sem isto, um handler que só passa a existir com o tempo
+ * (instalado por um `setTimeout` que acabou de disparar) nunca teria quem o
+ * acordasse. O CLIQUE fica de fora de propósito: apertar um botão aqui abriria
+ * painel e mudaria o estado que a sentinela vigia.
+ */
+async function exercitarATela(pagina) {
+  return await pagina.evaluate(
+    ({ seletor, eventos }) => {
+      const alvos = [...document.querySelectorAll(seletor)].filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });
+      for (const el of alvos) {
+        try {
+          el.focus({ preventScroll: true });
+        } catch {
+          // elemento que não aceita foco
+        }
+        for (const nome of eventos) {
+          let ev;
+          /* `view: window` não é enfeite: o d3-zoom que o ReactFlow usa lê
+             `event.view.document`, e um evento sintético sem `view` faz a
+             PÁGINA lançar — a guarda acusaria o produto pelo próprio evento
+             que ela inventou. Medido nesta rodada: 11 TypeError por corrida. */
+          if (nome.startsWith("key")) ev = new KeyboardEvent(nome, { key: "Shift", bubbles: true, view: window });
+          else if (nome.startsWith("pointer")) ev = new PointerEvent(nome, { bubbles: true, view: window });
+          else ev = new MouseEvent(nome, { bubbles: true, view: window });
+          el.dispatchEvent(ev);
+        }
+        try {
+          el.blur();
+        } catch {
+          // elemento sem blur
+        }
+      }
+      return alvos.length;
+    },
+    { seletor: SELETOR_EXERCIDO, eventos: EVENTOS_EXERCIDOS },
+  );
+}
+
+/**
+ * O que a guarda viu de aresta desenhada em cada largura — alimenta o piso de
+ * §21. Registrado de dentro de §12, que roda em TODO estado medido.
+ */
+const DESENHO_VISTO_PELA_GUARDA = new Map();
+function registrarDesenhoVisto(chave, quantas) {
+  const antes = DESENHO_VISTO_PELA_GUARDA.get(chave) ?? 0;
+  if (quantas > antes) DESENHO_VISTO_PELA_GUARDA.set(chave, quantas);
+}
+
+/** As sentinelas vivas, nascidas antes da primeira medida e lidas depois da última. */
+const SENTINELAS_DO_DESENHO = [];
+
+/**
+ * Abre a página de uma sentinela: relógio (opcional) e vigia ANTES de
+ * qualquer script da página, as cinco camadas ligadas, e a fotografia do
+ * nascimento tirada só depois de tudo assentar.
+ *
+ * O nascimento NÃO é medida — é precondição. Sentinela que não nasce não vira
+ * "defeito do produto": vira, em §19/§20/§21, uma reprovação que diz "a
+ * precondição falhou" e nomeia o passo.
+ */
+async function nascerSentinela(browser, caso, comRelogioDeMentira) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const nome = `${chave} · ${comRelogioDeMentira ? "relógio de mentira" : "tempo real"}`;
+  const ctx = await browser.newContext({ viewport: { width: caso.largura, height: caso.altura } });
+  const registroForaDaPagina = [];
+  /*
+   * A cópia que mora no NODE: o vigia captura esta função antes do primeiro
+   * script da página, e daí em diante toda anotação também sai da aba. É a
+   * única cópia que nenhum código da página alcança.
+   */
+  await ctx.exposeBinding(CANAL_DO_VIGIA_DO_DESENHO, (_fonte, carga) => {
+    registroForaDaPagina.push(carga);
+  });
+  /*
+   * O relógio de mentira entra ANTES do vigia e antes de qualquer script da
+   * página: um `setTimeout` que a página agendar depois disso é o relógio de
+   * mentira que o guarda, e é por isso que `fastForward` consegue disparar.
+   */
+  if (comRelogioDeMentira) await ctx.clock.install();
+  await ctx.addInitScript({ content: AJUDANTES_NA_PAGINA });
+  await ctx.addInitScript(VIGIA_DO_DESENHO, {
+    canal: CANAL_DO_VIGIA_DO_DESENHO,
+    atributos: ATRIBUTOS_DO_DESENHO,
+    seletorDeAtributo: SELETOR_DO_DESENHO,
+    seletorDePeca: SELETOR_DE_PECA_QUE_SOME,
+  });
+  const page = comTetoNoEvaluate(await ctx.newPage());
+  page.__relogioDeMentira = comRelogioDeMentira;
+  const errosDePagina = [];
+  page.on("pageerror", (e) => errosDePagina.push(String(e)));
+  /*
+   * ── A ABA RECARREGOU? (medido nesta rodada, e custou uma corrida) ───────
+   *
+   * A guarda sobe o `next dev` DESTA árvore. Quem mexer num arquivo da
+   * árvore enquanto ela roda faz o servidor empurrar um recarregamento para
+   * TODA aba aberta — e a aba da sentinela perde e refaz o desenho inteiro.
+   * Medido: duas sentinelas, em contextos diferentes, perderam 8 arestas no
+   * MESMO segundo da corrida, e o relatório dizia "o vigia anotou 40
+   * escrita(s)" sem dizer de onde vinham. Contar a navegação não afrouxa
+   * nada — o veredito continua vermelho —, só nomeia a causa em vez de
+   * mandar a próxima pessoa caçar fantasma.
+   */
+  const navegacoes = { depoisDoNascimento: 0, contando: false };
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame() && navegacoes.contando) navegacoes.depoisDoNascimento += 1;
+  });
+  await page.goto(BASE, { waitUntil: "networkidle" });
+
+  const abaGrafo = page.locator('nav[aria-label="Painéis"] button', { hasText: "Grafo" });
+  let deuPe = false;
+  for (let tentativa = 0; tentativa < 6 && !deuPe; tentativa += 1) {
+    if (!caso.desktop && (await abaGrafo.count()) > 0) {
+      await abaGrafo.first().click().catch(() => undefined);
+    }
+    await assentarSentinela(page, 400);
+    const quantas = await page.evaluate(
+      () => document.querySelectorAll(".react-flow g[data-camada]").length,
+    );
+    if (quantas > 0) deuPe = true;
+  }
+  if (!deuPe) {
+    await ctx.close();
+    throw new Error(
+      `o canvas do grafo não desenhou nenhuma aresta em 6 tentativas${errosDePagina.length > 0 ? ` (a página lançou: ${errosDePagina[0]})` : ""}`,
+    );
+  }
+  await esconderSeloDoNext(page);
+  await assentarSentinela(page, 400);
+  await ligarTodasAsCamadas(page);
+  await assentarSentinela(page, 800);
+
+  const foto = await page.evaluate(FOTOGRAFIA_DO_DESENHO);
+  /*
+   * O marco: daqui para a frente, toda anotação do vigia é ENVELHECIMENTO. O
+   * que veio antes é a montagem do React e os cliques que ligaram as camadas —
+   * e quem mede isso é esta fotografia, não o vigia.
+   */
+  const marco = await page.evaluate(() => window.__vigiaDesenhoP4?.marcar() ?? null);
+  navegacoes.contando = true;
+  return {
+    nome,
+    chave,
+    caso,
+    comRelogioDeMentira,
+    ctx,
+    page,
+    registroForaDaPagina,
+    errosDePagina,
+    navegacoes,
+    foto,
+    marco,
+    nascimento: Date.now(),
+    ok: true,
+  };
+}
+
+/*
+ * ── O NASCIMENTO DAS SENTINELAS (achado ALTO da rodada 14) ────────────────
+ *
+ * Duas por largura — uma de tempo real e uma com o relógio da página sob
+ * controle da guarda —, abertas ANTES da primeira medida daquela largura e
+ * lidas DEPOIS da última. É a vida delas que dá o alcance de tempo de §19.
+ *
+ * **Por que POR LARGURA, e não uma leva só para a corrida inteira.** A
+ * primeira versão abria as dez de uma vez e as mantinha vivas do começo ao
+ * fim: 10 abas do painel abertas em paralelo. Medido numa máquina com
+ * `load average` 9 e 13,7 GB de 16 em uso, com a guarda pinada em UM núcleo,
+ * a corrida morreu de teto na quinta largura — `Target page, context or
+ * browser has been closed` — e o veredito virou "não consegui medir". Isso é
+ * o vermelho por CARGA que o achado MÉDIO 9 da rodada 13 existe para acabar.
+ * Com a leva por largura, no máximo duas sentinelas vivem ao mesmo tempo, o
+ * alcance continua SENDO MEDIDO E IMPRESSO em cada §19, e o piso escrito à
+ * mão continua de pé: o que encolhe é o custo, não a régua.
+ */
+async function nascerAsSentinelasDe(browser, caso) {
+  const nascidas = [];
+  for (const comRelogioDeMentira of [false, true]) {
+    const chave = `${caso.largura}x${caso.altura}`;
+    const nome = `${chave} · ${comRelogioDeMentira ? "relógio de mentira" : "tempo real"}`;
+    const t0 = Date.now();
+    console.log("%s", `[${carimbo()}] → nascendo a sentinela ${nome} …`);
+    try {
+      const sentinela = await comTeto(
+        nascerSentinela(browser, caso, comRelogioDeMentira),
+        TETO_POR_ETAPA_MS,
+        `o nascimento da sentinela ${nome}`,
+      );
+      nascidas.push(sentinela);
+      console.log(
+        "%s",
+        `[${carimbo()}] ← sentinela ${nome} de pé — ${String(Math.round((Date.now() - t0) / 1000))}s · ${String(sentinela.foto.arestas.length)} arestas, ${String(sentinela.foto.criticas)} críticas, ${String(sentinela.foto.cartoes)} cartões`,
+      );
+    } catch (erro) {
+      const motivo = erro instanceof Error ? erro.message.split("\n")[0] : String(erro);
+      nascidas.push({ nome, chave, caso, comRelogioDeMentira, ok: false, motivo });
+      console.log("%s", `[${carimbo()}] ← sentinela ${nome} NÃO nasceu — ${motivo}`);
+    }
+  }
+  for (const s of nascidas) SENTINELAS_DO_DESENHO.push(s);
+  return nascidas;
+}
+
+/** O corpo comum de §19 e §20: as três redes, na ordem em que elas fazem sentido. */
+async function conferirSentinela(sentinela, quando, extra) {
+  /*
+   * A ORDEM IMPORTA. O vigia e a fotografia são lidos ANTES da medição do
+   * produto, porque a medição do produto ESCONDE e MOSTRA cada aresta e cada
+   * glifo (é assim que ela vê o pixel mudar) e troca o canvas pela lista
+   * acessível — tudo isso é escrita no desenho, feita pela guarda. Lida
+   * depois, a rede 3 acusaria a própria guarda.
+   */
+  const vigia = await lerVigiaDoDesenho(sentinela.page);
+  const foto = await sentinela.page.evaluate(FOTOGRAFIA_DO_DESENHO);
+  const problemas = [
+    ...oQueFaltaNoDesenhoAgora(foto, quando, CONTRATO.camadas),
+    ...oQueODesenhoPerdeu(sentinela.foto, foto),
+    ...oQueOVigiaDoDesenhoViu(vigia),
+    ...extra,
+  ];
+  if (sentinela.registroForaDaPagina.length < vigia.antes + vigia.quantasDepois) {
+    problemas.push(
+      `o canal fora da página recebeu ${String(sentinela.registroForaDaPagina.length)} anotação(ões) e a página tem ${String(vigia.antes + vigia.quantasDepois)} — alguém calou o canal`,
+    );
+  }
+  if (sentinela.errosDePagina.length > 0) {
+    problemas.push(`a página da sentinela lançou ${String(sentinela.errosDePagina.length)} erro(s): ${sentinela.errosDePagina[0]}`);
+  }
+  if (sentinela.navegacoes.depoisDoNascimento > 0) {
+    /* Continua vermelho: página que se recarrega sozinha é regressão. O que
+       esta linha faz é NOMEAR a causa mais provável — alguém mexeu na árvore
+       enquanto a guarda rodava, e o `next dev` que ela mesma subiu empurrou o
+       recarregamento para a aba. Sem ela, o relatório culpa o produto por um
+       gesto de fora. */
+    problemas.push(
+      `a aba da sentinela NAVEGOU ${String(sentinela.navegacoes.depoisDoNascimento)} vez(es) depois do nascimento — o desenho inteiro foi refeito. Se alguém tocou num arquivo desta árvore enquanto a guarda rodava, foi o \`next dev\` empurrando recarregamento; se ninguém tocou, a página está se recarregando sozinha`,
+    );
+  }
+  return { problemas, foto, vigia };
+}
+
 async function medirUmaLargura(browser, caso) {
   const chave = `${caso.largura}x${caso.altura}`;
   console.log(`· medindo ${chave}`);
@@ -1813,7 +4156,7 @@ async function medirUmaLargura(browser, caso) {
   }
 
   // ── 7/8/9/10/12. A PINTURA, antes de mexer no zoom ─────────────────────
-  const desenho = await medirODesenhoInteiro(page, chave, "");
+  const desenho = await medirODesenhoInteiro(page, chave, "", CONTRATO.camadas);
   const pintura = desenho.pintura;
   const triplo = desenho.triplo;
   const glifos = desenho.glifos;
@@ -1850,7 +4193,19 @@ async function medirUmaLargura(browser, caso) {
       no?.querySelector('[role="button"]')?.click();
     }, destinoParaSelecionar);
     await page.waitForTimeout(700);
-    const comDestaque = await medirPinturaDasArestas(page, chave, " (nó selecionado)", CONTRATO.papeis, ["destacada"]);
+    /*
+     * ── ALTO 4: O ESTADO COM SELEÇÃO PASSA PELA MESMA RÉGUA DE TODOS ─────
+     *
+     * Ele era medido num ponto só — `medirPinturaDasArestas` sozinha, sem
+     * §8, §9, §10 nem §12 — e com o piso de "≥ 1 aresta por papel", o mesmo
+     * que a rodada 11 registrou como causa do ALTO 2 dela. Apagar uma aresta
+     * de sucessão SÓ quando `selectedTaskId !== null` (uma linha) passava:
+     * sem seleção 4 ids desenhados / 4 no dado, com seleção 3 / 4.
+     */
+    const comSelecao = await medirODesenhoInteiro(page, chave, " (nó selecionado)", CONTRATO.camadas, {
+      comSelecao: true,
+    });
+    const comDestaque = comSelecao.pintura;
     destaque = comDestaque.linha;
     exigir(
       (comDestaque.resumo.destacada?.n ?? 0) > 0,
@@ -1873,6 +4228,7 @@ async function medirUmaLargura(browser, caso) {
     pintura: pintura.linha,
     destaque,
     triplo,
+    tripla: desenho.tripla,
     glifos,
     alcance,
     contraODado,
@@ -1902,16 +4258,27 @@ async function medirUmaLargura(browser, caso) {
   // ── 3. O gesto do operador: seis cliques em "Aumentar zoom" ─────────────
   const gesto = await gestoDeZoom(page2);
   exigir(gesto.achouBotao, `${chave}: não achei o botão "Aumentar zoom"`);
-  for (let i = 1; i < gesto.trilha.length; i++) {
+  /* `semMedida` = o clique não coube no tempo com NADA cobrindo o botão (é
+     carga, e já virou impedimento em `gestoDeZoom`). Cobrar a trilha de um
+     gesto que não chegou a acontecer seria transformar carga em vermelho de
+     produto — exatamente o que o achado MÉDIO 9 proíbe. */
+  if (!gesto.semMedida) {
+    for (let i = 1; i < gesto.trilha.length; i++) {
+      exigir(
+        gesto.trilha[i] >= gesto.trilha[i - 1] - 1e-9,
+        `${chave}: o zoom CAIU de ${gesto.trilha[i - 1]} para ${gesto.trilha[i]} — o gesto do operador foi desfeito`,
+      );
+    }
     exigir(
-      gesto.trilha[i] >= gesto.trilha[i - 1] - 1e-9,
-      `${chave}: o zoom CAIU de ${gesto.trilha[i - 1]} para ${gesto.trilha[i]} — o gesto do operador foi desfeito`,
+      gesto.fim !== null && Math.abs(gesto.fim - ZOOM_MAXIMO_DO_CANVAS) < 1e-3,
+      `${chave}: seis cliques deveriam chegar ao teto ${ZOOM_MAXIMO_DO_CANVAS}, chegaram a ${gesto.fim}`,
     );
   }
-  exigir(
-    gesto.fim !== null && Math.abs(gesto.fim - ZOOM_MAXIMO_DO_CANVAS) < 1e-3,
-    `${chave}: seis cliques deveriam chegar ao teto ${ZOOM_MAXIMO_DO_CANVAS}, chegaram a ${gesto.fim}`,
-  );
+
+  // ── 15. O DESENHO DEPOIS DO GESTO (zoom, pan, e o cartão que não anda) ──
+  const depoisDoGesto = gesto.alcancavel
+    ? await medirDepoisDoGesto(page2, chave, CONTRATO.camadas)
+    : ["n/d (o botão de zoom ficou inalcançável nesta largura)"];
 
   // ── 4. O modo CARTÃO existe de verdade (altura do nó no DOM) ────────────
   const alturaDoNo = await page2.evaluate(() => {
@@ -1947,6 +4314,7 @@ async function medirUmaLargura(browser, caso) {
 
   medicoes[chave] = {
     ...medicoes[chave],
+    depoisDoGesto,
     trilha: gesto.trilha,
     zAntesDoResize,
     zDepoisDoResize,
@@ -2032,7 +4400,8 @@ async function medirEstadosDerivados(browser, caso) {
       await page.waitForTimeout(1200);
       depois = escalaDe(await transformDoCanvas(page));
       exigir(
-        antes !== null && depois !== null && Math.abs(depois - antes) < 1e-6,
+        gesto.semMedida === true ||
+          (antes !== null && depois !== null && Math.abs(depois - antes) < 1e-6),
         `${chave}: §11 com "${controle.nome}" aberto, 2px de resize mudaram o zoom de ${antes} para ${depois}`,
       );
     }
@@ -2065,7 +4434,12 @@ async function medirEstadosDerivados(browser, caso) {
       );
       await segunda.page.waitForTimeout(900);
     }
-    const desenhoNoEstado = await medirODesenhoInteiro(segunda.page, chave, ` [${controle.nome}]`);
+    const desenhoNoEstado = await medirODesenhoInteiro(
+      segunda.page,
+      chave,
+      ` [${controle.nome}]`,
+      CONTRATO.camadas,
+    );
     exigir(
       segunda.errosDePagina.length === 0,
       `${chave}: §11 com "${controle.nome}" aberto, a página do desenho lançou ${segunda.errosDePagina.length} erro(s): ${segunda.errosDePagina[0] ?? ""}`,
@@ -2076,8 +4450,8 @@ async function medirEstadosDerivados(browser, caso) {
       `${controle.nome}: Hoje ${String(hoje.visivel)}px, zoom ${String(antes)}→${String(depois)} · ${desenhoNoEstado.pintura.linha} · dado ${desenhoNoEstado.contraODado} · glifos ${
         desenhoNoEstado.glifos.startsWith("n/d")
           ? desenhoNoEstado.glifos
-          : `${String(desenhoNoEstado.glifos.split(" ").filter(Boolean).length)} medidos`
-      } · lista ${desenhoNoEstado.alcance}`,
+          : `${String((desenhoNoEstado.glifos.split(" · ")[0] ?? "").split(" ").filter(Boolean).length)} medidos, ${String(desenhoNoEstado.glifos.split(" · ")[1] ?? "?")}`
+      } · tripla ${desenhoNoEstado.tripla} · lista ${desenhoNoEstado.alcance}`,
     );
   }
   medicoes[chave] = { ...(medicoes[chave] ?? {}), estados: linhas };
@@ -2165,6 +4539,26 @@ if (BASE === null) {
   console.log(`servidor próprio no ar em ${BASE} (subido por esta guarda)`);
 }
 
+/*
+ * ── O DADO BRUTO, ANTES DE ABRIR O NAVEGADOR (achado ALTO 1 + BAIXO 12) ───
+ *
+ * Sem ele não há com o que comparar o desenho — e "não consegui ler o dado"
+ * é saída 2 (não medi), nunca 0 e nunca 1.
+ */
+let BRUTO;
+let UNIVERSO;
+try {
+  BRUTO = await lerDadoBruto(BASE);
+  UNIVERSO = derivarUniversoDeArestas(BRUTO);
+} catch (e) {
+  console.error(
+    "%s",
+    `guarda-no-navegador: não consegui ler GET /api/grafo-bruto — sem o dado bruto esta guarda não tem com o que comparar o canvas: ${String(e?.message ?? e)}`,
+  );
+  encerrarServidor();
+  process.exit(2);
+}
+
 const pw = carregarPlaywright();
 if (pw === null) {
   console.error(
@@ -2177,18 +4571,214 @@ console.log(
   `contrato derivado do código: ${CONTRATO.papeis.length} papéis de aresta (${CONTRATO.papeis.join(", ")}), ${CONTRATO.camadas.length} camadas`,
 );
 
-const browser = await pw.chromium.launch({ executablePath: CHROMIUM, args: ["--no-sandbox"] });
+medicoes.universo = medirEspessuraDoUniverso(UNIVERSO, BRUTO);
+console.log("%s", `[${carimbo()}] §0 universo do dado: ${medicoes.universo}`);
+
+/*
+ * O congelamento de aba de segundo plano fica DESLIGADO (achado MÉDIO 9):
+ * o Chromium congela aba não visível depois de ~5 min e, sobre aba congelada,
+ * um `page.evaluate` não volta nunca — e nenhum tempo limite do Playwright o
+ * interrompe. Sai na linha de comando do navegador, não num comentário.
+ */
+const browser = await pw.chromium.launch({
+  executablePath: CHROMIUM,
+  args: [
+    "--no-sandbox",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+  ],
+});
 try {
+
   for (const caso of LARGURAS) {
     const chave = `${caso.largura}x${caso.altura}`;
-    await medirUmaLargura(browser, caso);
-    await medirEstadosDerivados(browser, caso);
-    console.log(`· desligando camadas em ${chave}`);
-    const desligar = await medirDesligarCamada(browser, caso);
-    console.log(`· estado default (nada clicado) em ${chave}`);
-    const defaultDaTela = await medirEstadoDefault(browser, caso);
-    medicoes[chave] = { ...(medicoes[chave] ?? {}), desligar, defaultDaTela };
+    /* As sentinelas desta largura nascem ANTES da primeira medida dela. */
+    const sentinelasDaLargura = await nascerAsSentinelasDe(browser, caso);
+    await etapa(`${chave} · §1–§10/§12/§15 e o nó selecionado`, () => medirUmaLargura(browser, caso));
+    await etapa(`${chave} · §11 estados derivados`, () => medirEstadosDerivados(browser, caso));
+    const desligar = await etapa(`${chave} · §13/§18 desligar camada e o F5`, () =>
+      medirDesligarCamada(browser, caso),
+    );
+    const defaultDaTela = await etapa(`${chave} · §14 o estado em que a tela nasce`, () =>
+      medirEstadoDefault(browser, caso),
+    );
+    const listaPorCamada = await etapa(`${chave} · §16 a lista acessível × o painel`, () =>
+      medirListaObedeceAsCamadas(browser, caso),
+    );
+    const esmaecimento = await etapa(`${chave} · §17 esmaecimento por fonte`, () =>
+      medirEsmaecimentoPorFonte(browser, caso),
+    );
+    medicoes[chave] = {
+      ...(medicoes[chave] ?? {}),
+      desligar,
+      defaultDaTela,
+      listaPorCamada,
+      esmaecimento,
+    };
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // §19 · A SENTINELA DE TEMPO REAL: O DESENHO CONTINUA DE PÉ DEPOIS
+    //       (achado ALTO da rodada 14 — a guarda media um instante só)
+    //
+    // Esta página foi aberta ANTES da primeira medida desta largura e, desde
+    // então, só EXISTIU. A pergunta, na forma mais crua: **em algum momento da
+    // vida dela, alguma coisa mudou o desenho do grafo?** O tempo de vida é o
+    // alcance, e sai impresso.
+    // ═════════════════════════════════════════════════════════════════════════
+    for (const sentinela of sentinelasDaLargura.filter((s) => !s.comRelogioDeMentira)) {
+      await etapa(`§19 sentinela de tempo real ${sentinela.nome}`, async () => {
+        if (!sentinela.ok) {
+          exigir(false, `§19 ${sentinela.nome}: a sentinela nunca nasceu — ${sentinela.motivo}`);
+          return;
+        }
+        /*
+         * O piso de vida é ESCRITO À MÃO, e a sentinela espera por ele quando a
+         * corrida é curta demais (uma largura só, máquina rápida). Reprovar
+         * porque a corrida foi rápida seria vermelho de ambiente; encurtar o
+         * alcance em silêncio seria pior ainda — a guarda declararia um alcance
+         * que ela não teve.
+         */
+        let vida = Date.now() - sentinela.nascimento;
+        if (vida < PISO_DE_VIDA_DA_SENTINELA_MS) {
+          const falta = PISO_DE_VIDA_DA_SENTINELA_MS - vida;
+          console.log(
+            "%s",
+            `[${carimbo()}]   a sentinela viveu ${String(Math.round(vida / 1000))}s e o piso declarado é ${String(Math.round(PISO_DE_VIDA_DA_SENTINELA_MS / 1000))}s — esperando os ${String(Math.round(falta / 1000))}s que faltam`,
+          );
+          await sentinela.page.waitForTimeout(falta);
+          vida = Date.now() - sentinela.nascimento;
+        }
+        const { problemas } = await conferirSentinela(sentinela, `aos ${String(Math.round(vida / 1000))}s de vida`, []);
+        exigir(
+          problemas.length === 0,
+          `§19 ${sentinela.nome}: ${problemas.join(" · ")}`,
+        );
+        /* A rede 1: a MEDIÇÃO DO PRODUTO REFEITA, tarde. Vem depois das outras
+           duas porque ela escreve no desenho para medir o pixel. */
+        const desenho = await medirODesenhoInteiro(
+          sentinela.page,
+          sentinela.chave,
+          ` (sentinela de tempo real, ${String(Math.round(vida / 1000))}s depois)`,
+          CONTRATO.camadas,
+        );
+        const linha = `viveu ${String(Math.round(vida / 1000))}s — este é o ALCANCE DE TEMPO REAL desta guarda nesta largura, e regressão agendada para depois dele NÃO é vista (piso ${String(Math.round(PISO_DE_VIDA_DA_SENTINELA_MS / 1000))}s) · desenho refeito: ${desenho.contraODado} · ${desenho.pintura.linha ?? ""} · fotografia idêntica à do nascimento nos ${String(CAMPOS_DA_FOTOGRAFIA.length)} campos do desenho`;
+        medicoes[sentinela.chave] = {
+          ...(medicoes[sentinela.chave] ?? {}),
+          sentinelaTempoReal: problemas.length === 0 ? linha : problemas.join(" · "),
+        };
+        await sentinela.ctx.close();
+      });
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // §20 · A SENTINELA DO RELÓGIO: MEIA HORA DE UMA VEZ, DUAS VEZES
+    //
+    // Esperar 60 s para pegar uma mutação de 45 s seria pagar caro por uma
+    // duplicação — o sabotador escreveria 120 s. Esta página nasceu com o
+    // relógio sob controle da guarda; aqui ele anda meia hora de uma vez, a tela
+    // é EXERCIDA (um handler que só nasce com o tempo precisa de quem o acorde)
+    // e o relógio anda outra meia hora. Só então o desenho é refeito.
+    // ═════════════════════════════════════════════════════════════════════════
+    for (const sentinela of sentinelasDaLargura.filter((s) => s.comRelogioDeMentira)) {
+      await etapa(`§20 sentinela do relógio ${sentinela.nome}`, async () => {
+        if (!sentinela.ok) {
+          exigir(false, `§20 ${sentinela.nome}: a sentinela nunca nasceu — ${sentinela.motivo}`);
+          return;
+        }
+        await sentinela.page.clock.fastForward(ADIANTAMENTO_DO_RELOGIO_MS);
+        await assentarSentinela(sentinela.page, 200);
+        const exercidas = await exercitarATela(sentinela.page);
+        await assentarSentinela(sentinela.page, 200);
+        await sentinela.page.clock.fastForward(ADIANTAMENTO_DO_RELOGIO_MS);
+        await assentarSentinela(sentinela.page, 400);
+        const extra = [];
+        if (exercidas < 1) {
+          extra.push(
+            "nenhuma peça da tela foi exercida depois do adiantamento — um handler que nasce com o tempo não teria quem o acordasse",
+          );
+        }
+        const { problemas } = await conferirSentinela(
+          sentinela,
+          `depois de ${String(Math.round((2 * ADIANTAMENTO_DO_RELOGIO_MS) / 60000))} min de relógio adiantado`,
+          extra,
+        );
+        exigir(problemas.length === 0, `§20 ${sentinela.nome}: ${problemas.join(" · ")}`);
+        const desenho = await medirODesenhoInteiro(
+          sentinela.page,
+          sentinela.chave,
+          ` (sentinela do relógio, +${String(Math.round((2 * ADIANTAMENTO_DO_RELOGIO_MS) / 60000))} min)`,
+          CONTRATO.camadas,
+        );
+        const linha = `relógio adiantado ${String(Math.round(ADIANTAMENTO_DO_RELOGIO_MS / 60000))} min de uma vez, DUAS vezes, com ${String(exercidas)} peça(s) da tela exercidas (foco + ${String(EVENTOS_EXERCIDOS.length)} eventos) entre elas — regressão agendada ATÉ ISSO está no alcance · desenho refeito: ${desenho.contraODado} · ${desenho.pintura.linha ?? ""}`;
+        medicoes[sentinela.chave] = {
+          ...(medicoes[sentinela.chave] ?? {}),
+          sentinelaRelogio: problemas.length === 0 ? linha : problemas.join(" · "),
+        };
+        await sentinela.ctx.close();
+      });
+    }
+
   }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // §21 · O ALCANCE DECLARADO É O ALCANCE MEDIDO
+  //
+  // A medida que impede as duas de cima de valerem para menos do que dizem.
+  // Três perguntas, todas sobre o medido:
+  //  1. toda largura em que a guarda mediu o desenho tem as DUAS sentinelas?
+  //     (largura sem sentinela = alcance de tempo zero ali);
+  //  2. cada sentinela viu, no nascimento, pelo menos tantas arestas quanto a
+  //     maior leitura que a guarda fez naquela largura? (sentinela que enxerga
+  //     menos que a guarda concorda com a tela por encolher junto);
+  //  3. o número que o cabeçalho declara é o que §20 realmente adianta?
+  // ═════════════════════════════════════════════════════════════════════════
+  await etapa("§21 o alcance de tempo declarado × o medido", async () => {
+    const problemas = [];
+    const detalhes = [];
+    for (const caso of LARGURAS) {
+      const chave = `${caso.largura}x${caso.altura}`;
+      const minhas = SENTINELAS_DO_DESENHO.filter((s) => s.chave === chave);
+      const deTempoReal = minhas.filter((s) => !s.comRelogioDeMentira && s.ok).length;
+      const deRelogio = minhas.filter((s) => s.comRelogioDeMentira && s.ok).length;
+      if (deTempoReal < 1 || deRelogio < 1) {
+        problemas.push(
+          `${chave}: ${String(deTempoReal)} sentinela(s) de tempo real e ${String(deRelogio)} de relógio (precisa de 1 de cada) — alcance de tempo ZERO nesta largura`,
+        );
+      }
+      const vistoPelaGuarda = DESENHO_VISTO_PELA_GUARDA.get(chave) ?? 0;
+      for (const s of minhas.filter((x) => x.ok)) {
+        const naSentinela = s.foto.arestas.filter((a) => !a.semPath).length;
+        if (naSentinela < vistoPelaGuarda) {
+          problemas.push(
+            `${s.nome}: a sentinela nasceu vendo ${String(naSentinela)} aresta(s) e a guarda chegou a ver ${String(vistoPelaGuarda)} na mesma largura — o alcance de tempo não cobre o que a guarda mede`,
+          );
+        }
+      }
+      detalhes.push(
+        `${chave}: ${String(vistoPelaGuarda)} arestas vistas pela guarda, ${String(deTempoReal)}+${String(deRelogio)} sentinelas`,
+      );
+    }
+    const medidasSemSentinela = [...DESENHO_VISTO_PELA_GUARDA.keys()].filter(
+      (chave) => !LARGURAS.some((c) => `${c.largura}x${c.altura}` === chave),
+    );
+    if (medidasSemSentinela.length > 0) {
+      problemas.push(
+        `a guarda mediu o desenho em ${medidasSemSentinela.join(", ")} e não há sentinela nessas larguras`,
+      );
+    }
+    if (ADIANTAMENTO_DO_RELOGIO_MS !== 1800000) {
+      problemas.push(
+        `o cabeçalho declara 30 min de alcance agendado e §20 adianta ${String(Math.round(ADIANTAMENTO_DO_RELOGIO_MS / 60000))} min`,
+      );
+    }
+    exigir(problemas.length === 0, `§21: ${problemas.join(" · ")}`);
+    medicoes.alcanceDeTempo =
+      problemas.length === 0
+        ? `${String(LARGURAS.length)} largura(s), ${String(SENTINELAS_DO_DESENHO.length)} sentinelas — ${detalhes.join(" | ")} · alcance declarado: toda a vida real das medidas de cada largura, que §19 mede e imprime uma a uma + ${String(Math.round(ADIANTAMENTO_DO_RELOGIO_MS / 60000))} min agendados, duas vezes (§20)`
+        : problemas.join(" · ");
+  });
+
 } finally {
   await browser.close();
   encerrarServidor();
@@ -2198,7 +4788,9 @@ const json = JSON.stringify(medicoes, null, 2);
 if (process.env.LIFEBOARD_GUARDA_JSON) writeFileSync(process.env.LIFEBOARD_GUARDA_JSON, json);
 
 console.log("── guarda no navegador ────────────────────────────────");
+console.log(`§0 universo do dado bruto: ${String(medicoes.universo ?? "?")}`);
 for (const [chave, m] of Object.entries(medicoes)) {
+  if (chave === "universo" || chave === "alcanceDeTempo") continue;
   console.log(
     [
       chave.padEnd(10),
@@ -2212,16 +4804,45 @@ for (const [chave, m] of Object.entries(medicoes)) {
   console.log(`             pintura  ${m.pintura ?? "?"}`);
   console.log(`             destaque ${m.destaque ?? "?"}`);
   console.log(`             triplo   ${m.triplo ?? "?"}`);
+  console.log(`             tripla   ${m.tripla ?? "?"}`);
   console.log(`             glifos   ${m.glifos ?? "?"}`);
   console.log(`             sem mouse ${m.alcance ?? "?"}`);
   console.log(`             × o dado ${m.contraODado ?? "?"}`);
   console.log(`             default  ${m.defaultDaTela ?? "?"}`);
+  console.log(`             esmaece  ${m.esmaecimento ?? "?"}`);
+  for (const linha of m.depoisDoGesto ?? []) console.log(`             gesto    ${linha}`);
   for (const linha of m.desligar ?? []) console.log(`             desliga  ${linha}`);
+  for (const linha of m.listaPorCamada ?? []) console.log(`             lista×   ${linha}`);
   for (const linha of m.estados ?? []) console.log(`             estado   ${linha}`);
+  if (m.sentinelaTempoReal) console.log(`             §19 real ${m.sentinelaTempoReal}`);
+  if (m.sentinelaRelogio) console.log(`             §20 relóg ${m.sentinelaRelogio}`);
 }
+console.log(`§21 alcance de tempo: ${String(medicoes.alcanceDeTempo ?? "?")}`);
+console.log(`\ncorrida de ${carimbo()} (mm:ss)`);
+/*
+ * ── O VEREDITO EM DOIS CÓDIGOS (achado MÉDIO 9) ───────────────────────────
+ *
+ * Produto errado → 1. Não consegui medir → 2, com o nome da etapa. A ordem
+ * importa: quando os dois aparecem, o que vale é a FALHA DE PRODUTO — um
+ * impedimento não apaga um vermelho já medido.
+ */
 if (falhas.length > 0) {
   console.error(`\n${falhas.length} promessa(s) da peça P4 NÃO se sustentam no navegador:`);
   for (const f of falhas) console.error(`  ✗ ${f}`);
+  if (impedimentos.length > 0) {
+    console.error(`\ne ${impedimentos.length} etapa(s) não chegaram a medir:`);
+    for (const i of impedimentos) console.error(`  ? ${i}`);
+  }
   process.exit(1);
+}
+if (impedimentos.length > 0) {
+  console.error(
+    `\n${impedimentos.length} etapa(s) NÃO conseguiram medir — isto não é verde, e também não é o produto reprovado:`,
+  );
+  for (const i of impedimentos) console.error(`  ? ${i}`);
+  console.error(
+    "Repetir a corrida numa máquina menos carregada é o certo AQUI, e só aqui: um vermelho de produto nunca sai por esta porta.",
+  );
+  process.exit(2);
 }
 console.log("\ntodas as promessas medidas no navegador se sustentam.");

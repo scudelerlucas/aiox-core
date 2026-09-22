@@ -174,9 +174,27 @@ export const FIXTURE_TASKS: readonly Task[] = [
 ];
 
 /**
- * v3 — uma aresta de cada tipo declarado, para o grafo e os testes exercitarem
- * as quatro camadas. A cadeia setup → build → deploy continua vindo dos arrays
+ * v3 — as arestas declaradas, para o grafo e os testes exercitarem as quatro
+ * camadas. A cadeia setup → build → deploy continua vindo dos arrays
  * (`predecessorIds`); aqui só o que os arrays não sabem dizer.
+ *
+ * ── DUAS DE CADA, NUNCA UMA (achado BAIXO 12 do crítico, rodada 13) ────────
+ *
+ * Até aqui eram quatro arestas: uma predecessora, UMA correlação, UMA
+ * sinergia e UMA obsolescência. O piso da guarda de navegador — "cada papel
+ * tem ao menos uma aresta na tela" — repousava, em três dos quatro papéis,
+ * sobre um único objeto: mudar o layout e perder aquela aresta derrubava o
+ * papel inteiro, e uma sabotagem que apagasse *a outra* aresta de um papel
+ * não teria onde ser vista, porque não havia outra.
+ *
+ * Agora cada camada base tem PELO MENOS DUAS arestas, e a guarda cobra esse
+ * piso do lado do dado (`§0`, o universo fino demais reprova): medir a classe
+ * exige mais de um caso da classe.
+ *
+ * As três novas foram escolhidas para não mexer no CPM nem na lista "hoje":
+ * correlação e sinergia não entram em precedência nenhuma, e a obsolescência
+ * nova sai de `task-docs`, que está ABERTA — só obsolescência cuja origem já
+ * está `done` poda o destino do grafo (`caminho-critico.ts`).
  */
 export const FIXTURE_EDGES: readonly TaskEdge[] = [
   {
@@ -214,6 +232,33 @@ export const FIXTURE_EDGES: readonly TaskEdge[] = [
     peso: 1,
     nota: "Com o motor pronto, arquivar os docs antigos deixa de importar.",
     createdAt: "2026-07-09T10:03:00.000Z",
+  },
+  {
+    id: "edge-standup-correlaciona-triage",
+    origem: "task-standup",
+    destino: "task-triage-inbox",
+    tipo: "correlacao",
+    peso: 1,
+    nota: "O standup e a triagem da caixa andam no mesmo começo de dia.",
+    createdAt: "2026-07-09T10:04:00.000Z",
+  },
+  {
+    id: "edge-docs-sinergia-review",
+    origem: "task-docs",
+    destino: "task-review",
+    tipo: "sinergia",
+    peso: 0.35,
+    nota: "Escrever a documentação adianta parte da leitura do PR.",
+    createdAt: "2026-07-09T10:05:00.000Z",
+  },
+  {
+    id: "edge-docs-obsoleta-notes",
+    origem: "task-docs",
+    destino: "task-notes-idea",
+    tipo: "obsolescencia",
+    peso: 1,
+    nota: "Com a documentação escrita, o rascunho solto da ideia perde a razão.",
+    createdAt: "2026-07-09T10:06:00.000Z",
   },
 ];
 

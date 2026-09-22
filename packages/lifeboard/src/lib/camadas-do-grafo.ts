@@ -204,8 +204,27 @@ export function relacoesAcessiveisDaTarefa(params: {
   taskId: string;
   arestas: readonly ArestaVisual[];
   tituloDe: (id: string) => string;
+  /**
+   * As camadas MARCADAS no painel. Existe por causa do achado MÉDIO 6 da
+   * rodada 13: a linha "Caminho crítico" desta lista é o espelho do traço
+   * TRIPLO do canvas, e o canvas só o desenha quando a camada está marcada
+   * (`critica: camadasAtivas.has("critico") && arestaEhCritica(a)`). Sem este
+   * parâmetro, desmarcar "Caminho crítico" apagava o traço triplo da tela e
+   * deixava a lista anunciando o caminho crítico do mesmo jeito — as duas
+   * superfícies dizendo coisas diferentes sobre o mesmo grafo.
+   *
+   * Ausente = todas ativas (o comportamento de quem chama sem painel, como o
+   * teste de unidade da própria função).
+   */
+  camadasAtivas?: ReadonlySet<CamadaGrafo> | readonly CamadaGrafo[];
 }): RelacaoAcessivel[] {
   const { taskId, arestas, tituloDe } = params;
+  const ativas =
+    params.camadasAtivas === undefined
+      ? new Set(CAMADAS_TODAS)
+      : params.camadasAtivas instanceof Set
+        ? params.camadasAtivas
+        : new Set(params.camadasAtivas);
   const porCamada = new Map<CamadaGrafo, string[]>();
   const guardar = (camada: CamadaGrafo, texto: string): void => {
     const lista = porCamada.get(camada) ?? [];
@@ -226,7 +245,7 @@ export function relacoesAcessiveisDaTarefa(params: {
           : `habilita ${nome}`
         : `com ${nome}`;
     guardar(base, texto);
-    if (arestaEhCritica(a)) {
+    if (arestaEhCritica(a) && ativas.has("critico")) {
       guardar(
         "critico",
         a.destino === taskId ? `vem de ${nome}` : `segue para ${nome}`,
