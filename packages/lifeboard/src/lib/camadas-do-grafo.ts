@@ -176,3 +176,66 @@ export function arestaEhCritica(aresta: ArestaVisual): boolean {
 export function camadaBaseDeAresta(aresta: ArestaVisual): Exclude<CamadaGrafo, "critico"> {
   return aresta.tipoOriginal === "predecessor" ? "sucessao" : aresta.tipoOriginal;
 }
+
+/**
+ * As relações de UMA tarefa, por camada, **derivadas das mesmas arestas que o
+ * canvas desenha** (`construirArestasVisuais`) — nunca de `predecessorIds` e
+ * `successorIds`, que só conhecem a sucessão.
+ *
+ * Rodada 10, achado ALTO 3 do crítico hostil: *"teclado e leitor de tela
+ * alcançam 1 das 5 camadas"*. Era verdade e era estrutural — a lista lia as
+ * duas listas de precedência da tarefa, e correlação, sinergia, obsolescência
+ * e caminho crítico simplesmente não existiam ali. Quem não usa mouse via um
+ * grafo com 1/5 da informação, e nenhuma guarda dizia isso porque nenhuma
+ * comparava as duas superfícies.
+ *
+ * A saída é um registro por camada, na ORDEM de `CAMADAS_TODAS` — o universo
+ * é o do código, então uma camada nova aparece aqui sozinha (e a guarda de
+ * navegador reprova se ela chegar ao canvas sem chegar aqui).
+ */
+export interface RelacaoAcessivel {
+  camada: CamadaGrafo;
+  rotulo: string;
+  /** Texto pronto ("entra de X", "sai para Y") — já com o título do outro lado. */
+  itens: string[];
+}
+
+export function relacoesAcessiveisDaTarefa(params: {
+  taskId: string;
+  arestas: readonly ArestaVisual[];
+  tituloDe: (id: string) => string;
+}): RelacaoAcessivel[] {
+  const { taskId, arestas, tituloDe } = params;
+  const porCamada = new Map<CamadaGrafo, string[]>();
+  const guardar = (camada: CamadaGrafo, texto: string): void => {
+    const lista = porCamada.get(camada) ?? [];
+    if (!lista.includes(texto)) lista.push(texto);
+    porCamada.set(camada, lista);
+  };
+  for (const a of arestas) {
+    if (a.origem !== taskId && a.destino !== taskId) continue;
+    const base = camadaBaseDeAresta(a);
+    const outro = a.origem === taskId ? a.destino : a.origem;
+    const nome = tituloDe(outro);
+    // Sucessão tem direção e a direção é a informação; as outras três são
+    // simétricas para quem lê, então dizem "com".
+    const texto =
+      base === "sucessao"
+        ? a.destino === taskId
+          ? `depende de ${nome}`
+          : `habilita ${nome}`
+        : `com ${nome}`;
+    guardar(base, texto);
+    if (arestaEhCritica(a)) {
+      guardar(
+        "critico",
+        a.destino === taskId ? `vem de ${nome}` : `segue para ${nome}`,
+      );
+    }
+  }
+  return CAMADAS_TODAS.filter((c) => (porCamada.get(c)?.length ?? 0) > 0).map((camada) => ({
+    camada,
+    rotulo: CAMADA_LABEL[camada],
+    itens: porCamada.get(camada) ?? [],
+  }));
+}

@@ -103,6 +103,30 @@ export function estiloDasAlturasDoCorpo(): Record<string, string> {
 }
 
 /**
+ * Tudo o que fica ACIMA da seção, no fluxo — derivado da árvore, nunca de uma
+ * lista escrita à mão: para cada ancestral da seção (até o `<body>`), os
+ * irmãos ANTERIORES dele. São exatamente os elementos cuja altura entra em
+ * `topoDaSecao`, e nenhum deles muda de tamanho quando a seção muda de altura
+ * — por isso observar este conjunto não realimenta.
+ *
+ * Exportada porque é a decisão inteira do conserto da rodada 10, e o teste de
+ * unidade a exercita contra uma árvore montada à mão.
+ */
+export function elementosAcimaDaSecao(secao: Element): Element[] {
+  const acima: Element[] = [];
+  let atual: Element | null = secao;
+  while (atual && atual.parentElement) {
+    let irmao = atual.previousElementSibling;
+    while (irmao) {
+      acima.push(irmao);
+      irmao = irmao.previousElementSibling;
+    }
+    atual = atual.parentElement;
+  }
+  return acima;
+}
+
+/**
  * Mede o topo da seção do grafo e devolve a altura que ela deve ter para
  * deixar `TEASER_DA_FAIXA_DE_BAIXO_PX` de "Hoje" visível acima da dobra.
  * Devolve `null` fora do desktop (abaixo de 1024 a seção é `flex-1` e o
@@ -110,6 +134,26 @@ export function estiloDasAlturasDoCorpo(): Record<string, string> {
  *
  * Não há realimentação: mudar a ALTURA da seção não muda o TOPO dela — ela
  * está no fluxo normal, abaixo de tudo o que a conta usa.
+ *
+ * **Rodada 10 (achados ALTO 1 e ALTO 2 do crítico hostil).** A versão anterior
+ * só remedia em `resize` da janela. O que fica acima da seção, porém, muda
+ * SEM resize nenhum: UM CLIQUE no aviso "5 fontes desatualizadas" abre a lista
+ * de chips e empurra a seção ~33 px para baixo. Medido no Chromium em 22/09,
+ * com o aviso aberto e nenhum resize: a faixa "Hoje" caiu de 44 px para
+ * **0 px** a 1024, 1280 e 1440, e para 10 px a 1920 — o mesmo defeito da
+ * rodada 8, que a correção de então fechou só para o estado INICIAL da tela.
+ *
+ * E a dívida ficava guardada: como a altura só era recalculada no `resize`, o
+ * primeiro resize — **2 px bastavam** — cobrava os 33 px de uma vez. O pane
+ * caía de 507 px para 443 px (64 px ≥ `LIMIAR_DE_REENQUADRAMENTO_PX`), o
+ * reenquadramento automático entendia aquilo como mudança material e desfazia
+ * o zoom do operador: 1,8 → 0,849 a 1280 e a 1440. Era a mesma classe do
+ * achado da rodada 9, medida no estado FECHADO e aberta no estado ABERTO.
+ *
+ * O conserto não é um caso a mais: é medir **quando o que está acima muda de
+ * tamanho**, qualquer que seja a causa. Um `ResizeObserver` sobre
+ * `elementosAcimaDaSecao` (derivado da árvore) fecha a classe — aviso aberto,
+ * aviso fechado, banner novo que ninguém previu, fonte que carrega tarde.
  */
 export function useAlturaDaSecaoDoGrafo(
   ref: RefObject<HTMLElement>,
@@ -133,7 +177,41 @@ export function useAlturaDaSecaoDoGrafo(
     };
     medir();
     window.addEventListener("resize", medir);
-    return () => window.removeEventListener("resize", medir);
+
+    /*
+     * O conjunto observado é DERIVADO (ver `elementosAcimaDaSecao`) e
+     * re-derivado quando a árvore acima muda: a linha de avisos só existe
+     * quando há fonte desatualizada, então o conjunto não é fixo. O
+     * `MutationObserver` cobre "nasceu/morreu um bloco"; o `ResizeObserver`
+     * cobre "um bloco que já existia mudou de altura".
+     */
+    const el = ref.current;
+    let observadorDeTamanho: ResizeObserver | null = null;
+    let observadorDeArvore: MutationObserver | null = null;
+    if (el && typeof ResizeObserver !== "undefined") {
+      observadorDeTamanho = new ResizeObserver(medir);
+      const religar = (): void => {
+        if (!observadorDeTamanho) return;
+        observadorDeTamanho.disconnect();
+        for (const acima of elementosAcimaDaSecao(el)) observadorDeTamanho.observe(acima);
+        medir();
+      };
+      religar();
+      if (typeof MutationObserver !== "undefined") {
+        observadorDeArvore = new MutationObserver(religar);
+        let no: Element | null = el;
+        while (no?.parentElement) {
+          observadorDeArvore.observe(no.parentElement, { childList: true });
+          no = no.parentElement;
+        }
+      }
+    }
+
+    return () => {
+      window.removeEventListener("resize", medir);
+      observadorDeTamanho?.disconnect();
+      observadorDeArvore?.disconnect();
+    };
   }, [ref]);
 
   return altura;

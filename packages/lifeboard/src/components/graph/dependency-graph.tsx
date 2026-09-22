@@ -33,6 +33,8 @@ import {
   camadaBaseDeAresta,
   construirArestasVisuais,
   filtrarArestasPorCamada,
+  relacoesAcessiveisDaTarefa,
+  type ArestaVisual,
   type CamadaGrafo,
 } from "@/lib/camadas-do-grafo";
 import {
@@ -708,17 +710,28 @@ function BarraDoGrafo({
   );
 }
 
-/** Fallback acessível: lista topológica navegável por teclado (spec §7.2). */
+/**
+ * Fallback acessível: lista topológica navegável por teclado (spec §7.2).
+ *
+ * Rodada 10 (achado ALTO 3): passou a carregar **as cinco camadas**, e não só
+ * a sucessão. `data-lb-tarefa`, `data-lb-titulo` e `data-lb-camada` existem
+ * para a guarda de navegador casar linha a linha o que o canvas DESENHA com o
+ * que esta lista DIZ — sem parsear frase (é a mesma disciplina do
+ * `data-lb-linha` da P5). O `aria-label` do cartão do canvas começa pelo
+ * título, e a guarda confere que as duas superfícies nomeiam a mesma tarefa.
+ */
 function AccessibleGraphList({
   tasks,
   sourceByKind,
   depths,
+  arestas,
   selectedTaskId,
   onSelectTask,
 }: {
   tasks: Task[];
   sourceByKind: Map<string, Source>;
   depths: Map<string, number>;
+  arestas: readonly ArestaVisual[];
   selectedTaskId: string | null;
   onSelectTask: (id: string | null) => void;
 }): JSX.Element {
@@ -739,8 +752,13 @@ function AccessibleGraphList({
     >
       {ordered.map((t) => {
         const src = sourceOf(t);
+        const relacoes = relacoesAcessiveisDaTarefa({
+          taskId: t.id,
+          arestas,
+          tituloDe: titleOf,
+        });
         return (
-          <li key={t.id}>
+          <li key={t.id} data-lb-tarefa={t.id} data-lb-titulo={t.title}>
             <button
               type="button"
               onClick={() => onSelectTask(t.id)}
@@ -754,11 +772,21 @@ function AccessibleGraphList({
                 {t.title}
                 <StatusChip status={t.status} />
               </span>
-              <span className="text-xs text-bone-400">
-                predecessores: {t.predecessorIds.map(titleOf).join(", ") || "nenhum"}
-                {" · "}
-                sucessores: {t.successorIds.map(titleOf).join(", ") || "nenhum"}
-              </span>
+              {relacoes.length === 0 ? (
+                <span className="text-xs text-bone-400" data-lb-camada="nenhuma">
+                  sem ligação com outra tarefa
+                </span>
+              ) : (
+                relacoes.map((r) => (
+                  <span
+                    key={r.camada}
+                    data-lb-camada={r.camada}
+                    className="text-xs text-bone-400"
+                  >
+                    {r.rotulo}: {r.itens.join(", ")}
+                  </span>
+                ))
+              )}
             </button>
           </li>
         );
@@ -1226,6 +1254,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
           tasks={tasks}
           sourceByKind={sourceByKind}
           depths={depths}
+          arestas={arestasVisuais}
           selectedTaskId={selectedTaskId}
           onSelectTask={handleSelect}
         />
