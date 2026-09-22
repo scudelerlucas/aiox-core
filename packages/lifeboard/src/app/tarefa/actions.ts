@@ -87,8 +87,12 @@ const ASSIMETRIA_BYTES_MAX = 2_048;
  * como todo o resto deste arquivo.
  */
 function casasDecimais(bruto: string): number {
-  const ponto = bruto.indexOf(".");
-  return ponto === -1 ? 0 : bruto.length - ponto - 1;
+  // [BAIXO #2, rodada 15] a vírgula conta como separador aqui também: sem
+  // isto `0,1255` passaria pelo limite de casas e o Postgres arredondaria em
+  // silêncio — o defeito que o BAIXO #10 da rodada 13 fechou para o ponto.
+  const canonico = comDecimalCanonico(bruto);
+  const ponto = canonico.indexOf(".");
+  return ponto === -1 ? 0 : canonico.length - ponto - 1;
 }
 
 /** `tasks.estimativa_dias` é `numeric(6,2)` (migration 0004). */
@@ -103,7 +107,7 @@ function estimativaValidaOuErro(n: number, bruta: string): string | null {
   // chegaria à RPC. Ramo próprio, e não `||`, para a frase dizer a coisa
   // certa: o problema não é ser pequeno demais, é não ser número.
   if (!Number.isFinite(n)) {
-    return "A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5).";
+    return "A duração precisa ser um número em dias, com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5).";
   }
   if (n < DURACAO_MINIMA_DIAS) {
     // Vírgula decimal (pt-BR), não o ponto do `toString()` do JS — mesmo
@@ -146,7 +150,36 @@ function textoOu(campos: CamposDeEscrita, campo: string): string {
  * opcional. Tudo que não é isso vira `NaN` e cai na frase em português.
  */
 function numeroDigitado(bruto: string): number {
-  return /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(bruto) ? Number(bruto) : Number.NaN;
+  const comPonto = comDecimalCanonico(bruto);
+  return /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(comPonto) ? Number(comPonto) : Number.NaN;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════ BAIXO #2, rodada 15 ═
+ * O TECLADO OFERECIA A VÍRGULA E A PÁGINA RECUSAVA A VÍRGULA.
+ *
+ * Os três campos numéricos declaram `inputMode="decimal"`, e num celular em
+ * português esse teclado entrega **vírgula**. Medido pelo crítico:
+ *
+ *   P2 inputMode do campo: decimal
+ *   P2 mensagens: "A duração precisa ser um número em dias, com ponto no
+ *                  decimal (ex.: 1.5)."
+ *   P2 caixa depois: "1,5"
+ *
+ * Não perdia dado e recusava em português, no campo — por isso BAIXO. Mas é a
+ * tela pedindo uma coisa e recusando a mesma coisa. Desde a rodada 11 o campo
+ * é de TEXTO, então a vírgula CHEGA aqui e dá para tratá-la: **uma vírgula
+ * decimal vira ponto**, e só uma. `1,5` passa a valer 1.5; `1,5,5` continua
+ * recusado; `1.234,5` continua recusado (duas grafias misturadas não são um
+ * número que alguém quis escrever).
+ */
+function comDecimalCanonico(bruto: string): string {
+  if (bruto.indexOf(",") === -1) return bruto;
+  // Vírgula E ponto na mesma caixa, ou mais de uma vírgula: não é uma grafia
+  // decidida. Devolve como veio e a régua recusa, com a frase em português.
+  if (bruto.indexOf(".") !== -1) return bruto;
+  if (bruto.indexOf(",") !== bruto.lastIndexOf(",")) return bruto;
+  return bruto.replace(",", ".");
 }
 
 /** O campo VEIO no pedido? (vazio é diferente de ausente — ver `arestaAdd`.) */
@@ -180,7 +213,7 @@ function duracaoBrutaOuErro(
   if (bruta.length === 0 && cru.length > 0) {
     return {
       erro:
-        "A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5) — " +
+        "A duração precisa ser um número em dias, com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5) — " +
         "só espaço em branco não remove nada. Para remover a duração, deixe a caixa vazia.",
     };
   }

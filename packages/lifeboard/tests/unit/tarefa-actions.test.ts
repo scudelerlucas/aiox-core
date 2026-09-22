@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { duracaoCanonica } from "@/components/task/duracao-form";
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -197,7 +198,14 @@ describe("tarefa/actions — validação", () => {
    * CRÍTICO desta rodada. Cada forma tem o seu caso — uma só deixaria o ramo
    * meio provado.
    */
-  for (const bruto of ["2e", "1,5", "--", "abc", "e", "Infinity", "0x10"]) {
+  /*
+   * [BAIXO #2, rodada 15] `"1,5"` SAIU DESTA LISTA e ganhou caso próprio mais
+   * abaixo: o teclado `inputMode="decimal"` de um celular em português entrega
+   * vírgula, e recusar o que o próprio campo oferece era a tela brigando com
+   * ela mesma. O que entrou no lugar são as grafias AMBÍGUAS — `1.234,5` e
+   * `1,5,5` —, que continuam recusadas de propósito.
+   */
+  for (const bruto of ["2e", "--", "abc", "e", "Infinity", "0x10", "1.234,5", "1,5,5", ","]) {
     it(`estimativaSetAction: "${bruto}" não é número — recusa em português, sem tocar a rede`, async () => {
       const r = await estimativaSetAction(
         {},
@@ -211,7 +219,43 @@ describe("tarefa/actions — validação", () => {
 
   it('estimativaSetAction: "2e" diz que o problema é NÃO SER NÚMERO, não ser pequeno', async () => {
     const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "2e" }));
-    expect(r.erro).toBe("A duração precisa ser um número em dias, com ponto no decimal (ex.: 1.5).");
+    expect(r.erro).toBe(
+      "A duração precisa ser um número em dias, com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5).",
+    );
+  });
+
+  /**
+   * ══════════════════════════════════════════════════════ BAIXO #2, rodada 15 ═
+   * A VÍRGULA QUE O TECLADO OFERECE PASSA A SER ACEITA.
+   *
+   * Medido pelo crítico: o campo declara `inputMode="decimal"`, o teclado pt-BR
+   * entrega vírgula, e a página respondia "precisa ser um número em dias, com
+   * ponto no decimal". Desde a rodada 11 o campo é de TEXTO, então a vírgula
+   * CHEGA ao servidor e dá para tratá-la. Uma vírgula decimal, e só uma.
+   */
+  for (const [bruto, esperado] of [
+    ["1,5", 1.5],
+    ["0,5", 0.5],
+    ["  2,25  ", 2.25],
+  ] as const) {
+    it(`estimativaSetAction: "${bruto}" é aceito e grava ${String(esperado)}`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: bruto }),
+      );
+      expect(r.erro, `"${bruto}" foi recusado`).toBeUndefined();
+      expect(r.ok).toBe(true);
+    });
+  }
+
+  it("estimativaSetAction: a vírgula NÃO escapa do limite de casas decimais", async () => {
+    // `0,1255` tem 4 casas: sem contar a vírgula como separador, o limite
+    // passava batido e o Postgres arredondaria em silêncio (BAIXO #10, rodada 13).
+    const r = await estimativaSetAction(
+      {},
+      form({ task_id: "task-build", estimativa_dias: "0,1255" }),
+    );
+    expect(r.erro, "0,1255 passou pelo limite de casas").toBeDefined();
   });
 
   /**
@@ -357,8 +401,10 @@ describe("tarefa/actions — validação", () => {
     nenhumaChamadaFoiFeita();
   });
 
-  it("arestaAddAction: `peso` ilegível é recusado (0.5e, 0,5, abc)", async () => {
-    for (const bruto of ["0.5e", "0,5", "abc"]) {
+  it("arestaAddAction: `peso` ilegível é recusado (0.5e, 0,5,5, abc)", async () => {
+    // [BAIXO #2, rodada 15] `0,5` saiu daqui: passou a ser aceito, como no
+    // campo de duração. O que ficou são as grafias ambíguas.
+    for (const bruto of ["0.5e", "0,5,5", "abc", "0.5,5"]) {
       vi.clearAllMocks();
       const r = await arestaAddAction(
         {},
@@ -367,6 +413,14 @@ describe("tarefa/actions — validação", () => {
       expect(r.erro, `"${bruto}" passou`).toBe("O desconto precisa ser um número entre 0 e 1.");
       nenhumaChamadaFoiFeita();
     }
+  });
+
+  it("arestaAddAction: `peso` com vírgula decimal é aceito (teclado pt-BR)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "0,5" }),
+    );
+    expect(r.erro, '"0,5" foi recusado no desconto').toBeUndefined();
   });
 
   it("arestaAddAction: `peso` AUSENTE continua valendo 1 (relação que não é sinergia)", async () => {
@@ -867,4 +921,33 @@ describe("tarefa/actions — `criado_em` só no desfazer (P2 do Codex, rodada 10
       expect.objectContaining({ criado_em: DATA }),
     );
   });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════ BAIXO #2, rodada 15 ═
+ * A CAIXA E O BANCO NA MESMA GRAFIA, TAMBÉM COM VÍRGULA.
+ *
+ * `duracaoCanonica` é o que faz a caixa passar a mostrar o que o servidor
+ * guardou (`007` → `7`). Com a vírgula agora aceita, ela precisa da MESMA
+ * régua do servidor: sem isso, salvar `1,5` gravaria 1.5 no banco e deixaria
+ * `1,5` na caixa — a tela numa grafia, o dado em outra, que é o BAIXO #11 da
+ * rodada 13 de volta.
+ */
+describe("BAIXO #2 — duracaoCanonica e a vírgula do teclado pt-BR", () => {
+  for (const [bruta, esperado] of [
+    ["1,5", "1.5"],
+    ["0,5", "0.5"],
+    ["  2,25  ", "2.25"],
+    ["007", "7"],
+    ["1.5", "1.5"],
+    ["", ""],
+    // Ambíguas: seguem intocadas, e a recusa em português é quem fala.
+    ["1.234,5", "1.234,5"],
+    ["1,5,5", "1,5,5"],
+    ["2e", "2e"],
+  ] as const) {
+    it(`duracaoCanonica(${JSON.stringify(bruta)}) === ${JSON.stringify(esperado)}`, () => {
+      expect(duracaoCanonica(bruta)).toBe(esperado);
+    });
+  }
 });

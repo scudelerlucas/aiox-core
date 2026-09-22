@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
+import { AvisoNaoSalvo, AVISO_COM_RASCUNHO } from "@/components/task/aviso-nao-salvo";
 import { CampoNumerico } from "@/components/task/campo-numerico";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import {
@@ -268,7 +269,18 @@ export function RelacoesPainel({
     // que o operador não pediu. Aqui só se manda o peso quando ele É um
     // número; do contrário o campo não vai, e o servidor usa o neutro.
     if (Number.isFinite(a.peso)) campos.peso = String(a.peso);
-    portaDesfazer.escrever(campos, { valido: true });
+    const decisao = portaDesfazer.escrever(campos, { valido: true });
+    /*
+     * [ALTO #1, rodada 15] A QUARTA JANELA — a que o crítico não nomeou.
+     *
+     * O achado dele cobria três painéis; este é o quarto desfazer da página, no
+     * mesmo arquivo e com o mesmo desenho, e fechar só os três nomeados seria a
+     * 5ª forma viciada desta base ("confere o caso, não a classe"). Aqui a
+     * aresta inteira — tipo, peso, nota e a data original — existe num lugar
+     * só, `desfazer.aresta`, e o relógio de 10 s a descartava no meio da
+     * chamada. O relógio para no despacho, como nos outros três.
+     */
+    if (decisao === "gravar") limparTimer();
   }
 
   return (
@@ -744,10 +756,29 @@ function FormularioNovaAresta({
 
   function desfazer(): void {
     const janela = criadaRef.current;
-    portaDesfazerCriacao.escrever(
+    const decisao = portaDesfazerCriacao.escrever(
       { id: janela?.id ?? "", task_id: taskId },
       { valido: janela !== null },
     );
+    /*
+     * ══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+     * O RELÓGIO DA JANELA PARA NO INSTANTE EM QUE O DESFAZER É DESPACHADO.
+     *
+     * O texto, o botão e o DADO A RESTAURAR saíam todos do mesmo valor, e o
+     * `setTimeout(JANELA_DESFAZER_MS)` apagava esse valor sozinho aos 10 s —
+     * inclusive com uma chamada de desfazer EM VOO. Medido pelo crítico da
+     * rodada 15, com a rota segurando o POST 3 s e abortando, clique aos
+     * 8,5 s: a tela dizia "Não foi possível desfazer…", havia ZERO botões de
+     * Desfazer, e a nota do operador — cujo texto existia num lugar só — tinha
+     * ido embora. O `aoFalha` que promete "não esconde o botão" chegava tarde:
+     * não havia o que não esconder.
+     *
+     * A correção é uma linha e uma ordem: quem clica em Desfazer FECHA a
+     * janela, e só depois a chamada parte. A partir daí o valor só sai da tela
+     * por decisão — sucesso, ou uma limpeza/criação nova que o substitua.
+     * Falhar deixa botão, texto e dado exatamente onde estavam.
+     */
+    if (decisao === "gravar") limparDesfazer();
   }
 
   if (opcoesDestino.length === 0) {
@@ -827,12 +858,14 @@ function FormularioNovaAresta({
       </label>
       <div className="flex flex-wrap items-end gap-2">
         {tipo === "sinergia" ? (
-          /* [CRÍTICO + ALTO A2, rodada 11] aqui o estrago era o pior dos
+          <>
+          {/* [CRÍTICO + ALTO A2, rodada 11] aqui o estrago era o pior dos
              três: com `0.5e` na caixa o programa recebia `""` e gravava o
              DEFAULT `1` — o extremo oposto da escala — e isso entrava na
-             conta do HIERARQ com a tela anunciando "Relação criada.". */
+             conta do HIERARQ com a tela anunciando "Relação criada.". */}
           <CampoNumerico
             rotulo="Desconto (0–1 — quanto a sinergia barateia a outra tarefa)"
+            descricaoId="relacao-desconto-nao-salvo"
             valor={peso}
             aoMudar={(texto) => {
               setPeso(texto);
@@ -841,6 +874,16 @@ function FormularioNovaAresta({
             }}
             classeDoCampo="min-h-[44px] w-24 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
           />
+          {/* [MÉDIO #1, rodada 15] o terceiro campo numérico da página. Ele
+              guarda rascunho, e a frase diz isso — a régua derivada exige um
+              aviso em TODO arquivo com `<CampoNumerico>`, para o quarto campo
+              não nascer mudo. */}
+          <AvisoNaoSalvo
+            id="relacao-desconto-nao-salvo"
+            mostrar={peso.trim().length > 0}
+            texto={AVISO_COM_RASCUNHO}
+          />
+          </>
         ) : null}
         <button
           ref={botaoAdicionarRef}

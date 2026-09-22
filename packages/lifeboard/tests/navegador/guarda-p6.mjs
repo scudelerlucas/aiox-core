@@ -100,9 +100,10 @@
  * | G | a duração da tarefa **não** volta com rascunho: a caixa mostra o que o banco tem | caixa = valor gravado |
  * | H | corrida na TAREFA MÃE: o anúncio e o `<select>` ficam no 1º pedido | recusa do 2º + select na 1ª escolha |
  * | I | corrida na META: o anúncio que chega é o do 1º clique | recusa do 2º + "Marcada como meta." |
- * | J | a SENTINELA de tempo real: nada mexeu no contrato em toda a vida da guarda | registro vazio; vida ≥ 30 s (medida: ~41 s) |
- * | K | a SENTINELA DO RELÓGIO: meia hora adiantada de uma vez, nenhum temporizador mexeu no contrato | registro vazio; ≥ 4 campos no DOM; 0 `type=number` |
- * | V-* | uma por medida: o registro do VIGIA daquela medida está vazio | 0 mudança fora da régua, vigia instalado |
+ * | J | as SENTINELAS de tempo real, uma POR ROTA: nada mexeu no contrato em toda a vida da guarda | canário conferido; 0 mudança fora da régua; vida ≥ 30 s |
+ * | K | as SENTINELAS DO RELÓGIO, uma POR ROTA: meia hora adiantada de uma vez | canário conferido; 0 mudança fora da régua; ≥ 4 campos no DOM; 0 `type=number` |
+ * | L | o alcance de tempo cobre TODAS as rotas e estados que a guarda visita | 0 rota visitada sem sentinela; sentinela ≥ o estado medido |
+ * | V-* | uma por medida: o CANAL do vigia provou que ainda reporta, e nada mexeu no contrato | canário nas 3 cópias pelas 6 redes; 0 mudança fora da régua |
  *
  * D, H e I cobrem TRÊS dos cinco formulários no navegador. Os cinco estão
  * cobertos pela guarda derivada de `tests/unit/`, que desde a rodada 14 é
@@ -247,9 +248,51 @@ async function medir(nome, fn) {
 
 const navegador = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});
 
+/**
+ * ══════════════════════════════════════════════════════ CRÍTICO #1, rodada 15 ═
+ * O UNIVERSO DAS SENTINELAS DEIXA DE SER CONVENÇÃO E PASSA A SER MEDIDO.
+ *
+ * O alcance de 30 min que o cabeçalho afirmava era verdade para UMA rota, num
+ * estado só: as duas sentinelas abriam `/tarefa/task-docs` e não tocavam em
+ * nada, enquanto as outras onze aberturas viviam 5–15 s e fechavam. O crítico
+ * da rodada 15 derrubou a guarda com o setter do protótipo aos 60 s e um
+ * `if (!window.location.pathname.includes("task-build")) return;` — cinco
+ * portões verdes, e no Chromium a duração do operador apagada outra vez.
+ *
+ * Agora toda rota que a guarda abre ou navega se REGISTRA aqui, e a medida L
+ * compara o medido com a lista escrita à mão das sentinelas: rota visitada sem
+ * sentinela é reprovação. E o número de campos que cada rota já mostrou
+ * também se registra, porque estado escondido atrás de um clique (o campo
+ * "Desconto", que só nasce com "sinergia" escolhida) é tão fora de alcance
+ * quanto rota não visitada — a sentinela daquela rota tem de mostrar pelo
+ * menos tantos campos quanto a maior leitura que a guarda fez ali.
+ */
+const ROTAS_VISITADAS = new Set();
+const CAMPOS_VISTOS_POR_ROTA = new Map();
+function registrarRota(rota) {
+  ROTAS_VISITADAS.add(rota);
+}
+function registrarCampos(rota, quantos) {
+  const antes = CAMPOS_VISTOS_POR_ROTA.get(rota) ?? 0;
+  if (quantos > antes) CAMPOS_VISTOS_POR_ROTA.set(rota, quantos);
+}
+
 /** Um contexto novo por medida: nada de rascunho de uma vazar na outra. */
 async function abrir(rota, largura = 1280, altura = 1200, comRelogioDeMentira = false) {
   const contexto = await navegador.newContext({ viewport: { width: largura, height: altura } });
+  /*
+   * [CRÍTICO #2, rodada 15] A CÓPIA QUE MORA NO NODE.
+   *
+   * `exposeBinding` dá à página uma função que, chamada, entrega o argumento
+   * a ESTE processo. O vigia captura a referência antes do primeiro script da
+   * página; daí em diante toda anotação também sai da página. É a única das
+   * quatro cópias que nenhum código da aba alcança — e é contra ela que as
+   * outras três são comparadas.
+   */
+  const registroFora = [];
+  await contexto.exposeBinding(CANAL_FORA_DA_PAGINA, (_fonte, carga) => {
+    registroFora.push(carga);
+  });
   /*
    * O relógio de mentira, quando pedido, entra ANTES do vigia e antes de
    * qualquer script da página — a ordem importa: um `setTimeout` que a página
@@ -267,13 +310,46 @@ async function abrir(rota, largura = 1280, altura = 1200, comRelogioDeMentira = 
    */
   await contexto.addInitScript(VIGIA_DO_CONTRATO, {
     chave: CHAVE_DO_VIGIA,
+    canal: CANAL_FORA_DA_PAGINA,
     propriedades: PROPRIEDADES_DO_CONTRATO,
     atributos: ATRIBUTOS_DO_CONTRATO,
   });
   const pagina = await contexto.newPage();
   await pagina.goto(`${BASE}${rota}`, { waitUntil: "networkidle" });
   await pagina.waitForSelector("h1", { timeout: 30000 });
-  return { contexto, pagina };
+  registrarRota(rota);
+  return { contexto, pagina, registroFora, rota };
+}
+
+/**
+ * Navegação de dentro da guarda que também se REGISTRA. Uma rota alcançada por
+ * `goto` ou por clique num link é uma rota visitada, e o CRÍTICO #1 nasceu
+ * exatamente de a guarda visitar `/tarefa/task-setup` sem sentinela nenhuma
+ * lá.
+ */
+async function anotarRotaAtual(pagina) {
+  const estado = await estadoDaPagina(pagina);
+  if (estado === null) return;
+  registrarRota(estado.rota);
+  registrarCampos(estado.rota, estado.campos);
+}
+
+/**
+ * O ESTADO QUE SÓ EXISTE DEPOIS DE UM CLIQUE — revelado nas sentinelas também.
+ *
+ * O campo "Desconto" não existe antes de o tipo de relação virar "sinergia".
+ * Uma sentinela que nunca clica vigia por meia hora uma árvore em que aquele
+ * campo não está — e foi essa a segunda metade do CRÍTICO #1.
+ */
+async function revelarEstadosOcultos(pagina) {
+  const revelados = [];
+  const sinergia = pagina.getByRole("radio", { name: "sinergia" });
+  if ((await sinergia.count()) >= 1) {
+    await sinergia.first().click();
+    await pagina.waitForSelector('input[inputmode="decimal"]', { timeout: 30000 });
+    revelados.push("sinergia → Desconto");
+  }
+  return revelados;
 }
 
 /**
@@ -357,25 +433,45 @@ async function assentar(pagina) {
  * Duas coisas foram feitas a respeito, em vez de fingir — e as duas imprimem o
  * próprio alcance na saída:
  *
- *  - **medida J, a sentinela de tempo real.** Uma página aberta antes da
- *    primeira medida e lida depois da última. Ela vive o tempo INTEIRO da
- *    guarda, e a medida imprime esse tempo: **medido nesta rodada, ~41 s.**
- *    `PISO_DE_VIDA_DA_SENTINELA` (30 s) reprova se esse alcance encolher —
- *    quem acelerar a guarda a ponto de reduzir o alcance tem de baixar o
- *    número de propósito, no diff.
- *  - **medida K, a sentinela do relógio.** Esperar 60 s para pegar uma mutação
- *    de 60 s seria pagar caro por uma duplicação: o sabotador escreveria 120 s.
- *    Então esta sentinela nasce com o relógio da página sob controle da guarda
- *    (`clock.install()`), e a medida K **adianta meia hora de uma vez**. Todo
- *    `setTimeout`/`setInterval` agendado dispara, e o vigia anota. O alcance
- *    para mutação agendada deixa de ser "o tempo que a guarda gasta" e passa a
- *    ser **qualquer atraso até 30 min** — o exemplo de 60 s do coordenador fica
- *    VERMELHO, provado.
+ *  - **medidas J, as sentinelas de tempo real — UMA POR ROTA.** Páginas
+ *    abertas antes da primeira medida e lidas depois da última. Cada uma vive
+ *    o tempo INTEIRO da guarda, e a medida imprime esse tempo: **medido nesta
+ *    rodada, ~42–50 s.** `PISO_DE_VIDA_DA_SENTINELA` (30 s) reprova se esse
+ *    alcance encolher — quem acelerar a guarda a ponto de reduzir o alcance
+ *    tem de baixar o número de propósito, no diff.
+ *  - **medidas K, as sentinelas do relógio — UMA POR ROTA.** Esperar 60 s para
+ *    pegar uma mutação de 60 s seria pagar caro por uma duplicação: o sabotador
+ *    escreveria 120 s. Então estas sentinelas nascem com o relógio da página
+ *    sob controle da guarda (`clock.install()`), e cada medida K **adianta
+ *    meia hora de uma vez**. Todo `setTimeout`/`setInterval` agendado dispara,
+ *    e o vigia anota.
+ *  - **medida L, o alcance conferido contra o MEDIDO (rodada 15).** Até a
+ *    rodada 14 as duas sentinelas abriam `/tarefa/task-docs` e não tocavam em
+ *    nada — o alcance de 30 min que este cabeçalho afirmava era verdade para
+ *    UMA rota, no estado inicial dela. O crítico passou com o setter do
+ *    protótipo aos 60 s e um `if` de rota (`task-build`): cinco portões verdes
+ *    e a duração do operador apagada no Chromium. Agora toda rota que a guarda
+ *    abre ou navega se REGISTRA, cada rota tem as suas duas sentinelas, cada
+ *    sentinela revela os estados que só existem depois de um clique (o campo
+ *    "Desconto"), e a medida L reprova se aparecer rota visitada sem sentinela
+ *    ou sentinela com menos estado do que a guarda viu ali. **A afirmação que
+ *    esta guarda faz, por extenso: qualquer atraso até 30 min, em cada uma das
+ *    rotas de `ROTAS_COM_SENTINELA`, nos estados que a medida L confere.**
+ *
+ *    MEDIDO na rodada 15, e maior do que a afirmação: `clock.install()` não
+ *    congela o relógio da página — ele continua andando com o tempo real —, e
+ *    a sentinela do relógio vive ~100 s antes do adiantamento. O alcance real
+ *    foi **~31,6 min** (mutação agendada para 31 min: VERMELHA, medida;
+ *    agendada para 45 min: VERDE, também medida). A guarda promete 30 min
+ *    porque é o número que ela CONTROLA; os ~1,6 min a mais são folga, não
+ *    contrato.
  *
  * **O que continua fora de alcance, dito por extenso:** (a) atraso maior que os
- * 30 min que a medida K adianta; (b) mutação disparada por algo que o relógio de
- * mentira não controla e que só acontece depois do fim da guarda — por exemplo
- * a resposta de uma requisição de rede real que demore mais que isso. O que
+ * 30 min que as medidas K adiantam; (b) mutação disparada por algo que o relógio
+ * de mentira não controla e que só acontece depois do fim da guarda — por
+ * exemplo a resposta de uma requisição de rede real que demore mais que isso;
+ * (c) rota do produto que esta guarda NÃO visita: a medida L prova que o
+ * alcance cobre tudo o que a guarda visita, e não que a guarda visita tudo. O que
  * compensa, sem ser o bastante sozinho: as duas redes de fonte (`tiposDeInput` e
  * `escritasNoDom`, no `src/` inteiro) pegam a escrita quando ela está escrita
  * neste repositório, em qualquer grafia da família — elas só não alcançam código
@@ -387,6 +483,12 @@ async function assentar(pagina) {
 
 /** A chave do registro do vigia no `sessionStorage` da página sob teste. */
 const CHAVE_DO_VIGIA = "__vigia-p6-contrato";
+
+/**
+ * O nome do `exposeBinding` pelo qual o vigia entrega cada anotação AO NODE.
+ * É a cópia que a página não controla — ver o bloco do CRÍTICO #2 abaixo.
+ */
+const CANAL_FORA_DA_PAGINA = "__vigiaP6Envia";
 
 /** As propriedades vivas que definem o contrato do campo. */
 const PROPRIEDADES_DO_CONTRATO = ["type", "inputMode"];
@@ -412,27 +514,101 @@ const ADIANTAMENTO_DO_RELOGIO = 1800000;
  * fala com `window.` em tudo — é a única referência que existe nos dois lados.
  */
 function VIGIA_DO_CONTRATO(config) {
-  const { chave, propriedades, atributos } = config;
+  const { chave, canal, propriedades, atributos } = config;
+  /*
+   * Este realm já tem vigia? Instalar duas vezes embrulharia o mesmo setter
+   * duas vezes e DOBRARIA cada anotação — e uma contagem dobrada é tão
+   * mentirosa quanto uma zerada.
+   */
+  if (Object.prototype.hasOwnProperty.call(window, "__vigiaP6")) return;
   const inicio = Date.now();
-  let naMemoria = [];
 
-  const ler = () => {
+  /*
+   * ══════════════════════════════════════════════════ CRÍTICO #2, rodada 15 ═
+   * O REGISTRO MORAVA ONDE A PÁGINA MANDA — E "REGISTRO VAZIO" ERA O VERDE.
+   *
+   * O crítico da rodada 15 derrubou as medidas J e K com SEIS linhas: um
+   * `setInterval` de 1 s gravando `"[]"` em `sessionStorage` na chave deste
+   * vigia. A mesma mutação que, sem essas seis linhas, deixava a guarda
+   * VERMELHA com 8 mudanças nomeadas e a pilha apontando a linha, passava a
+   * imprimir `vigia instalado=true`, as seis redes ativas e `0 mudança(s)
+   * fora da régua` — EXIT=0, 20 medidas na régua. A guarda não ficava cega:
+   * ela MENTIA. Cegueira manda investigar; afirmação falsa fecha a
+   * investigação. E lotar a cota do `sessionStorage` tinha o mesmo efeito sem
+   * sabotar ninguém, porque o `setItem` lançava dentro de um `catch` vazio.
+   *
+   * Três coisas mudaram, e as três estão medidas no relatório da rodada:
+   *
+   *  1. **a cópia autoritativa saiu do alcance da página.** `naMemoria` é um
+   *     fechamento desta função — não há nome em `window` que leve a ele — e
+   *     `window.__vigiaP6` passa a ser uma propriedade NÃO gravável e NÃO
+   *     configurável, com o objeto congelado. Antes era uma atribuição
+   *     simples: `window.__vigiaP6 = { mudancas: () => [] }` por parte da
+   *     página bastava para calar o vigia inteiro (medido nesta rodada, como
+   *     sabotagem própria nº 1).
+   *  2. **uma via que a página não controla:** `window[canal]` é um
+   *     `exposeBinding` do Playwright — chamá-lo entrega a anotação ao
+   *     processo do Node. A referência é capturada AQUI, antes de existir o
+   *     primeiro script da página; a página consegue sobrescrever
+   *     `window[canal]` (medido), e não muda nada, porque o vigia nunca volta
+   *     a ler daquele nome. A guarda compara as três cópias (memória,
+   *     depósito, Node) e REPROVA na divergência: divergir é o sinal de que
+   *     alguém mexeu no registro.
+   *  3. **estouro de cota deixou de ser silêncio.** O `catch` do `setItem` era
+   *     um comentário; agora ele marca `depositoQuebrado`, e depósito
+   *     quebrado reprova a medida com essa frase.
+   *
+   * O `sessionStorage` continua existindo por um motivo só: ele é o
+   * CARREGADOR entre navegações (`reload()`/`goto()` criam realm novo e a
+   * memória do fechamento nasce vazia). Deixou de ser a verdade.
+   */
+  const enviarParaFora = typeof window[canal] === "function" ? window[canal] : null;
+  /** Identidade deste carregamento de página — é o que casa as três cópias. */
+  const carga = `${String(inicio)}-${Math.random().toString(36).slice(2, 10)}`;
+  let sequencia = 0;
+  /** A cópia AUTORITATIVA. Fechamento: nenhum código da página a alcança. */
+  let naMemoria = [];
+  /** Por que o depósito parou de servir — `null` enquanto ele serve. */
+  let depositoQuebrado = null;
+  /** Os campos descartáveis que a guarda usa como canário. */
+  const canarios = new WeakSet();
+
+  /** O que o DEPÓSITO tem agora — `null` quando o acesso lança. */
+  const lerDeposito = () => {
     try {
       const cru = window.sessionStorage.getItem(chave);
-      if (typeof cru === "string") return JSON.parse(cru);
+      if (typeof cru !== "string") return [];
+      const lista = JSON.parse(cru);
+      return Array.isArray(lista) ? lista : [];
     } catch {
-      /* janela privada ou armazenamento bloqueado: a memória do processo serve */
+      return null;
     }
-    return naMemoria;
   };
+  const semente = lerDeposito();
+  if (semente === null) depositoQuebrado = "o depósito não pôde ser lido na semeadura";
+  else naMemoria = semente;
+
   const anotar = (entrada) => {
-    const lista = ler();
-    lista.push(entrada);
-    naMemoria = lista;
+    sequencia += 1;
+    const cheia = { ...entrada, carga, seq: sequencia };
+    // 1º a memória, que ninguém alcança.
+    naMemoria.push(cheia);
+    // 2º o depósito — e o estouro dele é um DEFEITO, não um silêncio.
     try {
-      window.sessionStorage.setItem(chave, JSON.stringify(lista));
-    } catch {
-      /* idem */
+      window.sessionStorage.setItem(chave, JSON.stringify(naMemoria));
+    } catch (erro) {
+      depositoQuebrado = `o depósito recusou a escrita: ${
+        erro instanceof Error ? erro.message.split("\n")[0] : String(erro)
+      }`;
+    }
+    // 3º o Node, que a página não controla. Vai com o estado do depósito
+    // colado, para o aviso chegar mesmo que a página zere tudo em seguida.
+    if (enviarParaFora !== null) {
+      try {
+        void enviarParaFora({ ...cheia, depositoQuebrado });
+      } catch {
+        /* o canal caiu; a memória e o depósito seguem */
+      }
     }
   };
 
@@ -511,6 +687,8 @@ function VIGIA_DO_CONTRATO(config) {
           para,
           alvo: descrever(this),
           naArvore: this.isConnected === true,
+          canario: canarios.has(this),
+          marcaDoCanario: canarios.has(this) ? this.getAttribute("data-vigia-canario") : null,
           emMs: Date.now() - inicio,
           pilha: pilha(),
         });
@@ -538,6 +716,8 @@ function VIGIA_DO_CONTRATO(config) {
             para,
             alvo: descrever(this),
             naArvore: this.isConnected === true,
+            canario: canarios.has(this),
+            marcaDoCanario: canarios.has(this) ? this.getAttribute("data-vigia-canario") : null,
             emMs: Date.now() - inicio,
             pilha: pilha(),
           });
@@ -572,6 +752,8 @@ function VIGIA_DO_CONTRATO(config) {
           para,
           alvo: descrever(alvo),
           naArvore: alvo.isConnected === true,
+          canario: canarios.has(alvo),
+          marcaDoCanario: canarios.has(alvo) ? alvo.getAttribute("data-vigia-canario") : null,
           emMs: Date.now() - inicio,
           pilha: "(o observador vê a mudança, não quem a fez)",
         });
@@ -589,21 +771,173 @@ function VIGIA_DO_CONTRATO(config) {
   observar();
   window.addEventListener("DOMContentLoaded", observar);
 
-  window.__vigiaP6 = {
+  /*
+   * ═══════════════════════════════════════════════════ O CANÁRIO, rodada 15 ═
+   * A pergunta que faltava: **o canal ainda reporta?**
+   *
+   * Toda medida, antes de julgar, manda o vigia mexer DE PROPÓSITO no contrato
+   * de um `<input>` descartável JÁ INSERIDO na árvore, e exige que essa
+   * mudança apareça nas três cópias, pelas SEIS redes. Canário ausente não
+   * quer dizer "a página está limpa": quer dizer que a testemunha morreu — e
+   * a medida reprova dizendo isso, com essas palavras.
+   *
+   * É o canário que fecha a sabotagem "desinstalar o vigia": restaurar o
+   * setter original do protótipo deixa a mutação de verdade invisível, e
+   * deixa o canário sem a via `setter do protótipo .type` — reprovação com
+   * nome, em vez de verde por ausência.
+   *
+   * O elemento é reconhecido por IDENTIDADE (um `WeakSet` deste fechamento),
+   * não por atributo: a página pode pôr `data-vigia-canario` em qualquer
+   * campo e não ganha isenção nenhuma. E `abrirCanario` ser alcançável pela
+   * página não a ajuda — canário falso não esconde mudança de verdade, porque
+   * a mudança de verdade está na memória do fechamento e no Node.
+   */
+  const abrirCanario = (marca) => {
+    const doc = window.document;
+    const el = doc.createElement("input");
+    el.setAttribute("data-vigia-canario", String(marca));
+    canarios.add(el);
+    // NA ÁRVORE antes de qualquer mutação: um canário fora da árvore provaria
+    // menos do que o que a régua cobra (`naArvore === true`).
+    (doc.body ?? doc.documentElement).appendChild(el);
+    // Uma mutação por rede, na ordem em que elas existem.
+    el.type = "number"; // 1ª rede (setter .type) + 3ª (MutationObserver)
+    el.inputMode = "decimal"; // 1ª rede (setter .inputMode)
+    el.setAttribute("type", "text"); // 2ª rede
+    el.removeAttribute("inputmode"); // 2ª rede
+    el.toggleAttribute("inputmode"); // 2ª rede
+    return new Promise((pronto) => {
+      /*
+       * O `MutationObserver` entrega em MICROTAREFA. Três voltas bastam, e
+       * nenhuma delas usa `setTimeout` de propósito: na sentinela do relógio
+       * o temporizador está sob controle da guarda e não dispararia aqui.
+       */
+      void Promise.resolve()
+        .then(() => undefined)
+        .then(() => undefined)
+        .then(() => {
+          try {
+            el.remove();
+          } catch {
+            /* já saiu da árvore */
+          }
+          pronto(marca);
+        });
+    });
+  };
+
+  const api = {
     instalado: true,
     redes,
-    mudancas: ler,
+    /** A cópia AUTORITATIVA — do fechamento, não de `window`. */
+    mudancas: () => naMemoria.slice(),
+    /** O que o depósito tem agora; `null` quando o acesso lança. */
+    noDeposito: lerDeposito,
+    depositoQuebrado: () => depositoQuebrado,
+    carga: () => carga,
     vidaMs: () => Date.now() - inicio,
+    abrirCanario,
   };
+  Object.freeze(api);
+  try {
+    /*
+     * NÃO gravável e NÃO configurável. Era uma atribuição simples, e por isso
+     * `window.__vigiaP6 = { instalado: true, mudancas: () => [] }` calava o
+     * vigia inteiro sem tocar no `sessionStorage` (sabotagem própria nº 1
+     * desta rodada, medida).
+     */
+    Object.defineProperty(window, "__vigiaP6", {
+      value: api,
+      writable: false,
+      configurable: false,
+      enumerable: false,
+    });
+  } catch {
+    /* alguém chegou antes neste realm; o canal do Node continua valendo */
+  }
 }
 
-/** O que o vigia daquela página anotou — lido de dentro do Chromium. */
+/**
+ * O que o vigia daquela página anotou — as TRÊS cópias, lidas de dentro do
+ * Chromium: a memória do fechamento (autoritativa), o depósito
+ * (`sessionStorage`, que é só carregador entre navegações) e o estado dele.
+ * A quarta cópia, a do Node, não passa por aqui de propósito: ela chega pelo
+ * `exposeBinding` e é justamente a que a página não pode tocar.
+ */
 async function lerVigia(pagina) {
   return await pagina.evaluate(() => {
     const v = window.__vigiaP6;
-    if (v === undefined || v === null) return { instalado: false, redes: [], mudancas: [], vidaMs: 0 };
-    return { instalado: true, redes: v.redes, mudancas: v.mudancas(), vidaMs: v.vidaMs() };
+    if (v === undefined || v === null) {
+      return {
+        instalado: false,
+        redes: [],
+        mudancas: [],
+        noDeposito: [],
+        depositoQuebrado: "o vigia não está instalado nesta página",
+        carga: "",
+        vidaMs: 0,
+      };
+    }
+    return {
+      instalado: v.instalado === true,
+      redes: v.redes,
+      mudancas: v.mudancas(),
+      noDeposito: v.noDeposito(),
+      depositoQuebrado: v.depositoQuebrado(),
+      carga: v.carga(),
+      vidaMs: v.vidaMs(),
+    };
   });
+}
+
+/** `lerVigia` que nunca estoura: um estouro vira "sem vigia", que é reprovação. */
+async function lerVigiaSemQuebrar(pagina) {
+  try {
+    return await lerVigia(pagina);
+  } catch (erro) {
+    return {
+      instalado: false,
+      redes: [],
+      mudancas: [],
+      noDeposito: [],
+      depositoQuebrado: `a leitura do vigia estourou: ${
+        erro instanceof Error ? erro.message.split("\n")[0] : String(erro)
+      }`,
+      carga: "",
+      vidaMs: 0,
+    };
+  }
+}
+
+/**
+ * Manda o vigia soltar um canário nesta página e devolve a marca dele.
+ * `null` quando não foi possível — e não poder soltar canário é reprovação.
+ */
+async function soltarCanario(pagina) {
+  const marca = `canario-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const voou = await pagina.evaluate(async (m) => {
+      const v = window.__vigiaP6;
+      if (v === undefined || v === null || typeof v.abrirCanario !== "function") return false;
+      await v.abrirCanario(m);
+      return true;
+    }, marca);
+    return voou === true ? marca : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A rota e quantos campos a página tem AGORA — alimenta o piso das sentinelas. */
+async function estadoDaPagina(pagina) {
+  try {
+    return await pagina.evaluate(() => ({
+      rota: window.location.pathname,
+      campos: document.querySelectorAll("input, textarea").length,
+    }));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -639,40 +973,208 @@ async function lerVigia(pagina) {
  * vivo depois de a árvore estar de pé.
  */
 function foraDaRegua(m) {
+  // O canário é mudança que a GUARDA pediu, para provar que o canal reporta.
+  // Ele é reconhecido por identidade do elemento (WeakSet do fechamento do
+  // vigia), nunca pelo atributo — marcar um campo de verdade não isenta nada.
+  if (m.canario === true) return false;
   return m.naArvore === true || (m.prop === "type" && m.para === "number");
 }
 
-async function conferirVigia(nome, paginas) {
-  const lidos = [];
-  for (const pagina of paginas) {
-    try {
-      lidos.push(await lerVigia(pagina));
-    } catch (erro) {
-      lidos.push({
-        instalado: false,
-        redes: [],
-        mudancas: [],
-        vidaMs: 0,
-        erro: erro instanceof Error ? erro.message.split("\n")[0] : String(erro),
-      });
+/** A chave de uma anotação — é por ela que as quatro cópias se comparam. */
+function chaveDaMudanca(m) {
+  return `${String(m.carga)}:${String(m.seq)}`;
+}
+
+/** Junta as cópias sem repetir a mesma anotação. */
+function unirMudancas(listas) {
+  const porChave = new Map();
+  for (const lista of listas) {
+    for (const m of lista) {
+      if (!porChave.has(chaveDaMudanca(m))) porChave.set(chaveDaMudanca(m), m);
     }
   }
-  const semVigia = lidos.filter((l) => !l.instalado).length;
-  const todas = lidos.flatMap((l) => l.mudancas);
+  return [...porChave.values()];
+}
+
+/**
+ * As SEIS redes que o canário tem de acender. Escrita à mão, e não derivada do
+ * que o vigia disser que instalou: é ela que reprova a sabotagem "restaura o
+ * setter original do protótipo", em que o vigia continua dizendo
+ * `instalado=true` e a rede que importa já não vê nada.
+ */
+const REDES_QUE_O_CANARIO_EXIGE = [
+  "setter do protótipo .type",
+  "setter do protótipo .inputMode",
+  'setAttribute("type"',
+  'removeAttribute("inputmode"',
+  'toggleAttribute("inputmode"',
+  "MutationObserver (atributo)",
+];
+
+/**
+ * O veredito de uma página: o canal ainda reporta, as quatro cópias
+ * concordam, o depósito está íntegro, e nada mexeu no contrato.
+ *
+ * `alvo` é o que `abrir()` devolve — precisa do `registroFora`, que é a cópia
+ * do Node. Passar só a página deixaria de fora justamente a testemunha que a
+ * página não alcança.
+ */
+async function auditarPagina(alvo) {
+  /*
+   * 0. O ESTADO ANTES DO CANÁRIO. Tem de ser lido aqui, e não depois: a
+   *    própria anotação do canário reescreve o depósito inteiro a partir da
+   *    memória, e isso RESSINCRONIZARIA as cópias — a divergência que o
+   *    `setInterval` do crítico provoca (gravar `"[]"` na chave) desapareceria
+   *    antes de ser vista. Medido: com a leitura só depois, a sabotagem que
+   *    apaga o registro sem mexer em contrato nenhum passava VERDE.
+   */
+  const antesDoCanario = await lerVigiaSemQuebrar(alvo.pagina);
+  const foraAntes = alvo.registroFora.slice();
+  // 1. O canário: se o canal morreu, tudo o que vem depois é ruído.
+  const marca = await soltarCanario(alvo.pagina);
+  const estado = await estadoDaPagina(alvo.pagina);
+  if (estado !== null) {
+    registrarRota(estado.rota);
+    registrarCampos(estado.rota, estado.campos);
+  }
+  const lido = await lerVigiaSemQuebrar(alvo.pagina);
+  const fora = alvo.registroFora.slice();
+  const noDeposito = Array.isArray(lido.noDeposito) ? lido.noDeposito : [];
+  const depositoIlegivel = !Array.isArray(lido.noDeposito);
+  const todas = unirMudancas([
+    fora,
+    lido.mudancas,
+    noDeposito,
+    foraAntes,
+    antesDoCanario.mudancas,
+  ]);
+
+  // 2. O canário apareceu, pelas SEIS redes, nas TRÊS cópias?
+  const doCanario = todas.filter((m) => m.canario === true && m.marcaDoCanario === marca);
+  const redesFaltando = REDES_QUE_O_CANARIO_EXIGE.filter(
+    (rede) => !doCanario.some((m) => String(m.via).startsWith(rede)),
+  );
+  const chavesDoCanario = new Set(doCanario.map(chaveDaMudanca));
+  const canarioEm = (lista) => {
+    const chaves = new Set(lista.map(chaveDaMudanca));
+    return [...chavesDoCanario].filter((c) => chaves.has(c)).length;
+  };
+  const canarioCompleto =
+    marca !== null && redesFaltando.length === 0 && chavesDoCanario.size > 0;
+  const canarioNasTres =
+    canarioCompleto &&
+    canarioEm(fora) === chavesDoCanario.size &&
+    canarioEm(lido.mudancas) === chavesDoCanario.size &&
+    canarioEm(noDeposito) === chavesDoCanario.size;
+
+  // 3. As cópias divergem? Só o que nasceu NESTE carregamento é comparável —
+  //    o Node e o depósito guardam também o que veio de documentos anteriores
+  //    do mesmo contexto, e a memória do fechamento nasce do depósito.
+  // A comparação é sobre o estado de ANTES do canário, pelo motivo do passo 0.
+  const desteDoc = (lista) =>
+    new Set(lista.filter((m) => m.carga === antesDoCanario.carga).map(chaveDaMudanca));
+  const naMemoria = desteDoc(antesDoCanario.mudancas);
+  const noNode = desteDoc(foraAntes);
+  const noDepositoAgora = desteDoc(
+    Array.isArray(antesDoCanario.noDeposito) ? antesDoCanario.noDeposito : [],
+  );
+  const divergencias = [];
+  for (const c of noNode) {
+    if (!naMemoria.has(c)) divergencias.push(`${c} não está na memória do vigia`);
+    if (!noDepositoAgora.has(c)) divergencias.push(`${c} não está no depósito`);
+  }
+  for (const c of naMemoria) {
+    if (!noNode.has(c)) divergencias.push(`${c} não chegou ao Node`);
+  }
+  for (const c of noDepositoAgora) {
+    if (!noNode.has(c)) divergencias.push(`${c} apareceu no depósito sem passar pelo vigia`);
+  }
+
   const culpadas = todas.filter(foraDaRegua);
-  const naMontagem = todas.length - culpadas.length;
-  const redes = [...new Set(lidos.flatMap((l) => l.redes))];
+  return {
+    marca,
+    lido,
+    fora,
+    todas,
+    culpadas,
+    naMontagem: todas.length - culpadas.length - doCanario.length,
+    redesFaltando,
+    canarioCompleto,
+    canarioNasTres,
+    divergencias: [...new Set(divergencias)],
+    depositoQuebrado:
+      typeof lido.depositoQuebrado === "string" && lido.depositoQuebrado.length > 0
+        ? lido.depositoQuebrado
+        : typeof antesDoCanario.depositoQuebrado === "string" &&
+            antesDoCanario.depositoQuebrado.length > 0
+          ? antesDoCanario.depositoQuebrado
+          : depositoIlegivel
+            ? "o depósito não devolveu uma lista"
+            : null,
+  };
+}
+
+/**
+ * O que está ERRADO num relato, em frases que dizem a coisa certa.
+ *
+ * A diferença que mais importa está aqui: canário ausente NÃO se traduz por
+ * "a página está limpa", e sim por "o canal está quebrado". Era a mentira do
+ * CRÍTICO #2 — a guarda imprimia `0 mudança(s) fora da régua` com oito
+ * mudanças anotadas, e fechava a investigação.
+ */
+function problemasDoRelato(relato) {
+  const problemas = [];
+  if (!relato.lido.instalado) problemas.push("a página está SEM vigia instalado");
+  if (!relato.canarioCompleto) {
+    problemas.push(
+      relato.marca === null
+        ? "O CANAL ESTÁ QUEBRADO: não foi possível soltar o canário — isto NÃO quer dizer que a página está limpa"
+        : `O CANAL ESTÁ QUEBRADO: o canário não apareceu pelas redes ${relato.redesFaltando.join(
+            ", ",
+          )} — a testemunha morreu, a página não foi absolvida`,
+    );
+  } else if (!relato.canarioNasTres) {
+    problemas.push(
+      "o canário não está nas TRÊS cópias (memória do vigia, depósito, Node) — alguém mexeu no registro",
+    );
+  }
+  if (relato.depositoQuebrado !== null) {
+    problemas.push(`DEPÓSITO QUEBRADO: ${relato.depositoQuebrado}`);
+  }
+  if (relato.divergencias.length > 0) {
+    problemas.push(`as cópias do registro DIVERGEM: ${relato.divergencias.slice(0, 4).join(" · ")}`);
+  }
+  if (relato.culpadas.length > 0) {
+    problemas.push(
+      `${String(relato.culpadas.length)} mudança(s) fora da régua — ${relato.culpadas
+        .map(descreverMudanca)
+        .join(" · ")}`,
+    );
+  }
+  return problemas;
+}
+
+/** O relato em uma linha, com o que ele PROVOU (e não só com o que não achou). */
+function resumoDoRelato(relato) {
+  return `vigia instalado=${String(relato.lido.instalado)} · redes: ${
+    relato.lido.redes.join(", ") || "(nenhuma)"
+  } · canário ${relato.canarioNasTres ? "conferido nas 3 cópias" : "NÃO conferido"} pelas ${String(
+    REDES_QUE_O_CANARIO_EXIGE.length,
+  )} redes · ${String(relato.culpadas.length)} mudança(s) fora da régua, ${String(
+    relato.naMontagem,
+  )} na montagem da árvore (React, antes de inserir)`;
+}
+
+async function conferirVigia(nome, alvos) {
+  const relatos = [];
+  for (const alvo of alvos) relatos.push(await auditarPagina(alvo));
+  const problemas = relatos.flatMap(problemasDoRelato);
+  if (relatos.length === 0) problemas.push("nenhuma página lida — checagem que não mediu");
   conferir(
-    `${nome} · nada mexeu no contrato dos campos, em nenhum momento da medida`,
-    lidos.length > 0 && semVigia === 0 && culpadas.length === 0,
-    `${String(lidos.length)} página(s) lida(s), ${String(
-      semVigia,
-    )} sem vigia instalado · redes ativas: ${redes.join(", ") || "(nenhuma)"} · ${String(
-      culpadas.length,
-    )} mudança(s) fora da régua, ${String(
-      naMontagem,
-    )} na montagem da árvore (React, antes de inserir)${
-      culpadas.length === 0 ? "" : ` — ${culpadas.map(descreverMudanca).join(" · ")}`
+    `${nome} · nada mexeu no contrato dos campos, e o canal do vigia PROVOU que ainda reporta`,
+    problemas.length === 0,
+    `${String(relatos.length)} página(s) lida(s) · ${relatos.map(resumoDoRelato).join(" || ")}${
+      problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`
     }`,
   );
 }
@@ -710,42 +1212,48 @@ const LER_CAMPOS = () => {
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// A SENTINELA — aberta agora, lida na última medida (J)
+// AS SENTINELAS — UMA POR ROTA VISITADA, E O RELÓGIO DE MENTIRA EM CADA UMA
 //
-// Ela não clica em nada. A única coisa que ela faz é EXISTIR enquanto a guarda
-// roda, com o vigia dentro. É o que dá ao vigia um alcance de tempo maior que
-// o de qualquer medida isolada, e é o que torna o limite declarável em número
-// em vez de em promessa.
+// [CRÍTICO #1, rodada 15] Eram DUAS, as duas em `/tarefa/task-docs`, as duas
+// no estado inicial da rota. O cabeçalho afirmava "qualquer atraso até 30 min"
+// e a medida K imprimia "atraso ATÉ ISSO está no alcance desta guarda": era
+// verdade para uma rota, num estado só. O crítico passou com o setter do
+// protótipo aos 60 s e um `if` de rota (`task-build`), cinco portões verdes, e
+// no Chromium o `3` do operador saindo do banco.
+//
+// Agora são DUAS POR ROTA — uma de tempo real e uma com o relógio da página
+// sob controle da guarda — para cada rota da lista `ROTAS_COM_SENTINELA`, e
+// cada uma revela os estados que só existem depois de um clique (o campo
+// "Desconto" da sinergia). A medida L confere a lista contra as rotas que a
+// guarda de fato visitou, e o número de campos de cada sentinela contra o
+// maior que a guarda já viu naquela rota: rota sem sentinela, ou sentinela com
+// menos estado do que a medida viu, é reprovação.
+//
+// A lista é escrita À MÃO de propósito (mesma lei de `MEDIDAS_EXIGIDAS`):
+// acrescentar rota ao trabalho da guarda passa a exigir acrescentar sentinela
+// no diff.
 // ════════════════════════════════════════════════════════════════════════════
-const sentinela = await abrir("/tarefa/task-docs");
-const nascimentoDaSentinela = Date.now();
+const ROTAS_COM_SENTINELA = ["/tarefa/task-docs", "/tarefa/task-build", "/tarefa/task-setup"];
 
-// ════════════════════════════════════════════════════════════════════════════
-// A SENTINELA DO RELÓGIO — o alcance que não depende de esperar
-//
-// A sentinela acima mede tempo de verdade, e por isso o alcance dela é o tempo
-// que a guarda gasta (~40 s). O exemplo do coordenador para o limite era uma
-// mutação agendada para 60 s: fora de alcance por espera, e esperar 60 s numa
-// guarda de 50 s seria pagar caro por uma duplicação (o sabotador escreveria
-// 120 s).
-//
-// Esta segunda sentinela troca espera por RELÓGIO: `clock.install()` põe o
-// tempo da página sob controle da guarda, e a medida K adianta meia hora de
-// uma vez. Todo `setTimeout`/`setInterval` que a página tiver agendado dispara,
-// e o vigia anota. O alcance deixa de ser "o tempo que a guarda gasta" e passa
-// a ser "qualquer atraso até o que a medida K adiantar".
-//
-// Medido antes de entrar aqui: com o relógio de mentira a página HIDRATA
-// normalmente (`h1` presente, os 4 campos com `type=text`, a duração com o
-// valor `2` do banco) — trocar o relógio do React não o quebra.
-// ════════════════════════════════════════════════════════════════════════════
-const sentinelaDoRelogio = await abrir("/tarefa/task-docs", 1280, 1200, true);
+const SENTINELAS = [];
+for (const rota of ROTAS_COM_SENTINELA) {
+  for (const comRelogioDeMentira of [false, true]) {
+    const aberta = await abrir(rota, 1280, 1200, comRelogioDeMentira);
+    const revelados = await revelarEstadosOcultos(aberta.pagina);
+    SENTINELAS.push({
+      ...aberta,
+      comRelogioDeMentira,
+      revelados,
+      nascimento: Date.now(),
+    });
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // A · TODO CAMPO QUE ACEITA NÚMERO É DE TEXTO, COM TECLADO DECIMAL
 // ════════════════════════════════════════════════════════════════════════════
 await medir("A+B", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-build");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-build");
   // O "Desconto" da sinergia só existe com o tipo de relação em "sinergia" —
   // sem este clique a medida veria 2 campos e aprovaria o terceiro por
   // ausência, que é exatamente o vício que esta guarda existe para não ter.
@@ -791,7 +1299,7 @@ await medir("A+B", async () => {
         : ` — ${numericos.map((c) => `"${c.nome.slice(0, 30)}"`).join(", ")}`
     }`,
   );
-  await conferirVigia("V-AB", [pagina]);
+  await conferirVigia("V-AB", [{ pagina, registroFora }]);
   await contexto.close();
 });
 
@@ -805,7 +1313,7 @@ await medir("A+B", async () => {
 // removida." e o servidor apaga. Aqui os três sintomas são medidos de uma vez.
 // ════════════════════════════════════════════════════════════════════════════
 await medir("C", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-docs");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-docs");
   const campo = campoPorNome(pagina, /^Duração \(dias, p80/).first();
   const achou = (await campo.count()) === 1;
   let antes = null;
@@ -824,7 +1332,7 @@ await medir("C", async () => {
   let contratoAoDigitar = null;
   let contratoAoSalvar = null;
   /** As páginas desta medida — a segunda nasce no meio dela. */
-  const paginasDaMedida = [pagina];
+  const paginasDaMedida = [{ pagina, registroFora }];
   if (achou) {
     antes = await campo.inputValue();
     await campo.click();
@@ -855,7 +1363,7 @@ await medir("C", async () => {
     // leria o que o rascunho do `sessionStorage` devolvesse à caixa, e a
     // pergunta desta medida é o que o SERVIDOR guardou.
     const outro = await abrir("/tarefa/task-docs");
-    paginasDaMedida.push(outro.pagina);
+    paginasDaMedida.push({ pagina: outro.pagina, registroFora: outro.registroFora });
     depoisDoF5 = await campoPorNome(outro.pagina, /^Duração \(dias, p80/)
       .first()
       .inputValue();
@@ -899,7 +1407,7 @@ await medir("C", async () => {
 // a tela dizia `bloqueada`.
 // ════════════════════════════════════════════════════════════════════════════
 await medir("D", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-docs");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-docs");
   // Atrasa só o POST da Server Action desta rota — é o atraso que abre a janela
   // da corrida. Sem ele não há corrida nenhuma para medir.
   let postsAtrasados = 0;
@@ -964,7 +1472,7 @@ await medir("D", async () => {
         )} · anúncio final=${JSON.stringify(anuncioFinal)} · marcado=${JSON.stringify(marcado)}`
       : "os botões de status NÃO existem na página — alvo ausente é reprovação",
   );
-  await conferirVigia("V-D", [pagina]);
+  await conferirVigia("V-D", [{ pagina, registroFora }]);
   await contexto.close();
 });
 
@@ -976,7 +1484,7 @@ await medir("D", async () => {
 // controles na tela.
 // ════════════════════════════════════════════════════════════════════════════
 await medir("E", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-build");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-build");
   const scoreDe = async () =>
     await pagina.evaluate(
       () => document.body.innerText.match(/assimetria \(A\) = \d+/)?.[0] ?? "(sem score)",
@@ -1037,8 +1545,232 @@ await medir("E", async () => {
         )}`
       : 'o botão "Limpar átomos" NÃO existe nesta tarefa — alvo ausente é reprovação',
   );
-  await conferirVigia("V-E", [pagina]);
+  await conferirVigia("V-E", [{ pagina, registroFora }]);
   await contexto.close();
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// E2 · E3 · E4 — O "DESFAZER" QUE **FALHA**
+//
+// [ALTO #1, rodada 15] A medida E prova o desfazer que DÁ CERTO. O crítico da
+// rodada 15 mediu o outro caminho, e ele destruía dado do operador: com a rota
+// segurando o POST 3 s e abortando, e o clique aos 8,5 s da janela de 10 s, a
+// tela dizia "Não foi possível desfazer — a nota continua excluída.", havia
+// ZERO botões de Desfazer, e a nota não voltava mais. O texto dela existia num
+// lugar só, e o relógio da janela o descartou no meio da chamada.
+//
+// As três medidas abaixo são o mesmo molde nos três painéis. Cada uma pergunta
+// três coisas, e todas as três têm de valer:
+//
+//  1. a tela DIZ que não deu — a falha não é silenciosa;
+//  2. o botão "Desfazer" CONTINUA na tela (é o que o `aoFalha` promete);
+//  3. o dado VOLTA — tirada a sabotagem, o mesmo botão desfaz de verdade.
+//
+// A nº 3 é a que importa: botão que fica e não faz nada seria pior que botão
+// que some.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Todo texto de região viva da página, numa string. */
+async function lerRegioesVivas(pagina) {
+  return await pagina.evaluate(() =>
+    [...document.querySelectorAll('[role="alert"], [role="status"]')]
+      .map((el) => (el.innerText || "").trim())
+      .filter(Boolean)
+      .join(" | "),
+  );
+}
+
+/**
+ * O botão "excluir" DAQUELE painel, achado pelo que a confirmação dele diz.
+ * A página tem sete botões "excluir" (notas e relações), e escolher por
+ * posição amarraria a medida ao fixture: aqui a medida clica e LÊ a frase.
+ */
+async function excluirDe(pagina, assunto) {
+  /*
+   * Os NÓS, não um localizador por papel+nome. Entrar em confirmação troca o
+   * rótulo daquele botão, então `getByRole("button", { name: "excluir" })`
+   * deixa de casar com ele — e `nth(0)`, que é preguiçoso, passa a apontar
+   * para o botão SEGUINTE. Medido: o 2º clique caía na nota de baixo, a
+   * confirmação da primeira era cancelada, e a medida dizia "a exclusão não
+   * aconteceu" sobre uma exclusão que nunca foi pedida.
+   */
+  const nos = await pagina.getByRole("button", { name: "excluir" }).elementHandles();
+  for (const no of nos) {
+    await no.click();
+    if (new RegExp(`apagar a ${assunto}`).test(await lerRegioesVivas(pagina))) return no;
+  }
+  return null;
+}
+
+/**
+ * As listas da página numa string: a PRIMEIRA LINHA de cada item.
+ *
+ * Só a primeira linha de propósito: as linhas seguintes trazem "há 75 dias" e
+ * afins, e uma medida que compara texto de tempo relativo fica instável por
+ * conta própria. A primeira linha é o texto da nota, ou o tipo da relação —
+ * exatamente o que a exclusão tira e o desfazer devolve.
+ */
+async function listaDaPagina(pagina) {
+  return await pagina.evaluate(() =>
+    [...document.querySelectorAll("li")]
+      .map((el) => (el.innerText || "").split("\n")[0].trim())
+      .filter((t) => t.length > 0)
+      .join(" ~ "),
+  );
+}
+
+/**
+ * Espera o estado PARAR DE SER o de antes, e devolve o que ele virou.
+ *
+ * Sem isto a medida lia o quadro anterior: o "Desfazer" aparece assim que a
+ * resposta chega, mas a lista e o score só mudam quando o `router.refresh()`
+ * da porta volta. Ler antes disso faria a medida dizer "a exclusão não
+ * aconteceu" sobre uma exclusão que aconteceu — a mesma armadilha que a
+ * medida E fechou com um `waitForFunction`.
+ */
+async function esperarMudanca(pagina, lerEstado, antes, limiteMs = 15000) {
+  const ate = Date.now() + limiteMs;
+  let agora = await lerEstado(pagina);
+  while (agora === antes && Date.now() < ate) {
+    await pagina.waitForTimeout(250);
+    agora = await lerEstado(pagina);
+  }
+  return agora;
+}
+
+/** O molde das três medidas do ALTO #1. */
+async function medirDesfazerQueFalha(config) {
+  const { rotulo, frase, rota, vigia, iniciar, lerEstado } = config;
+  const { contexto, pagina, registroFora } = await abrir(rota);
+  const antes = await lerEstado(pagina);
+  const comecou = await iniciar(pagina);
+  const desfazer = pagina.getByRole("button", { name: "Desfazer" });
+  const apareceu =
+    comecou &&
+    (await desfazer
+      .first()
+      .waitFor({ timeout: 12000 })
+      .then(() => true)
+      .catch(() => false));
+  const nascimento = Date.now();
+  const depoisDaExclusao = apareceu ? await esperarMudanca(pagina, lerEstado, antes) : antes;
+
+  // A sabotagem: o POST do desfazer fica pendurado 3 s e depois morre. Ela
+  // entra AGORA, depois de a exclusão ter acontecido de verdade.
+  let postsAbortados = 0;
+  const padrao = `${BASE}${rota}`;
+  await pagina.route(padrao, async (chamada) => {
+    if (chamada.request().method() === "POST") {
+      postsAbortados += 1;
+      await new Promise((r) => setTimeout(r, 3000));
+      await chamada.abort();
+      return;
+    }
+    await chamada.continue();
+  });
+
+  let clicouAos = 0;
+  if (apareceu) {
+    // Aos 8,5 s da janela de 10 s: a falha vai chegar DEPOIS de o relógio
+    // querer fechar a janela. É esse cruzamento que destruía o dado.
+    const espera = 8500 - (Date.now() - nascimento);
+    if (espera > 0) await pagina.waitForTimeout(espera);
+    clicouAos = Date.now() - nascimento;
+    await desfazer.first().click();
+    await pagina.waitForTimeout(5000);
+  }
+  const mensagens = apareceu ? await lerRegioesVivas(pagina) : "";
+  const botoesDepois = await desfazer.count();
+
+  // Tirada a sabotagem, o MESMO botão tem de desfazer de verdade.
+  await pagina.unroute(padrao);
+  let restaurado = "(não tentou: não havia botão)";
+  if (botoesDepois >= 1) {
+    await desfazer.first().click();
+    restaurado = await esperarMudanca(pagina, lerEstado, depoisDaExclusao);
+  }
+
+  const disseQueFalhou = /Não foi possível desfazer/.test(mensagens);
+  conferir(
+    `${rotulo} · ${frase}`,
+    comecou &&
+      apareceu &&
+      postsAbortados >= 1 &&
+      antes !== depoisDaExclusao &&
+      disseQueFalhou &&
+      botoesDepois >= 1 &&
+      restaurado === antes,
+    comecou
+      ? `antes=${JSON.stringify(antes)} · depois de excluir=${JSON.stringify(
+          depoisDaExclusao,
+        )} · botão Desfazer apareceu=${String(apareceu)} · clique aos ${String(
+          clicouAos,
+        )}ms da janela de 10000ms · POSTs abortados=${String(
+          postsAbortados,
+        )} · mensagens=${JSON.stringify(mensagens)} · botões Desfazer DEPOIS da falha=${String(
+          botoesDepois,
+        )} (esperado ≥ 1) · depois de tentar de novo sem sabotagem=${JSON.stringify(
+          restaurado,
+        )} (esperado ${JSON.stringify(antes)})`
+      : "não foi possível começar a exclusão nesta tarefa — alvo ausente é reprovação, não dispensa",
+  );
+  await conferirVigia(vigia, [{ pagina, registroFora }]);
+  await contexto.close();
+}
+
+await medir("E2", async () => {
+  await medirDesfazerQueFalha({
+    rotulo: "E2",
+    frase:
+      'o "Desfazer" dos ÁTOMOS que FALHA: a tela diz, o botão fica, e o trio volta na 2ª tentativa',
+    rota: "/tarefa/task-build",
+    vigia: "V-E2",
+    iniciar: async (pagina) => {
+      const limpar = pagina.getByRole("button", { name: "Limpar átomos" });
+      if ((await limpar.count()) !== 1) return false;
+      await limpar.click();
+      return true;
+    },
+    lerEstado: async (pagina) =>
+      await pagina.evaluate(
+        () => document.body.innerText.match(/assimetria \(A\) = \d+/)?.[0] ?? "(sem score)",
+      ),
+  });
+});
+
+await medir("E3", async () => {
+  await medirDesfazerQueFalha({
+    rotulo: "E3",
+    frase:
+      'o "Desfazer" da NOTA que FALHA: a tela diz, o botão fica, e o TEXTO da nota volta na 2ª tentativa',
+    rota: "/tarefa/task-build",
+    vigia: "V-E3",
+    iniciar: async (pagina) => {
+      const botao = await excluirDe(pagina, "nota");
+      if (botao === null) return false;
+      // 2º clique: o que apaga.
+      await botao.click();
+      return true;
+    },
+    lerEstado: listaDaPagina,
+  });
+});
+
+await medir("E4", async () => {
+  await medirDesfazerQueFalha({
+    rotulo: "E4",
+    frase:
+      'o "Desfazer" da RELAÇÃO que FALHA: a tela diz, o botão fica, e a relação volta na 2ª tentativa',
+    rota: "/tarefa/task-build",
+    vigia: "V-E4",
+    iniciar: async (pagina) => {
+      const botao = await excluirDe(pagina, "relação");
+      if (botao === null) return false;
+      await botao.click();
+      return true;
+    },
+    lerEstado: listaDaPagina,
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1051,7 +1783,7 @@ await medir("E", async () => {
 // gravação a caminho.
 // ════════════════════════════════════════════════════════════════════════════
 await medir("F", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-build");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-build");
   await pagina.getByRole("radio", { name: "sinergia" }).click();
   await pagina.waitForSelector('input[inputmode="decimal"]');
 
@@ -1091,6 +1823,9 @@ await medir("F", async () => {
     await link.click();
     await pagina.waitForURL("**/tarefa/task-setup", { timeout: 30000 });
     await pagina.waitForSelector("h1");
+    // [CRÍTICO #1, rodada 15] rota alcançada por clique é rota VISITADA — e a
+    // medida L cobra sentinela para ela.
+    await anotarRotaAtual(pagina);
   }
   await pagina.goto(`${BASE}/tarefa/task-build`, { waitUntil: "networkidle" });
   await pagina.waitForSelector("h1");
@@ -1116,7 +1851,7 @@ await medir("F", async () => {
       perdidos.length > 0 ? ` — ${perdidos.join(" · ")}` : ""
     }`,
   );
-  await conferirVigia("V-F", [pagina]);
+  await conferirVigia("V-F", [{ pagina, registroFora }]);
   await contexto.close();
 });
 
@@ -1130,7 +1865,7 @@ await medir("F", async () => {
 // diz a que opção ele deve voltar.
 // ════════════════════════════════════════════════════════════════════════════
 await medir("H", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-docs");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-docs");
   let postsAtrasados = 0;
   await pagina.route(`${BASE}/tarefa/task-docs`, async (rota) => {
     if (rota.request().method() === "POST") {
@@ -1211,7 +1946,7 @@ await medir("H", async () => {
           candidatas.length,
         )} candidatas, "nenhuma"=${String(temNenhuma)}) — alvo ausente é reprovação`,
   );
-  await conferirVigia("V-H", [pagina]);
+  await conferirVigia("V-H", [{ pagina, registroFora }]);
   await contexto.close();
 });
 
@@ -1223,7 +1958,7 @@ await medir("H", async () => {
 // "Meta removida.".
 // ════════════════════════════════════════════════════════════════════════════
 await medir("I", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-docs");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-docs");
   let postsAtrasados = 0;
   await pagina.route(`${BASE}/tarefa/task-docs`, async (rota) => {
     if (rota.request().method() === "POST") {
@@ -1268,7 +2003,7 @@ await medir("I", async () => {
         )} · anúncio=${JSON.stringify(anuncio)}`
       : "o botão da meta NÃO existe na página — alvo ausente é reprovação",
   );
-  await conferirVigia("V-I", [pagina]);
+  await conferirVigia("V-I", [{ pagina, registroFora }]);
   await contexto.close();
 });
 
@@ -1284,7 +2019,7 @@ await medir("I", async () => {
 // Uma dispensa sem guarda é uma dispensa que ninguém revisa. Esta é a guarda.
 // ════════════════════════════════════════════════════════════════════════════
 await medir("G", async () => {
-  const { contexto, pagina } = await abrir("/tarefa/task-build");
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-build");
   const campo = campoPorNome(pagina, /^Duração \(dias, p80/).first();
   const achou = (await campo.count()) === 1;
   let gravado = null;
@@ -1294,12 +2029,61 @@ await medir("G", async () => {
     gravado = await campo.inputValue();
     await campo.fill("9.9");
     await pagina.waitForTimeout(300);
+    /*
+     * ════════════════════════════════════════════════════ MÉDIO #1, rodada 15 ═
+     * G2 — A DISPENSA DE RASCUNHO PASSA A SER DITA NA TELA, E DITA DIFERENTE
+     * DO CAMPO GÊMEO.
+     *
+     * O crítico mediu os dois campos de duração lado a lado, mesmo desenho,
+     * comportamentos opostos, e NENHUM sinal: "algum aviso de 'não salvo' na
+     * tela: false · regiões vivas: []". Esta medida cobra as duas frases, e
+     * cobra que elas sejam DIFERENTES — uma frase só não distingue nada.
+     */
+    const subtarefa = campoPorNome(pagina, /^Duração \(dias\)$/).first();
+    if ((await subtarefa.count()) === 1) await subtarefa.fill("4");
+    await pagina.waitForTimeout(300);
+    const avisos = await pagina.evaluate(() => {
+      const ler = (id) => {
+        const el = document.getElementById(id);
+        return { existe: el !== null, texto: el === null ? "" : (el.innerText || "").trim() };
+      };
+      const apontado = (rotulo) => {
+        const campos = [...document.querySelectorAll("input")];
+        const alvo = campos.find((c) => (c.closest("label")?.innerText ?? "").startsWith(rotulo));
+        return alvo === undefined ? "" : (alvo.getAttribute("aria-describedby") ?? "");
+      };
+      return {
+        daTarefa: ler("duracao-tarefa-nao-salvo"),
+        daSubtarefa: ler("subtarefa-nao-salvo"),
+        apontaDaTarefa: apontado("Duração (dias, p80"),
+        apontaDaSubtarefa: apontado("Duração (dias)"),
+      };
+    });
+    const dizAlgo = (a) => a.existe && a.texto.length > 0;
+    conferir(
+      "G2 · a tela DIZ que o que foi digitado não está salvo — e diz diferente nos dois campos gêmeos",
+      dizAlgo(avisos.daTarefa) &&
+        dizAlgo(avisos.daSubtarefa) &&
+        avisos.daTarefa.texto !== avisos.daSubtarefa.texto &&
+        /se perde/.test(avisos.daTarefa.texto) &&
+        /fica guardado/.test(avisos.daSubtarefa.texto) &&
+        avisos.apontaDaTarefa === "duracao-tarefa-nao-salvo" &&
+        avisos.apontaDaSubtarefa === "subtarefa-nao-salvo",
+      `duração da TAREFA (sem rascunho): ${JSON.stringify(
+        avisos.daTarefa.texto,
+      )} · duração da SUBTAREFA (com rascunho): ${JSON.stringify(
+        avisos.daSubtarefa.texto,
+      )} · aria-describedby: ${JSON.stringify(avisos.apontaDaTarefa)} / ${JSON.stringify(
+        avisos.apontaDaSubtarefa,
+      )}`,
+    );
     const link = pagina.locator('a[href="/tarefa/task-setup"]').first();
     temLink = (await link.count()) >= 1;
     if (temLink) {
       await link.click();
       await pagina.waitForURL("**/tarefa/task-setup", { timeout: 30000 });
       await pagina.waitForSelector("h1");
+      await anotarRotaAtual(pagina);
     }
     await pagina.goto(`${BASE}/tarefa/task-build`, { waitUntil: "networkidle" });
     await pagina.waitForSelector("h1");
@@ -1317,81 +2101,229 @@ await medir("G", async () => {
         )} · depois da volta=${JSON.stringify(depoisDaVolta)} (esperado ${JSON.stringify(gravado)})`
       : "o campo de duração da tarefa NÃO existe na página — alvo ausente é reprovação",
   );
-  await conferirVigia("V-G", [pagina]);
+  await conferirVigia("V-G", [{ pagina, registroFora }]);
   await contexto.close();
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// J · A SENTINELA — O ALCANCE DE TEMPO DO VIGIA, MEDIDO E IMPRESSO
+// M · A CORRIDA "SALVAR ÁTOMOS" × "LIMPAR ÁTOMOS" — A TRAVA COMPARTILHADA
 //
-// Ela foi aberta antes da medida A e não fez nada desde então. O que a medida J
-// pergunta é a pergunta desta rodada na sua forma mais crua: **em algum momento
-// da vida desta guarda, alguma coisa mexeu no contrato de algum campo?**
+// [item 10 do crítico da rodada 15] Ele tentou duas vezes e NÃO conseguiu
+// provocá-la: com o trio já igual ao confirmado, o 1º clique era recusado por
+// `sem_mudanca` e a trava nunca chegava a ser tomada (`P4 POSTs=1`). Declarou,
+// com razão, como "não medido por mim" — a trava só tinha teste de unidade
+// (`tests/unit/tarefa-trava-de-voo.test.ts`), nunca navegador.
 //
-// O tempo de vida dela é o ALCANCE do vigia, e ele sai impresso: uma mutação
-// agendada para além desse número está fora de alcance, e é assim que o limite
-// fica declarado em vez de escondido. `PISO_DE_VIDA_DA_SENTINELA` reprova se o
-// alcance encolher sem alguém baixar o número de propósito.
+// O que faltava era MUDAR o trio antes: sem mudança não há gravação, e sem
+// gravação não há corrida. Esta medida muda um dos três átomos, manda salvar
+// com o POST pendurado 4 s e, 300 ms depois, manda limpar. As duas portas
+// escrevem o MESMO campo, e é para isso que elas partilham uma trava só.
 // ════════════════════════════════════════════════════════════════════════════
-await medir("J", async () => {
-  const lido = await lerVigia(sentinela.pagina);
-  const vida = Date.now() - nascimentoDaSentinela;
-  const culpadas = lido.mudancas.filter(foraDaRegua);
+await medir("M", async () => {
+  const { contexto, pagina, registroFora } = await abrir("/tarefa/task-build");
+  let postsAtrasados = 0;
+  await pagina.route(`${BASE}/tarefa/task-build`, async (chamada) => {
+    if (chamada.request().method() === "POST") {
+      postsAtrasados += 1;
+      await new Promise((r) => setTimeout(r, 4000));
+    }
+    await chamada.continue();
+  });
+  const scoreDe = async () =>
+    await pagina.evaluate(
+      () => document.body.innerText.match(/assimetria \(A\) = \d+/)?.[0] ?? "(sem score)",
+    );
+  const antes = await scoreDe();
+  // MUDAR o trio é o que abre a corrida: sem mudança a porta recusa por
+  // `sem_mudanca` e a trava nunca é tomada (foi onde o crítico parou).
+  const grupo = pagina.getByRole("radiogroup", { name: "Opcionalidade" });
+  const opcoes = grupo.getByRole("radio");
+  const quantas = await opcoes.count();
+  let mudou = false;
+  for (let i = 0; i < quantas; i += 1) {
+    if ((await opcoes.nth(i).getAttribute("aria-checked")) !== "true") {
+      await opcoes.nth(i).click();
+      mudou = true;
+      break;
+    }
+  }
+  const salvar = pagina.getByRole("button", { name: "Salvar átomos" });
+  const limpar = pagina.getByRole("button", { name: "Limpar átomos" });
+  const temOsDois = (await salvar.count()) === 1 && (await limpar.count()) === 1;
+  let recusa = "";
+  let depois = "";
+  let anuncio = "";
+  if (mudou && temOsDois) {
+    await salvar.dispatchEvent("click");
+    await pagina.waitForTimeout(300);
+    await limpar.dispatchEvent("click");
+    await pagina.waitForTimeout(400);
+    recusa = await lerRegioesVivas(pagina);
+    // A resposta atrasada chega aqui.
+    await pagina.waitForTimeout(7000);
+    anuncio = await lerRegioesVivas(pagina);
+    depois = await scoreDe();
+  }
   conferir(
-    "J · a sentinela: nada mexeu no contrato em toda a vida da guarda",
-    lido.instalado && culpadas.length === 0 && vida >= PISO_DE_VIDA_DA_SENTINELA,
-    `a sentinela viveu ${String(
-      Math.round(vida / 1000),
-    )}s — este é o ALCANCE DE TEMPO desta guarda, e mutação agendada para depois dele NÃO é vista (piso declarado: ${String(
-      Math.round(PISO_DE_VIDA_DA_SENTINELA / 1000),
-    )}s) · vigia instalado=${String(lido.instalado)} · redes: ${
-      lido.redes.join(", ") || "(nenhuma)"
-    } · ${String(culpadas.length)} mudança(s) fora da régua, ${String(
-      lido.mudancas.length - culpadas.length,
-    )} na montagem${culpadas.length === 0 ? "" : ` — ${culpadas.map(descreverMudanca).join(" · ")}`}`,
+    'M · corrida "salvar átomos" × "limpar átomos": a trava compartilhada recusa o 2º, e o score NÃO some',
+    mudou &&
+      temOsDois &&
+      postsAtrasados === 1 &&
+      /Aguarde/.test(recusa) &&
+      !/Átomos limpos/.test(anuncio) &&
+      /assimetria \(A\) = \d+/.test(depois),
+    temOsDois
+      ? `trio mudado=${String(mudou)} · POSTs atrasados=${String(
+          postsAtrasados,
+        )} (esperado exatamente 1: o "limpar" não pode ter despachado) · recusa do 2º clique=${JSON.stringify(
+          recusa,
+        )} · anúncio final=${JSON.stringify(anuncio)} · score antes=${JSON.stringify(
+          antes,
+        )} · score depois=${JSON.stringify(depois)}`
+      : 'os botões "Salvar átomos"/"Limpar átomos" NÃO existem nesta tarefa — alvo ausente é reprovação',
   );
-  await sentinela.contexto.close();
+  await conferirVigia("V-M", [{ pagina, registroFora }]);
+  await contexto.close();
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// K · A SENTINELA DO RELÓGIO — MEIA HORA DE UMA VEZ
+// J · AS SENTINELAS DE TEMPO REAL — UMA POR ROTA, ALCANCE MEDIDO E IMPRESSO
 //
-// Adianta o relógio da página sentinela e pergunta ao vigia o que aconteceu.
-// É esta medida que fecha o item 6 da lista do coordenador (`setTimeout` de
-// 60 s, maior que o tempo de vida da guarda) sem ter de esperar 60 s.
+// Elas foram abertas antes da medida A e, desde então, só EXISTIRAM. A
+// pergunta é a desta família na forma mais crua: **em algum momento da vida
+// desta guarda, alguma coisa mexeu no contrato de algum campo DESTA ROTA,
+// neste estado?** O tempo de vida é o alcance, e sai impresso.
 // ════════════════════════════════════════════════════════════════════════════
-await medir("K", async () => {
-  const antes = await lerVigia(sentinelaDoRelogio.pagina);
-  await sentinelaDoRelogio.pagina.clock.fastForward(ADIANTAMENTO_DO_RELOGIO);
-  // Dois quadros para o React processar o que os temporizadores dispararam.
-  await assentar(sentinelaDoRelogio.pagina);
-  const depois = await lerVigia(sentinelaDoRelogio.pagina);
-  const culpadas = depois.mudancas.filter(foraDaRegua);
-  const contrato = await sentinelaDoRelogio.pagina.evaluate(LER_CAMPOS);
-  const foraDaReguaNoDom = contrato.filter(
-    (c) => c.type === "number" || c.atributoType === "number",
-  );
+for (const sentinela of SENTINELAS.filter((x) => !x.comRelogioDeMentira)) {
+  await medir(`J ${sentinela.rota}`, async () => {
+    const relato = await auditarPagina(sentinela);
+    const vida = Date.now() - sentinela.nascimento;
+    const problemas = problemasDoRelato(relato);
+    if (vida < PISO_DE_VIDA_DA_SENTINELA) {
+      problemas.push(
+        `a sentinela viveu ${String(Math.round(vida / 1000))}s, menos que o piso declarado de ${String(
+          Math.round(PISO_DE_VIDA_DA_SENTINELA / 1000),
+        )}s — o alcance encolheu`,
+      );
+    }
+    conferir(
+      `J · ${sentinela.rota} — a sentinela de tempo real: nada mexeu no contrato em toda a vida da guarda`,
+      problemas.length === 0,
+      `viveu ${String(
+        Math.round(vida / 1000),
+      )}s — este é o ALCANCE DE TEMPO desta guarda NESTA ROTA, e mutação agendada para depois dele NÃO é vista (piso: ${String(
+        Math.round(PISO_DE_VIDA_DA_SENTINELA / 1000),
+      )}s) · estados revelados: ${sentinela.revelados.join(", ") || "(nenhum)"} · ${resumoDoRelato(
+        relato,
+      )}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
+    );
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// K · AS SENTINELAS DO RELÓGIO — MEIA HORA DE UMA VEZ, UMA POR ROTA
+//
+// Adianta o relógio de cada página sentinela e pergunta ao vigia o que
+// aconteceu. É esta família que fecha o `setTimeout` de 60 s sem esperar 60 s
+// — e desde a rodada 15 ela o fecha em TODAS as rotas que a guarda visita, e
+// não só em `/tarefa/task-docs`.
+// ════════════════════════════════════════════════════════════════════════════
+for (const sentinela of SENTINELAS.filter((x) => x.comRelogioDeMentira)) {
+  await medir(`K ${sentinela.rota}`, async () => {
+    await sentinela.pagina.clock.fastForward(ADIANTAMENTO_DO_RELOGIO);
+    // Dois quadros para o React processar o que os temporizadores dispararam.
+    await assentar(sentinela.pagina);
+    const relato = await auditarPagina(sentinela);
+    const contrato = await sentinela.pagina.evaluate(LER_CAMPOS);
+    const foraDaReguaNoDom = contrato.filter(
+      (c) => c.type === "number" || c.atributoType === "number",
+    );
+    const problemas = problemasDoRelato(relato);
+    if (contrato.length < 4) {
+      problemas.push(
+        `só ${String(contrato.length)} campo(s) no DOM depois do adiantamento (mínimo 4) — alvo ausente é reprovação`,
+      );
+    }
+    if (foraDaReguaNoDom.length > 0) {
+      problemas.push(
+        `${String(foraDaReguaNoDom.length)} campo(s) com type=number: ${foraDaReguaNoDom
+          .map((c) => `"${c.nome.slice(0, 30)}"`)
+          .join(", ")}`,
+      );
+    }
+    conferir(
+      `K · ${sentinela.rota} — relógio adiantado meia hora: nenhum temporizador mexeu no contrato`,
+      problemas.length === 0,
+      `relógio adiantado ${String(
+        Math.round(ADIANTAMENTO_DO_RELOGIO / 60000),
+      )} min de uma vez — atraso ATÉ ISSO está no alcance desta guarda NESTA ROTA · estados revelados: ${
+        sentinela.revelados.join(", ") || "(nenhum)"
+      } · ${String(contrato.length)} campos no DOM depois do adiantamento · ${resumoDoRelato(
+        relato,
+      )}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
+    );
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// L · O ALCANCE DE TEMPO COBRE TUDO O QUE A GUARDA VISITA
+//
+// [CRÍTICO #1, rodada 15] É a medida que impede a afirmação de voltar a valer
+// para menos do que ela diz. Duas perguntas, as duas sobre o MEDIDO:
+//
+//  1. toda rota que a guarda abriu ou navegou tem sentinela? (rota visitada
+//     sem sentinela = alcance de tempo zero ali, exatamente o buraco pelo
+//     qual o setter restrito a `task-build` passou);
+//  2. a sentinela de cada rota mostra pelo menos tantos campos quanto a maior
+//     leitura que a guarda fez naquela rota? (estado escondido atrás de um
+//     clique é tão fora de alcance quanto rota não visitada).
+// ════════════════════════════════════════════════════════════════════════════
+await medir("L", async () => {
+  const comSentinela = new Set(SENTINELAS.map((x) => x.rota));
+  const semSentinela = [...ROTAS_VISITADAS].filter((r) => !comSentinela.has(r));
+  const camposDaSentinela = new Map();
+  for (const sentinela of SENTINELAS) {
+    const estado = await estadoDaPagina(sentinela.pagina);
+    const quantos = estado === null ? -1 : estado.campos;
+    const antes = camposDaSentinela.get(sentinela.rota) ?? -1;
+    // A MENOR das duas sentinelas da rota manda: basta uma cega para o
+    // alcance daquele estado não existir.
+    camposDaSentinela.set(sentinela.rota, antes === -1 ? quantos : Math.min(antes, quantos));
+  }
+  const comEstadoAMenos = [];
+  for (const [rota, vistos] of CAMPOS_VISTOS_POR_ROTA) {
+    const naSentinela = camposDaSentinela.get(rota);
+    if (naSentinela === undefined) continue;
+    if (naSentinela < vistos) {
+      comEstadoAMenos.push(
+        `${rota}: a guarda viu ${String(vistos)} campos, a sentinela mostra ${String(naSentinela)}`,
+      );
+    }
+  }
+  const problemas = [];
+  if (ROTAS_VISITADAS.size === 0) problemas.push("nenhuma rota registrada — a medida não mediu");
+  if (semSentinela.length > 0) {
+    problemas.push(`rota(s) visitada(s) SEM sentinela: ${semSentinela.join(", ")}`);
+  }
+  if (comEstadoAMenos.length > 0) {
+    problemas.push(`sentinela com menos estado do que a guarda visitou: ${comEstadoAMenos.join(" · ")}`);
+  }
   conferir(
-    "K · relógio adiantado meia hora: nenhum temporizador mexeu no contrato",
-    antes.instalado &&
-      depois.instalado &&
-      culpadas.length === 0 &&
-      contrato.length >= 4 &&
-      foraDaReguaNoDom.length === 0,
-    `relógio adiantado ${String(
-      Math.round(ADIANTAMENTO_DO_RELOGIO / 60000),
-    )} min de uma vez — atraso ATÉ ISSO está no alcance desta guarda · vigia instalado=${String(
-      depois.instalado,
-    )} · ${String(culpadas.length)} mudança(s) fora da régua, ${String(
-      depois.mudancas.length - culpadas.length,
-    )} na montagem · ${String(contrato.length)} campos no DOM depois do adiantamento (mínimo 4), ${String(
-      foraDaReguaNoDom.length,
-    )} com type=number${
-      culpadas.length === 0 ? "" : ` — ${culpadas.map(descreverMudanca).join(" · ")}`
-    }`,
+    "L · o alcance de tempo cobre TODAS as rotas e estados que a guarda visita",
+    problemas.length === 0,
+    `${String(ROTAS_VISITADAS.size)} rota(s) visitada(s): ${[...ROTAS_VISITADAS].join(
+      ", ",
+    )} · ${String(SENTINELAS.length)} sentinela(s) em ${String(
+      comSentinela.size,
+    )} rota(s) · campos por rota — visto pela guarda: ${[...CAMPOS_VISTOS_POR_ROTA]
+      .map(([r, n]) => `${r}=${String(n)}`)
+      .join(" ")} · na sentinela: ${[...camposDaSentinela]
+      .map(([r, n]) => `${r}=${String(n)}`)
+      .join(" ")}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
   );
-  await sentinelaDoRelogio.contexto.close();
 });
+
+for (const sentinela of SENTINELAS) await sentinela.contexto.close();
 
 await navegador.close();
 encerrarServidor();
@@ -1420,20 +2352,38 @@ const MEDIDAS_EXIGIDAS = [
   "C2 · ",
   "D · ",
   "E · ",
+  // [ALTO #1, rodada 15] o desfazer que FALHA, nos três painéis — a medida E
+  // só provava o que dá certo.
+  "E2 · ",
+  "E3 · ",
+  "E4 · ",
   "F · ",
   "G · ",
+  "G2 · ",
   "H · ",
   "I · ",
-  "J · ",
-  "K · ",
+  "M · ",
+  // [CRÍTICO #1, rodada 15] uma sentinela por ROTA, nominal: acrescentar rota
+  // ao trabalho da guarda passa a exigir acrescentar linha aqui.
+  "J · /tarefa/task-docs",
+  "J · /tarefa/task-build",
+  "J · /tarefa/task-setup",
+  "K · /tarefa/task-docs",
+  "K · /tarefa/task-build",
+  "K · /tarefa/task-setup",
+  "L · ",
   "V-AB · ",
   "V-C · ",
   "V-D · ",
   "V-E · ",
+  "V-E2 · ",
+  "V-E3 · ",
+  "V-E4 · ",
   "V-F · ",
   "V-G · ",
   "V-H · ",
   "V-I · ",
+  "V-M · ",
 ];
 const ausentes = MEDIDAS_EXIGIDAS.filter(
   (nome) => !medidas.some((m) => m.slice(6).startsWith(nome)),

@@ -166,16 +166,61 @@ describe("ALTO #2 — a guarda no navegador da P6 tem gatilho de verdade", () =>
  * vigia, as sentinelas ou a lista nominal de medidas forem removidos, o portão
  * barato fica vermelho no mesmo diff.
  */
-describe("CRÍTICO — o vigia do contrato e as duas sentinelas continuam armados", () => {
+describe("CRÍTICO — o vigia do contrato, o canário e as sentinelas continuam armados", () => {
   const PEDACOS: readonly [string, string][] = [
     ["addInitScript", "o vigia deixou de ser instalado antes da hidratação da página"],
     ["function VIGIA_DO_CONTRATO", "o corpo do vigia desapareceu"],
     ["MutationObserver", "a 3ª rede (a que não depende dos embrulhos) desapareceu"],
     ["conferirVigia(", "nenhuma medida confere mais o registro do vigia"],
     ["const MEDIDAS_EXIGIDAS", "a lista nominal de medidas saiu — o veredito voltou a ser contagem"],
-    ["nascimentoDaSentinela", "a sentinela de tempo real desapareceu"],
-    ["clock.install()", "a sentinela do relógio desapareceu"],
+    ["clock.install()", "as sentinelas do relógio desapareceram"],
     ["clock.fastForward(", "ninguém adianta mais o relógio: atraso longo saiu do alcance"],
+    /*
+     * ═══════════════════════════════════════════════════ CRÍTICO #2, rodada 15 ═
+     * O CANÁRIO E A CÓPIA QUE A PÁGINA NÃO CONTROLA.
+     *
+     * Sem estas cinco peças a guarda volta a dizer VERDE por registro vazio —
+     * e foi com seis linhas de `sessionStorage.setItem(chave, "[]")` que o
+     * crítico da rodada 15 fez as medidas J e K afirmarem o contrário do que
+     * mediram.
+     */
+    ["const abrirCanario", "o canário desapareceu: registro vazio voltou a ser aprovação"],
+    [
+      "REDES_QUE_O_CANARIO_EXIGE",
+      "a lista das redes que o canário tem de acender saiu — o canário deixou de provar que a rede que importa está viva",
+    ],
+    [
+      "exposeBinding",
+      "a cópia do registro que mora no Node saiu: o registro voltou a morar só onde a página manda",
+    ],
+    [
+      "depositoQuebrado",
+      "estouro de cota voltou a ser silêncio — era o `catch` vazio do `setItem`",
+    ],
+    [
+      'Object.defineProperty(window, "__vigiaP6"',
+      "`window.__vigiaP6` voltou a ser atribuição simples: a página consegue trocar o vigia por um que diz sempre 'nada mudou'",
+    ],
+    /*
+     * ═══════════════════════════════════════════════════ CRÍTICO #1, rodada 15 ═
+     * UMA SENTINELA POR ROTA, E O UNIVERSO MEDIDO.
+     */
+    [
+      "const ROTAS_COM_SENTINELA",
+      "a lista nominal de rotas com sentinela saiu — o alcance de tempo volta a valer para uma rota só",
+    ],
+    [
+      "function registrarRota",
+      "a guarda parou de registrar as rotas que visita: a medida L não tem mais o que comparar",
+    ],
+    [
+      "revelarEstadosOcultos",
+      "as sentinelas pararam de revelar o estado que só existe depois de um clique (o campo Desconto)",
+    ],
+    [
+      "CAMPOS_VISTOS_POR_ROTA",
+      "o piso de estado das sentinelas saiu: sentinela cega para um estado voltaria a passar",
+    ],
   ];
 
   it("cada peça da correção do CRÍTICO ainda está no arquivo da guarda", () => {
@@ -193,7 +238,9 @@ describe("CRÍTICO — o vigia do contrato e as duas sentinelas continuam armado
     const nomes = [...texto.slice(inicio, fim).matchAll(/"([^"]+)"/g)].map((m) => m[1] as string);
     // O piso é escrito à mão AQUI, fora da guarda: encolher a lista exige
     // baixar este número de propósito, e isso aparece no diff.
-    const PISO_DE_MEDIDAS = 20;
+    // Rodada 15: subiu de 20 para 25 (uma sentinela J e uma K por rota, mais a
+    // medida L do alcance). Encolher exige baixar este número de propósito.
+    const PISO_DE_MEDIDAS = 34;
     expect(
       nomes.length,
       "a lista nominal de medidas encolheu — se foi de propósito, baixe o piso neste arquivo e diga por quê",
@@ -219,16 +266,54 @@ describe("CRÍTICO — o vigia do contrato e as duas sentinelas continuam armado
       return !(
         foraDaLista.includes(`"${rotulo} · `) ||
         foraDaLista.includes(`'${rotulo} · `) ||
-        foraDaLista.includes(`"${rotulo}"`)
+        foraDaLista.includes(`"${rotulo}"`) ||
+        // Rodada 15: as sentinelas J e K nascem de um laço sobre as rotas, e a
+        // frase delas é um literal de template — `J · ${sentinela.rota} — …`.
+        foraDaLista.includes("`" + `${rotulo} · `)
       );
     });
     expect(
       semConferir,
       `nome exigido na lista sem nenhuma medida que o produza: ${semConferir.join(", ")}`,
     ).toEqual([]);
-    // E as três medidas que nasceram nesta rodada estão entre elas.
-    for (const nova of ["C2 · ", "J · ", "K · "]) {
+    // E as medidas que nasceram nas rodadas 14 e 15 estão entre elas.
+    for (const nova of ["C2 · ", "L · ", "E2 · ", "E3 · ", "E4 · ", "G2 · ", "M · "]) {
       expect(nomes, `a medida ${nova} saiu da lista nominal`).toContain(nova);
+    }
+    /*
+     * [CRÍTICO #1, rodada 15] AS SENTINELAS SÃO COBRADAS POR ROTA, PELO NOME.
+     *
+     * O alcance de 30 min existia para `/tarefa/task-docs` e para o estado
+     * inicial dela. Uma lista nominal que só exigisse "J · " e "K · " seria
+     * satisfeita por uma sentinela só — o mesmo "universo por convenção" que
+     * derrubou a rodada. Aqui cada rota é exigida, e a lista da guarda tem de
+     * conter exatamente as mesmas rotas que ela declara em
+     * `ROTAS_COM_SENTINELA`.
+     */
+    const inicioRotas = texto.indexOf("const ROTAS_COM_SENTINELA = [");
+    expect(inicioRotas, "a lista de rotas com sentinela saiu da guarda").toBeGreaterThan(0);
+    const rotas = [
+      ...texto
+        .slice(inicioRotas, texto.indexOf("];", inicioRotas))
+        .matchAll(/"([^"]+)"/g),
+    ].map((m) => m[1] as string);
+    expect(rotas.length, "a guarda ficou sem rota nenhuma com sentinela").toBeGreaterThanOrEqual(3);
+    for (const rota of rotas) {
+      for (const familia of ["J", "K"]) {
+        expect(
+          nomes,
+          `a rota ${rota} tem sentinela na guarda mas NÃO é exigida pela lista nominal (${familia}) — some uma sentinela e o verde fica`,
+        ).toContain(`${familia} · ${rota}`);
+      }
+    }
+    for (const nome of nomes) {
+      const familia = nome.split(" · ")[0] as string;
+      if (familia !== "J" && familia !== "K") continue;
+      const rota = nome.slice(familia.length + 3);
+      expect(
+        rotas,
+        `a lista nominal exige ${nome}, e essa rota não está em ROTAS_COM_SENTINELA`,
+      ).toContain(rota);
     }
   });
 });

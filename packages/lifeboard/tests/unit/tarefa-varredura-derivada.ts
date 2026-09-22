@@ -739,18 +739,66 @@ export function temExportAnonimo(arquivo: string): boolean {
  * texto e reporta `value === ""`, e foi assim que a página apagou a duração
  * do operador dizendo "Duração salva.".
  */
-export function tiposDeInput(): { arquivo: string; linha: number; tipo: string }[] {
-  const achados: { arquivo: string; linha: number; tipo: string }[] = [];
-  // [CRÍTICO #2, rodada 14] `src/` INTEIRO: o `type="number"` proibido não tem
-  // por que ser proibido só em duas pastas, e um campo novo em `components/ui/`
-  // reusado pela página escapava da checagem.
+/**
+ * ═══════════════════════════════════════════════════════ BAIXO #1, rodada 15 ═
+ * A VARREDURA DEPENDIA DA POSIÇÃO DO `type=` DENTRO DA TAG — E ACUSAVA A
+ * COISA ERRADA.
+ *
+ * A expressão era `/<input\b[^>]*?\btype=…/`. `[^>]*?` para no primeiro `>` do
+ * texto, e uma `ref` tem um `=>` dentro: qualquer atributo com arrow escrito
+ * ANTES do `type=` fazia a varredura deixar de ver aquele campo. Medido pelo
+ * crítico: o piso reprovou (`expected 5 to be greater than or equal to 6`) —
+ * a rede fez o trabalho dela —, mas a mensagem mandava procurar um
+ * `type="number"` que não existia. Rede que reprova pelo motivo errado gasta a
+ * corrida seguinte inteira.
+ *
+ * A correção não é uma regex maior: é ACHAR O FIM DA TAG. De cada `<input`, o
+ * leitor anda para a frente contando `{`/`}` e só aceita como fim da tag um
+ * `>` que esteja FORA de chaves — então `=>`, `{cond ? a : b}` e objetos
+ * literais deixam de cortar a tag no meio. Dentro desse texto, a pergunta é a
+ * mesma: qual `type`?
+ *
+ * Um `<input>` SEM `type=` também é anotado, com `tipo: ""`. Ele não é
+ * proibido (o padrão do HTML é `text`), mas contá-lo é o que permite a
+ * mensagem dizer "a varredura achou N tags e M sem `type`" em vez de acusar um
+ * `number` inexistente.
+ */
+export function tagsDeInput(): { arquivo: string; linha: number; tag: string }[] {
+  const achados: { arquivo: string; linha: number; tag: string }[] = [];
   for (const arquivo of arquivosDoSrc()) {
     const src = codigo(arquivo);
-    for (const m of src.matchAll(/<input\b[^>]*?\btype=\{?["']([a-z]+)["']\}?/g)) {
-      achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), tipo: m[1] ?? "" });
+    for (const m of src.matchAll(/<input\b/g)) {
+      const inicio = m.index ?? 0;
+      let chaves = 0;
+      let fim = -1;
+      for (let i = inicio; i < src.length; i += 1) {
+        const c = src[i];
+        if (c === "{") chaves += 1;
+        else if (c === "}") chaves -= 1;
+        else if (c === ">" && chaves === 0) {
+          fim = i;
+          break;
+        }
+      }
+      achados.push({
+        arquivo,
+        linha: linhaDe(src, inicio),
+        tag: src.slice(inicio, fim === -1 ? src.length : fim + 1),
+      });
     }
   }
   return achados;
+}
+
+export function tiposDeInput(): { arquivo: string; linha: number; tipo: string }[] {
+  // [CRÍTICO #2, rodada 14] `src/` INTEIRO: o `type="number"` proibido não tem
+  // por que ser proibido só em duas pastas, e um campo novo em `components/ui/`
+  // reusado pela página escapava da checagem.
+  return tagsDeInput().map(({ arquivo, linha, tag }) => ({
+    arquivo,
+    linha,
+    tipo: /\btype=\{?["']([a-z]+)["']\}?/.exec(tag)?.[1] ?? "",
+  }));
 }
 
 /**
@@ -1465,4 +1513,132 @@ export function camposDeTextoLivre(): CampoDeTextoLivre[] {
 /** Os arquivos do perímetro que RESTAURAM rascunho (o outro meio do mecanismo). */
 export function arquivosQueRestauramRascunho(): string[] {
   return arquivosVarridos().filter((a) => /\blerRascunho\s*\(/.test(codigo(a)));
+}
+
+/**
+ * ═══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+ * TODA JANELA DE "DESFAZER" DA PÁGINA, DERIVADA DO CÓDIGO.
+ *
+ * O crítico nomeou três (átomos, nota, criação de relação). São QUATRO — a
+ * exclusão de relação tem a mesma forma, no mesmo arquivo. Fechar só as três
+ * nomeadas seria a 5ª forma viciada desta base ("confere o caso, não a
+ * classe"), então a régua não é uma lista escrita à mão: é uma varredura.
+ *
+ * Uma janela de desfazer é, neste `src/`, o encontro de duas coisas no mesmo
+ * arquivo: um relógio `JANELA_DESFAZER_MS` que apaga o valor da janela, e uma
+ * porta cuja `op` tem `desfazer` no nome. O que a varredura pergunta de cada
+ * uma:
+ *
+ *  1. a função que despacha o desfazer FECHA o relógio quando a decisão é
+ *     gravar? (sem isso, o relógio apaga o texto, o botão E o dado a
+ *     restaurar no meio da chamada — medido pelo crítico: clique aos 8,5 s,
+ *     falha aos 11,5 s, zero botões na tela e a nota do operador destruída);
+ *  2. a `op` dela tem frase em `MENSAGEM_INVALIDO`? (sem isso, a recusa por
+ *     janela fechada é silenciosa — o operador clica e não acontece nada).
+ */
+export interface JanelaDeDesfazer {
+  arquivo: string;
+  op: string;
+  porta: string;
+  fechaORelogioNoDespacho: boolean;
+}
+
+/**
+ * O corpo da função que contém `agulha`. Anda para trás até o `function` mais
+ * próximo e emparelha as chaves para a frente — é o mesmo serviço do
+ * `corpoEfetivo` acima, para uma agulha em vez de um nome.
+ */
+function corpoQueChama(src: string, agulha: string): string | null {
+  const onde = src.indexOf(agulha);
+  if (onde < 0) return null;
+  const inicioDaFuncao = src.lastIndexOf("function ", onde);
+  if (inicioDaFuncao < 0) return null;
+  const abre = src.indexOf("{", inicioDaFuncao);
+  if (abre < 0 || abre > onde) return null;
+  let nivel = 0;
+  for (let i = abre; i < src.length; i += 1) {
+    if (src[i] === "{") nivel += 1;
+    else if (src[i] === "}") {
+      nivel -= 1;
+      if (nivel === 0) return src.slice(abre, i + 1);
+    }
+  }
+  return null;
+}
+
+export function janelasDeDesfazer(): JanelaDeDesfazer[] {
+  const achados: JanelaDeDesfazer[] = [];
+  for (const arquivo of arquivosDoSrc()) {
+    const src = codigo(arquivo);
+    if (!src.includes("JANELA_DESFAZER_MS")) continue;
+    // Como se chamam, NESTE arquivo, as funções que apagam o relógio.
+    const fechadores = [
+      ...src.matchAll(/function\s+(\w+)\s*\(\s*\)\s*:\s*void\s*\{[^}]*clearTimeout\s*\(/g),
+    ].map((m) => m[1] ?? "");
+    for (const m of src.matchAll(
+      /const\s+(\w+)\s*=\s*usarPortaDeEscrita\(\{\s*\n\s*op:\s*"(\w*desfazer\w*)"/g,
+    )) {
+      const porta = m[1] ?? "";
+      const corpo = corpoQueChama(src, `${porta}.escrever(`);
+      achados.push({
+        arquivo,
+        op: m[2] ?? "",
+        porta,
+        fechaORelogioNoDespacho:
+          corpo !== null &&
+          /decisao === "gravar"/.test(corpo) &&
+          fechadores.some((f) => f.length > 0 && corpo.includes(`${f}()`)),
+      });
+    }
+  }
+  return achados;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════ CRÍTICO #2, rodada 15 ═
+ * QUEM ESCREVE NO DEPÓSITO DO NAVEGADOR, E COM QUE DIREITO.
+ *
+ * O crítico calou a guarda inteira com uma linha de `sessionStorage.setItem` na
+ * chave do vigia. A rede principal contra isso é o canal fora da página (ver
+ * `guarda-p6.mjs`); esta é a segunda, barata, no texto do `src/`:
+ * `sessionStorage`/`localStorage` só se escreve nos lugares DECLARADOS, e a
+ * chave do vigia não se escreve em lugar nenhum.
+ *
+ * `CHAMADAS_QUE_ESCREVEM_NO_DOM` não alcançava isto: `setItem(` não é escrita
+ * em nó nem atribuição a propriedade. É uma família própria, e tem a sua lista.
+ */
+export interface EscritaNoDeposito {
+  arquivo: string;
+  linha: number;
+  chamada: string;
+}
+
+/** As chamadas que MUDAM o depósito do navegador (ler é livre). */
+const CHAMADAS_QUE_ESCREVEM_NO_DEPOSITO: readonly [RegExp, string][] = [
+  [/\bsetItem\s*\(/g, "setItem("],
+  [/\bremoveItem\s*\(/g, "removeItem("],
+  [/\b(?:sessionStorage|localStorage)\s*\.\s*clear\s*\(/g, "clear("],
+];
+
+export function escritasNoDeposito(): EscritaNoDeposito[] {
+  const achados: EscritaNoDeposito[] = [];
+  for (const arquivo of arquivosDoSrc()) {
+    const src = codigo(arquivo);
+    for (const [re, nome] of CHAMADAS_QUE_ESCREVEM_NO_DEPOSITO) {
+      for (const m of src.matchAll(re)) {
+        achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), chamada: nome });
+      }
+    }
+  }
+  return achados;
+}
+
+/** A chave do registro do vigia — tem de não aparecer em nenhum arquivo do `src/`. */
+export const CHAVE_DO_VIGIA_P6 = "__vigia-p6-contrato";
+
+export function arquivosQueCitamOVigia(): string[] {
+  return arquivosDoSrc().filter((a) => {
+    const src = codigo(a);
+    return src.includes(CHAVE_DO_VIGIA_P6) || src.includes("__vigiaP6");
+  });
 }

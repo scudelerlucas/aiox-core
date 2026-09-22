@@ -140,6 +140,32 @@ export const MENSAGEM_INVALIDO: Partial<Record<OperacaoDeEscrita, string>> = {
   subtarefa_criar: "Dê um título à subtarefa antes de adicionar.",
   relacao_criar: "Escolha a tarefa de destino antes de adicionar a relação.",
   atomos_salvar: "Escolha os três átomos antes de salvar.",
+  /*
+   * ══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+   * AS TRÊS RECUSAS DE DESFAZER ERAM MUDAS.
+   *
+   * `desfazerLimpeza()`, `desfazerExclusao()` e `desfazer()` (da relação)
+   * mandam `{ valido: janela !== null }`. Quando a janela já tinha fechado, a
+   * porta devolvia `"invalido"` e `MENSAGEM_INVALIDO` não tinha frase para
+   * estas três `op` — a recusa era SILENCIOSA: o operador clicava no botão e
+   * não acontecia nada, nem explicação. Com a janela parando no despacho
+   * (ver os três painéis) este caminho ficou raro; raro não é motivo para ser
+   * mudo. Cada uma diz o que aconteceu e o que continua valendo.
+   */
+  atomos_desfazer_limpeza:
+    "A janela de desfazer fechou — os átomos continuam limpos. Declare-os de novo nos três grupos acima.",
+  nota_desfazer:
+    "A janela de desfazer fechou — a nota continua excluída. Escreva-a de novo no campo acima.",
+  relacao_desfazer_criacao:
+    "A janela de desfazer fechou — a relação continua. Use o botão excluir na lista ao lado.",
+  /*
+   * A QUARTA, que o crítico não nomeou e a varredura achou. Este caminho já
+   * existia escrito (`portaDesfazer.escrever({}, { valido: false })` em
+   * `relacoes-painel.tsx`): a porta era chamada de propósito para falar, e
+   * não tinha o que dizer.
+   */
+  relacao_desfazer_exclusao:
+    "A janela de desfazer fechou — a relação continua excluída. Crie-a de novo no formulário abaixo.",
 };
 
 /**

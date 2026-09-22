@@ -53,11 +53,27 @@ import type { ReactNode } from "react";
  * mexeu nisto em algum momento?"**: um vigia instalado na página antes da
  * hidratação anota toda mudança em `type`/`inputMode` de qualquer campo
  * (setter do protótipo, `setAttribute`, `MutationObserver`), e a guarda reprova
- * se o registro não estiver vazio. Duas sentinelas dão alcance de tempo a isso:
- * uma de tempo real (~40 s, o tempo da guarda) e uma com o relógio da página
- * sob controle da guarda, que adianta meia hora de uma vez. O que fica fora de
- * alcance está declarado no cabeçalho da guarda — nem aqui nem lá se afirma que
- * ela alcança tudo.
+ * se o registro não estiver vazio.
+ *
+ * **E a rodada 15 achou os dois buracos DISSO** (os dois com os cinco portões
+ * verdes, os dois com a duração do operador apagada no Chromium):
+ *
+ *  1. o registro morava só onde a PÁGINA manda (`sessionStorage`), e "registro
+ *     vazio" era o verde — seis linhas gravando `"[]"` naquela chave faziam a
+ *     guarda imprimir `0 mudança(s) fora da régua` com oito mudanças anotadas.
+ *     Agora cada medida solta um CANÁRIO antes de julgar (mexe de propósito no
+ *     contrato de um `<input>` descartável já na árvore e exige ver isso
+ *     registrado, pelas seis redes), o registro tem uma cópia no processo do
+ *     Node que a página não alcança, e divergência entre as cópias reprova.
+ *  2. o alcance de tempo existia para UMA rota, no estado inicial dela — um
+ *     `if (!pathname.includes("task-build")) return;` passava batido. Agora há
+ *     duas sentinelas POR ROTA visitada (uma de tempo real, ~100 s, e uma com o
+ *     relógio sob controle da guarda, que adianta meia hora de uma vez), cada
+ *     uma revela os estados que só existem depois de um clique, e a medida L
+ *     reprova se a guarda visitar rota ou estado que sentinela nenhuma vigia.
+ *
+ * O que fica fora de alcance está declarado no cabeçalho da guarda — nem aqui
+ * nem lá se afirma que ela alcança tudo.
  *
  * As duas redes de fonte continuam, como segunda linha: `tiposDeInput` e
  * `escritasNoDom` (`tests/unit/tarefa-varredura-derivada.ts`) leem agora o
@@ -78,6 +94,12 @@ export interface CampoNumericoProps {
   classeDoCampo: string;
   /** Classe do `<label>` que o envolve. */
   classeDoRotulo?: string;
+  /**
+   * [MÉDIO #1, rodada 15] O `id` do aviso "Não salvo" deste campo. É por aqui
+   * que a frase chega a quem usa leitor de tela: ela é DESCRIÇÃO do campo (lida
+   * no foco), e não região viva (lida a cada tecla).
+   */
+  descricaoId?: string;
 }
 
 export function CampoNumerico({
@@ -87,6 +109,7 @@ export function CampoNumerico({
   placeholder,
   classeDoCampo,
   classeDoRotulo = "flex flex-col gap-1 text-xs font-semibold text-bone-300",
+  descricaoId,
 }: CampoNumericoProps): JSX.Element {
   return (
     <label className={classeDoRotulo}>
@@ -97,6 +120,7 @@ export function CampoNumerico({
         // `autoComplete="off"`: o histórico do navegador não tem por que
         // sugerir números de outro formulário dentro de uma duração.
         autoComplete="off"
+        aria-describedby={descricaoId}
         value={valor}
         onChange={(e) => {
           aoMudar(e.target.value);

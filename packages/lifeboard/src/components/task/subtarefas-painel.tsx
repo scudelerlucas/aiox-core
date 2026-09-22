@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
+import { AvisoNaoSalvo, AVISO_COM_RASCUNHO } from "@/components/task/aviso-nao-salvo";
 import { CampoNumerico } from "@/components/task/campo-numerico";
 import { MENSAGEM_INVALIDO } from "@/components/task/escrita";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
@@ -165,6 +166,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           nenhuma, com a tela dizendo "Subtarefa criada.". */}
       <CampoNumerico
         rotulo="Duração (dias)"
+        descricaoId="subtarefa-nao-salvo"
         valor={estimativa}
         // [Minor do CodeRabbit, rodada 10] o campo do título já limpava o
         // erro velho do servidor ao mudar; este não. Quando a recusa vinha
@@ -178,6 +180,14 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
         }}
         placeholder="opcional"
         classeDoCampo="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+      />
+      {/* [MÉDIO #1, rodada 15] o gêmeo do campo de duração da TAREFA — mesmo
+          desenho, comportamento oposto. Aqui o rascunho existe, e a frase diz
+          isso: sair e voltar devolve o que foi digitado. */}
+      <AvisoNaoSalvo
+        id="subtarefa-nao-salvo"
+        mostrar={title.trim().length > 0 || estimativa.trim().length > 0}
+        texto={AVISO_COM_RASCUNHO}
       />
       <button
         type="submit"

@@ -2,6 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 
+import { AvisoNaoSalvo, AVISO_SEM_RASCUNHO } from "@/components/task/aviso-nao-salvo";
 import { CampoErro } from "@/components/task/campo-erro";
 import { CampoNumerico } from "@/components/task/campo-numerico";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
@@ -21,7 +22,21 @@ export interface DuracaoFormProps {
 export function duracaoCanonica(bruta: string): string {
   const t = bruta.trim();
   if (t.length === 0) return "";
-  const n = Number(t);
+  /*
+   * [BAIXO #2, rodada 15] A VÍRGULA DO TECLADO pt-BR. `Number("1,5")` é `NaN`,
+   * e a caixa ficaria mostrando `1,5` com o banco em 1.5 — a tela e o dado em
+   * grafias diferentes, que é a família do BAIXO #11 da rodada 13. A régua é a
+   * MESMA do servidor (`comDecimalCanonico` em `actions.ts`): uma vírgula
+   * decimal vira ponto; vírgula misturada com ponto, ou mais de uma, não é
+   * grafia decidida e segue para a recusa em português.
+   */
+  const semVirgula =
+    t.indexOf(",") !== -1 &&
+    t.indexOf(".") === -1 &&
+    t.indexOf(",") === t.lastIndexOf(",")
+      ? t.replace(",", ".")
+      : t;
+  const n = Number(semVirgula);
   return Number.isFinite(n) ? String(n) : bruta;
 }
 
@@ -121,6 +136,7 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
           salva.". Ver `campo-numerico.tsx`. */}
       <CampoNumerico
         rotulo="Duração (dias, p80 — o prazo que acerta em 8 de 10 vezes)"
+        descricaoId="duracao-tarefa-nao-salvo"
         valor={valor}
         // [ALTO #2, rodada 9] mexer no campo descarta o erro velho do
         // servidor — era ele que sobrevivia à correção e contradizia a
@@ -145,6 +161,17 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
       </button>
       <CampoErro mensagem={porta.erroDoCampo} />
       <MensagemSucesso mensagem={porta.mensagem} />
+      {/* [MÉDIO #1, rodada 15] A DISPENSA DE RASCUNHO PASSA A SER DITA.
+          Este campo nasce com o número que o servidor guarda e não ganha
+          rascunho (ver o bloco acima e a medida G da guarda de navegador).
+          Antes, a diferença entre ele e a "Duração (dias)" da subtarefa — mesmo
+          desenho, mesmo teclado, comportamento oposto — não estava em lugar
+          nenhum da tela. */}
+      <AvisoNaoSalvo
+        id="duracao-tarefa-nao-salvo"
+        mostrar={valor.trim() !== confirmadoRef.current.trim()}
+        texto={AVISO_SEM_RASCUNHO}
+      />
     </form>
   );
 }

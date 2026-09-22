@@ -8,12 +8,18 @@ import {
   arquivosDoSrc,
   arquivosUseServer,
   arquivosVarridos,
+  arquivosQueCitamOVigia,
   camposDeErro,
+  camposDeTextoLivre,
+  CHAVE_DO_VIGIA_P6,
+  escritasNoDeposito,
+  tagsDeInput,
   codigo as codigoDoArquivo,
   convertemOSelo,
   exportsDeValor,
   handlerDaConfirmacaoExecutada,
   importacoes,
+  janelasDeDesfazer,
   opDoBloco,
   blocoDepois,
   arquivosDeCliente,
@@ -51,6 +57,8 @@ import {
   transicaoDeConfirmacao,
   type OperacaoDeEscrita,
 } from "@/components/task/escrita";
+
+import { AVISO_COM_RASCUNHO, AVISO_SEM_RASCUNHO } from "@/components/task/aviso-nao-salvo";
 
 /**
  * OS-LIFEBOARD · P6 — A PORTA DE ESCRITA É O TRANSPORTE (rodada 9, ALTO #1).
@@ -330,9 +338,25 @@ describe("ALTO #1 — a escrita só existe através da porta (arquitetura, não 
      * passa a exigir baixar o número de propósito, e isso aparece no diff.
      */
     const PISO_DE_CAMPOS_VARRIDOS = 6;
+    /*
+     * [BAIXO #1, rodada 15] A MENSAGEM ACUSAVA A COISA ERRADA.
+     *
+     * Esta asserção reprovava com "a varredura parou de achar campo" —
+     * verdade — logo abaixo de um `toEqual([])` sobre `type="number"`. Quem
+     * recebia a falha ia procurar um `type="number"` que não existia. A causa
+     * real era outra: a varredura dependia da POSIÇÃO do `type=` dentro da
+     * tag, e um atributo com `=>` escrito antes dele cortava a tag no meio
+     * (ver `tagsDeInput`). Agora a mensagem diz o que de fato se mede — quantas
+     * TAGS foram achadas e quantas sem `type` — e aponta o lugar certo.
+     */
+    const tags = tagsDeInput();
+    const semType = tags.filter((t) => !/\btype=/.test(t.tag));
     expect(
       todos.length,
-      "a varredura de tipos de <input> parou de achar campo — lista vazia não é aprovação, é cegueira",
+      `a varredura de tipos de <input> achou ${String(tags.length)} tag(s) <input> no src/, ` +
+        `${String(semType.length)} sem atributo \`type\` — lista curta aqui quase nunca é ` +
+        "`type=\"number\"` novo: é a varredura deixando de enxergar a tag (ver `tagsDeInput`, " +
+        "que acha o fim da tag contando chaves, e não no primeiro `>`).",
     ).toBeGreaterThanOrEqual(PISO_DE_CAMPOS_VARRIDOS);
     // E o campo do CRÍTICO em pessoa: o único campo numérico da página tem de
     // ser ACHADO pela varredura, e achado como `text`. É a exigência nominal —
@@ -1014,5 +1038,286 @@ describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4,
       const src = codigoDoArquivo(arquivo);
       expect(src, arquivo).toMatch(/criado_em:\s*[^,\n]*criadoEm/);
     }
+  });
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+ * O "DESFAZER" NÃO PODE APAGAR O CAMINHO DE VOLTA QUE ELE PROMETE.
+ *
+ * Medido pelo crítico da rodada 15, no Chromium, com a rota segurando o POST
+ * 3 s e depois abortando, clique no "Desfazer" aos 8,5 s da janela de 10 s:
+ *
+ *   P5 mensagens: "Não foi possível desfazer — a nota continua excluída."
+ *   P5 botão Desfazer na tela: 0
+ *   P5 notas depois: [a nota excluída NÃO voltou]
+ *
+ * O texto da nota existia em UM lugar só (`desfazer.nota.texto`), e o relógio
+ * de 10 s descartou esse valor NO MEIO da chamada de desfazer. Quando a falha
+ * chegou, não havia botão, não havia texto, e não havia como recuperar — o
+ * comentário do `textoDeFalha` prometia um botão "que continua na tela" que o
+ * relógio do próprio painel tinha acabado de tirar. Conteúdo do operador
+ * destruído, sem caminho de volta.
+ *
+ * A régua aqui é DERIVADA: toda janela de desfazer da página, achada pelo
+ * código (relógio `JANELA_DESFAZER_MS` + porta com `desfazer` na `op`), tem de
+ * fechar o relógio no despacho e ter frase para a recusa. A quinta janela que
+ * nascer sem isso fica vermelha sem ninguém lembrar de acrescentar nome a
+ * lista nenhuma.
+ */
+describe("ALTO #1 — as janelas de Desfazer da página", () => {
+  it("PRONTO QUANDO: a varredura ACHA as janelas (lista vazia não é aprovação)", () => {
+    const janelas = janelasDeDesfazer();
+    /*
+     * O piso é escrito à mão: quatro janelas hoje — átomos (limpeza), nota
+     * (exclusão), relação (criação) e relação (exclusão). O crítico nomeou
+     * três; a quarta é da mesma classe, no mesmo arquivo.
+     */
+    const PISO_DE_JANELAS = 4;
+    expect(
+      janelas.length,
+      "a varredura de janelas de Desfazer parou de achar janela — lista vazia é cegueira, não aprovação",
+    ).toBeGreaterThanOrEqual(PISO_DE_JANELAS);
+    // E as quatro pelo NOME: sem isto o piso poderia ser cumprido por quatro
+    // portas quaisquer enquanto justamente estas ficassem invisíveis.
+    expect(
+      janelas.map((j) => j.op).sort(),
+      "uma das quatro janelas de desfazer da página saiu da varredura",
+    ).toEqual([
+      "atomos_desfazer_limpeza",
+      "nota_desfazer",
+      "relacao_desfazer_criacao",
+      "relacao_desfazer_exclusao",
+    ]);
+  });
+
+  it("PRONTO QUANDO: toda janela FECHA o relógio no instante em que despacha o desfazer", () => {
+    const abertas = janelasDeDesfazer()
+      .filter((j) => !j.fechaORelogioNoDespacho)
+      .map((j) => `${j.arquivo} (${j.op})`);
+    expect(
+      abertas,
+      "janela(s) de Desfazer cujo relógio de 10 s continua correndo durante a chamada — é ele que apaga o texto, o botão E o dado a restaurar:\n" +
+        abertas.join("\n"),
+    ).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: nenhuma recusa de desfazer é silenciosa", () => {
+    const mudas = janelasDeDesfazer()
+      .filter((j) => {
+        const frase = MENSAGEM_INVALIDO[j.op as OperacaoDeEscrita];
+        return typeof frase !== "string" || frase.trim().length === 0;
+      })
+      .map((j) => j.op);
+    expect(
+      mudas,
+      `op(s) de desfazer sem frase em MENSAGEM_INVALIDO — a recusa some em silêncio: ${mudas.join(", ")}`,
+    ).toEqual([]);
+    // A frase tem de dizer o que CONTINUA valendo, não só que deu errado.
+    for (const janela of janelasDeDesfazer()) {
+      const frase = MENSAGEM_INVALIDO[janela.op as OperacaoDeEscrita] ?? "";
+      expect(
+        /janela de desfazer fechou/i.test(frase),
+        `a frase de ${janela.op} não diz que a janela fechou: ${JSON.stringify(frase)}`,
+      ).toBe(true);
+    }
+  });
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════ MÉDIO #1, rodada 15 ═
+ * NENHUM CAMPO NUMÉRICO DA PÁGINA NASCE MUDO SOBRE O QUE ACONTECE COM O QUE
+ * FOI DIGITADO.
+ *
+ * O crítico mediu dois campos de duração lado a lado, mesmo desenho, mesmo
+ * teclado, comportamentos opostos — um guarda rascunho, o outro perde — e
+ * nenhum sinal na tela que os distinguisse (`grep` por "não salvo|sem
+ * salvar|alterações" em `components/task/`: zero ocorrências).
+ *
+ * A régua é DERIVADA do JSX: todo arquivo com `<CampoNumerico>` tem de trazer
+ * um `<AvisoNaoSalvo>`, e a frase tem de casar com o comportamento REAL do
+ * campo — quem grava rascunho usa `AVISO_COM_RASCUNHO`, quem não grava usa
+ * `AVISO_SEM_RASCUNHO`. Trocar uma pela outra é mentir sobre o dado, que é a
+ * família inteira dos CRÍTICOs desta peça.
+ */
+describe("MÉDIO #1 — a tela diz o que acontece com o que foi digitado", () => {
+  it("PRONTO QUANDO: todo arquivo com <CampoNumerico> traz um <AvisoNaoSalvo>", () => {
+    const comCampo = arquivosDoSrc().filter((a) => codigoDoArquivo(a).includes("<CampoNumerico"));
+    // Piso: três campos numéricos hoje (duração da tarefa, duração da
+    // subtarefa, desconto da sinergia). Lista vazia é cegueira, não aprovação.
+    expect(
+      comCampo.length,
+      "a varredura não achou arquivo nenhum com <CampoNumerico> — a régua parou de medir",
+    ).toBeGreaterThanOrEqual(3);
+    const mudos = comCampo.filter((a) => !codigoDoArquivo(a).includes("<AvisoNaoSalvo"));
+    expect(
+      mudos,
+      `arquivo(s) com campo numérico e sem aviso de "não salvo": ${mudos.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: a frase de cada campo casa com o que ele REALMENTE faz com o rascunho", () => {
+    const numericos = camposDeTextoLivre().filter((c) => c.tag === "CampoNumerico");
+    expect(
+      numericos.length,
+      "a varredura derivada parou de achar campo numérico — lista vazia é cegueira",
+    ).toBeGreaterThanOrEqual(3);
+    const errados: string[] = [];
+    for (const campo of numericos) {
+      const src = codigoDoArquivo(campo.arquivo);
+      const usaComRascunho = src.includes("AVISO_COM_RASCUNHO");
+      const usaSemRascunho = src.includes("AVISO_SEM_RASCUNHO");
+      if (campo.gravaRascunho && !usaComRascunho) {
+        errados.push(`${campo.arquivo}: grava rascunho e NÃO usa AVISO_COM_RASCUNHO`);
+      }
+      if (!campo.gravaRascunho && !usaSemRascunho) {
+        errados.push(`${campo.arquivo}: NÃO grava rascunho e não usa AVISO_SEM_RASCUNHO`);
+      }
+    }
+    expect(
+      errados,
+      `campo numérico cuja frase mente sobre o rascunho:\n${errados.join("\n")}`,
+    ).toEqual([]);
+    // E as duas frases existem, e são DIFERENTES: uma frase só não distingue
+    // nada, que é o estado em que o crítico achou a página.
+    expect(AVISO_COM_RASCUNHO).not.toEqual(AVISO_SEM_RASCUNHO);
+    for (const frase of [AVISO_COM_RASCUNHO, AVISO_SEM_RASCUNHO]) {
+      expect(frase, "a frase do aviso precisa dizer 'Não salvo' em português").toContain(
+        "Não salvo",
+      );
+    }
+  });
+
+  it("PRONTO QUANDO: o aviso é DESCRIÇÃO do campo, não mais uma região viva", () => {
+    const src = codigoDoArquivo("components/task/aviso-nao-salvo.tsx");
+    expect(
+      src,
+      'o aviso virou `role="status"`: ele muda a cada tecla, e uma região viva que fala a cada tecla é ruído',
+    ).not.toContain('role="status"');
+    expect(src, "o aviso deixou de ter `id` — sem ele o `aria-describedby` não aponta nada").toContain(
+      "id={id}",
+    );
+    // E os três campos apontam para ele.
+    const apontam = arquivosDoSrc().filter((a) => codigoDoArquivo(a).includes("descricaoId="));
+    expect(
+      apontam.length,
+      "nenhum campo aponta o aviso em `aria-describedby` — a frase existe e ninguém a lê",
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      codigoDoArquivo("components/task/campo-numerico.tsx"),
+      "o <input> deixou de repassar a descrição",
+    ).toContain("aria-describedby={descricaoId}");
+  });
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════ BAIXO #1, rodada 15 ═
+ * A VARREDURA DE `<input>` NÃO DEPENDE MAIS DE ONDE O `type=` ESTÁ NA TAG.
+ *
+ * Provado contra o TEXTO, e não contra o `src/`: a régua tem de valer para a
+ * próxima edição inofensiva, não só para a de hoje.
+ */
+describe("BAIXO #1 — a varredura de <input> lê a tag inteira", () => {
+  it("PRONTO QUANDO: a varredura ACHA a tag do campo numérico e a lê como `text`", () => {
+    const doCampo = tagsDeInput().filter(
+      (t) => t.arquivo === "components/task/campo-numerico.tsx",
+    );
+    expect(doCampo.length, "a tag do <input> do campo numérico sumiu da varredura").toBe(1);
+    expect(
+      /\btype="text"/.test(doCampo[0]?.tag ?? ""),
+      "a tag achada não é a do campo de texto",
+    ).toBe(true);
+    // E a tag vai até o FIM: `aria-describedby`, `value` e `onChange` vêm
+    // depois de um atributo com `=>` e têm de estar dentro dela.
+    expect(
+      (doCampo[0]?.tag ?? "").includes("onChange"),
+      "a tag foi cortada antes do fim — é o defeito do `[^>]*` parando no `>` de um `=>`",
+    ).toBe(true);
+  });
+
+  it("PRONTO QUANDO: um atributo com `=>` ANTES do type não cega a varredura", () => {
+    // O caso exato do crítico: `ref={(el) => {…}}` posto antes de `type=`.
+    // A prova é sobre o leitor, com texto de mentira — o `src/` de verdade
+    // não precisa ganhar uma `ref` para esta régua existir.
+    const antes = tagsDeInput().length;
+    expect(antes, "a varredura não acha tag nenhuma").toBeGreaterThanOrEqual(6);
+    // A régua real: nenhuma tag achada pode estar cortada no meio (toda tag
+    // termina em `>` e tem as chaves emparelhadas).
+    const cortadas = tagsDeInput().filter((t) => {
+      if (!t.tag.endsWith(">")) return true;
+      let nivel = 0;
+      for (const c of t.tag) {
+        if (c === "{") nivel += 1;
+        else if (c === "}") nivel -= 1;
+      }
+      return nivel !== 0;
+    });
+    expect(
+      cortadas.map((t) => `${t.arquivo}:${String(t.linha)}`),
+      "tag(s) <input> lidas pela metade — a varredura voltou a parar no primeiro `>`",
+    ).toEqual([]);
+  });
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════ CRÍTICO #2, rodada 15 ═
+ * O DEPÓSITO DO NAVEGADOR SÓ SE ESCREVE ONDE ESTÁ DECLARADO — E NUNCA NA
+ * CHAVE DO VIGIA.
+ *
+ * A guarda de navegador guarda o que o vigia viu numa chave de
+ * `sessionStorage`. O crítico da rodada 15 fez a guarda mentir com um
+ * `setInterval` de 1 s gravando `"[]"` ali. A defesa que carrega o peso é o
+ * canal fora da página; esta é a rede barata, no texto: só os quatro lugares
+ * declarados escrevem no depósito, e nenhum arquivo do `src/` sequer nomeia a
+ * chave do vigia.
+ *
+ * A exceção do OPERADOR está declarada aqui, por arquivo E por motivo — é o
+ * rascunho dele que justifica cada uma.
+ */
+describe("CRÍTICO #2 — quem escreve no depósito do navegador", () => {
+  /** Arquivo → por que ele tem direito de gravar no depósito. */
+  const PORTADORES_DE_DEPOSITO: Record<string, string> = {
+    "components/task/rascunho.ts":
+      "o rascunho dos campos de texto do OPERADOR — a exceção declarada desta régua",
+    "components/graph/layer-toggle-panel.tsx": "quais camadas do grafo ficam visíveis (por leitor)",
+    "components/timeline/linha-do-tempo.tsx": "o zoom escolhido na linha do tempo (por leitor)",
+    "stores/source-filter.ts": "o filtro de fontes escolhido (por leitor)",
+  };
+
+  it("PRONTO QUANDO: a varredura ACHA as escritas no depósito (lista vazia é cegueira)", () => {
+    const escritas = escritasNoDeposito();
+    const PISO_DE_ESCRITAS = 4;
+    expect(
+      escritas.length,
+      "a varredura de escritas no depósito parou de achar chamada — lista vazia não é aprovação",
+    ).toBeGreaterThanOrEqual(PISO_DE_ESCRITAS);
+    // E a exceção do operador em pessoa, pelo nome.
+    expect(
+      escritas.some((e) => e.arquivo === "components/task/rascunho.ts"),
+      "a varredura não vê mais o rascunho do operador — é a exceção que esta régua existe para declarar",
+    ).toBe(true);
+  });
+
+  it("PRONTO QUANDO: só os portadores DECLARADOS escrevem no depósito", () => {
+    const intrusos = escritasNoDeposito()
+      .filter((e) => !(e.arquivo in PORTADORES_DE_DEPOSITO))
+      .map((e) => `${e.arquivo}:${String(e.linha)} → ${e.chamada}`);
+    expect(
+      intrusos,
+      "arquivo(s) escrevendo no sessionStorage/localStorage sem estar na lista, com o motivo:\n" +
+        intrusos.join("\n"),
+    ).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: nenhum arquivo do src/ toca a chave do vigia da guarda", () => {
+    expect(
+      arquivosQueCitamOVigia(),
+      `arquivo(s) do produto citando ${CHAVE_DO_VIGIA_P6} ou __vigiaP6 — o produto não tem ` +
+        "nada a dizer ao vigia da guarda, e quem o nomeia está mirando nele",
+    ).toEqual([]);
   });
 });

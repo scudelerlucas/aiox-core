@@ -358,7 +358,28 @@ export function AtomosForm({
       },
       { valido: janela !== null },
     );
-    if (decisao === "gravar") restauradoRef.current = janela?.trio ?? null;
+    /*
+     * ══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+     * O RELÓGIO DA JANELA PARA NO INSTANTE EM QUE O DESFAZER É DESPACHADO.
+     *
+     * O texto, o botão e o DADO A RESTAURAR saíam todos do mesmo valor, e o
+     * `setTimeout(JANELA_DESFAZER_MS)` apagava esse valor sozinho aos 10 s —
+     * inclusive com uma chamada de desfazer EM VOO. Medido pelo crítico da
+     * rodada 15, com a rota segurando o POST 3 s e abortando, clique aos
+     * 8,5 s: a tela dizia "Não foi possível desfazer…", havia ZERO botões de
+     * Desfazer, e a nota do operador — cujo texto existia num lugar só — tinha
+     * ido embora. O `aoFalha` que promete "não esconde o botão" chegava tarde:
+     * não havia o que não esconder.
+     *
+     * A correção é uma linha e uma ordem: quem clica em Desfazer FECHA a
+     * janela, e só depois a chamada parte. A partir daí o valor só sai da tela
+     * por decisão — sucesso, ou uma limpeza/criação nova que o substitua.
+     * Falhar deixa botão, texto e dado exatamente onde estavam.
+     */
+    if (decisao === "gravar") {
+      fecharRelogio();
+      restauradoRef.current = janela?.trio ?? null;
+    }
   }
 
   return (
