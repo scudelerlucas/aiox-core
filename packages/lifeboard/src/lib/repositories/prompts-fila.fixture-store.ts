@@ -78,7 +78,9 @@ import {
   BACKOFF_POR_TENTATIVA_MIN,
   CONTAS,
   CUSTO_MAXIMO_POR_ITEM_USD,
+  CUSTO_MINIMO_POR_ITEM_USD,
   JANELA_HEARTBEAT_MS,
+  MAXIMO_EM_VOO_POR_CONTA,
   MAX_TENTATIVAS,
   POSTO_ESTIMATIVA,
   POSTO_OPERADOR,
@@ -333,6 +335,15 @@ function emEsperaDe(conta: Conta, agora: number): number {
 }
 
 /** D3: reservado = SÓ o que está em execução com sinal vivo. */
+/**
+ * CRÍTICO (rodada 15): a MESMA definição de `reservadoDe` — item `pega` com
+ * sinal vivo —, contada em vez de somada. Espelho de `painel_fila_em_voo`.
+ */
+function emVooDe(conta: Conta, agora: number): number {
+  return itens().filter((i) => i.conta === conta && i.estado === "pega" && !semSinal(i, agora))
+    .length;
+}
+
 function reservadoDe(conta: Conta, agora: number): number {
   return itens()
     .filter((i) => i.conta === conta && i.estado === "pega" && !semSinal(i, agora))
@@ -495,7 +506,11 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
 
   if (input.conta) {
     if (!contaValida(input.conta)) {
-      return { erro: "conta precisa ser uma das 3 contas da casa." };
+      // Varredura de generalização (rodada 14): a frase dizia "3 contas" desde
+      // que a casa tinha 3, e a casa tem 4 desde 21/09 — número de contas em
+      // texto literal é a mesma cópia à mão que a 0029 §1 tirou do SQL. Agora
+      // ele vem de `CONTAS`, como a validação que o produziu.
+      return { erro: `conta precisa ser uma das ${CONTAS.length} contas da casa.` };
     }
     conta = input.conta;
     manual = true;
@@ -798,6 +813,14 @@ export interface ResultadoPegarFixture {
   recusadoPorMedicao: boolean;
   /** D32a: quão velho é o número medido desta conta (`null` = nunca mediu). */
   defasagemHoras: number | null;
+  /**
+   * CRÍTICO (rodada 15): quantas sessões desta conta estão em voo depois deste
+   * disparo, e o limite. Espelho de `em_voo`/`limite_em_voo` em
+   * `fila_prompts_pegar_interno` (migration 0030 §8). O headroom sozinho
+   * anunciava US$ 1,00 de espaço com 40 sessões gastando dinheiro.
+   */
+  emVoo: number;
+  limiteEmVoo: number;
 }
 
 /**
@@ -896,6 +919,8 @@ export function pegarFixture(
       estimativaItens: estimativaAgora.itens,
       recusadoPorMedicao: true,
       defasagemHoras,
+      emVoo: emVooDe(conta, agora),
+      limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
       // D32c: a RECUSA é a frase inteira — a mesma função pura do SQL.
       motivo: montarMotivoDoPull({
         mortos: 0,
@@ -913,6 +938,8 @@ export function pegarFixture(
         estimativaItens: 0,
         defasagemHoras,
         exigeMedicaoRecente: true,
+        emVoo: emVooDe(conta, agora),
+        limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
       }),
     };
   }
@@ -949,11 +976,33 @@ export function pegarFixture(
     // #12: desempate explícito por id, como no `order by criado_em, id` do SQL.
     a.criadoEm === b.criadoEm ? a.id.localeCompare(b.id) : a.criadoEm.localeCompare(b.criadoEm),
   );
-  const escolhido = ordenados.find((i) => i.custoEstimadoUsd <= headroom) ?? null;
-  const naoCabem = disponiveis.filter((i) => i.custoEstimadoUsd > headroom);
+  /**
+   * CRÍTICO 5 (rodada 14) + CRÍTICO (rodada 15): as paredes que o `.sql` tem e
+   * este espelho não tinha. `headroom > 0` (dia sem espaço não despacha),
+   * `custoEstimadoUsd >= CUSTO_MINIMO_POR_ITEM_USD` (o piso: `> 0` fechava o
+   * número zero e deixava a classe aberta — com 0,0001 saíram 40 sessões contra
+   * US$ 1,00 de espaço) e o TETO DE SESSÕES EM VOO por conta, que é a parede
+   * que fecha o dano sem depender do valor da estimativa.
+   */
+  const emVooAntes = emVooDe(conta, agora);
+  const noLimiteEmVoo = emVooAntes >= MAXIMO_EM_VOO_POR_CONTA;
+  const cabe = (i: ItemFilaPrompt): boolean =>
+    headroom > 0 &&
+    i.custoEstimadoUsd <= headroom &&
+    i.custoEstimadoUsd >= CUSTO_MINIMO_POR_ITEM_USD;
+  const escolhido = noLimiteEmVoo ? null : (ordenados.find(cabe) ?? null);
+  const naoCabem = disponiveis.filter((i) => noLimiteEmVoo || !cabe(i));
   const pulados = naoCabem.length;
+  // CRÍTICO (rodada 15): `menorDisponivel` só olha item que PASSA DO PISO — é
+  // ele que a frase "nada cabe agora: o mais barato custa X" nomeia. Item
+  // abaixo do piso não é barato demais para o dia; é inválido para o
+  // mecanismo, e tem oração própria.
+  const acimaDoPiso = disponiveis.filter(
+    (i) => i.custoEstimadoUsd >= CUSTO_MINIMO_POR_ITEM_USD,
+  );
+  const abaixoDoPiso = disponiveis.length - acimaDoPiso.length;
   const menorDisponivel =
-    disponiveis.length === 0 ? null : Math.min(...disponiveis.map((i) => i.custoEstimadoUsd));
+    acimaDoPiso.length === 0 ? null : Math.min(...acimaDoPiso.map((i) => i.custoEstimadoUsd));
   const naFilaToda = itens().filter((i) => i.conta === conta && i.estado === "na_fila");
   const menorCustoFilaUsd =
     naFilaToda.length === 0 ? null : Math.min(...naFilaToda.map((i) => i.custoEstimadoUsd));
@@ -994,6 +1043,9 @@ export function pegarFixture(
     // pura (tests/unit/prompts-motivo-do-pull.test.ts).
     defasagemHoras: loja().base.get(conta)?.defasagemHoras ?? null,
     exigeMedicaoRecente: loja().base.get(conta)?.exigeMedicaoRecente === true,
+    emVoo: emVooAntes,
+    limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
+    abaixoDoPiso,
   });
 
   const comum = {
@@ -1011,6 +1063,8 @@ export function pegarFixture(
     motivo,
     recusadoPorMedicao: false,
     defasagemHoras,
+    emVoo: emVooAntes + (escolhido === null ? 0 : 1),
+    limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
   };
 
   if (escolhido !== null) {

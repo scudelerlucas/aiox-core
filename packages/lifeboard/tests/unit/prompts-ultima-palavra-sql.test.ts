@@ -3,7 +3,16 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { CONTAS, LIMITE_DEFASAGEM_HORAS, TETO_DIARIO_PADRAO_USD } from "@/core/prompts/tipos";
+import {
+  CONTAS,
+  CUSTO_ESTIMADO_POR_COMPLEXIDADE,
+  CUSTO_MAXIMO_POR_ITEM_USD,
+  CUSTO_MINIMO_POR_ITEM_USD,
+  ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR,
+  LIMITE_DEFASAGEM_HORAS,
+  MAXIMO_EM_VOO_POR_CONTA,
+  TETO_DIARIO_PADRAO_USD,
+} from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — M1 (rodada 11): A GUARDA QUE OLHA A **ÚLTIMA PALAVRA**.
@@ -162,6 +171,32 @@ function unicaViva(nome: string): Definicao {
     `public.${nome} precisa ter EXATAMENTE uma definição viva depois de aplicar todas as migrations em ordem`,
   ).toHaveLength(1);
   return todas[0] as Definicao;
+}
+
+/**
+ * CRÍTICO (rodada 15): a ÚLTIMA expressão declarada para uma CHECK nomeada.
+ *
+ * A guarda antiga fazia `toMatch` sobre TODAS as migrations concatenadas: ela
+ * dizia verdade quando a grafia aparecia em QUALQUER lugar, inclusive numa
+ * linha morta de uma migration anterior. É a mesma classe de defeito que este
+ * arquivo existe para fechar, uma casa acima: a última palavra é a que vale, e
+ * para CHECK constraint também.
+ */
+function ultimaCheck(nomeDaConstraint: string): { arquivo: string; expressao: string } {
+  let achado: { arquivo: string; expressao: string } | null = null;
+  for (const arquivo of migrationsEmOrdem()) {
+    const sql = readFileSync(join(DIR_MIGRATIONS, arquivo), "utf8");
+    const re = new RegExp(`add\\s+constraint\\s+${nomeDaConstraint}\\s*\\n?\\s*check\\s*\\(`, "gi");
+    let m: RegExpExecArray | null = re.exec(sql);
+    while (m !== null) {
+      const abre = re.lastIndex - 1;
+      const fecha = fechaParenteses(sql, abre);
+      if (fecha > 0) achado = { arquivo, expressao: sql.slice(abre + 1, fecha).trim() };
+      m = re.exec(sql);
+    }
+  }
+  expect(achado, `nenhuma migration declara a check ${nomeDaConstraint}`).not.toBeNull();
+  return achado as { arquivo: string; expressao: string };
 }
 
 /** As funções que ESCREVEM no livro-razão — se uma delas parar, o dinheiro some do dia. */
@@ -330,5 +365,245 @@ describe("M1 — a ÚLTIMA definição de cada função é a que vale (varredura
       tudo,
       "o `comment on column` do teto precisa dizer o total da casa em voz alta",
     ).toContain("US$ 2.000/dia");
+  });
+});
+
+/**
+ * RODADA 14 · A VARREDURA DE GENERALIZAÇÃO — os espelhos de TS que não estavam
+ * amarrados a nada.
+ *
+ * O crítico da rodada 14 registrou, na lista do que ele atacou e NÃO virou
+ * achado, uma ressalva que é a mesma forma de todos os oito: "a amarra é o
+ * número mágico 620 num teste, não uma comparação com
+ * `painel_custo_maximo_por_item()`; subir o espelho para 700 ou 10.000.000
+ * continua verde". O espelho de TS existia, o SQL existia, e nada os comparava
+ * — a guarda media a HIPÓTESE (620 passa) e não o PRODUTO (os dois números são
+ * o mesmo).
+ *
+ * Estas três guardas comparam cada constante de TS com a ÚLTIMA definição do
+ * SQL lida do disco, do mesmo jeito que o resto deste arquivo.
+ */
+describe("RODADA 14 — cada espelho de TS é comparado com a última palavra do SQL", () => {
+  /** O corpo da última definição viva, por nome (sem argumentos). */
+  function corpoDe(nome: string): string {
+    return unicaViva(nome).corpo;
+  }
+
+  it("CUSTO_MAXIMO_POR_ITEM_USD é o número que painel_custo_maximo_por_item() devolve", () => {
+    const corpo = corpoDe("painel_custo_maximo_por_item");
+    const m = corpo.match(/select\s+(\d+)::numeric/);
+    expect(
+      m,
+      "painel_custo_maximo_por_item() deixou de devolver um literal — se ela passou a derivar de outra coisa, esta guarda precisa passar a ler de lá",
+    ).not.toBeNull();
+    const doSql = Number.parseInt((m as RegExpMatchArray)[1] as string, 10);
+    expect(
+      CUSTO_MAXIMO_POR_ITEM_USD,
+      "o espelho de TS da faixa de sanidade divergiu do SQL — a tela recusaria um número que o banco aceita, ou aceitaria um que ele recusa",
+    ).toBe(doSql);
+  });
+
+  it("a faixa de sanidade cabe na coluna custo_usd declarada nas migrations", () => {
+    // BAIXO 8 (rodada 14): o crítico subiu a sanidade para 1.000.000 com os
+    // cinco portões verdes, e a faixa passou a aceitar número que
+    // `numeric(10,4)` não guarda — o fechamento devolvia `numeric field
+    // overflow` cru em vez da recusa em português. A parede de runtime é a
+    // 0029 §5 (aborta a migration) e o bloco T84; esta é a de ortografia.
+    const tudo = migrationsEmOrdem()
+      .map((a) => readFileSync(join(DIR_MIGRATIONS, a), "utf8"))
+      .join("\n");
+    const decl = [...tudo.matchAll(/custo_usd\s+numeric\((\d+),\s*(\d+)\)/g)];
+    expect(decl.length, "nenhuma migration declara a precisão de custo_usd").toBeGreaterThan(0);
+    const ultima = decl[decl.length - 1] as RegExpMatchArray;
+    const precisao = Number.parseInt(ultima[1] as string, 10);
+    const escala = Number.parseInt(ultima[2] as string, 10);
+    const cabe = 10 ** (precisao - escala) - 10 ** -escala;
+    expect(
+      CUSTO_MAXIMO_POR_ITEM_USD,
+      `a faixa de sanidade passou do que custo_usd numeric(${precisao},${escala}) guarda (${cabe})`,
+    ).toBeLessThanOrEqual(cabe);
+  });
+
+  it("CONTAS é a mesma lista, na mesma ordem, de painel_contas_da_casa()", () => {
+    // ALTO 6 (rodada 14): a lista das quatro contas estava escrita à mão em
+    // cinco lugares do SQL. Agora sai de uma função só — e esta guarda amarra
+    // o espelho de TS a ELA, não a uma das cópias.
+    const corpo = corpoDe("painel_contas_da_casa");
+    const doSql = [...corpo.matchAll(/'([^']+@[^']+)'/g)].map((m) => m[1] as string);
+    expect(
+      doSql,
+      "painel_contas_da_casa() divergiu de CONTAS (ordem inclusive: ela é a ordem de desempate do chooser)",
+    ).toEqual([...CONTAS]);
+  });
+
+  it("nenhuma estimativa fica ABAIXO DO PISO — nem no TS, nem na seed do SQL", () => {
+    // CRÍTICO 5 (rodada 14) + CRÍTICO (rodada 15). A rodada 14 exigia `> 0` e
+    // essa exigência conferia o CASO, não a CLASSE: `usd = 0.0001` passava por
+    // aqui de cabeça erguida, e com ele o coordenador despachou 40 sessões em
+    // voo contra US$ 1,00 de espaço (reserva total de US$ 0,0040).
+    // As paredes de runtime são as checks da 0030 §§2-3, o pull (0030 §8) e os
+    // blocos T79/T80/T86/T87.
+    for (const [complexidade, usd] of Object.entries(CUSTO_ESTIMADO_POR_COMPLEXIDADE)) {
+      expect(
+        usd,
+        `estimativa de ${complexidade} abaixo do piso de US$ ${CUSTO_MINIMO_POR_ITEM_USD} — com ela o pull despacha praticamente sem consumir headroom`,
+      ).toBeGreaterThanOrEqual(CUSTO_MINIMO_POR_ITEM_USD);
+    }
+    const tudo = migrationsEmOrdem()
+      .map((a) => readFileSync(join(DIR_MIGRATIONS, a), "utf8"))
+      .join("\n");
+    const semeadas = [
+      ...tudo.matchAll(/\('(baixa|media|alta|maxima)',\s*(\d+(?:\.\d+)?)\)/g),
+    ];
+    expect(semeadas.length, "nenhuma migration semeia painel_custo_estimado").toBeGreaterThan(0);
+    for (const m of semeadas) {
+      expect(
+        Number.parseFloat(m[2] as string),
+        `a seed de painel_custo_estimado tem ${m[1]} abaixo do piso`,
+      ).toBeGreaterThanOrEqual(CUSTO_MINIMO_POR_ITEM_USD);
+    }
+
+    // E a ÚLTIMA check viva de cada uma das duas colunas do dinheiro exige o
+    // PISO, não "diferente de zero". Lida pela última palavra, não por
+    // `toMatch` no bolo de todas as migrations: a grafia `check (usd > 0)`
+    // continua existindo na 0029, morta, e satisfazia a guarda antiga.
+    const daTabela = ultimaCheck("painel_custo_estimado_usd_check");
+    expect(
+      daTabela.expressao,
+      `a última check de painel_custo_estimado.usd (${daTabela.arquivo}) precisa exigir o PISO — "> 0" e ">= 0" aceitam US$ 0,0001, que reserva 1/50.000 do que um item custa`,
+    ).toMatch(/usd\s*>=\s*public\.painel_custo_minimo_por_item\(\)/);
+
+    const daColuna = ultimaCheck("painel_fila_prompts_custo_estimado_check");
+    expect(
+      daColuna.expressao,
+      `a última check de painel_fila_prompts.custo_estimado_usd (${daColuna.arquivo}) precisa exigir o PISO — é a parede de baixo, contra update direto na coluna`,
+    ).toMatch(/custo_estimado_usd\s*>=\s*public\.painel_custo_minimo_por_item\(\)/);
+  });
+});
+
+/**
+ * CRÍTICO (coordenador da rodada 15) — O PISO E O TETO DE SESSÕES EM VOO.
+ *
+ * O achado: as três paredes da rodada 14 (`usd > 0`, `custo_estimado_usd > 0`,
+ * `v_headroom > 0`) fecharam o NÚMERO que a sabotagem daquela rodada usou —
+ * zero — e deixaram a CLASSE aberta. Com `usd = 0.0001`, medido:
+ *   dia 499 · teto 500 · 40 DESPACHADOS · 40 em voo · reserva US$ 0,0040
+ *   headroom anunciado US$ 1,00
+ * A US$ 0,0001 por item, US$ 1,00 de espaço admite dez mil sessões.
+ *
+ * Estas guardas seguram os TRÊS números e — mais importante — a RELAÇÃO entre
+ * eles. O coordenador pediu, para qualquer número escolhido, "uma guarda que
+ * reprove quando ele for CONTORNADO, não quando ele mudar": é o que os dois
+ * últimos `it` fazem. Comportamento: blocos T86–T90 contra o Postgres.
+ */
+describe("CRÍTICO rodada 15 — o piso, o teto de sessões em voo e a relação entre eles", () => {
+  function literalDe(nome: string): number {
+    const corpo = unicaViva(nome).corpo;
+    const m = corpo.match(/select\s+(\d+(?:\.\d+)?)(?:::numeric)?\s*;/);
+    expect(
+      m,
+      `public.${nome}() deixou de devolver um literal — se ela passou a derivar de outra coisa, esta guarda precisa passar a ler de lá`,
+    ).not.toBeNull();
+    return Number.parseFloat((m as RegExpMatchArray)[1] as string);
+  }
+
+  it("os três números do TS são os mesmos do SQL (piso, razão e sessões em voo)", () => {
+    expect(
+      CUSTO_MINIMO_POR_ITEM_USD,
+      "o espelho de TS do PISO divergiu de painel_custo_minimo_por_item() — a tela recusaria número que o banco aceita, ou o contrário",
+    ).toBe(literalDe("painel_custo_minimo_por_item"));
+    expect(
+      ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR,
+      "o espelho de TS da razão piso×teto divergiu de painel_fila_itens_simultaneos_maximos_por_valor()",
+    ).toBe(literalDe("painel_fila_itens_simultaneos_maximos_por_valor"));
+    expect(
+      MAXIMO_EM_VOO_POR_CONTA,
+      "o espelho de TS do teto de sessões em voo divergiu de painel_fila_maximo_em_voo_por_conta()",
+    ).toBe(literalDe("painel_fila_maximo_em_voo_por_conta"));
+  });
+
+  it("o PISO é o teto do dia dividido pela razão — não é número solto", () => {
+    // Um piso escolhido no chute vira o próximo número mágico. Este é DERIVADO:
+    // 1% do teto que a casa declara. Se o teto subir e o piso não, esta guarda
+    // reprova — e é exatamente esse o caminho de circunvenção (não se mexe no
+    // piso; sobe-se o teto, porque o piso vale 1/100 DELE).
+    expect(
+      CUSTO_MINIMO_POR_ITEM_USD * ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR,
+      `o piso de US$ ${CUSTO_MINIMO_POR_ITEM_USD} não sustenta um teto de US$ ${TETO_DIARIO_PADRAO_USD}: a conta admitiria ${Math.floor(TETO_DIARIO_PADRAO_USD / CUSTO_MINIMO_POR_ITEM_USD)} itens simultâneos só pelo valor. Suba painel_custo_minimo_por_item() junto com o teto`,
+    ).toBeGreaterThanOrEqual(TETO_DIARIO_PADRAO_USD);
+  });
+
+  it("o PISO não recusa a complexidade mais barata que a casa declara", () => {
+    // A outra direção do risco, que o coordenador nomeou: um piso alto demais
+    // recusaria um dia legítimo de tarefas baratíssimas. Hoje o piso é IGUAL à
+    // estimativa de `baixa` — a régua é "nada do que o painel declara é
+    // recusado", não "quase nada".
+    const maisBarata = Math.min(...Object.values(CUSTO_ESTIMADO_POR_COMPLEXIDADE));
+    expect(
+      CUSTO_MINIMO_POR_ITEM_USD,
+      `o piso de US$ ${CUSTO_MINIMO_POR_ITEM_USD} passou da complexidade mais barata da casa (US$ ${maisBarata}) — a fila recusaria tarefa legítima`,
+    ).toBeLessThanOrEqual(maisBarata);
+  });
+
+  it("o teto de SESSÕES EM VOO morde antes de a parede de valor ficar sem sentido", () => {
+    // Se K itens no piso já não couberem no teto, quem recusa é o valor e o
+    // limite de contagem é enfeite — a guarda irmã da 0030 §5(b).
+    expect(MAXIMO_EM_VOO_POR_CONTA, "limite de zero sessões travaria a fila inteira").toBeGreaterThanOrEqual(1);
+    expect(
+      MAXIMO_EM_VOO_POR_CONTA * CUSTO_MINIMO_POR_ITEM_USD,
+      `${MAXIMO_EM_VOO_POR_CONTA} sessões no piso somam mais que o teto de US$ ${TETO_DIARIO_PADRAO_USD} — a parede de valor morderia primeiro e painel_fila_maximo_em_voo_por_conta() seria decoração`,
+    ).toBeLessThanOrEqual(TETO_DIARIO_PADRAO_USD);
+  });
+
+  it("a ÚLTIMA definição do pull tem as duas paredes novas, e a frase diz o que está em voo", () => {
+    const pull = unicaViva("fila_prompts_pegar_interno").corpo;
+
+    /**
+     * A ESCOLHA, não o pull inteiro. Sabotagem minha, medida: apagar
+     * `and f.custo_estimado_usd >= v_piso` da cláusula que ESCOLHE o item
+     * deixava esta guarda verde, porque a mesma grafia aparece nos CONTADORES
+     * (`count(*) filter (… and f.custo_estimado_usd >= v_piso)`) — a guarda
+     * conferia a grafia em qualquer lugar do corpo, não no lugar que decide.
+     * É a quinta forma dentro da própria guarda.
+     */
+    const inicio = pull.indexOf("select f.id into v_escolhido");
+    const fim = pull.indexOf("for update skip locked", inicio);
+    expect(
+      inicio >= 0 && fim > inicio,
+      "não achei a cláusula que ESCOLHE o item no pull — se ela mudou de forma, esta guarda precisa mudar com ela",
+    ).toBe(true);
+    const escolha = pull.slice(inicio, fim);
+    expect(
+      escolha,
+      "a cláusula que ESCOLHE o item não exige o piso — sem essa linha um item de US$ 0,0001 atravessa qualquer dia (medido: 40 despachados contra US$ 1,00 de espaço)",
+    ).toMatch(/and f\.custo_estimado_usd\s*>=\s*v_piso/);
+    expect(
+      escolha,
+      "a cláusula que ESCOLHE o item perdeu a parede da rodada 14 (`v_headroom > 0`)",
+    ).toMatch(/and v_headroom\s*>\s*0/);
+    expect(
+      pull,
+      "a última palavra do pull não tem o teto de sessões em voo — é a parede que fecha o dano sem depender do valor da estimativa",
+    ).toMatch(/if\s+not\s+v_no_limite\s+then/);
+    expect(
+      pull,
+      "o pull continua anunciando headroom sem dizer quantas sessões estão em voo — era a mentira do painel (US$ 1,00 livres com 40 sessões gastando)",
+    ).toMatch(/'em_voo'/);
+  });
+
+  it("o gatilho que recusa SUBIR o teto sem subir o piso existe e está armado", () => {
+    const tudo = migrationsEmOrdem()
+      .map((a) => readFileSync(join(DIR_MIGRATIONS, a), "utf8"))
+      .join("\n");
+    expect(
+      vivasDe("painel_teto_diario_piso_sustenta").length,
+      "a função da guarda de circunvenção do piso sumiu",
+    ).toBe(1);
+    expect(
+      tudo,
+      "a guarda existe como função mas não está armada como gatilho — função sem gatilho não é guarda (é a forma nº 1 desta base)",
+    ).toMatch(
+      /create trigger painel_teto_diario_piso_sustenta\s*\n?\s*before insert or update of teto_usd on public\.painel_teto_diario/,
+    );
   });
 });

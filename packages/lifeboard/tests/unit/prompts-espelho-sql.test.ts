@@ -229,8 +229,21 @@ describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
     }
   });
 
-  it("#3 — nenhuma migration da fila usa %s num `raise` (isso é `format`)", () => {
-    for (const arquivo of MIGRATIONS_DA_FILA) {
+  /**
+   * VARREDURA DE GENERALIZAÇÃO (rodada 14) · UNIVERSO POR CONVENÇÃO.
+   *
+   * Esta guarda varria `MIGRATIONS_DA_FILA` — o subconjunto escolhido por nome
+   * de arquivo OU por conteúdo. Só que o defeito que ela pega (`raise` com
+   * `%s`, que o Postgres imprime literalmente, porque quem tem `%s` é o
+   * `format`) não é um defeito "da fila": é de QUALQUER migration, e a
+   * mensagem quebrada chega ao operador do mesmo jeito. Guarda que afirma uma
+   * propriedade universal tem de varrer o universo — é o ALTO 1 desta rodada,
+   * em TypeScript. Passa a varrer `ARQUIVOS`, que é o diretório inteiro, com
+   * piso no número de arquivos varridos.
+   */
+  it("#3 — NENHUMA migration usa %s num `raise` (isso é `format`)", () => {
+    expect(ARQUIVOS.length, "a varredura não achou migration nenhuma").toBeGreaterThan(15);
+    for (const arquivo of ARQUIVOS) {
       const linhas = raisesComPorcentoS(semComentarios(ler(arquivo)));
       expect(linhas, `${arquivo}: raise com %s`).toEqual([]);
     }

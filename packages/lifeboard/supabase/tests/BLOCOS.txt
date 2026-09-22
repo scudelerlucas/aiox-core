@@ -106,3 +106,16 @@ T75 · ALTO 2 (rodada 13) — A PORTA DE FECHAMENTO ACEITA O NÚMERO REAL, AINDA
 T76 · ALTO 2 (rodada 13) — A CORREÇÃO DO OPERADOR TAMBÉM ACEITA O NÚMERO REAL
 T77 · ALTO 2 (rodada 13) — O QUE SOBRA É SANIDADE, E ELA CONTINUA DE PÉ
 T78 · MÉDIO 5 (rodada 13) — O ORÇAMENTO DA CASA É 4 × 500 = US$ 2.000/DIA
+T79 · CRÍTICO 5 (rodada 14) — ESTIMATIVA ZERO NÃO É ESTIMATIVA (paredes 1 e 2: a tabela de estimativas e a coluna do item)
+T80 · CRÍTICO 5 (rodada 14) — DIA SEM ESPAÇO NÃO DESPACHA (parede 3: v_headroom > 0 no pull)
+T81 · ALTO 2 (rodada 14) — O PULL TRAVA A LINHA DO TETO DAQUELA CONTA (irmão do T52, para o despacho)
+T82 · ALTO 6 (rodada 14) — A LISTA DE CONTAS TEM UMA FONTE SÓ (painel_contas_da_casa, nos dois sentidos)
+T83 · ALTO 6 (rodada 14) — A 4ª CONTA ATRAVESSA TODAS AS PORTAS, INCLUSIVE O FECHAMENTO
+T84 · BAIXO 8 (rodada 14) — A FAIXA DE SANIDADE CABE NA COLUNA (capacidade lida do catálogo)
+T85 · ALTO 1 (rodada 14) — O ESQUEMA private NÃO CONCEDE USAGE a anon/authenticated/public
+T86 · CRÍTICO (rodada 15) — A SONDA DO CENTAVO: 40 itens de US$ 0,0001 num dia com US$ 1,00 de espaço despacham ZERO
+T87 · CRÍTICO (rodada 15) — O PISO EXATO É VERDE, UM PASSO ABAIXO É VERMELHO (o piso não é "fechar tudo")
+T88 · CRÍTICO (rodada 15) — O TETO DE SESSÕES EM VOO POR CONTA (a parede que corresponde ao dano, que é de contagem)
+T89 · CRÍTICO (rodada 15) — O PAINEL NUNCA ANUNCIA ESPAÇO SEM DIZER O QUE ESTÁ EM VOO (os três ramos do pull)
+T90 · CRÍTICO (rodada 15) — AS GUARDAS DE CIRCUNVENÇÃO: subir o teto sem subir o piso é recusado
+T91 · CRÍTICO (rodada 15) — SESSÃO MUDA NÃO OCUPA VAGA NEM RESERVA DINHEIRO (a janela é fonte única)

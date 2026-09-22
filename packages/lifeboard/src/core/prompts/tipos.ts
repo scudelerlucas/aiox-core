@@ -5,7 +5,8 @@
  * (linhas R1/R2/R6, transferências T1/T2) + o contrato exato de
  * `supabase/migrations/0007…` → `0009…` → `0011…` → `0012_lifeboard_v3_fila_
  * posse_e_tentativas.sql` (rodada 3: posse, heartbeat, tentativas,
- * elegibilidade por item). Espelha literalmente as 3 contas da casa e a
+ * elegibilidade por item). Espelha literalmente as contas da casa — hoje QUATRO,
+ * e a fonte no banco é `public.painel_contas_da_casa()` (0029 §1) — e a
  * tabela de roteamento de modelo (`Lucas-Contexto-Geral/.claude/rules/
  * model-routing.md`) — mudar aqui sem mudar lá (ou vice-versa) quebra o
  * "porquê" que a tela mostra.
@@ -285,6 +286,45 @@ export const TETO_DIARIO_PADRAO_USD = 500;
  * `public.painel_custo_maximo_por_item()` (0027 §0).
  */
 export const CUSTO_MAXIMO_POR_ITEM_USD = 100000;
+
+/**
+ * CRÍTICO (crítico/coordenador da rodada 15): O PISO NÃO É O NÚMERO ZERO.
+ *
+ * A rodada 14 trocou `usd >= 0` por `usd > 0` em três paredes e fechou o
+ * NÚMERO que o crítico daquela rodada usou. A CLASSE ficou aberta: com
+ * `painel_custo_estimado.usd = 0.0001` o coordenador despachou 40 sessões em
+ * voo na mesma conta contra US$ 1,00 de espaço no dia, reserva total de
+ * US$ 0,0040 — e US$ 1,00 admitiria dez mil sessões.
+ *
+ * `ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR` é o ÚNICO número da derivação: quantos
+ * itens simultâneos o teto de um dia pode admitir só pelo VALOR antes de a
+ * reserva por item deixar de ser freio. O piso é `teto / esse número` — 1% de
+ * US$ 500 — e é igual à complexidade mais barata que a casa declara
+ * (`baixa` = 5), então nada que o painel declara hoje é recusado.
+ *
+ * Espelha `public.painel_fila_itens_simultaneos_maximos_por_valor()` e
+ * `public.painel_custo_minimo_por_item()` (migration 0030 §1);
+ * `tests/unit/prompts-ultima-palavra-sql.test.ts` amarra os dois lados.
+ */
+export const ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR = 100;
+
+/** Piso de valor por item — irmão de `CUSTO_MAXIMO_POR_ITEM_USD`. */
+export const CUSTO_MINIMO_POR_ITEM_USD = 5;
+
+/**
+ * CRÍTICO (rodada 15): QUANTAS SESSÕES A MESMA CONTA PODE TER EM VOO.
+ *
+ * O dano do achado é de CONTAGEM, não de soma: o que fere a casa é quantas
+ * sessões caras rodam ao mesmo tempo na mesma conta. Uma sessão real custa da
+ * ordem de US$ 200 (12/09/2026: US$ 2.513,29 em 12 sessões) contra um teto de
+ * US$ 500 — duas medianas já comem o dia. Quatro é o que o teto paga na
+ * complexidade mais cara declarada (`maxima` = 120), então esta parede não
+ * tira nada que a parede de valor já permitia a preço cheio: tira só a compra
+ * de concorrência por estimativa barata.
+ *
+ * Espelha `public.painel_fila_maximo_em_voo_por_conta()` (migration 0030 §1).
+ */
+export const MAXIMO_EM_VOO_POR_CONTA = 4;
 
 export interface FilaPromptsState {
   fila: ItemFilaPrompt[];
@@ -933,6 +973,22 @@ export interface NumerosDoPull {
   defasagemHoras?: number | null;
   /** D32c: a conta recusa o pull contra saldo velho (coluna do teto). */
   exigeMedicaoRecente?: boolean;
+  /**
+   * CRÍTICO (rodada 15): quantas sessões desta conta estão em voo agora, e o
+   * limite. O headroom sozinho anunciava US$ 1,00 de espaço com 40 sessões
+   * gastando dinheiro naquele instante — aritmeticamente correto, factualmente
+   * falso. `limiteEmVoo` ausente ou nulo = a oração não existe, e toda frase
+   * anterior à rodada 15 sai idêntica, letra por letra.
+   */
+  emVoo?: number;
+  limiteEmVoo?: number | null;
+  /**
+   * CRÍTICO (rodada 15): quantos itens DISPONÍVEIS estão abaixo do piso. Sem
+   * esta oração o pull dizia "nada cabe agora: o mais barato disponível custa
+   * US$ 0,01 e há US$ 500,00 livres" — autocontraditório. O não é do piso, e
+   * quem precisa ouvir isso é quem pode consertar a estimativa.
+   */
+  abaixoDoPiso?: number;
 }
 
 /**
@@ -948,6 +1004,10 @@ export interface NumerosDoPull {
 export function montarMotivoDoPull(n: NumerosDoPull): string {
   const frases: string[] = [];
   const defasagem = n.defasagemHoras ?? null;
+  // CRÍTICO (rodada 15): a conta está cheia de sessões, não sem dinheiro.
+  const limiteEmVoo = n.limiteEmVoo ?? null;
+  const noLimite = limiteEmVoo !== null && limiteEmVoo > 0 && (n.emVoo ?? 0) >= limiteEmVoo;
+  const abaixoDoPiso = n.abaixoDoPiso ?? 0;
 
   // D32c (rodada 7): a RECUSA é a frase inteira. Não adianta listar o que
   // caberia num saldo que a casa acabou de declarar velho demais para
@@ -988,12 +1048,40 @@ export function montarMotivoDoPull(n: NumerosDoPull): string {
     );
   }
 
+  // CRÍTICO (rodada 15): a oração das SESSÕES EM VOO vem antes da oração do
+  // item, porque quando ela aparece ela é a RAZÃO de nada ter sido pego.
+  if (noLimite) {
+    frases.push(
+      (n.emVoo ?? 0) === 1
+        ? `1 sessão desta conta está em voo (limite ${limiteEmVoo}): não despacho outra até ela fechar`
+        : `${n.emVoo} sessões desta conta estão em voo (limite ${limiteEmVoo}): ` +
+          "não despacho outra até uma delas fechar",
+    );
+  }
+
+  // CRÍTICO (rodada 15): o item abaixo do piso tem frase própria.
+  if (abaixoDoPiso === 1) {
+    frases.push(
+      `1 item da fila está com estimativa abaixo do piso de ${formatarUsd(CUSTO_MINIMO_POR_ITEM_USD)} ` +
+        "e não entra em despacho: corrija a estimativa da complexidade dele",
+    );
+  } else if (abaixoDoPiso > 1) {
+    frases.push(
+      `${abaixoDoPiso} itens da fila estão com estimativa abaixo do piso de ` +
+        `${formatarUsd(CUSTO_MINIMO_POR_ITEM_USD)} e não entram em despacho: ` +
+        "corrija a estimativa da complexidade deles",
+    );
+  }
+
   if (n.custoEscolhidoUsd !== null) {
     frases.push(
       `peguei o item mais antigo que cabe: ${formatarUsd(n.custoEscolhidoUsd)} de ` +
         `${formatarUsd(n.headroomUsd)} livres`,
     );
-  } else if (n.menorDisponivelUsd !== null && n.elegiveis === 0) {
+  } else if (n.menorDisponivelUsd !== null && n.elegiveis === 0 && !noLimite) {
+    // `!noLimite`: sem ele a frase saía autocontraditória — "nada cabe agora: o
+    // mais barato disponível custa US$ 5,00 e há US$ 480,00 livres" — porque com
+    // a conta no limite `elegiveis` é zero por CONTAGEM, não por preço.
     // Só é honesto dizer "nada cabe" quando NADA cabe; e headroom negativo
     // nunca vira número (o crítico mediu "so ha US$ -3.00 livres").
     const folga =

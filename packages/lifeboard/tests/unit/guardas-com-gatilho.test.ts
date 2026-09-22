@@ -50,6 +50,110 @@ describe("MÉDIO 1 — o checar-contraste tem gatilho de verdade", () => {
 });
 
 /**
+ * MÉDIO 3 (crítico da rodada 14): GATILHO LIGADO NÃO É MEDIÇÃO FEITA.
+ *
+ * As três guardas acima conferem que `checar-contraste.mjs` está LIGADO ao
+ * `package.json`, ao CI e ao cabeçalho do runner. Nenhuma delas conferia que
+ * ele ainda MEDE alguma coisa — e o script contava a si mesmo: a mensagem
+ * final era `${PARES.length} pares verificados`, com o número saindo do
+ * próprio array auditado. O crítico apagou as nove linhas de `PARES` que
+ * dizem `(P7` (todas as medições de acessibilidade desta peça, o `role=alert`
+ * da recusa da fila entre elas) e o portão devolveu `55 pares verificados,
+ * todos dentro da régua`, saída 0.
+ *
+ * É a SEGUNDA CÓPIA das duas travas que entraram no script: o piso numérico e
+ * a lista nominal. Aqui elas são lidas de FORA — baixar o piso exige mexer em
+ * dois arquivos, e cada mudança aparece no diff como um número ou um nome a
+ * menos.
+ */
+describe("MÉDIO 3 — o contraste não conta a si mesmo", () => {
+  const script = readFileSync(join(PACOTE, "scripts", "checar-contraste.mjs"), "utf8");
+
+  /** O número escrito à mão no script (não derivado do array). */
+  function piso(): number {
+    const m = script.match(/const PISO_DE_PARES = (\d+);/);
+    expect(m, "o script perdeu o PISO_DE_PARES — sem ele apagar par devolve verde").not.toBeNull();
+    return Number.parseInt((m as RegExpMatchArray)[1] as string, 10);
+  }
+
+  /** As medições exigidas por NOME, fora do array auditado. */
+  function exigidos(): string[] {
+    const ini = script.indexOf("const MEDICOES_EXIGIDAS = [");
+    expect(ini, "o script perdeu a lista nominal MEDICOES_EXIGIDAS").toBeGreaterThan(0);
+    const fim = script.indexOf("];", ini);
+    return [...script.slice(ini, fim).matchAll(/^\s+"(.+)",$/gm)].map((m) => m[1] as string);
+  }
+
+  /** Quantos pares o array do script tem HOJE — contado de fora dele. */
+  function quantosPares(): number {
+    const ini = script.indexOf("const PARES = [");
+    expect(ini, "o script perdeu o array PARES").toBeGreaterThan(0);
+    const fim = script.indexOf("\n];", ini);
+    return [...script.slice(ini, fim).matchAll(/^\s+\["/gm)].length;
+  }
+
+  it("o script tem um PISO de pares, e o piso não desceu", () => {
+    const PISO_FIXADO_AQUI = 64;
+    expect(
+      piso(),
+      "o piso de pares do contraste desceu — se a régua encolheu de propósito, baixe o número NOS DOIS arquivos no mesmo commit e diga por quê",
+    ).toBeGreaterThanOrEqual(PISO_FIXADO_AQUI);
+  });
+
+  it("o piso é comparado com PARES.length dentro do script (não é comentário)", () => {
+    expect(
+      script,
+      "o piso existe mas ninguém o compara — guarda sem gatilho é comentário",
+    ).toMatch(/PARES\.length\s*<\s*PISO_DE_PARES/);
+    expect(script, "o script precisa somar em `falhou` quando o piso quebra").toMatch(
+      /PARES\.length\s*<\s*PISO_DE_PARES[\s\S]{0,400}falhou\+\+/,
+    );
+  });
+
+  it("as 9 medições da tela do P7 estão exigidas por NOME, fora do array", () => {
+    // A chave é a DESCRIÇÃO, não o par de tokens: `bone-400 sobre navy-850`
+    // aparece em três linhas de telas diferentes, então apagar as nove do P7
+    // deixava oito chaves ainda "presentes" e a lista acusava uma só (medido).
+    const DA_TELA_DO_P7 = [
+      "placeholder do textarea de novo prompt",
+      "legenda de complexidades no rodapé do formulário",
+      "trilho da barra de progresso do cartão de conta",
+      "'sem medição nenhuma' no cartão de conta",
+      "'última medição há N h' no cartão de conta",
+      "teto × faixa real dos dias medidos no cartão",
+      "aviso 'isto entrou no gasto de hoje' na linha da fila",
+      "sucesso mudo da fila (cancelamento sem custo)",
+      "recusa em português da fila, role=alert",
+    ];
+    const lista = exigidos();
+    expect(lista.length, "a lista nominal ficou curta demais para valer").toBeGreaterThanOrEqual(12);
+    for (const medicao of DA_TELA_DO_P7) {
+      expect(
+        lista,
+        `medição de acessibilidade do P7 fora da lista nominal: ${medicao} — apagá-la do array voltaria a devolver verde`,
+      ).toContain(medicao);
+    }
+  });
+
+  it("o array PARES do script ainda tem, contado de fora, ao menos o piso de pares", () => {
+    // A TERCEIRA cópia, e a que faz o vitest (o portão barato) ficar vermelho
+    // junto com o contraste: o número de pares é contado AQUI, lendo o
+    // arquivo, e comparado com o mesmo piso.
+    expect(
+      quantosPares(),
+      "o array PARES encolheu abaixo do piso — apagar medição de acessibilidade exige baixar o piso à mão, nos dois arquivos",
+    ).toBeGreaterThanOrEqual(piso());
+  });
+
+  it("a lista nominal é conferida contra PARES dentro do script", () => {
+    expect(script).toMatch(/MEDICOES_EXIGIDAS\.filter\(/);
+    expect(script, "par exigido que sai da régua tem de REPROVAR, não só avisar").toMatch(
+      /ausentes\.length[\s\S]{0,300}falhou \+= ausentes\.length/,
+    );
+  });
+});
+
+/**
  * MÉDIO 4 (crítico da rodada 13): o parágrafo que declara "do que o verde é
  * prova" citava `fila_prompts_pegar` e `fila_prompts_fechar` como "as portas
  * com segredo que embrulham as `_interno`". As duas NÃO EXISTEM: a 0009

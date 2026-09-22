@@ -44,7 +44,9 @@ const BLOCOS_FIXADOS: readonly string[] = [
   "T49", "T50", "T51", "T52", "T53", "T54", "T55", "T56",
   "T57", "T58", "T59", "T60", "T61", "T62", "T63", "T64",
   "T65", "T66", "T67", "T68", "T69", "T70", "T71", "T72",
-  "T73", "T74", "T75", "T76", "T77", "T78",
+  "T73", "T74", "T75", "T76", "T77", "T78", "T79", "T80",
+  "T81", "T82", "T83", "T84", "T85", "T86", "T87", "T88",
+  "T89", "T90", "T91",
 ];
 
 function idsDoManifesto(): string[] {
@@ -91,7 +93,7 @@ describe("CRÍTICO 1 — o esperado da suíte SQL é NOMINAL e vem de fora dela"
    * Acrescentar bloco não pede nada aqui; o piso só proíbe descer.
    */
   it("a suíte nunca encolhe: o número de blocos só sobe", () => {
-    const PISO_DE_BLOCOS = 78;
+    const PISO_DE_BLOCOS = 91;
     expect(
       BLOCOS_FIXADOS.length,
       "a suíte SQL encolheu — se a remoção é de propósito, baixe o PISO_DE_BLOCOS no mesmo commit e diga por quê na mensagem",

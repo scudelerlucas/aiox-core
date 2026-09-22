@@ -50,6 +50,11 @@ function numeros(patch: Partial<NumerosDoPull>): NumerosDoPull {
     estimativaItens: 0,
     defasagemHoras: null,
     exigeMedicaoRecente: false,
+    // CRÍTICO (rodada 15): sem limite declarado a oração das sessões em voo não
+    // existe — é o que mantém as quatro frases anteriores idênticas.
+    emVoo: 0,
+    limiteEmVoo: null,
+    abaixoDoPiso: 0,
     ...patch,
   };
 }
@@ -108,6 +113,41 @@ const CENARIOS: ReadonlyArray<{
     entrada: numeros({ custoEscolhidoUsd: 5, headroomUsd: 10 }),
     texto: "peguei o item mais antigo que cabe: US$ 5,00 de US$ 10,00 livres",
   },
+  {
+    /**
+     * CRÍTICO (coordenador da rodada 15): A CONTA ESTÁ CHEIA DE SESSÕES, NÃO
+     * SEM DINHEIRO.
+     *
+     * Repare no que NÃO está na frase: "nada cabe agora: o mais barato
+     * disponível custa US$ 5,00 e há US$ 480,00 livres". Ela sairia — e seria
+     * autocontraditória, porque US$ 5,00 cabe em US$ 480,00 — se a oração do
+     * limite não calasse a do preço. Com a conta no limite, `elegiveis` é zero
+     * por CONTAGEM, e quem explica o não é o número de sessões em voo.
+     */
+    rotulo: "a conta no limite de sessões em voo: o não é de contagem, não de preço",
+    blocoSql: "T88",
+    entrada: numeros({
+      menorDisponivelUsd: 5,
+      headroomUsd: 480,
+      elegiveis: 0,
+      emVoo: 4,
+      limiteEmVoo: 4,
+    }),
+    texto:
+      "4 sessões desta conta estão em voo (limite 4): não despacho outra até uma delas fechar",
+  },
+  {
+    /**
+     * CRÍTICO (rodada 15): a outra frase autocontraditória. Antes o pull dizia
+     * "nada cabe agora: o mais barato disponível custa US$ 0,0001 e há
+     * US$ 1,00 livres" — e US$ 0,0001 cabe em US$ 1,00. O não é do PISO.
+     */
+    rotulo: "40 itens abaixo do piso: o não é do piso, e a frase fala com quem conserta",
+    blocoSql: "T86",
+    entrada: numeros({ menorDisponivelUsd: null, headroomUsd: 1, elegiveis: 0, abaixoDoPiso: 40 }),
+    texto:
+      "40 itens da fila estão com estimativa abaixo do piso de US$ 5,00 e não entram em despacho: corrija a estimativa da complexidade deles",
+  },
 ];
 
 describe("D27 — o motivo do pull é ADITIVO, e o TS diz o mesmo que o SQL", () => {
@@ -134,6 +174,22 @@ describe("D27 — o motivo do pull é ADITIVO, e o TS diz o mesmo que o SQL", ()
    * `supabase/tests/fila_prompts.test.sql` afirma a MESMA frase contra o
    * Postgres, e é por isso que ela aparece literal nos dois lugares.
    */
+  it("uma sessão só em voo com limite 1: a frase fica no singular", () => {
+    expect(montarMotivoDoPull(numeros({ emVoo: 1, limiteEmVoo: 1 }))).toBe(
+      "1 sessão desta conta está em voo (limite 1): não despacho outra até ela fechar",
+    );
+  });
+
+  it("abaixo do limite a oração não existe, e a frase do preço volta a falar", () => {
+    // A garantia de que a rodada 15 não reescreveu nenhuma frase anterior: com
+    // 3 de 4 sessões em voo, o texto é exatamente o de antes desta migration.
+    expect(
+      montarMotivoDoPull(
+        numeros({ menorDisponivelUsd: 120, headroomUsd: 10, elegiveis: 0, emVoo: 3, limiteEmVoo: 4 }),
+      ),
+    ).toBe("nada cabe agora: o mais barato disponível custa US$ 120,00 e há US$ 10,00 livres");
+  });
+
   it("morte sem movimento: a frase diz que o dia não mudou, não que lançou US$ 0,00", () => {
     const um = montarMotivoDoPull(numeros({ mortos: 1, mortosUsd: 0 }));
     expect(um).toBe(
