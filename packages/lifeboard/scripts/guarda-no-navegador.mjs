@@ -84,10 +84,48 @@
  * | 5 | 2 px de resize não apagam o gesto | Δzoom = 0 |
  * | 6 | …mas um resize DE VERDADE ainda reenquadra | Δzoom ≠ 0 |
  * | 7 | **toda aresta desenhada PINTA** (cor composta + pixel que muda) | por papel, piso derivado |
- * | 8 | **o traço triplo tem 3 faixas de pixel**, não 3 atributos | 3 bandas em ≥ 1 ponto |
+ * | 8 | **a faixa do caminho crítico é larga de PIXEL**, não 3 atributos | ≥ 2× a simples, e separada onde dá |
  * | 9 | **todo glifo (seta/círculo/losango/❌) PINTA** | pixel que muda; ❌ também na cor |
- * | 10 | **teclado e leitor alcançam as 5 camadas** | 0 arestas fora da lista |
- * | 11 | **§1 e §5 em TODO estado da tela**, derivados de `[aria-expanded]` | idem §1 e §5 |
+ * | 10 | **teclado e leitor alcançam toda aresta do grafo** | 0 arestas fora da lista |
+ * | 11 | **§1, §5 E §7–§10/§12 em TODO estado da tela**, derivados de `[aria-expanded]` | idem |
+ * | 12 | **o canvas × o DADO, nos dois sentidos** | conjuntos e contagens iguais |
+ * | 13 | **desmarcar uma camada apaga as arestas dela do canvas** | previsão canvas+checkbox |
+ * | 14 | **o estado em que a tela NASCE** (`CAMADAS_DEFAULT`) | nada fora do default |
+ *
+ * ═════════════════════════════════════════════════════════════════════════
+ * RODADA 11 — A GUARDA COMPARAVA O DESENHO COM ELE MESMO
+ * ═════════════════════════════════════════════════════════════════════════
+ *
+ * A rodada 10 curou *"a guarda lia atributo e nunca perguntava se alguma
+ * coisa foi pintada"*. A 11 herdou a versão nova do mesmo vício: **a guarda
+ * perguntava se alguma coisa foi pintada, e nunca se foi pintada a coisa
+ * certa, no lugar certo, na cor certa, entre os nós certos.** Cinco
+ * sabotagens de UMA linha cada passaram pelos cinco portões:
+ *
+ * • **ALTO 1** — `filter: hue-rotate(-140deg)` numa aresta de sucessão: cor
+ *   declarada `rgb(95,227,154)`, cor PINTADA `rgb(255,167,161)` (o vermelho
+ *   do caminho crítico), 0 de 378 pixels na cor declarada. A régua por aresta
+ *   lia `getComputedStyle(path).stroke` (declaração, não pintura) e a régua
+ *   por papel exigia UMA aresta certa — a outra pagava a conta. Cura: §7 mede
+ *   a cor de CADA aresta pelo modelo de mistura (`residuoDeMistura`), que
+ *   resolve antialias e oclusão sem abrir a porta para outra cor.
+ * • **ALTO 2** — uma aresta do caminho crítico sumiu do canvas e a saída
+ *   imprimiu `critico=1/1` chamando de sucesso. §10 só perguntava um sentido
+ *   e §7 tinha piso de 1 por papel. Cura: §12, o canvas × o dado publicado
+ *   pelo produto (`data-lb-contrato-do-canvas`), nos dois sentidos e por
+ *   contagem — nunca por piso.
+ * • **ALTO 3** — `camadasAtivas` fixo nas cinco. `ligarTodasAsCamadas`
+ *   aparecia 3× e NADA desligava; o default nunca era observado. Cura: §13 e
+ *   §14.
+ * • **ALTO 4** — um hex escuro em `aresta-svg.tsx` levou a sucessão a 1,27:1
+ *   contra o canvas. A guarda derivava a cor do MESMO arquivo que a decide
+ *   (o arquivo concordando consigo mesmo) e havia duas tabelas de hex sem
+ *   teste entre elas. Cura: `derivarContrato` exige as duas tabelas iguais,
+ *   `scripts/checar-contraste.mjs` mede o hex que o grafo pinta e
+ *   `tests/unit/cor-da-aresta-uma-fonte-so.test.ts` costura as duas.
+ * • **MÉDIO 5** — o traço desenhado entre o par ERRADO de cartões. Cura:
+ *   `conferirExtremos`, as duas pontas do `d` contra a caixa dos cartões que
+ *   `data-origem`/`data-destino` nomeiam.
  */
 
 import { createRequire } from "node:module";
@@ -104,6 +142,7 @@ import {
   fotosComESem,
   janelaDosPontos,
   perfilPerpendicular,
+  TOLERANCIA_DE_MISTURA,
 } from "./pixel-do-grafo.mjs";
 
 /** A raiz deste pacote — `scripts/` sobe um nível. */
@@ -177,6 +216,9 @@ function derivarContrato() {
   const blocoDeCamadas = /export const CAMADAS_TODAS[^=]*=\s*\[([\s\S]*?)\];/.exec(camadasSrc);
   if (!blocoDeCamadas) throw new Error("não achei CAMADAS_TODAS em src/lib/camadas-do-grafo.ts");
   const camadas = [...blocoDeCamadas[1].matchAll(/"([a-zA-Z]+)"/g)].map((m) => m[1]);
+  const blocoDoDefault = /export const CAMADAS_DEFAULT[^=]*=\s*\[([\s\S]*?)\];/.exec(camadasSrc);
+  if (!blocoDoDefault) throw new Error("não achei CAMADAS_DEFAULT em src/lib/camadas-do-grafo.ts");
+  const camadasDefault = [...blocoDoDefault[1].matchAll(/"([a-zA-Z]+)"/g)].map((m) => m[1]);
   const blocoDeRotulos = /export const CAMADA_LABEL[^=]*=\s*\{([\s\S]*?)\n\};/.exec(camadasSrc);
   if (!blocoDeRotulos) throw new Error("não achei CAMADA_LABEL em src/lib/camadas-do-grafo.ts");
   const rotulos = {};
@@ -193,6 +235,84 @@ function derivarContrato() {
   cores.critico = critico[1];
   cores.destacada = destacada[1];
 
+  /*
+   * ── A GUARDA NÃO PODE CONTAR A SI MESMA (achado ALTO 4 da rodada 11) ────
+   *
+   * Até a rodada 10 a tabela de cores saía SÓ de `aresta-svg.tsx` — o mesmo
+   * arquivo que decide a cor. "Declarada == contrato" era o arquivo
+   * concordando consigo mesmo, e trocar um hex ali levou a sucessão a 1,27:1
+   * contra o canvas com os cinco portões verdes.
+   *
+   * O contrato passa a exigir as DUAS tabelas: o hex de `aresta-svg.tsx` (o
+   * que o grafo pinta) e o token `aresta.*` de `tailwind.config.ts` (o que o
+   * tema da casa declara, e o que `scripts/checar-contraste.mjs` mede).
+   * Divergir é sair com código 2 — nunca 0 por concordância consigo mesmo.
+   */
+  const temaSrc = lerFonte("tailwind.config.ts");
+  const blocoDoTema = /aresta: \{([\s\S]*?)\n {8}\},/.exec(temaSrc);
+  if (!blocoDoTema) throw new Error("não achei o grupo de tokens `aresta` em tailwind.config.ts");
+  const tokens = {};
+  for (const m of blocoDoTema[1].matchAll(/(\w+):\s*"(#[0-9A-Fa-f]{6})"/g)) tokens[m[1]] = m[2];
+  const TOKEN_DO_PAPEL = {
+    sucessao: "sucessao",
+    correlacao: "correlacao",
+    sinergia: "sinergia",
+    obsolescencia: "obsolescenciaHue",
+    critico: "critico",
+    destacada: "predecessor",
+  };
+  const divergentes = [];
+  for (const papel of papeis) {
+    const token = TOKEN_DO_PAPEL[papel];
+    if (!token) {
+      divergentes.push(`papel "${papel}" não tem token declarado nesta guarda`);
+      continue;
+    }
+    if (!tokens[token]) {
+      divergentes.push(`token aresta.${token} (papel "${papel}") não existe em tailwind.config.ts`);
+      continue;
+    }
+    if (cores[papel] && tokens[token].toUpperCase() !== cores[papel].toUpperCase()) {
+      divergentes.push(
+        `papel "${papel}": aresta-svg.tsx pinta ${cores[papel]} e o token aresta.${token} diz ${tokens[token]}`,
+      );
+    }
+  }
+  if (divergentes.length > 0) {
+    throw new Error(
+      `as duas tabelas de cor da aresta divergem (uma cor, uma fonte): ${divergentes.join(" ; ")}`,
+    );
+  }
+
+  /*
+   * ── O PISO DE VISIBILIDADE VEM DE FORA (achado da rodada 12) ───────────
+   *
+   * A rodada 11 levou um ALTO por "a guarda conta a si mesma" (a cor saía do
+   * mesmo arquivo que a decide). O piso do OUTRO eixo — o α, "dá para ver?" —
+   * não pode repetir o vício: ele é lido de `scripts/checar-contraste.mjs`,
+   * a régua de contraste da casa, que é quem diz 3:1 para estas arestas.
+   * Sumir a constante de lá derruba esta guarda com código 2; mexer no número
+   * lá muda os dois portões no mesmo ato, que é o certo.
+   */
+  const contrasteSrc = lerFonte("scripts/checar-contraste.mjs");
+  const pisoNaRegua = /export const PISO_DE_CONTRASTE_DA_ARESTA\s*=\s*([\d.]+)\s*;/.exec(contrasteSrc);
+  if (!pisoNaRegua) {
+    throw new Error(
+      "não achei PISO_DE_CONTRASTE_DA_ARESTA em scripts/checar-contraste.mjs — o piso de visibilidade do traço não pode ser escrito dentro desta guarda (a guarda contaria a si mesma)",
+    );
+  }
+  const pisoDeContraste = Number(pisoNaRegua[1]);
+  if (!Number.isFinite(pisoDeContraste) || pisoDeContraste < 1) {
+    throw new Error(`PISO_DE_CONTRASTE_DA_ARESTA ilegível em checar-contraste.mjs: "${pisoNaRegua[1]}"`);
+  }
+  /* E a régua tem de estar de fato COBRANDO esse piso nas arestas: se o par
+     `grafo-<papel>` deixar de existir lá, o número aqui vira decoração. */
+  if (!/PARES\.push\(\[\s*`grafo-\$\{papel\}`,\s*"navy-950",\s*PISO_DE_CONTRASTE_DA_ARESTA,/.test(contrasteSrc)) {
+    throw new Error(
+      "checar-contraste.mjs não cobra mais PISO_DE_CONTRASTE_DA_ARESTA no par `grafo-<papel>` sobre navy-950 — o piso desta guarda ficaria sem lastro",
+    );
+  }
+
   const semCor = papeis.filter((p) => !cores[p]);
   if (semCor.length > 0) {
     throw new Error(
@@ -203,7 +323,7 @@ function derivarContrato() {
   if (camadasSemRotulo.length > 0) {
     throw new Error(`camada sem rótulo em CAMADA_LABEL: ${camadasSemRotulo.join(", ")}`);
   }
-  return { papeis, camadas, rotulos, cores };
+  return { papeis, camadas, camadasDefault, rotulos, cores, pisoDeContraste };
 }
 
 let CONTRATO;
@@ -285,6 +405,18 @@ async function abrirPagina(browser, caso) {
     }
     try {
       await page.waitForSelector(".react-flow__viewport", { timeout: 15000 });
+      /*
+       * O selo do Next em modo dev (`<nextjs-portal>`) fica no canto de baixo
+       * e, a 390 px, cobre a ÚLTIMA caixa da folha "Camadas" — o clique do
+       * operador não chega lá. Ele não é produto: a guarda sobe `next dev`
+       * porque é o que ela tem, não porque o operador usa dev. Some com ele
+       * pelo CSS, e os erros de página continuam sendo colhidos pelo
+       * `pageerror` acima (nada é silenciado, só um selo de ferramenta sai da
+       * frente).
+       */
+      await page
+        .addStyleTag({ content: "nextjs-portal { display: none !important; }" })
+        .catch(() => undefined);
       await page.waitForTimeout(1200);
       return { ctx, page, errosDePagina };
     } catch {
@@ -367,7 +499,7 @@ function larguraDeRuidoPara(caso) {
  */
 const LEITURA_DAS_ARESTAS = `(() => {
   const saida = [];
-  for (const g of document.querySelectorAll("g[data-camada]")) {
+  for (const g of document.querySelectorAll(".react-flow g[data-camada]")) {
     const path = g.querySelector("path.lb-edge-path");
     if (!path) { saida.push({ id: g.getAttribute("data-aresta-id"), semPath: true }); continue; }
     const papel = g.classList.contains("lb-edge-destacada")
@@ -384,15 +516,145 @@ const LEITURA_DAS_ARESTAS = `(() => {
       corEsperada: window.__lbp4.corEsperada(path, "stroke"),
       retrato: window.__lbp4.retrato(g),
       pontos: window.__lbp4.pontosDaAresta(path, 20),
+      extremos: window.__lbp4.extremosDaAresta(path),
+      caixaDoRotulo: (() => {
+        const t = g.querySelector(".lb-edge-label");
+        if (!t) return null;
+        const r = t.getBoundingClientRect();
+        return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+      })(),
       nTracos: g.querySelectorAll("path.lb-edge-path").length,
       tracejado: path.getAttribute("stroke-dasharray") || "",
     });
   }
-  return saida;
+  return { arestas: saida, cartoes: window.__lbp4.caixasDosCartoes() };
 })()`;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MÉDIO 5 · O TRAÇO LIGA OS DOIS CARTÕES QUE ELE DIZ LIGAR
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Nenhuma seção comparava os EXTREMOS do traço com os cartões que
+ * `data-origem`/`data-destino` nomeiam. O crítico trocou o destino de uma
+ * aresta no roteador (uma linha) e o ❌ da obsolescência foi pintado em cima
+ * de "Daily standup" enquanto o atributo, a lista acessível e o dado diziam
+ * "Arquivar docs antigos" — verde a 1024, 1280, 1440 e 1920.
+ *
+ * A régua: a distância do extremo até a CAIXA do cartão nomeado, em px de
+ * tela. Zero quando o ponto está dentro ou encostado; cresce com o desvio. E,
+ * além da distância, o cartão nomeado tem de ser o MAIS PERTO de todos — um
+ * traço que termina em cima do cartão errado erra as duas coisas.
+ *
+ * O teto é folgado de propósito (o roteador recua a ponta para o glifo caber,
+ * e a tripla do crítico desloca o path lateralmente): medido na árvore
+ * honesta, o pior extremo ficou a 7 px do cartão nomeado nas cinco larguras.
+ */
+const FOLGA_DO_EXTREMO_PX = 40;
+
+function distanciaAteACaixa(ponto, caixa) {
+  const dx = Math.max(caixa.x - ponto.x, 0, ponto.x - (caixa.x + caixa.largura));
+  const dy = Math.max(caixa.y - ponto.y, 0, ponto.y - (caixa.y + caixa.altura));
+  return Math.hypot(dx, dy);
+}
+
+/** Problemas de "este traço liga os cartões que ele nomeia?" — lista vazia = tudo certo. */
+function conferirExtremos(a, cartoes) {
+  const problemas = [];
+  if (!a.extremos) {
+    problemas.push(`${a.id}: não consegui ler os extremos do "d" do traço — medida impossível é reprovação`);
+    return problemas;
+  }
+  for (const [ponta, ponto, id] of [
+    ["origem", a.extremos.inicio, a.origem],
+    ["destino", a.extremos.fim, a.destino],
+  ]) {
+    const caixa = cartoes[id];
+    if (!caixa) {
+      problemas.push(`${a.id}: a ${ponta} "${String(id)}" não tem cartão no canvas`);
+      continue;
+    }
+    const daNomeada = distanciaAteACaixa(ponto, caixa);
+    let maisPerto = id;
+    let menor = daNomeada;
+    for (const [outro, c] of Object.entries(cartoes)) {
+      const d = distanciaAteACaixa(ponto, c);
+      if (d < menor - 1) {
+        menor = d;
+        maisPerto = outro;
+      }
+    }
+    if (daNomeada > FOLGA_DO_EXTREMO_PX) {
+      problemas.push(
+        `${a.id}: a ponta de ${ponta} do traço está a ${daNomeada.toFixed(1)}px do cartão "${String(id)}" que o atributo nomeia (teto ${String(FOLGA_DO_EXTREMO_PX)}px) — o traço é desenhado entre outro par de cartões`,
+      );
+    } else if (maisPerto !== id) {
+      problemas.push(
+        `${a.id}: a ponta de ${ponta} está a ${daNomeada.toFixed(1)}px do cartão nomeado "${String(id)}" e a ${menor.toFixed(1)}px de "${maisPerto}" — o traço encosta no cartão errado`,
+      );
+    }
+  }
+  return problemas;
+}
+
+/**
+ * ── O SELETOR DA ARESTA É ANCORADO NO CANVAS (achado desta rodada, saído do
+ *    próprio BAIXO 6) ────────────────────────────────────────────────────
+ *
+ * `g[data-camada]` solto pega TAMBÉM as amostras da legenda: `AmostraDeAresta`
+ * desenha o mesmo `ArestaSvgGroup` de produção ao lado de cada checkbox do
+ * painel "Camadas" e na tira da "Legenda" — com `data-camada`, `data-critica`
+ * e `data-aresta-id="amostra-…"`. Enquanto §7–§10 só rodavam na tela fechada,
+ * ninguém notava; ao medi-las com os popovers ABERTOS (BAIXO 6), a guarda
+ * passou a contar 10 e 12 arestas onde o dado tem 7, e a reprovar as amostras
+ * por não estarem na lista acessível — que é o certo para uma aresta e
+ * absurdo para uma legenda.
+ *
+ * A aresta do grafo é a que vive DENTRO do canvas. As amostras da legenda são
+ * conferidas por onde elas de fato são o produto: o teste de render
+ * (`tests/unit/aresta-svg-render.test.tsx`).
+ */
+const SELETOR_DA_ARESTA = ".react-flow g[data-camada]";
 
 const RAIO_DA_AMOSTRA = 4;
 const RAIO_DO_PERFIL = 14;
+
+/**
+ * Quantos pixels do traço precisam chegar ao piso de contraste para a aresta
+ * contar como VISÍVEL (rodada 12).
+ *
+ * Um só bastaria para o lado lógico — mas um pixel isolado pode ser ruído de
+ * compressão ou a franja de subpixel do rótulo. Quatro é o mesmo número que
+ * `PISO_DE_PIXEIS_NA_COR` já usa para a cor cheia, pela mesma razão, e foi
+ * medido contra os dois lados nesta rodada (números na saída `visív` de §7):
+ * a árvore honesta fica ordens de grandeza acima nas cinco larguras, e a
+ * sabotagem de `opacity: 0.12` fica em ZERO.
+ *
+ * O PISO DE CONTRASTE não está aqui de propósito: ele é lido de
+ * `scripts/checar-contraste.mjs` (`CONTRATO.pisoDeContraste`). Este número é
+ * "quantos pixels", não "quão visível" — e "quão visível" é a régua da casa,
+ * não uma constante desta guarda.
+ */
+const PISO_DE_PIXEIS_VISIVEIS = 4;
+
+/**
+ * O GLIFO de fim passa pelo caminho rápido — os mesmos 3:1 do traço — quando
+ * ele tem pixels de sobra no piso. A seta da sucessão e o ❌ da obsolescência
+ * passam por aqui folgados (medido nesta rodada: dezenas de pixels acima do
+ * piso). O círculo da correlação não passa, e o motivo é oclusão, não
+ * opacidade: ver o bloco em §9.
+ */
+const PISO_DE_PIXEIS_VISIVEIS_DO_GLIFO = 4;
+
+/**
+ * O caminho lento do glifo ocluído: o α DE PICO dele contra o α de pico do
+ * TRAÇO DA MESMA ARESTA, medido na mesma tela. Os dois saem do mesmo
+ * componente, com a mesma cor e a mesma cadeia de `opacity`.
+ *
+ * Medido nesta rodada, a 1440×900: círculo da correlação α 0,70 contra traço
+ * α 1,00 — razão 0,70. Com `fill-opacity: 0.12` no glifo, a razão vai a ~0,08.
+ * 0,35 fica no meio, 2× abaixo do honesto e 4× acima da sabotagem.
+ */
+const FRACAO_MINIMA_DO_ALFA_DO_TRACO = 0.35;
 
 /** `#RRGGBB` → `rgb(r, g, b)`, para comparar com o que o motor devolve. */
 function hexEmRgb(hex) {
@@ -408,12 +670,20 @@ function hexEmRgb(hex) {
  * papel que some da conta e ninguém nota.
  */
 async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONTRATO.papeis, papeisComProvaDeCor = CONTRATO.papeis) {
-  const arestas = await page.evaluate(LEITURA_DAS_ARESTAS);
-  const grupos = await page.$$("g[data-camada]");
+  const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+  const arestas = leitura.arestas;
+  const cartoes = leitura.cartoes ?? {};
+  const grupos = await page.$$(SELETOR_DA_ARESTA);
   const resumo = {};
   const problemas = [];
   const detalhePorAresta = [];
   const bandasPorCritica = [];
+  /*
+   * O α DE PICO de cada traço, para §9 usar como REFERÊNCIA MEDIDA NA MESMA
+   * TELA (é o mesmo recurso que §8 já usa para o traço triplo: comparar com
+   * uma aresta simples medida ali, em vez de com uma constante escrita aqui).
+   */
+  const alfaPicoPorAresta = new Map();
 
   for (let i = 0; i < arestas.length; i += 1) {
     const a = arestas[i];
@@ -432,6 +702,9 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
         `${a.id}: papel "${a.papel}" foi declarado em ${a.corComputada}, e o contrato (${CONTRATO.cores[a.papel]}) é ${esperadaNoContrato}`,
       );
     }
+
+    // MÉDIO 5: o traço começa e termina nos cartões que o próprio grupo nomeia.
+    problemas.push(...conferirExtremos(a, cartoes));
 
     if (!Array.isArray(a.pontos) || a.pontos.length === 0) {
       problemas.push(
@@ -455,15 +728,74 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
     let pintam = 0;
     let naCor = 0;
     let mudaram = 0;
+    let peso = 0;
+    let pesoVezesResiduo = 0;
+    let piorResiduoForte = 0;
+    let melhorContraste = 1;
+    let pixeisVisiveis = 0;
+    let alfaPicoDoTraco = 0;
     const bandas = {};
     let melhorPerfil = "";
     let maiorExtensao = -1;
+    /*
+     * A cor do CONTRATO (as duas tabelas de hex já casadas em
+     * `derivarContrato`), crua — não a composta. O modelo de mistura
+     * (`residuoDeMistura`) já resolve opacidade e fundo: o que o compositor
+     * pinta é sempre `α·contrato + (1−α)·fundo real daquele pixel`.
+     */
+    const corDoContrato = hexEmRgb(CONTRATO.cores[a.papel] ?? "#000000");
+    /*
+     * A COR DO TRAÇO SE MEDE NO TRAÇO, LONGE DO TEXTO.
+     *
+     * Só a sinergia carrega um `<text>` dentro do grupo (o "%" do peso), e o
+     * Chromium pinta texto com antialias de subpixel: as franjas de cor caem
+     * FORA da reta fundo→cor, por construção. Medido na árvore honesta: essa
+     * aresta — e só ela — ia a 8,6 de resíduo médio no desktop e a 20,1 a
+     * 390 px, contra 0,2–0,7 de todas as outras. Não é a aresta pintando
+     * errado; é o texto não ser um traço.
+     *
+     * Então os pontos cuja janelinha encosta na caixa do rótulo não votam na
+     * COR (continuam contando em "pixels que mudam" e "pixels na cor"). Se
+     * NENHUM ponto sobrar fora do rótulo, isso é reprovação logo abaixo — não
+     * dispensa.
+     */
+    const caixa = a.caixaDoRotulo;
     for (const ponto of a.pontos) {
-      const amostra = amostraNoPonto(fotos, ponto, a.corEsperada, RAIO_DA_AMOSTRA);
+      const amostra = amostraNoPonto(
+        fotos,
+        ponto,
+        a.corEsperada,
+        RAIO_DA_AMOSTRA,
+        corDoContrato,
+        CONTRATO.pisoDeContraste,
+      );
       if (!amostra.dentro) continue;
       medidos += 1;
       naCor += amostra.naCor;
       mudaram += amostra.mudaram;
+      const encostaNoRotulo =
+        caixa !== null &&
+        caixa !== undefined &&
+        ponto.x >= caixa.x - RAIO_DA_AMOSTRA &&
+        ponto.x <= caixa.x + caixa.largura + RAIO_DA_AMOSTRA &&
+        ponto.y >= caixa.y - RAIO_DA_AMOSTRA &&
+        ponto.y <= caixa.y + caixa.altura + RAIO_DA_AMOSTRA;
+      if (!encostaNoRotulo) {
+        peso += amostra.peso;
+        pesoVezesResiduo += amostra.pesoVezesResiduo;
+        if (amostra.piorResiduoForte > piorResiduoForte) piorResiduoForte = amostra.piorResiduoForte;
+        /*
+         * A VISIBILIDADE (rodada 12) também sai SÓ do traço, fora da caixa do
+         * rótulo — e aqui não é por causa do antialias de subpixel, é por
+         * causa de uma porta: `stroke-opacity` apaga o TRAÇO e deixa o `<text>`
+         * do "%" (que é `fill`) aceso. Contar os pixels do rótulo deixaria a
+         * sinergia provar visibilidade com o texto dela. Nenhum ponto fora do
+         * rótulo = `melhorContraste` fica em 1:1 = reprovação, que é o certo.
+         */
+        if (amostra.melhorContraste > melhorContraste) melhorContraste = amostra.melhorContraste;
+        pixeisVisiveis += amostra.pixeisVisiveis;
+        if (amostra.alfaPico > alfaPicoDoTraco) alfaPicoDoTraco = amostra.alfaPico;
+      }
       if (amostra.naCor >= 1 && amostra.mudaram >= 2) pintam += 1;
       const perfil = perfilPerpendicular(fotos, ponto, { x: ponto.nx, y: ponto.ny }, RAIO_DO_PERFIL);
       const b = bandasDoPerfil(perfil);
@@ -509,8 +841,95 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
         }${String(mudaram)} pixels mudam ao esconder (piso ${String(PISO_DE_PIXEIS_QUE_MUDAM)}), ${String(naCor)} pixels na cor ${a.corEsperada}, ${String(pintam)}/${String(medidos)} pontos do traço com as duas coisas`,
       );
     }
+    /*
+     * ── ALTO 1: A COR PINTADA DESTA ARESTA, NÃO A DECLARADA, NÃO A DO PAPEL
+     *
+     * `getComputedStyle(path).stroke` é DECLARAÇÃO; um `filter` mente na
+     * PINTURA. E exigir a cor cheia uma vez por PAPEL deixa a segunda aresta
+     * do papel mentir de graça — foi exatamente o buraco: uma aresta de
+     * sucessão pintada de vermelho lia-se como caminho crítico, com
+     * `sucessao=2/2` impresso na saída.
+     *
+     * Agora CADA aresta responde pela própria cor, e responde pelo modelo de
+     * mistura: todo pixel que ela pinta tem de cair na reta "fundo real
+     * daquele pixel → cor do contrato". Antialias e oclusão só mexem em α (a
+     * posição na reta); trocar a cor tira o pixel da reta. O voto de cada
+     * pixel é proporcional ao quanto ele mudou, então a ponta de antialias não
+     * decide nada e o traço cheio decide tudo.
+     */
+    const residuoMedio = peso > 0 ? pesoVezesResiduo / peso : null;
+    const corConfere = residuoMedio !== null && residuoMedio <= TOLERANCIA_DE_MISTURA;
+    if (pintaDeVerdade && !corConfere) {
+      problemas.push(
+        `${a.id} (papel "${a.papel}"): a cor PINTADA não é a da camada — resíduo médio ${
+          residuoMedio === null
+            ? "NENHUM pixel de traço fora da caixa do rótulo para medir, e não medir é reprovar"
+            : residuoMedio.toFixed(1)
+        } contra o teto ${String(TOLERANCIA_DE_MISTURA)} (contrato ${CONTRATO.cores[a.papel]} = ${corDoContrato}, declarada ${a.corComputada}, pior pixel forte ${piorResiduoForte.toFixed(0)})`,
+      );
+    }
+    if (pintaDeVerdade && corConfere) resumo[a.papel].corOk = (resumo[a.papel].corOk ?? 0) + 1;
+    /*
+     * ── A SEGUNDA PERGUNTA, A QUE FALTAVA: "DÁ PARA VER?" (rodada 12) ─────
+     *
+     * O modelo de mistura acima responde *"está na cor certa?"*: a distância
+     * do pixel até a reta `B→C`. Ele NÃO responde *"está visível?"* — o
+     * comentário dele diz isso por escrito ("antialias e oclusão só mexem em
+     * α, a posição na reta"), e α não era medido em lugar nenhum. Qualquer
+     * ponto da reta passava, **α perto de zero inclusive**.
+     *
+     * Medido pelo coordenador nesta entrega: `style={{ opacity: 0.12 }}` no
+     * `<g>` da aresta deixou os CINCO portões verdes com o grafo quase
+     * apagado — a sucessão caindo de 12,40:1 para 1,21:1 contra o canvas,
+     * PIOR que o ALTO 4 que a rodada 11 acabara de fechar (1,27:1).
+     *
+     * A régua: o contraste WCAG do PIXEL COMPOSTO (a foto COM o traço) contra
+     * o PIXEL DE FUNDO DO MESMO LUGAR (a foto SEM). É o que o olho recebe —
+     * não o token declarado, que a opacidade não muda, e não a quantidade de
+     * pixels que mudam, que é grande mesmo a 12%.
+     *
+     * Duas decisões que essa régua obriga:
+     *
+     * • **ONDE ela vale.** Oclusão foi o motivo legítimo da relaxação da
+     *   rodada 11: aresta que corre atrás de um cartão tem pixels que somem, e
+     *   a 390 px o traço tem menos de 1 px de tela e é antialias puro. Então a
+     *   exigência é sobre o MELHOR pixel do traço — onde ele de fato aparece —
+     *   e não sobre a média. Um traço legível em algum lugar é um traço.
+     * • **"Não apareceu em lugar nenhum" é REPROVAÇÃO.** `melhorContraste`
+     *   nasce em 1 (nenhum pixel mudou = nenhuma diferença = 1:1), abaixo de
+     *   qualquer piso — então a aresta apagada cai aqui, e não por silêncio.
+     *   E a conferência roda SEM depender de `pintaDeVerdade`: ela não pode
+     *   ser pulada por uma checagem anterior ter falhado antes.
+     *
+     * O piso é `CONTRATO.pisoDeContraste` — lido de
+     * `scripts/checar-contraste.mjs`, que é quem diz 3:1 para estas arestas.
+     * Não sai daqui, e não sai do arquivo que decide a cor.
+     */
+    const visivel =
+      melhorContraste >= CONTRATO.pisoDeContraste && pixeisVisiveis >= PISO_DE_PIXEIS_VISIVEIS;
+    if (visivel) resumo[a.papel].visivel = (resumo[a.papel].visivel ?? 0) + 1;
+    if (!visivel) {
+      problemas.push(
+        `${a.id} (papel "${a.papel}"): quase invisível — o MELHOR pixel do traço inteiro mede ${melhorContraste.toFixed(2)}:1 contra o fundo do próprio lugar (piso ${String(CONTRATO.pisoDeContraste)}:1, lido de scripts/checar-contraste.mjs) e ${String(pixeisVisiveis)} pixel(es) chegam lá (piso ${String(PISO_DE_PIXEIS_VISIVEIS)}). A cor DECLARADA continua ${a.corComputada}: a opacidade é aplicada na composição, e é por isso que a régua de tokens não vê`,
+      );
+    }
+    alfaPicoPorAresta.set(a.id, alfaPicoDoTraco);
     if (a.papel === "critico") bandasPorCritica.push({ id: a.id, bandas, perfil: melhorPerfil, extensao: maiorExtensao });
-    detalhePorAresta.push({ id: a.id, papel: a.papel, medidos, pintam, naCor, mudaram, bandas, extensao: maiorExtensao });
+    detalhePorAresta.push({
+      id: a.id,
+      papel: a.papel,
+      medidos,
+      pintam,
+      naCor,
+      mudaram,
+      bandas,
+      extensao: maiorExtensao,
+      residuoMedio: residuoMedio === null ? null : Number(residuoMedio.toFixed(2)),
+      piorResiduoForte,
+      melhorContraste: Number(melhorContraste.toFixed(2)),
+      pixeisVisiveis,
+      alfaPicoDoTraco: Number(alfaPicoDoTraco.toFixed(3)),
+    });
   }
 
   // Piso do universo: cada papel do contrato tem de ter aresta na tela.
@@ -531,8 +950,13 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
   const semCor = papeisNaTela
     .filter((p) => papeisComProvaDeCor.includes(p))
     .filter((p) => (resumo[p]?.naCor ?? 0) === 0);
+  /* `pintam/n` e, entre parênteses, quantas dessas têm a COR PINTADA certa
+     (ALTO 1) — as duas contas, nunca só a primeira. */
   const linha = CONTRATO.papeis
-    .map((p) => `${p}=${String(resumo[p]?.pintam ?? 0)}/${String(resumo[p]?.n ?? 0)}`)
+    .map(
+      (p) =>
+        `${p}=${String(resumo[p]?.pintam ?? 0)}/${String(resumo[p]?.n ?? 0)}(cor ${String(resumo[p]?.corOk ?? 0)}, visív ${String(resumo[p]?.visivel ?? 0)})`,
+    )
     .join(" · ");
 
   exigir(
@@ -550,11 +974,342 @@ async function medirPinturaDasArestas(page, chave, estado, papeisExigidos = CONT
     }${problemas.slice(0, 3).join(" ; ")}`,
   );
 
-  return { resumo, linha, bandasPorCritica, detalhePorAresta, arestas };
+  return { resumo, linha, bandasPorCritica, detalhePorAresta, arestas, cartoes, alfaPicoPorAresta };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// §8 · O TRAÇO TRIPLO É TRÊS FAIXAS DE PIXEL, NÃO TRÊS ATRIBUTOS
+// §12 · O CANVAS × O DADO, NOS DOIS SENTIDOS  (achado ALTO 2 da rodada 11)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * O crítico apagou UMA aresta do caminho crítico do canvas com uma linha
+ * (`return []` dentro do `useMemo` de `edges`) e os cinco portões ficaram
+ * verdes — a própria saída imprimindo `critico=1/1` em vez de `2/2`, um traço
+ * triplo em vez de dois, 6 arestas em vez de 7, e chamando isso de sucesso.
+ *
+ * Por quê: §10 perguntava só *"toda aresta DESENHADA está na lista?"*, nunca o
+ * contrário, e o piso de §7 era "cada papel tem ≥ 1 aresta" — nunca uma
+ * CONTAGEM contra o dado. Um grafo com 40 tarefas e 80 arestas passaria com
+ * os mesmos números de um com 11 e 7.
+ *
+ * O dado entra pelo `data-lb-contrato-do-canvas` que o produto publica
+ * (`dependency-graph.tsx`): sai de `arestasVisuais` filtrado pelas camadas
+ * ativas, sem passar pelo `useMemo` que monta as arestas do ReactFlow. Aqui
+ * os dois conjuntos são comparados NOS DOIS SENTIDOS, por id — e a camada e a
+ * flag de crítica de cada aresta desenhada têm de bater com o dado também.
+ */
+async function lerContratoDoCanvas(page) {
+  return page.evaluate(() => {
+    const el = document.querySelector("[data-lb-contrato-do-canvas]");
+    if (!el) return null;
+    const cru = el.getAttribute("data-lb-contrato-do-canvas");
+    try {
+      return JSON.parse(cru);
+    } catch (e) {
+      return { erroDeLeitura: String(e && e.message ? e.message : e) };
+    }
+  });
+}
+
+function medirCoberturaContraODado(chave, estado, contrato, arestas) {
+  if (contrato === null || contrato.erroDeLeitura || !Array.isArray(contrato.esperadas)) {
+    exigir(
+      false,
+      `${chave}${estado}: §12 não consegui ler o contrato do canvas (data-lb-contrato-do-canvas) — sem o lado do DADO não há com o que comparar o desenho${
+        contrato?.erroDeLeitura ? `: ${contrato.erroDeLeitura}` : ""
+      }`,
+    );
+    return "sem contrato";
+  }
+  const problemas = [];
+  const semRota = contrato.esperadas.filter((e) => !e.temRota);
+  if (semRota.length > 0) {
+    problemas.push(
+      `${String(semRota.length)} aresta(s) do dado ficaram sem rota no layout e o canvas cala sobre elas: ${semRota.map((e) => e.id).slice(0, 3).join(", ")}`,
+    );
+  }
+  const desenhadas = arestas.filter((a) => !a.semPath);
+  const porId = new Map(desenhadas.map((a) => [a.id, a]));
+  const esperadasPorId = new Map(contrato.esperadas.map((e) => [e.id, e]));
+
+  const faltando = contrato.esperadas.filter((e) => !porId.has(e.id));
+  if (faltando.length > 0) {
+    problemas.push(
+      `${String(faltando.length)} aresta(s) que o DADO manda desenhar não estão no canvas: ${faltando.map((e) => `${e.id} (camada "${e.camada}"${e.critica ? ", caminho crítico" : ""})`).slice(0, 3).join(" ; ")}`,
+    );
+  }
+  const sobrando = desenhadas.filter((a) => !esperadasPorId.has(a.id));
+  if (sobrando.length > 0) {
+    problemas.push(
+      `${String(sobrando.length)} aresta(s) desenhadas que o DADO não pede: ${sobrando.map((a) => a.id).slice(0, 3).join(", ")}`,
+    );
+  }
+  for (const a of desenhadas) {
+    const e = esperadasPorId.get(a.id);
+    if (!e) continue;
+    if (e.camada !== a.camada) {
+      problemas.push(`${a.id}: o dado diz camada "${e.camada}" e o canvas desenhou "${String(a.camada)}"`);
+    }
+    if (Boolean(e.critica) !== Boolean(a.critica)) {
+      problemas.push(
+        `${a.id}: o dado diz caminho crítico = ${String(Boolean(e.critica))} e o canvas desenhou ${String(Boolean(a.critica))}`,
+      );
+    }
+    if (e.origem !== a.origem || e.destino !== a.destino) {
+      problemas.push(
+        `${a.id}: o dado liga "${String(e.origem)}"→"${String(e.destino)}" e o canvas nomeia "${String(a.origem)}"→"${String(a.destino)}"`,
+      );
+    }
+  }
+
+  // As contagens, contra o dado — nunca contra um piso de 1.
+  const contar = (lista, chaveDaCamada) => {
+    const m = {};
+    for (const x of lista) m[x[chaveDaCamada]] = (m[x[chaveDaCamada]] ?? 0) + 1;
+    return m;
+  };
+  const noDado = contar(contrato.esperadas, "camada");
+  const naTela = contar(desenhadas, "camada");
+  for (const camada of new Set([...Object.keys(noDado), ...Object.keys(naTela)])) {
+    if ((noDado[camada] ?? 0) !== (naTela[camada] ?? 0)) {
+      problemas.push(
+        `camada "${camada}": o dado tem ${String(noDado[camada] ?? 0)} aresta(s) e o canvas desenhou ${String(naTela[camada] ?? 0)}`,
+      );
+    }
+  }
+  const criticasNoDado = contrato.esperadas.filter((e) => e.critica).length;
+  const criticasNaTela = desenhadas.filter((a) => a.critica).length;
+  if (criticasNoDado !== criticasNaTela) {
+    problemas.push(
+      `caminho crítico: o dado tem ${String(criticasNoDado)} aresta(s) e o canvas desenhou ${String(criticasNaTela)}`,
+    );
+  }
+  exigir(
+    problemas.length === 0 && desenhadas.length > 0,
+    `${chave}${estado}: §12 o canvas × o dado — ${desenhadas.length === 0 ? "NENHUMA aresta desenhada; " : ""}${problemas.slice(0, 4).join(" ; ")}`,
+  );
+  return `${String(desenhadas.length)}/${String(contrato.esperadas.length)} do dado · críticas ${String(criticasNaTela)}/${String(criticasNoDado)} · ${String(contrato.totalNoDado)} no grafo inteiro`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §13 · DESLIGAR UMA CAMADA APAGA AS ARESTAS DELA  (achado ALTO 3)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * `ligarTodasAsCamadas(page)` aparecia três vezes nesta guarda e NADA, em
+ * nenhuma das onze seções, chegava a desligar. O sentido OFF do único
+ * controle que a peça nomeia nunca era exercido — e fixar `camadasAtivas` nas
+ * cinco (uma linha em `dependency-graph.tsx`) deixava os cinco portões
+ * verdes. `filtrarArestasPorCamada` tinha teste de unidade impecável; a
+ * FIAÇÃO entre o checkbox e o canvas não tinha nenhum.
+ *
+ * Aqui o que se mede é a fiação, e a previsão sai do CANVAS + do CHECKBOX,
+ * nunca do estado interno: com as cinco ligadas, cada aresta desenhada
+ * declara a camada base (`data-camada`) e se é do caminho crítico
+ * (`data-critica`). Desmarcar a camada L tem de deixar na tela exatamente as
+ * arestas cujo conjunto de camadas ainda toca alguma camada marcada.
+ *
+ * "Caminho crítico" é o caso próprio: desmarcá-la NÃO apaga aresta nenhuma
+ * (uma sucessão crítica continua sendo sucessão — OR, não AND); o que ela
+ * apaga é o traço triplo. Então ali a régua é outra, declarada, e conferida.
+ */
+async function idsDesenhadosComCamada(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll(".react-flow g[data-camada]")].map((g) => ({
+      id: g.getAttribute("data-aresta-id"),
+      camada: g.getAttribute("data-camada"),
+      critica: g.getAttribute("data-critica") === "true",
+    })),
+  );
+}
+
+/** Abre o painel "Camadas" e devolve o locator das caixas, com os rótulos. */
+async function abrirPainelDeCamadas(page) {
+  const pill = page.locator('button[aria-label="Camadas"]').first();
+  if ((await pill.count()) === 0) return null;
+  if ((await pill.getAttribute("aria-expanded")) !== "true") await pill.click();
+  await page.waitForSelector('[role="dialog"][aria-label="Camadas do grafo"]', { timeout: 10000 });
+  /*
+   * O texto do rótulo vem SEM a amostra de aresta: cada `label` carrega um
+   * `<svg>` desenhado pelo mesmo componente de produção, e a amostra de
+   * sinergia tem o "50%" dentro — `textContent` cru devolvia
+   * "sinergia 50%50%Sinergia" e a camada não casava com `CAMADA_LABEL`.
+   */
+  const rotulos = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="dialog"][aria-label="Camadas do grafo"] label')].map((l) => {
+      const copia = l.cloneNode(true);
+      for (const svg of copia.querySelectorAll("svg")) svg.remove();
+      return {
+        texto: (copia.textContent || "").replace(/\s+/g, " ").trim(),
+        marcada: l.querySelector('input[type="checkbox"]')?.checked === true,
+      };
+    }),
+  );
+  return { rotulos };
+}
+
+async function fecharPainelDeCamadas(page) {
+  const fechar = page.locator('[role="dialog"][aria-label="Camadas do grafo"] button[aria-label="Fechar"]');
+  if (await fechar.count()) await fechar.first().click();
+  else await page.keyboard.press("Escape");
+  await page.waitForTimeout(250);
+}
+
+async function medirDesligarCamada(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page } = await abrirPagina(browser, caso);
+  const linhas = [];
+  try {
+    await ligarTodasAsCamadas(page);
+    await page.waitForTimeout(500);
+
+    const painel = await abrirPainelDeCamadas(page);
+    if (painel === null) {
+      exigir(false, `${chave}: §13 não achei o controle "Camadas" — o sentido OFF não tem por onde ser exercido`);
+      return linhas;
+    }
+    const porRotulo = new Map(
+      CONTRATO.camadas.map((c) => [CONTRATO.rotulos[c], c]),
+    );
+    const indiceDaCamada = new Map();
+    painel.rotulos.forEach((r, i) => {
+      const camada = porRotulo.get(r.texto);
+      if (camada) indiceDaCamada.set(camada, i);
+    });
+    const semCaixa = CONTRATO.camadas.filter((c) => !indiceDaCamada.has(c));
+    if (semCaixa.length > 0) {
+      exigir(
+        false,
+        `${chave}: §13 camada sem caixa no painel: ${semCaixa.join(", ")} (rótulos vistos: ${painel.rotulos.map((r) => r.texto).join(" | ")})`,
+      );
+      return linhas;
+    }
+    const marcarCaixa = async (camada, valor) => {
+      const caixas = page.locator('[role="dialog"][aria-label="Camadas do grafo"] input[type="checkbox"]');
+      const caixa = caixas.nth(indiceDaCamada.get(camada));
+      if (valor) await caixa.check();
+      else await caixa.uncheck();
+      await page.waitForTimeout(600);
+    };
+
+    const antes = await idsDesenhadosComCamada(page);
+    const camadasDe = (a) => (a.critica ? [a.camada, "critico"] : [a.camada]);
+
+    for (const camada of CONTRATO.camadas) {
+      const marcadasDepois = CONTRATO.camadas.filter((c) => c !== camada);
+      await marcarCaixa(camada, false);
+      const depois = await idsDesenhadosComCamada(page);
+      const contratoAgora = await lerContratoDoCanvas(page);
+      const idsDepois = new Set(depois.map((a) => a.id));
+
+      if (camada === "critico") {
+        /* Régua própria e declarada: nenhuma aresta some (sucessão crítica
+           continua sucessão), mas o traço TRIPLO tem de sumir. */
+        const criticasAntes = antes.filter((a) => a.critica).length;
+        const criticasAgora = depois.filter((a) => a.critica).length;
+        exigir(
+          criticasAntes > 0,
+          `${chave}: §13 nenhuma aresta de caminho crítico estava na tela antes de desligar a camada — não há o que medir`,
+        );
+        exigir(
+          criticasAgora === 0,
+          `${chave}: §13 desmarcar "${CONTRATO.rotulos[camada]}" deixou ${String(criticasAgora)} aresta(s) ainda marcadas como caminho crítico no canvas`,
+        );
+        exigir(
+          depois.length === antes.length,
+          `${chave}: §13 desmarcar "${CONTRATO.rotulos[camada]}" apagou ${String(antes.length - depois.length)} aresta(s) — uma sucessão crítica continua sendo sucessão (OR, não AND)`,
+        );
+        linhas.push(`${camada}: críticas ${String(criticasAntes)}→${String(criticasAgora)}, arestas ${String(antes.length)}→${String(depois.length)}`);
+      } else {
+        const previstas = antes.filter((a) => camadasDe(a).some((c) => marcadasDepois.includes(c)));
+        const removidas = antes.filter((a) => !previstas.includes(a));
+        exigir(
+          removidas.length > 0,
+          `${chave}: §13 a camada "${CONTRATO.rotulos[camada]}" não tinha nenhuma aresta exclusiva na tela — desligá-la não prova nada, e não provar nada é reprovar`,
+        );
+        const sobreviventesErrados = removidas.filter((a) => idsDepois.has(a.id));
+        exigir(
+          sobreviventesErrados.length === 0,
+          `${chave}: §13 desmarcar "${CONTRATO.rotulos[camada]}" NÃO apagou ${String(sobreviventesErrados.length)} aresta(s) do canvas: ${sobreviventesErrados.map((a) => a.id).slice(0, 3).join(", ")}`,
+        );
+        const sumiuDemais = previstas.filter((a) => !idsDepois.has(a.id));
+        exigir(
+          sumiuDemais.length === 0,
+          `${chave}: §13 desmarcar "${CONTRATO.rotulos[camada]}" apagou ${String(sumiuDemais.length)} aresta(s) de OUTRA camada: ${sumiuDemais.map((a) => `${a.id} (camada "${a.camada}")`).slice(0, 3).join(", ")}`,
+        );
+        linhas.push(`${camada}: ${String(antes.length)}→${String(depois.length)} arestas (−${String(removidas.length)} previstas)`);
+      }
+
+      /* O painel e o dado que alimenta o canvas têm de dizer a MESMA coisa —
+         é o casamento que o `camadasAtivas` fixo quebra em silêncio. */
+      const noContrato = Array.isArray(contratoAgora?.camadasAtivas) ? [...contratoAgora.camadasAtivas].sort() : null;
+      exigir(
+        noContrato !== null && noContrato.join(",") === [...marcadasDepois].sort().join(","),
+        `${chave}: §13 com "${CONTRATO.rotulos[camada]}" desmarcada, o painel diz ${marcadasDepois.join("+")} e o dado que alimenta o canvas diz ${noContrato === null ? "nada (sem contrato)" : noContrato.join("+")}`,
+      );
+
+      await marcarCaixa(camada, true);
+      const devolta = await idsDesenhadosComCamada(page);
+      exigir(
+        devolta.length === antes.length,
+        `${chave}: §13 remarcar "${CONTRATO.rotulos[camada]}" devolveu ${String(devolta.length)} aresta(s) e antes eram ${String(antes.length)}`,
+      );
+    }
+    await fecharPainelDeCamadas(page);
+  } finally {
+    await ctx.close();
+  }
+  return linhas;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §14 · O ESTADO DEFAULT, COMO ELE NASCE  (achado ALTO 3, segunda metade)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * A guarda ligava as cinco camadas na primeira coisa que fazia, em toda
+ * largura — o estado em que a tela NASCE (`CAMADAS_DEFAULT` = sucessão +
+ * caminho crítico) nunca era observado por ninguém. Aqui ele é: página nova,
+ * nada clicado, e o que está na tela tem de ser exatamente o que o default
+ * manda.
+ */
+async function medirEstadoDefault(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page } = await abrirPagina(browser, caso);
+  let linha = "?";
+  try {
+    const desenhadas = await idsDesenhadosComCamada(page);
+    const contrato = await lerContratoDoCanvas(page);
+    const noContrato = Array.isArray(contrato?.camadasAtivas) ? [...contrato.camadasAtivas].sort() : null;
+    exigir(
+      noContrato !== null && noContrato.join(",") === [...CONTRATO.camadasDefault].sort().join(","),
+      `${chave}: §14 a tela nasce com as camadas ${noContrato === null ? "ilegíveis" : noContrato.join("+")} e CAMADAS_DEFAULT diz ${CONTRATO.camadasDefault.join("+")}`,
+    );
+    const foraDoDefault = desenhadas.filter(
+      (a) => !CONTRATO.camadasDefault.includes(a.camada) && !(a.critica && CONTRATO.camadasDefault.includes("critico")),
+    );
+    exigir(
+      foraDoDefault.length === 0,
+      `${chave}: §14 a tela nasce desenhando ${String(foraDoDefault.length)} aresta(s) de camada que o default NÃO liga: ${foraDoDefault.map((a) => `${a.id} (camada "${a.camada}")`).slice(0, 3).join(", ")}`,
+    );
+    exigir(
+      desenhadas.length > 0,
+      `${chave}: §14 a tela nasce SEM nenhuma aresta desenhada — o default liga ${CONTRATO.camadasDefault.join("+")}`,
+    );
+    const painel = await abrirPainelDeCamadas(page);
+    const marcadas = (painel?.rotulos ?? []).filter((r) => r.marcada).map((r) => r.texto).sort();
+    const esperadasNoPainel = CONTRATO.camadasDefault.map((c) => CONTRATO.rotulos[c]).sort();
+    exigir(
+      marcadas.join(",") === esperadasNoPainel.join(","),
+      `${chave}: §14 o painel nasce com [${marcadas.join(", ")}] marcadas e o default é [${esperadasNoPainel.join(", ")}]`,
+    );
+    if (painel !== null) await fecharPainelDeCamadas(page);
+    linha = `${String(desenhadas.length)} arestas, camadas ${noContrato === null ? "?" : noContrato.join("+")}, painel [${marcadas.join(", ")}]`;
+  } finally {
+    await ctx.close();
+  }
+  return linha;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §8 · A FAIXA DO CAMINHO CRÍTICO É LARGA DE PIXEL, NÃO TRÊS ATRIBUTOS
 // ═══════════════════════════════════════════════════════════════════════════
 /**
  * A versão anterior conferia `paths.length === 3`. Três `<path>` com
@@ -575,14 +1330,6 @@ function medirTracoTriplo(chave, estado, bandasPorCritica, detalhePorAresta) {
     return "critico=0";
   }
   const problemas = [];
-  for (const c of bandasPorCritica) {
-    const comTres = c.bandas["3"] ?? 0;
-    if (comTres < 1) {
-      problemas.push(
-        `${c.id}: nenhum ponto do traço mostrou 3 faixas de pixel (distribuição ${JSON.stringify(c.bandas)}, maior extensão ${String(c.extensao)}px, perfil "${c.perfil}")`,
-      );
-    }
-  }
   /*
    * CONTRAPROVA NA MESMA TELA, por EXTENSÃO e não por contagem de faixas.
    *
@@ -599,13 +1346,49 @@ function medirTracoTriplo(chave, estado, bandasPorCritica, detalhePorAresta) {
   const comuns = detalhePorAresta.filter((d) => d.papel !== "critico" && d.extensao > 0);
   const extensoes = comuns.map((d) => d.extensao).sort((x, y) => x - y);
   const medianaComum = extensoes.length > 0 ? extensoes[Math.floor(extensoes.length / 2)] : 0;
-  if (medianaComum > 0) {
-    for (const c of bandasPorCritica) {
-      if (c.extensao < 2 * medianaComum) {
-        problemas.push(
-          `${c.id}: a faixa pintada do caminho crítico tem ${String(c.extensao)}px de largura e a mediana das arestas simples desta MESMA tela é ${String(medianaComum)}px — a tripla não é mais larga que um traço`,
-        );
-      }
+  if (medianaComum <= 0) {
+    exigir(
+      false,
+      `${chave}${estado}: §8 nenhuma aresta simples com traço medível nesta tela — sem a contraprova a largura da tripla não diz nada`,
+    );
+    return "sem contraprova";
+  }
+  for (const c of bandasPorCritica) {
+    /*
+     * REGRA 1 — a faixa do caminho crítico é MAIS LARGA que um traço simples
+     * medido na MESMA tela. É esta que mata as versões falsas: três `<path>`
+     * com `opacity: 0` nas laterais, ou `paths.length === 3` sem pintura
+     * nenhuma, colapsam a extensão para a de um traço comum.
+     */
+    if (c.extensao < 2 * medianaComum) {
+      problemas.push(
+        `${c.id}: a faixa pintada do caminho crítico tem ${String(c.extensao)}px de largura e a mediana das arestas simples desta MESMA tela é ${String(medianaComum)}px — a tripla não é mais larga que um traço`,
+      );
+      continue;
+    }
+    /*
+     * REGRA 2 — e ela mostra faixas SEPARADAS onde a resolução permite.
+     *
+     * Rodada 11: ao medir §8 nos estados que a varredura abriu (BAIXO 6),
+     * apareceu um estado a 390 px em que a tripla é uma faixa SÓLIDA de 8 px
+     * contra 2 px das simples — quatro vezes mais larga, sem nenhum buraco. O
+     * arquivo já sabia por quê ("as laterais chegam a encostar na central
+     * quando o zoom encolhe a separação", e nos trechos paralelos ao eixo do
+     * deslocamento as três linhas se sobrepõem de propósito). Exigir 3 faixas
+     * SEMPRE seria exigir uma resolução que o produto não promete.
+     *
+     * Então: 2 faixas separadas em algum ponto OU uma faixa 3× mais larga que
+     * a simples. E o nome da medida passa a dizer isso — "a faixa larga do
+     * caminho crítico", não "três faixas de pixel" (BAIXO 7: a guarda não
+     * afirma o que ela não mede).
+     */
+    const comDuasOuMais = Object.entries(c.bandas)
+      .filter(([n]) => Number(n) >= 2)
+      .reduce((soma, [, q]) => soma + q, 0);
+    if (comDuasOuMais < 1 && c.extensao < 3 * medianaComum) {
+      problemas.push(
+        `${c.id}: a faixa do caminho crítico tem ${String(c.extensao)}px (simples: ${String(medianaComum)}px) e NENHUM ponto mostrou duas faixas separadas — distribuição ${JSON.stringify(c.bandas)}, perfil "${c.perfil}"`,
+      );
     }
   }
   exigir(problemas.length === 0, `${chave}${estado}: §8 o traço triplo — ${problemas.join(" ; ")}`);
@@ -617,8 +1400,8 @@ function medirTracoTriplo(chave, estado, bandasPorCritica, detalhePorAresta) {
 // ═══════════════════════════════════════════════════════════════════════════
 const LEITURA_DOS_GLIFOS = `(() => {
   const saida = [];
-  for (const el of document.querySelectorAll("g[data-camada] .lb-edge-glifo")) {
-    const grupo = el.closest("g[data-camada]");
+  for (const el of document.querySelectorAll(".react-flow g[data-camada] .lb-edge-glifo")) {
+    const grupo = el.closest(".react-flow g[data-camada]");
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
     const usaFill = cs.fill && cs.fill !== "none";
@@ -634,9 +1417,9 @@ const LEITURA_DOS_GLIFOS = `(() => {
   return saida;
 })()`;
 
-async function medirGlifos(page, chave, estado, arestas) {
+async function medirGlifos(page, chave, estado, arestas, alfaPicoPorAresta) {
   const glifos = await page.evaluate(LEITURA_DOS_GLIFOS);
-  const alvos = await page.$$("g[data-camada] .lb-edge-glifo");
+  const alvos = await page.$$(`${SELETOR_DA_ARESTA} .lb-edge-glifo`);
   const problemas = [];
   const linha = [];
   const comGlifo = new Set(glifos.map((g) => g.aresta));
@@ -665,7 +1448,9 @@ async function medirGlifos(page, chave, estado, arestas) {
       problemas.push(`glifo de ${g.aresta}: ${fotos.erro}`);
       continue;
     }
-    const amostra = amostraNoPonto(fotos, centro, g.cor, raio);
+    const daAresta = arestas.find((a) => a.id === g.aresta);
+    const corDoContrato = hexEmRgb(CONTRATO.cores[daAresta?.papel] ?? "#000000");
+    const amostra = amostraNoPonto(fotos, centro, g.cor, raio, corDoContrato, CONTRATO.pisoDeContraste);
     if (!amostra.dentro) {
       problemas.push(`glifo de ${g.aresta}: a caixa dele não caiu dentro da foto — não consegui medir, e isso é reprovação`);
       continue;
@@ -680,17 +1465,54 @@ async function medirGlifos(page, chave, estado, arestas) {
      * antialias, não o produto. A cor daquela camada já é medida no traço (§7).
      */
     const exigeCor = g.camada === "obsolescencia";
-    const ok = alfaOk && amostra.mudaram >= 6 && (!exigeCor || amostra.naCor >= 8);
+    /*
+     * ── E O GLIFO TAMBÉM TEM DE SER VISÍVEL (rodada 12) ──────────────────
+     *
+     * A mesma porta do traço abre aqui, e com um nome próprio: `fill-opacity`
+     * no glifo apaga o ❌, a seta, o círculo e o losango sem tocar no traço.
+     * "Pixels que mudam" não pega: a 12% de opacidade eles continuam mudando
+     * (medido: o círculo da correlação muda os MESMOS 9 pixels).
+     *
+     * **Por que aqui a régua não é o 3:1 absoluto do traço.** Medido nesta
+     * rodada, na árvore honesta a 1440×900: o círculo da correlação tem caixa
+     * de 7×7 px e pinta só NOVE pixels — uma meia-lua de 2 linhas; o resto
+     * está atrás do cartão para onde ele aponta. O melhor pixel dele chega a
+     * 3,39:1, um fio acima do piso, com UM pixel no piso. Um portão calibrado
+     * a 13% do vermelho sobre a árvore honesta é um portão que apita sozinho —
+     * e a oclusão é exatamente o motivo legítimo que a rodada 11 já tinha
+     * nomeado. (Que o círculo apareça tão pouco é observação de PRODUTO, e vai
+     * no relatório desta rodada; mudar o desenho não é trabalho de guarda.)
+     *
+     * A régua que serve é a de §8: comparar com uma REFERÊNCIA MEDIDA NA
+     * MESMA TELA, não com uma constante escrita aqui. O glifo e o traço da
+     * mesma aresta saem do mesmo componente, com a mesma cor e a mesma cadeia
+     * de `opacity` — então o α DE PICO do glifo não pode desabar enquanto o
+     * do traço fica de pé. `fill-opacity: 0.12` derruba um e não o outro.
+     *
+     * Traço sem α de pico medido = reprovação, nunca dispensa.
+     */
+    const alfaDoTraco = alfaPicoPorAresta?.get(g.aresta);
+    const razaoDeAlfa =
+      alfaDoTraco !== undefined && alfaDoTraco > 0 ? amostra.alfaPico / alfaDoTraco : null;
+    const glifoVisivel =
+      amostra.pixeisVisiveis >= PISO_DE_PIXEIS_VISIVEIS_DO_GLIFO
+        ? true
+        : razaoDeAlfa !== null && razaoDeAlfa >= FRACAO_MINIMA_DO_ALFA_DO_TRACO;
+    const ok = alfaOk && amostra.mudaram >= 6 && (!exigeCor || amostra.naCor >= 8) && glifoVisivel;
     if (!ok) {
       problemas.push(
         `glifo ${g.forma} de ${g.aresta} (camada "${g.camada}"): ${
           alfaOk ? "" : "alfa real 0 · "
         }${String(amostra.mudaram)} pixels mudam ao esconder (piso 6)${
           exigeCor ? `, ${String(amostra.naCor)} na cor ${g.cor} (piso 8)` : ""
+        }${
+          glifoVisivel
+            ? ""
+            : `, e ele está quase invisível: melhor pixel ${amostra.melhorContraste.toFixed(2)}:1 contra o fundo do próprio lugar (piso ${String(CONTRATO.pisoDeContraste)}:1 de checar-contraste.mjs) com ${String(amostra.pixeisVisiveis)} pixel(es) no piso, e o α de pico dele é ${amostra.alfaPico.toFixed(3)} contra ${alfaDoTraco === undefined ? "NENHUM α medido no traço desta aresta — não medir é reprovar" : `${alfaDoTraco.toFixed(3)} do traço da MESMA aresta (razão ${razaoDeAlfa === null ? "n/d" : razaoDeAlfa.toFixed(2)}, piso ${String(FRACAO_MINIMA_DO_ALFA_DO_TRACO)})`}`
         }`,
       );
     }
-    linha.push(`${g.camada}:${String(amostra.mudaram)}`);
+    linha.push(`${g.camada}:${String(amostra.mudaram)}px/${amostra.melhorContraste.toFixed(1)}:1/α${amostra.alfaPico.toFixed(2)}`);
   }
   exigir(
     problemas.length === 0 && glifos.length > 0,
@@ -709,10 +1531,24 @@ async function medirGlifos(page, chave, estado, arestas) {
  * título do outro lado por escrito. E cada item da lista tem de ser alcançável
  * por Tab — uma lista que o leitor lê e o teclado não alcança é meia lista.
  */
-async function medirAlcanceSemMouse(page, chave, estado, arestas) {
+async function medirAlcanceSemMouse(page, chave, estado, arestas, contrato) {
   const desenhadas = arestas.filter((a) => !a.semPath);
-  if (desenhadas.length === 0) {
-    exigir(false, `${chave}${estado}: §10 nenhuma aresta desenhada para comparar com a lista acessível`);
+  /*
+   * O universo da conferência é a UNIÃO do que o canvas desenhou com o que o
+   * DADO manda desenhar (rodada 11, ALTO 2): comparar só com o desenho deixa
+   * a lista e o canvas calarem juntos. Aresta que o dado tem e o canvas não
+   * desenhou continua tendo de aparecer na lista — e a falta dela no canvas é
+   * o que §12 reprova.
+   */
+  const doDado = Array.isArray(contrato?.esperadas) ? contrato.esperadas : [];
+  const universo = [...desenhadas];
+  for (const e of doDado) {
+    if (!universo.some((a) => a.id === e.id)) {
+      universo.push({ id: e.id, camada: e.camada, origem: e.origem, destino: e.destino, critica: e.critica });
+    }
+  }
+  if (universo.length === 0) {
+    exigir(false, `${chave}${estado}: §10 nenhuma aresta (nem no canvas, nem no dado) para comparar com a lista acessível`);
     return "0/0";
   }
   /*
@@ -737,6 +1573,35 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas) {
   if ((await botao.count()) === 0) {
     exigir(false, `${chave}${estado}: §10 não achei o botão "ver como lista" — o caminho sem mouse não existe`);
     return "sem botão";
+  }
+  /*
+   * A folha modal do celular (o painel "Camadas" a 390 px) cobre a tela
+   * inteira com um backdrop: ali o operador REALMENTE não alcança o botão da
+   * lista, e isso não é defeito. Exceção com conferência própria, nunca um
+   * `catch` mudo: exige-se que exista mesmo uma folha `aria-modal="true"` E
+   * que o que está por cima do botão pertença a ela. Qualquer outra coisa
+   * cobrindo o botão continua reprovando.
+   */
+  const cobertura = await botao.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const acima = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    const folha = document.querySelector('[role="dialog"][aria-modal="true"]');
+    return {
+      alcancavel: acima === el || el.contains(acima),
+      temFolha: folha !== null,
+      doBackdropDaFolha:
+        acima !== null &&
+        folha !== null &&
+        (folha.contains(acima) || acima.getAttribute("aria-hidden") === "true"),
+      quemEsta: acima === null ? "nada" : `${acima.tagName.toLowerCase()}.${String(acima.className).slice(0, 40)}`,
+    };
+  });
+  if (!cobertura.alcancavel) {
+    exigir(
+      cobertura.temFolha && cobertura.doBackdropDaFolha,
+      `${chave}${estado}: §10 alguma coisa cobre o botão "ver como lista" e NÃO é a folha modal do painel: ${cobertura.quemEsta}`,
+    );
+    return "coberto por folha modal — §10 não se mede através dela (medida no estado base da mesma largura)";
   }
   await botao.click();
   await page.waitForSelector("ol[aria-label] li[data-lb-tarefa]", { timeout: 10000 });
@@ -771,7 +1636,7 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas) {
       );
     }
   }
-  for (const a of desenhadas) {
+  for (const a of universo) {
     const rotulo = CONTRATO.rotulos[a.camada];
     const paraConferir = [
       { eu: a.origem, outro: a.destino },
@@ -786,7 +1651,7 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas) {
     });
     if (!achou) {
       problemas.push(
-        `a aresta "${a.id}" (camada "${a.camada}") está no canvas e NÃO está na lista acessível de nenhuma das duas pontas`,
+        `a aresta "${a.id}" (camada "${a.camada}") existe no grafo e NÃO está na lista acessível de nenhuma das duas pontas`,
       );
     }
     if (a.critica) {
@@ -817,7 +1682,16 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas) {
       `o teclado alcançou ${String(alcancados.size)} dos ${String(total)} itens da lista acessível`,
     );
   }
-  const camadasCobertas = new Set(desenhadas.map((a) => a.camada));
+  /*
+   * BAIXO 7 da rodada 11: a saída prometia "as CINCO camadas" e imprimia
+   * "7 arestas em 4 camadas", porque `data-camada` é sempre a camada BASE e
+   * nunca vale "critico" — o caminho crítico é uma FLAG (`data-critica`) sobre
+   * uma aresta de sucessão, por decisão da própria peça. A medida estava
+   * certa; o rótulo, não. Agora a linha diz as duas contas pelo nome.
+   */
+  const camadasBase = CONTRATO.camadas.filter((c) => c !== "critico");
+  const cobertas = new Set(universo.map((a) => a.camada));
+  const criticas = universo.filter((a) => a.critica).length;
   exigir(
     problemas.length === 0 && total > 0,
     `${chave}${estado}: §10 teclado e leitor de tela — ${total === 0 ? "a lista acessível está vazia; " : ""}${problemas.slice(0, 3).join(" ; ")}`,
@@ -828,7 +1702,74 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas) {
   if ((await voltar.count()) > 0) await voltar.click();
   await page.waitForSelector(".react-flow__viewport", { timeout: 10000 });
   await page.waitForTimeout(400);
-  return `${String(desenhadas.length)} arestas em ${String(camadasCobertas.size)} camadas · ${String(alcancados.size)}/${String(total)} itens no Tab`;
+  return `${String(universo.length)} arestas · ${String(cobertas.size)}/${String(camadasBase.length)} camadas base · ${String(criticas)} no caminho crítico (flag, não camada base) · ${String(alcancados.size)}/${String(total)} itens no Tab`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AS MEDIDAS DO DESENHO, NUM ESTADO DA TELA  (§7, §8, §9, §10 e §12 juntas)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Rodada 11, BAIXO 6: §7 a §10 só existiam em DOIS estados (a tela nova e a
+ * tela com um nó selecionado). A varredura de estados (§11) media só a faixa
+ * "Hoje" e o zoom — pintura, traço triplo, glifos e lista acessível não eram
+ * medidos depois de abrir "Legenda" ou "Camadas", que é justamente onde um
+ * popover remonta o canvas. As cinco medidas viraram esta função, e §11 passa
+ * a chamá-la em TODO estado derivado da tela.
+ */
+/**
+ * O canvas está DEBAIXO de uma folha modal? A folha do celular ("Camadas" a
+ * 390 px) é `fixed inset-x-0 bottom-0` com backdrop opaco por cima do grafo
+ * inteiro: ali o canvas de fato não está na tela, e fotografar a folha para
+ * dizer "a aresta não pinta" seria reprovar o produto por ele ter um modal.
+ *
+ * Exceção com conferência própria, nunca um `catch` mudo: exige-se que exista
+ * `[role="dialog"][aria-modal="true"]` E que o que está no CENTRO do pane não
+ * pertença ao canvas. Qualquer outra coisa cobrindo o canvas continua
+ * reprovando — e as medidas que NÃO dependem de pixel (§12, o canvas × o
+ * dado) rodam do mesmo jeito.
+ */
+async function canvasCobertoPorFolhaModal(page) {
+  return page.evaluate(() => {
+    const pane = document.querySelector(".react-flow");
+    const folha = document.querySelector('[role="dialog"][aria-modal="true"]');
+    if (!pane || !folha) return { coberto: false, temFolha: folha !== null, quem: "" };
+    const r = pane.getBoundingClientRect();
+    const acima = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    const doCanvas = acima !== null && pane.contains(acima);
+    return {
+      coberto: !doCanvas,
+      temFolha: true,
+      daFolha: acima !== null && (folha.contains(acima) || acima.getAttribute("aria-hidden") === "true"),
+      quem: acima === null ? "nada" : `${acima.tagName.toLowerCase()}.${String(acima.className).slice(0, 40)}`,
+    };
+  });
+}
+
+async function medirODesenhoInteiro(page, chave, estado) {
+  const PAPEIS_SEM_SELECAO = CONTRATO.papeis.filter((p) => p !== "destacada");
+  const contrato = await lerContratoDoCanvas(page);
+  const cobertura = await canvasCobertoPorFolhaModal(page);
+  if (cobertura.coberto) {
+    exigir(
+      cobertura.temFolha && cobertura.daFolha,
+      `${chave}${estado}: §7 alguma coisa cobre o CENTRO do canvas e NÃO é a folha modal do painel: ${cobertura.quem}`,
+    );
+    const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+    const contraODado = medirCoberturaContraODado(chave, estado, contrato, leitura.arestas);
+    return {
+      pintura: { linha: "canvas debaixo da folha modal — §7/§8/§9 não se medem através dela", detalhePorAresta: [], arestas: leitura.arestas },
+      triplo: "n/d (folha modal)",
+      glifos: "n/d (folha modal)",
+      alcance: "n/d (folha modal)",
+      contraODado,
+    };
+  }
+  const pintura = await medirPinturaDasArestas(page, chave, estado, PAPEIS_SEM_SELECAO, PAPEIS_SEM_SELECAO);
+  const triplo = medirTracoTriplo(chave, estado, pintura.bandasPorCritica, pintura.detalhePorAresta);
+  const contraODado = medirCoberturaContraODado(chave, estado, contrato, pintura.arestas);
+  const glifos = await medirGlifos(page, chave, estado, pintura.arestas, pintura.alfaPicoPorAresta);
+  const alcance = await medirAlcanceSemMouse(page, chave, estado, pintura.arestas, contrato);
+  return { pintura, triplo, glifos, alcance, contraODado };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -871,12 +1812,13 @@ async function medirUmaLargura(browser, caso) {
     );
   }
 
-  // ── 7/8/9/10. A PINTURA, antes de mexer no zoom ────────────────────────
-  const PAPEIS_SEM_SELECAO = CONTRATO.papeis.filter((p) => p !== "destacada");
-  const pintura = await medirPinturaDasArestas(page, chave, "", PAPEIS_SEM_SELECAO, PAPEIS_SEM_SELECAO);
-  const triplo = medirTracoTriplo(chave, "", pintura.bandasPorCritica, pintura.detalhePorAresta);
-  const glifos = await medirGlifos(page, chave, "", pintura.arestas);
-  const alcance = await medirAlcanceSemMouse(page, chave, "", pintura.arestas);
+  // ── 7/8/9/10/12. A PINTURA, antes de mexer no zoom ─────────────────────
+  const desenho = await medirODesenhoInteiro(page, chave, "");
+  const pintura = desenho.pintura;
+  const triplo = desenho.triplo;
+  const glifos = desenho.glifos;
+  const alcance = desenho.alcance;
+  const contraODado = desenho.contraODado;
 
   // ── 7b. O destaque amarelo do predecessor (o 6º papel) ─────────────────
   /*
@@ -885,11 +1827,18 @@ async function medirUmaLargura(browser, caso) {
    * rodada. O nó escolhido é derivado: o destino da primeira aresta de
    * sucessão que o canvas desenhou.
    */
+  /* A volta da lista acessível para o canvas recria as arestas; esperar o
+     seletor (em vez de ler no escuro) evita que uma re-renderização lenta
+     vire "nenhuma aresta de sucessão no canvas". Se ela não aparecer mesmo,
+     o `exigir` abaixo continua reprovando. */
+  await page
+    .waitForSelector('.react-flow g[data-camada="sucessao"]', { timeout: 10000 })
+    .catch(() => undefined);
   const destinoParaSelecionar = await page.evaluate(() => {
-    for (const g of document.querySelectorAll('g[data-camada="sucessao"]')) {
+    for (const g of document.querySelectorAll('.react-flow g[data-camada="sucessao"]')) {
       if (g.getAttribute("data-critica") !== "true") return g.getAttribute("data-destino");
     }
-    const q = document.querySelector('g[data-camada="sucessao"]');
+    const q = document.querySelector('.react-flow g[data-camada="sucessao"]');
     return q ? q.getAttribute("data-destino") : null;
   });
   let destaque = "sem aresta de sucessão";
@@ -926,6 +1875,7 @@ async function medirUmaLargura(browser, caso) {
     triplo,
     glifos,
     alcance,
+    contraODado,
     detalhePorAresta: pintura.detalhePorAresta,
     errosDePagina: [...errosDePagina],
   };
@@ -1090,8 +2040,45 @@ async function medirEstadosDerivados(browser, caso) {
       errosDePagina.length === 0,
       `${chave}: §11 com "${controle.nome}" aberto, a página lançou ${errosDePagina.length} erro(s): ${errosDePagina[0] ?? ""}`,
     );
-    linhas.push(`${controle.nome}: Hoje ${String(hoje.visivel)}px, zoom ${String(antes)}→${String(depois)}`);
     await ctx.close();
+
+    /*
+     * BAIXO 6: o MESMO estado, numa página limpa, com as cinco camadas
+     * ligadas — e aí as cinco medidas do desenho (§7 pintura, §8 traço
+     * triplo, §9 glifos, §10 lista acessível, §12 canvas × dado). Página
+     * separada de propósito: as medidas acima mexem no zoom e no tamanho da
+     * janela, e medir a pintura depois disso seria medir o próprio rastro.
+     */
+    const segunda = await abrirPagina(browser, caso);
+    await ligarTodasAsCamadas(segunda.page);
+    await segunda.page.waitForTimeout(500);
+    if (controle.indice >= 0) {
+      const clicou2 = await segunda.page.evaluate((i) => {
+        const el = [...document.querySelectorAll("[aria-expanded]")][i];
+        if (!el) return false;
+        el.click();
+        return true;
+      }, controle.indice);
+      exigir(
+        clicou2,
+        `${chave}: §11 o controle "${controle.nome}" sumiu antes de medir o desenho neste estado`,
+      );
+      await segunda.page.waitForTimeout(900);
+    }
+    const desenhoNoEstado = await medirODesenhoInteiro(segunda.page, chave, ` [${controle.nome}]`);
+    exigir(
+      segunda.errosDePagina.length === 0,
+      `${chave}: §11 com "${controle.nome}" aberto, a página do desenho lançou ${segunda.errosDePagina.length} erro(s): ${segunda.errosDePagina[0] ?? ""}`,
+    );
+    await segunda.ctx.close();
+
+    linhas.push(
+      `${controle.nome}: Hoje ${String(hoje.visivel)}px, zoom ${String(antes)}→${String(depois)} · ${desenhoNoEstado.pintura.linha} · dado ${desenhoNoEstado.contraODado} · glifos ${
+        desenhoNoEstado.glifos.startsWith("n/d")
+          ? desenhoNoEstado.glifos
+          : `${String(desenhoNoEstado.glifos.split(" ").filter(Boolean).length)} medidos`
+      } · lista ${desenhoNoEstado.alcance}`,
+    );
   }
   medicoes[chave] = { ...(medicoes[chave] ?? {}), estados: linhas };
   return linhas;
@@ -1193,8 +2180,14 @@ console.log(
 const browser = await pw.chromium.launch({ executablePath: CHROMIUM, args: ["--no-sandbox"] });
 try {
   for (const caso of LARGURAS) {
+    const chave = `${caso.largura}x${caso.altura}`;
     await medirUmaLargura(browser, caso);
     await medirEstadosDerivados(browser, caso);
+    console.log(`· desligando camadas em ${chave}`);
+    const desligar = await medirDesligarCamada(browser, caso);
+    console.log(`· estado default (nada clicado) em ${chave}`);
+    const defaultDaTela = await medirEstadoDefault(browser, caso);
+    medicoes[chave] = { ...(medicoes[chave] ?? {}), desligar, defaultDaTela };
   }
 } finally {
   await browser.close();
@@ -1221,6 +2214,9 @@ for (const [chave, m] of Object.entries(medicoes)) {
   console.log(`             triplo   ${m.triplo ?? "?"}`);
   console.log(`             glifos   ${m.glifos ?? "?"}`);
   console.log(`             sem mouse ${m.alcance ?? "?"}`);
+  console.log(`             × o dado ${m.contraODado ?? "?"}`);
+  console.log(`             default  ${m.defaultDaTela ?? "?"}`);
+  for (const linha of m.desligar ?? []) console.log(`             desliga  ${linha}`);
   for (const linha of m.estados ?? []) console.log(`             estado   ${linha}`);
 }
 if (falhas.length > 0) {

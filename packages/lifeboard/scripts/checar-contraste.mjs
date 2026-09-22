@@ -189,12 +189,118 @@ const PARES = [
   ["state-blocked", "navy-950", 4.5, "recusa em português da fila, role=alert, na tabela (P7)"],
 ];
 
+/**
+ * ── A COR QUE O GRAFO DE FATO PINTA (achado ALTO 4 da rodada 11) ──────────
+ *
+ * Até aqui esta régua lia SÓ `tailwind.config.ts`. O grafo não consome esses
+ * tokens: `src/components/graph/aresta-svg.tsx` tem hex literais próprios
+ * (`stroke`/`fill` do SVG não aceitam classe Tailwind). Eram DUAS tabelas de
+ * hex para a mesma cor, sem nenhum teste entre elas — e o crítico trocou UM
+ * hex lá (`sucessao` #5FE39A → #1A2238, 12,40:1 → 1,27:1 contra o canvas) com
+ * os cinco portões verdes, este aqui imprimindo "64 pares verificados, todos
+ * dentro da régua".
+ *
+ * Duas coisas fecham o buraco, e as duas moram aqui:
+ *  1. A régua passa a medir a cor do ARQUIVO QUE DESENHA, contra o fundo do
+ *     canvas (`navy-950`), com o mínimo de traço (3:1).
+ *  2. As duas tabelas têm de ser IGUAIS, papel a papel. Divergir é falha —
+ *     não importa qual das duas está "certa". (O mesmo casamento é testado em
+ *     `tests/unit/cor-da-aresta-uma-fonte-so.test.ts`, para o portão de teste
+ *     também morder, e é conferido pela guarda de navegador, que deriva o
+ *     contrato dos DOIS lados.)
+ */
+const fonteDaAresta = readFileSync(
+  new URL("../src/components/graph/aresta-svg.tsx", import.meta.url),
+  "utf8",
+);
+
+/** Papel de aresta → token de `tailwind.config.ts` que ele tem de espelhar. */
+const TOKEN_DO_PAPEL = {
+  sucessao: "aresta-sucessao",
+  correlacao: "aresta-correlacao",
+  sinergia: "aresta-sinergia",
+  obsolescencia: "aresta-obsolescenciaHue",
+  critico: "aresta-critico",
+  destacada: "aresta-predecessor",
+};
+
+function coresQueOGrafoPinta() {
+  const bloco = /export const ARESTA_STROKE:[\s\S]*?=\s*\{([\s\S]*?)\n\};/.exec(fonteDaAresta);
+  if (!bloco) throw new Error("não achei ARESTA_STROKE em src/components/graph/aresta-svg.tsx");
+  const cores = {};
+  for (const m of bloco[1].matchAll(/(\w+):\s*"(#[0-9A-Fa-f]{6})"/g)) cores[m[1]] = m[2];
+  const critico = /ARESTA_STROKE_CRITICO\s*=\s*"(#[0-9A-Fa-f]{6})"/.exec(fonteDaAresta);
+  const destacada = /ARESTA_STROKE_DESTACADA\s*=\s*"(#[0-9A-Fa-f]{6})"/.exec(fonteDaAresta);
+  if (!critico || !destacada) throw new Error("não achei ARESTA_STROKE_CRITICO/DESTACADA");
+  cores.critico = critico[1];
+  cores.destacada = destacada[1];
+  return cores;
+}
+
+const CORES_DO_GRAFO = coresQueOGrafoPinta();
+const papeisSemCor = Object.keys(TOKEN_DO_PAPEL).filter((p) => !CORES_DO_GRAFO[p]);
+if (papeisSemCor.length > 0) {
+  console.error(
+    `papel de aresta sem cor em aresta-svg.tsx: ${papeisSemCor.join(", ")} — a régua de contraste não sabe medir o que o grafo pinta`,
+  );
+  process.exit(1);
+}
+/**
+ * ── O PISO DE VISIBILIDADE DO TRAÇO, COM NOME (rodada 12) ─────────────────
+ *
+ * Era o literal `3` no meio do laço abaixo. Ganhou nome porque deixou de ser
+ * só um número desta régua: a guarda de navegador (`guarda-no-navegador.mjs`,
+ * §7 e §9) passa a cobrar ESTE MESMO número do PIXEL COMPOSTO que ela
+ * fotografa, e vai buscá-lo aqui, lendo este arquivo — nunca escrevendo um
+ * número próprio.
+ *
+ * Por que importava: a rodada 11 mediu a COR do pixel pelo modelo de mistura
+ * (`P = α·C + (1 − α)·B`, distância até a reta B→C) e nunca mediu o **α**.
+ * Qualquer ponto da reta passava, inclusive α perto de zero. Medido pelo
+ * coordenador: `opacity: 0.12` no `<g>` da aresta leva a sucessão de 12,40:1
+ * para 1,21:1 contra o canvas — o grafo inteiro quase invisível — com os
+ * CINCO portões verdes, este arquivo inclusive (ele mede o hex DECLARADO, e a
+ * opacidade é aplicada na composição: a cor declarada continua `#5FE39A`).
+ *
+ * São duas perguntas, e as duas têm de ser feitas: "está na cor certa?" (a
+ * reta) e "está visível o bastante para um humano?" (o α). Esta constante é a
+ * resposta da segunda, e ela mora AQUI — na régua de contraste da casa — e
+ * não no arquivo que decide a cor nem na guarda que mede.
+ */
+export const PISO_DE_CONTRASTE_DA_ARESTA = 3;
+
+for (const [papel, cor] of Object.entries(CORES_DO_GRAFO)) {
+  RESOLVIDAS[`grafo-${papel}`] = cor;
+  PARES.push([
+    `grafo-${papel}`,
+    "navy-950",
+    PISO_DE_CONTRASTE_DA_ARESTA,
+    `traço da aresta "${papel}" COMO O GRAFO PINTA (hex de aresta-svg.tsx, não o token) — P4 rodada 11 ALTO 4`,
+  ]);
+}
+
+/** As duas tabelas de hex têm de dizer a mesma coisa, papel a papel. */
+let divergencias = 0;
+for (const [papel, token] of Object.entries(TOKEN_DO_PAPEL)) {
+  const noGrafo = CORES_DO_GRAFO[papel];
+  const noTema = T[token];
+  if (!noTema) {
+    console.error(`token ${token} não existe em tailwind.config.ts (papel "${papel}")`);
+    divergencias += 1;
+  } else if (noTema.toUpperCase() !== noGrafo.toUpperCase()) {
+    console.error(
+      `DUAS TABELAS DE HEX DIVERGEM no papel "${papel}": aresta-svg.tsx pinta ${noGrafo} e o token ${token} de tailwind.config.ts diz ${noTema}. Uma cor, uma fonte.`,
+    );
+    divergencias += 1;
+  }
+}
+
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */
 function resolveCor(nome) {
   return T[nome] ?? RESOLVIDAS[nome];
 }
 
-let falhou = 0;
+let falhou = divergencias;
 const linhas = [];
 for (const [t, f, min, onde] of PARES) {
   const corT = resolveCor(t);
@@ -215,7 +321,7 @@ for (const [t, f, min, onde] of PARES) {
 console.log(linhas.join("\n"));
 console.log(
   falhou === 0
-    ? `\n${PARES.length} pares verificados, todos dentro da régua.`
-    : `\n${falhou} par(es) abaixo da régua.`,
+    ? `\n${PARES.length} pares verificados, todos dentro da régua; as ${String(Object.keys(TOKEN_DO_PAPEL).length)} cores de aresta batem entre aresta-svg.tsx e tailwind.config.ts.`
+    : `\n${falhou} problema(s): par abaixo da régua ou hex divergente entre as duas tabelas de cor da aresta.`,
 );
 process.exit(falhou === 0 ? 0 : 1);

@@ -208,20 +208,158 @@ export function janelaDosPontos(pontos, margem, vista) {
 }
 
 /**
+ * ── A COR PINTADA, E NÃO SÓ "ALGUMA COISA FOI PINTADA" (achado ALTO 1 da
+ *    rodada 11) ──────────────────────────────────────────────────────────
+ *
+ * A rodada 10 exigia, por aresta, só PIXEL QUE MUDA, e a cor cheia era
+ * exigida uma vez por PAPEL. Medido pelo crítico: um `filter: hue-rotate`
+ * numa aresta de sucessão pintou `rgb(255, 167, 161)` (o vermelho do caminho
+ * crítico) onde a cor declarada era `rgb(95, 227, 154)` — 0 de 378 pixels na
+ * cor declarada — e os cinco portões ficaram verdes, porque a OUTRA aresta de
+ * sucessão pagava a conta do papel inteiro.
+ *
+ * Exigir "cor cheia em cada aresta" não serve: a 390 px o traço tem menos de
+ * 1 px de tela e é antialias puro (medido: 99 pixels que mudam, ZERO na cor
+ * cheia), e uma aresta quase toda atrás de um cartão sobra em antialias.
+ *
+ * A régua que serve nos dois casos não é a cor cheia — é a MISTURA. O que o
+ * compositor pinta num pixel é sempre
+ *
+ *     P = α·C + (1 − α)·B,   α = opacidade do elemento × cobertura do traço
+ *
+ * com `B` = o pixel do MESMO lugar na foto SEM o elemento (o fundo real, seja
+ * o canvas ou um cartão) e `C` = a cor da camada, tirada do CONTRATO. O
+ * antialias mexe em α e nada mais; trocar a cor (filter, blend, irmão por
+ * cima) tira o pixel da reta B→C. Então mede-se a DISTÂNCIA do pixel até essa
+ * reta — não até um ponto.
+ *
+ * `residuoDeMistura` devolve o α que melhor explica o pixel e o que sobra
+ * depois dele. Sobra grande = pintou outra cor.
+ */
+export function residuoDeMistura(pixel, fundo, cor) {
+  const d = [cor[0] - fundo[0], cor[1] - fundo[1], cor[2] - fundo[2]];
+  const p = [pixel[0] - fundo[0], pixel[1] - fundo[1], pixel[2] - fundo[2]];
+  const den = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  /*
+   * Cor da camada indistinguível do fundo naquele pixel: não há reta para
+   * projetar. O resíduo vira a mudança inteira — ou seja, um pixel que mudou
+   * ali REPROVA. É o comportamento certo: aresta da cor do próprio fundo não
+   * é uma aresta que se prova, é uma aresta que se some.
+   */
+  if (den < 1) return { alfa: null, residuo: Math.max(Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2])) };
+  let alfa = (p[0] * d[0] + p[1] * d[1] + p[2] * d[2]) / den;
+  if (alfa < 0) alfa = 0;
+  if (alfa > 1) alfa = 1;
+  const residuo = Math.max(
+    Math.abs(p[0] - alfa * d[0]),
+    Math.abs(p[1] - alfa * d[1]),
+    Math.abs(p[2] - alfa * d[2]),
+  );
+  return { alfa, residuo };
+}
+
+/**
+ * Teto do resíduo médio PONDERADO de uma aresta. Ponderado pelo tanto que
+ * cada pixel mudou: pixel que quase não mudou quase não vota (é antialias de
+ * ponta), pixel de traço cheio manda.
+ *
+ * Os números medidos nesta rodada, nas CINCO larguras (a corrida completa,
+ * não uma amostra):
+ *
+ * | o que foi medido | resíduo médio |
+ * |---|---|
+ * | árvore honesta, as 7 arestas × 5 larguras | **0,18 a 1,06** |
+ * | `filter: saturate(0)` na obsolescência (variante desta rodada) | **52,9** |
+ * | `filter: hue-rotate(-140deg)` na sucessão (sabotagem do crítico) | **128,1** |
+ *
+ * 24 fica 23× acima do pior caso honesto e 2,2× abaixo da sabotagem mais
+ * fraca. (O 20,1 que a sinergia chegava a marcar a 390 px antes era o `<text>`
+ * do "%" dentro do grupo, não o traço: o Chromium pinta texto com antialias
+ * de subpixel, e franja de cor sai da reta por construção. A guarda passou a
+ * medir a cor do traço FORA da caixa do rótulo — ver `caixaDoRotulo` em
+ * `guarda-no-navegador.mjs`.)
+ */
+export const TOLERANCIA_DE_MISTURA = 24;
+
+/**
+ * ── A SEGUNDA PERGUNTA: O TRAÇO ESTÁ VISÍVEL? (achado da rodada 12) ───────
+ *
+ * `residuoDeMistura` responde *"está na cor certa?"* — a distância do pixel
+ * até a reta `B→C`. Ela NÃO responde *"dá para ver?"*: o próprio comentário
+ * dela diz que "antialias e oclusão só mexem em α (a posição na reta)", e α
+ * não era medido em lugar nenhum. Qualquer ponto da reta passava, **α perto
+ * de zero inclusive**.
+ *
+ * Medido pelo coordenador na entrega da rodada 11: `style={{ opacity: 0.12 }}`
+ * no `<g>` da aresta (UMA linha em `aresta-svg.tsx`) deixou os CINCO portões
+ * verdes com o grafo inteiro quase apagado. Pela mesma conta de
+ * `scripts/checar-contraste.mjs`, a aresta de sucessão (`#5FE39A` sobre
+ * `navy-950` `#05070F`) cai de **12,40:1** para **1,21:1** — pior que o ALTO 4
+ * que a rodada 11 tinha acabado de fechar (1,27:1), e por um portão escrito
+ * justamente para pegar aquilo.
+ *
+ * Por que nenhuma régua antiga via: `checar-contraste.mjs` mede o par de
+ * TOKENS DECLARADOS, e a opacidade é aplicada na composição (a cor declarada
+ * continua `#5FE39A`; o que chega ao olho é `rgb(16, 33, 32)`). E a régua de
+ * "pixels que mudam" é de QUANTIDADE, não de intensidade: a 12% ainda mudam
+ * pixels de sobra.
+ *
+ * A cura mede o que o olho recebe: o contraste WCAG entre o PIXEL COMPOSTO
+ * (foto COM o elemento) e o PIXEL DE FUNDO DO MESMO LUGAR (foto SEM). As duas
+ * fotos já existem; o que faltava era esta conta. O piso vem de fora — de
+ * `scripts/checar-contraste.mjs`, a régua de contraste da casa — para não
+ * repetir o vício "a guarda conta a si mesma" que a rodada 11 levou como
+ * ALTO 4.
+ *
+ * A conta é literalmente a de `checar-contraste.mjs` (WCAG 2.x, luminância
+ * relativa), com a entrada em canais 0–255 em vez de hex.
+ */
+const canalLinear = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+
+/** Luminância relativa WCAG de `[r, g, b]` em 0–255. */
+export function luminanciaRelativa(rgb) {
+  return (
+    0.2126 * canalLinear(rgb[0] / 255) +
+    0.7152 * canalLinear(rgb[1] / 255) +
+    0.0722 * canalLinear(rgb[2] / 255)
+  );
+}
+
+/** Razão de contraste WCAG entre duas cores `[r, g, b]` — 1:1 a 21:1. */
+export function razaoDeContraste(a, b) {
+  const [claro, escuro] = [luminanciaRelativa(a), luminanciaRelativa(b)].sort((p, q) => q - p);
+  return (claro + 0.05) / (escuro + 0.05);
+}
+
+/**
  * A amostra em torno de UM ponto de tela: quantos pixels estão na cor que o
- * compositor deve pintar, e quantos MUDAM quando o elemento some.
+ * compositor deve pintar, quantos MUDAM quando o elemento some, e — quando
+ * `corDoContrato` é passada — o quanto os pixels que mudaram se afastam da
+ * reta "fundo → cor da camada" (ver `residuoDeMistura`).
+ *
+ * Com `pisoDeContraste`, devolve também as DUAS medidas de visibilidade
+ * (rodada 12): o MAIOR contraste que um pixel deste ponto alcança contra o
+ * fundo do próprio lugar (`melhorContraste`) e quantos pixels chegam ao piso
+ * (`pixeisVisiveis`). É o eixo α, que a régua da reta não mede.
  *
  * `dentro: false` = a janelinha não cabe na foto. Não é dispensa: quem chama
  * conta os pontos medíveis e REPROVA quando nenhum é.
  */
-export function amostraNoPonto(fotos, ponto, corEsperada, raio) {
+export function amostraNoPonto(fotos, ponto, corEsperada, raio, corDoContrato, pisoDeContraste) {
   const cx = Math.round(ponto.x - (fotos.dx ?? 0));
   const cy = Math.round(ponto.y - (fotos.dy ?? 0));
   const alvo = corEmCanais(corEsperada);
+  const alvoDoContrato = corDoContrato ? corEmCanais(corDoContrato) : null;
   let naCor = 0;
   let mudaram = 0;
   let total = 0;
   let melhorDistancia = 255;
+  let peso = 0;
+  let pesoVezesResiduo = 0;
+  let piorResiduoForte = 0;
+  let melhorContraste = 1;
+  let pixeisVisiveis = 0;
+  let alfaPico = 0;
   for (let y = cy - raio; y <= cy + raio; y += 1) {
     for (let x = cx - raio; x <= cx + raio; x += 1) {
       const c = pixelEm(fotos.com, x, y);
@@ -231,10 +369,45 @@ export function amostraNoPonto(fotos, ponto, corEsperada, raio) {
       const d = distanciaDeCor(c, alvo);
       if (d < melhorDistancia) melhorDistancia = d;
       if (d <= TOLERANCIA_DE_COR) naCor += 1;
-      if (distanciaDeCor(c, s) > 2) mudaram += 1;
+      const mudou = distanciaDeCor(c, s);
+      if (mudou > 2) {
+        mudaram += 1;
+        /*
+         * O QUE O OLHO RECEBE, pixel a pixel: o composto contra o fundo do
+         * MESMO lugar. Não é o token declarado (que a opacidade não muda) nem
+         * a cor do contrato (que é o fim da reta) — é o pixel da foto.
+         */
+        const contraste = razaoDeContraste(c, s);
+        if (contraste > melhorContraste) melhorContraste = contraste;
+        if (pisoDeContraste !== undefined && contraste >= pisoDeContraste) pixeisVisiveis += 1;
+        if (alvoDoContrato !== null) {
+          const { alfa, residuo } = residuoDeMistura(c, s, alvoDoContrato);
+          /*
+           * O α DE PICO: o quanto o elemento chega a cobrir, no melhor pixel
+           * desta amostra. É a grandeza que o modelo de mistura calculava e
+           * jogava fora — e é ela que uma opacidade de 12% derruba.
+           */
+          if (alfa !== null && alfa > alfaPico) alfaPico = alfa;
+          peso += mudou;
+          pesoVezesResiduo += mudou * residuo;
+          if (mudou >= 16 && residuo > piorResiduoForte) piorResiduoForte = residuo;
+        }
+      }
     }
   }
-  return { naCor, mudaram, total, melhorDistancia, dentro: total > 0 };
+  return {
+    naCor,
+    mudaram,
+    total,
+    melhorDistancia,
+    dentro: total > 0,
+    peso,
+    pesoVezesResiduo,
+    piorResiduoForte,
+    melhorContraste,
+    pixeisVisiveis,
+    alfaPico,
+  };
 }
 
 /**
@@ -388,6 +561,39 @@ window.__lbp4 = {
       n = n.parentElement;
     }
     return { opacidadeAcumulada: this.opacidadeAcumulada(el), visivelHerdado };
+  },
+  /**
+   * Os DOIS EXTREMOS do traço, em coordenadas de tela — o primeiro e o último
+   * vértice do \`d\`. É com eles que o MÉDIO 5 da rodada 11 se fecha: o traço
+   * tem de começar no cartão que \`data-origem\` nomeia e terminar no que
+   * \`data-destino\` nomeia. Até aqui nenhuma seção comparava as pontas do
+   * desenho com os cartões nomeados — e o crítico pintou o ❌ da obsolescência
+   * em cima de "Daily standup" enquanto o atributo, a lista acessível e o
+   * dado diziam "Arquivar docs antigos".
+   */
+  extremosDaAresta(path) {
+    const ctm = path.getScreenCTM();
+    if (!ctm) return null;
+    const nums = (path.getAttribute("d") || "").match(/-?\\d+(?:\\.\\d+)?/g);
+    if (!nums || nums.length < 4) return null;
+    const svg = path.ownerSVGElement;
+    const emTela = (i) => {
+      const p = svg.createSVGPoint();
+      p.x = Number(nums[i]);
+      p.y = Number(nums[i + 1]);
+      const q = p.matrixTransform(ctm);
+      return { x: q.x, y: q.y };
+    };
+    return { inicio: emTela(0), fim: emTela(nums.length - 2) };
+  },
+  /** A caixa de tela de cada cartão do canvas, por id da tarefa. */
+  caixasDosCartoes() {
+    const m = {};
+    for (const no of document.querySelectorAll(".react-flow__node[data-id]")) {
+      const r = no.getBoundingClientRect();
+      m[no.getAttribute("data-id")] = { x: r.x, y: r.y, largura: r.width, altura: r.height };
+    }
+    return m;
   },
   /**
    * Pontos SOBRE o traço, em coordenadas de tela, com a perpendicular exata

@@ -31,6 +31,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 import {
   arestaEhCritica,
   camadaBaseDeAresta,
+  CAMADAS_TODAS,
   construirArestasVisuais,
   filtrarArestasPorCamada,
   relacoesAcessiveisDaTarefa,
@@ -1177,6 +1178,40 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     pane,
   ]);
 
+  /**
+   * O QUE O CANVAS DEVE DESENHAR, DITO PELO DADO — não pelo desenho.
+   *
+   * Rodada 11, achado ALTO 2 do crítico hostil: `return []` para UMA aresta
+   * dentro do `useMemo` de `edges` (uma linha) apagou do canvas a única
+   * dependência que entrava na meta, e os cinco portões ficaram verdes. A
+   * guarda de navegador só sabia perguntar *"toda aresta DESENHADA está na
+   * lista acessível?"* — nunca o contrário — e o piso dela era "cada papel tem
+   * ao menos 1 aresta", nunca uma contagem contra o dado. A própria saída
+   * imprimia `critico=1/1` em vez de `2/2` e chamava aquilo de sucesso.
+   *
+   * Este memo é o lado do DADO da comparação: sai de `arestasVisuais`
+   * (tasks + edges + caminho crítico) filtrado só pelas camadas ativas, e
+   * NUNCA passa pelo `useMemo` que monta as arestas do ReactFlow. A guarda
+   * compara os dois conjuntos nos dois sentidos. Publicado num atributo
+   * (`data-lb-contrato-do-canvas`) pela mesma disciplina de `data-lb-tarefa`
+   * da lista acessível: a superfície de medição é do produto, não da guarda.
+   */
+  const contratoDoCanvas = useMemo(() => {
+    const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
+    return JSON.stringify({
+      camadasAtivas: CAMADAS_TODAS.filter((c) => camadasAtivas.has(c)),
+      totalNoDado: arestasVisuais.length,
+      esperadas: visiveis.map((a) => ({
+        id: a.id,
+        origem: a.origem,
+        destino: a.destino,
+        camada: camadaBaseDeAresta(a),
+        critica: camadasAtivas.has("critico") && arestaEhCritica(a),
+        temRota: rotaPorAresta.has(a.id),
+      })),
+    });
+  }, [arestasVisuais, camadasAtivas, rotaPorAresta]);
+
   const edges = useMemo<Edge<V3EdgeData>[]>(() => {
     const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
     const mapeadas = visiveis.flatMap((aresta) => {
@@ -1270,6 +1305,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
         className="relative flex h-full w-full flex-col bg-navy-950"
         role="application"
         aria-label="Grafo de dependências de tarefas"
+        data-lb-contrato-do-canvas={contratoDoCanvas}
       >
         <ReactFlowProvider>
           {/* P4g (decisão D9 + achado BAIXO #14): a barra de controle vem
