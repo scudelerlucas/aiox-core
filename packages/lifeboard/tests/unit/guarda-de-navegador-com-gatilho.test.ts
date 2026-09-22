@@ -204,3 +204,96 @@ describe("CRÍTICO — o vigia do contrato e as duas sentinelas continuam armado
     }
   });
 });
+
+/**
+ * ESTREIA DO JOB (22/09/2026) — O PASSO REPROVOU ALTO, E POR CAUSA DO
+ * INTERPRETADOR.
+ *
+ * O job nasceu na rodada 14 sem nunca ter rodado: a sessão que o escreveu não
+ * tinha rede. O autor previu que a primeira corrida poderia falhar por dois
+ * motivos — a tag da imagem, ou o caminho do `playwright-core` dentro dela. Os
+ * dois estavam certos. O que quebrou foi um terceiro, que ninguém previu:
+ *
+ *   /__w/_temp/….sh: 1: set: Illegal option -o pipefail
+ *   ##[error]Process completed with exit code 2
+ *
+ * A imagem do Playwright entrega `sh` (dash) como interpretador padrão dos
+ * passos, e `set -o pipefail` é bash. O job foi escrito em bash sem declarar
+ * bash, então reprovou antes de medir uma única coisa. O conserto é
+ * `shell: bash` no passo.
+ *
+ * Este bloco existe para fechar a CLASSE, não o caso: qualquer passo do
+ * `ci.yml` que use bash tem de declarar bash. Sem isto, o próximo passo escrito
+ * com `[[ … ]]`, `pipefail` ou `<<<` repete o erro num contêiner qualquer — e
+ * repete em voz alta, gastando uma corrida inteira para dizer "o interpretador
+ * está errado".
+ */
+describe("todo passo de CI que usa bash declara bash", () => {
+  const CI = ci();
+
+  /** Construções que o `sh` (dash) do POSIX não entende. */
+  const BASHISMOS: ReadonlyArray<readonly [RegExp, string]> = [
+    [/\bpipefail\b/, "set -o pipefail"],
+    [/\[\[/, "[[ … ]]"],
+    [/<<</, "<<< (here-string)"],
+    [/\$\{[A-Za-z_][A-Za-z0-9_]*(,,|\^\^)/, "${var,,} / ${var^^}"],
+    [/\bfunction\s+[A-Za-z_]/, "function nome()"],
+  ] as const;
+
+  /**
+   * Corta o arquivo em passos. Um passo começa em `- name:` (ou `- uses:`) na
+   * indentação de lista de `steps:` e termina onde o próximo começa. Cortar por
+   * texto é suficiente porque a pergunta é local ao passo: o `run:` e o
+   * `shell:` do mesmo passo.
+   */
+  function passosDoCi(): ReadonlyArray<{ readonly rotulo: string; readonly texto: string }> {
+    const linhas = CI.split("\n");
+    const inicios: number[] = [];
+    for (const [i, linha] of linhas.entries()) {
+      if (/^\s{6}- (name|uses):/.test(linha)) inicios.push(i);
+    }
+    return inicios.map((inicio, n) => {
+      const fim = inicios[n + 1] ?? linhas.length;
+      const texto = linhas.slice(inicio, fim).join("\n");
+      const rotulo = /- name:\s*(.+)$/m.exec(texto)?.[1]?.trim() ?? `passo na linha ${inicio + 1}`;
+      return { rotulo, texto };
+    });
+  }
+
+  it("PRONTO QUANDO: nenhum passo usa construção de bash sem `shell: bash`", () => {
+    const passos = passosDoCi();
+    // Piso: se o cortador parar de achar passos, este bloco aprova por ausência
+    // — a forma nº 2 do catálogo desta base.
+    expect(passos.length, "o cortador de passos não achou passo nenhum no ci.yml").toBeGreaterThan(
+      20,
+    );
+
+    const faltando: string[] = [];
+    for (const passo of passos) {
+      const corpoDoRun = /^\s*run:\s*\|?\s*$([\s\S]*)/m.exec(passo.texto)?.[1] ?? "";
+      const comentariosFora = corpoDoRun
+        .split("\n")
+        .filter((l) => !/^\s*#/.test(l))
+        .join("\n");
+      if (comentariosFora.trim() === "") continue;
+      const usados = BASHISMOS.filter(([re]) => re.test(comentariosFora)).map(([, nome]) => nome);
+      if (usados.length === 0) continue;
+      const declaraBash = /^\s*shell:\s*bash\s*$/m.test(passo.texto);
+      if (!declaraBash) faltando.push(`${passo.rotulo} → usa ${usados.join(", ")}`);
+    }
+
+    expect(
+      faltando,
+      "passo(s) de CI usando bash sem `shell: bash` — num contêiner com `sh`, isto reprova antes de medir qualquer coisa",
+    ).toEqual([]);
+  });
+
+  it("PRONTO QUANDO: o passo da guarda no navegador declara `shell: bash`", () => {
+    const passo = passosDoCi().find((x) => x.rotulo.includes("guarda no navegador"));
+    expect(passo, "o passo da guarda no navegador desapareceu do ci.yml").toBeDefined();
+    expect(
+      /^\s*shell:\s*bash\s*$/m.test(passo?.texto ?? ""),
+      "sem `shell: bash` o passo morre em `set: Illegal option -o pipefail` dentro da imagem do Playwright",
+    ).toBe(true);
+  });
+});

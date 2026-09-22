@@ -300,6 +300,13 @@ jobs:
 
       - name: lifeboard - guarda no navegador (P6, Chromium)
         working-directory: packages/lifeboard
+        # `shell: bash` e obrigatorio aqui, nao e preferencia: a imagem do
+        # Playwright entrega `sh` (dash) como interpretador padrao, e o bloco
+        # abaixo comeca com `set -uo pipefail`, que e bash. Na estreia deste
+        # job (22/09, PR #43) a saida foi exatamente `set: Illegal option -o
+        # pipefail`, exit 2 — o job reprovou ALTO, como foi escrito para fazer,
+        # mas reprovou por causa do interpretador, sem chegar a medir nada.
+        shell: bash
         env:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
         run: |
