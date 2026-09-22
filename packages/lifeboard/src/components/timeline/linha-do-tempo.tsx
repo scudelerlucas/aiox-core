@@ -23,7 +23,16 @@ import {
   planoDaFolhaInferior,
   semRolagem,
 } from "@/core/timeline/folha-inferior";
-import { textoDoPeriodo } from "@/core/timeline/periodo-da-tarefa";
+import {
+  estadoDoAssunto,
+  rotuloAcessivelDoAssunto,
+  textoDoPeriodoDoAssunto,
+} from "@/core/timeline/assunto-em-palavras";
+import {
+  desenhaBarraDeDuracao,
+  motivoForaDaGrade,
+  textoDoPeriodo,
+} from "@/core/timeline/periodo-da-tarefa";
 import {
   avisoDeOverflow,
   fatorDeOverflow,
@@ -492,6 +501,8 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
       )?.linha ?? null,
     [linhas, ativaChave],
   );
+  const temLinhas = linhas.some((l) => l.tipo === "linha");
+  const detalheAberto = linhaAtivaQualquer !== null;
   const linhaAtiva =
     linhaAtivaQualquer && linhaAtivaQualquer.kind === "tarefa" ? linhaAtivaQualquer : null;
   const assuntoAtivo =
@@ -555,12 +566,35 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
   // também vale — um horizonte ESTREITO não fica preso no alvo de 24 quando
   // sobra painel; cresce até `PX_POR_DIA_AUTO_TETO` para preencher de verdade
   // (antes: `totalW 624` num painel de até 1280px, 36% desperdiçado).
+  /**
+   * Rodada 11 (achado MÉDIO 5): ABRIR A GAVETA NÃO RE-ESCALA O EIXO.
+   *
+   * A partir de 768px a gaveta é uma COLUNA (decisão D2 da rodada 7) e
+   * comprime o gráfico. Como "auto" derivava `px/dia` da largura VISÍVEL, um
+   * clique numa linha para inspecioná-la mudava a escala inteira — medido:
+   *
+   * | janela | canvas fechado → aberto | encolhe | o "hoje" anda | a barra clicada |
+   * |---|---|---|---|---|
+   * | 768×900 | 480 → 328 px | 32% | 430 → 278 | 55 → 38 px |
+   * | 1024×768 | 736 → 424 px | 42% | 519 → 411 | 85 → 49 px |
+   * | 1280×900 | 992 → 680 px | 31% | 607 → 499 | 114 → 78 px |
+   * | 1440×900 | 1112 → 800 px | 28% | 669 → 561 | 128 → 92 px |
+   *
+   * Toda barra mudava de tamanho e de lugar no instante da inspeção —
+   * inclusive a que o operador estava olhando. A referência (Asana) estreita
+   * a área visível e o Gantt ROLA, mantendo a escala. É o que se faz aqui: a
+   * largura que alimenta o "auto" é congelada enquanto a gaveta estiver
+   * aberta, e volta a seguir o painel quando ela fecha.
+   */
+  const [larguraEscalaCongelada, setLarguraEscalaCongelada] = useState(0);
+  const larguraParaEscala =
+    detalheAberto && larguraEscalaCongelada > 0 ? larguraEscalaCongelada : larguraPainel;
   const pxPorDiaAuto = useMemo(() => {
     const totalDiasAuto = Math.max(1, diffDias(minIsoAuto, maxIsoAuto));
-    if (larguraPainel <= 0) return PX_POR_DIA_AUTO_FALLBACK;
-    const ideal = larguraPainel / totalDiasAuto;
+    if (larguraParaEscala <= 0) return PX_POR_DIA_AUTO_FALLBACK;
+    const ideal = larguraParaEscala / totalDiasAuto;
     return Math.min(PX_POR_DIA_AUTO_TETO, Math.max(PX_POR_DIA_AUTO_PISO, ideal));
-  }, [minIsoAuto, maxIsoAuto, larguraPainel]);
+  }, [minIsoAuto, maxIsoAuto, larguraParaEscala]);
 
   const pxPorDia = zoom === "auto" ? pxPorDiaAuto : PX_POR_DIA_FIXO[zoom];
   // P5e (achado ALTO, rodada 4 — causa raiz "o eixo tem dono demais"): ÚNICA
@@ -611,7 +645,6 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    * Enquanto o detalhe está aberto, a coluna volta aos 140px até `lg` — o nome
    * inteiro está no painel ao lado de qualquer jeito, que é o ponto dele.
    */
-  const detalheAberto = linhaAtivaQualquer !== null;
   const classeColunaRotulos = detalheAberto
     ? "w-[140px] shrink-0 lg:w-[240px]"
     : "w-[140px] shrink-0 sm:w-[240px]";
@@ -728,6 +761,15 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
+
+  /**
+   * Rodada 11 (achado MÉDIO 5): a largura de referência do "auto" só é
+   * atualizada enquanto NENHUMA gaveta está aberta. Assim o clique numa linha
+   * nunca muda `px/dia` — o painel apenas fica mais estreito e rola.
+   */
+  useEffect(() => {
+    if (!detalheAberto && larguraPainel > 0) setLarguraEscalaCongelada(larguraPainel);
+  }, [detalheAberto, larguraPainel]);
 
   /**
    * P5d (achado BAIXO #9, rodada 3): x do fim (com folga) da tarefa do GOAL
@@ -1178,14 +1220,37 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
         </div>
       </div>
 
-      <Legenda aberta={legendaAberta} onAlternar={setLegendaAberta} />
+      {/*
+        Rodada 11 (achado BAIXO 7): a legenda só existe quando há gráfico. Com
+        o quadro vazio, a tela abria com 13 símbolos decodificando desenhos
+        que não estavam ali — e o primeiro contato de um quadro novo é
+        exatamente esse.
+      */}
+      {temLinhas ? <Legenda aberta={legendaAberta} onAlternar={setLegendaAberta} /> : null}
 
-      {!linhas.some((l) => l.tipo === "linha") ? (
+      {!temLinhas ? (
         <div
           role="status"
           className="mt-6 rounded-lg border border-navy-700 bg-navy-850 px-4 py-3 text-sm text-bone-300"
         >
-          Nada para mostrar na linha do tempo ainda.
+          <p className="text-bone-100">Nada para mostrar na linha do tempo ainda.</p>
+          <p className="mt-1">
+            Ela desenha duas coisas: os assuntos (os PRs das suas frentes) e as tarefas com data.
+            Quando existir uma das duas, o gráfico aparece aqui.
+          </p>
+          {/*
+            Rodada 11 (achado BAIXO 7): não havia NENHUMA saída — nem para
+            criar tarefa, nem para as frentes. Uma tela vazia sem caminho é um
+            beco.
+          */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href="/" className={CLASSE_ACAO_DETALHE}>
+              Ver as tarefas de hoje
+            </a>
+            <a href="/frentes" className={CLASSE_ACAO_DETALHE}>
+              Abrir as frentes
+            </a>
+          </div>
         </div>
       ) : (
         /*
@@ -1426,16 +1491,28 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
               >
               <div style={{ width: totalWidth }} className="relative">
               <div style={{ height: alturaLinhas }} className="relative bg-navy-950">
+                {/*
+                  Rodada 11 (achado ALTO 1): a classe `lb-tl-guia-semana` e o
+                  `data-lb-hoje` abaixo NÃO são enfeite — são a RÉGUA que a
+                  guarda do navegador usa para amarrar pixel a data. As guias
+                  são as segundas-feiras (7 dias exatos entre duas), e a faixa
+                  do "Hoje" é o único pixel do canvas cuja data o componente
+                  declara. Os dois vêm de caminhos que NÃO passam por `xFor`
+                  (as guias nascem em `gerarEscalaEixo`, a faixa em `xHoje`),
+                  então uma mentira dentro de `xFor` desloca as barras e deixa
+                  a régua onde estava — que é exatamente o que a guarda mede.
+                */}
                 {guiasDentroDoEixo.map((x) => (
                   <div
                     key={x}
                     aria-hidden="true"
-                    className="absolute top-0 h-full border-l border-navy-800/70"
+                    className="lb-tl-guia-semana absolute top-0 h-full border-l border-navy-800/70"
                     style={{ left: x }}
                   />
                 ))}
                 <div
                   aria-hidden="true"
+                  data-lb-hoje={props.hoje}
                   className="lb-tl-hoje absolute top-0 h-full border-l-2 border-gold-500"
                   style={{ left: xHoje }}
                 />
@@ -1619,9 +1696,16 @@ function RotuloLinha({
         */
         aria-expanded={ativo}
         aria-haspopup="dialog"
-        aria-label={`${linha.titulo} — assunto em ${linha.repo}`}
+        /*
+          Rodada 11 (achado MÉDIO 4): o rótulo era só `título — assunto em
+          repo`, e as 28 barras são `aria-hidden` — mergeado, aberto, com data
+          podre e com datas invertidas chegavam a um leitor de tela com a
+          MESMA frase. Estado e período por extenso, da mesma função pura que
+          alimenta a gaveta e o `title` da barra.
+        */
+        aria-label={rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)}
         className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
-        title={`${linha.titulo} — ${linha.repo}`}
+        title={rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)}
       >
         <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${cor.barra}`} />
         {/*
@@ -1660,8 +1744,15 @@ function RotuloLinha({
   // a forma/cor do conector, que o `aria-hidden` do SVG tornava mudo.
   const ariaPreds = listaDeNomes(linha.predecessores, tituloPorTarefaId);
   const ariaSucs = listaDeNomes(linha.sucessores, tituloPorTarefaId);
+  /*
+    Rodada 11 (achado MÉDIO 3): quando a tarefa sai da grade por falta de
+    dado, o motivo é DITO — no rótulo acessível e, logo abaixo, em texto
+    visível na própria coluna. Uma linha sem barra não pode ser uma linha
+    muda.
+  */
+  const foraDaGrade = motivoForaDaGrade(linha);
   const ariaExtra = [
-    linha.semDuracao ? "sem data" : null,
+    foraDaGrade ? `${foraDaGrade} — fora da grade do tempo` : null,
     linha.atrasada ? "atrasada" : null,
     linha.datasInconsistentes ? "datas inconsistentes" : null,
   ]
@@ -1681,10 +1772,21 @@ function RotuloLinha({
       aria-expanded={ativo}
       aria-haspopup="dialog"
       aria-label={ariaLabel}
-      title={`${linha.titulo}${linha.semDuracao ? " — estimativa faltando" : ""}`}
+      /*
+        Rodada 11: quando a tarefa sai da grade, o rótulo passa a ser a ÚNICA
+        superfície que fala dela no quadro (não há barra para apontar). Aí o
+        `title` carrega a frase inteira do período; nas linhas com barra ele
+        continua sendo só o nome, e quem fala do período é o `title` da barra.
+      */
+      title={foraDaGrade ? `${linha.titulo} — ${textoDoPeriodo(linha, diaMesAnoCurto)}` : linha.titulo}
       className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
     >
       <span className="line-clamp-2 break-words">{linha.titulo}</span>
+      {foraDaGrade ? (
+        <span className="lb-tl-fora-da-grade shrink-0 rounded-full border border-navy-600 px-1 text-[12px] leading-4 text-bone-300">
+          {foraDaGrade}
+        </span>
+      ) : null}
       {typeof linha.score === "number" ? (
         <span className="shrink-0 rounded-full border border-fonte-notes/45 bg-fonte-notes/10 px-1 font-mono text-[12px] text-fonte-notes">
           A {linha.score}
@@ -1758,7 +1860,7 @@ function BarraAssunto({
   // Achados ALTO #2/#7 (rodada 3): assunto que começa ANTES da janela vigente
   // — nunca mais um coto de 4px grudado em `x=0` sem aviso nenhum. Chevron na
   // borda esquerda, com as datas REAIS no `title` (nunca cortado em silêncio).
-  const periodoAssunto = `${diaMesAnoCurto(row.inicio)} → ${row.aberto ? "em aberto" : diaMesAnoCurto(row.fim)}`;
+  const periodoAssunto = textoDoPeriodoDoAssunto(row, diaMesAnoCurto);
   if (foraDaJanela(row.inicio)) {
     return (
       <div
@@ -1802,12 +1904,21 @@ function BarraAssunto({
         aria-hidden="true"
         className={`lb-tl-marco absolute rotate-45 ${cor.barra}`}
         style={{ left: x - 5, top: top + (BAR_H - 10) / 2, width: 10, height: 10 }}
-        title={`${row.titulo} — ${diaMesAnoCurto(row.inicio)} (mesmo dia)`}
+        title={`${row.titulo} — ${periodoAssunto}`}
       />
     );
   }
 
-  const largura = Math.max(4, xFor(row.fim) - x);
+  /**
+   * Rodada 11 (achado BAIXO 6): o piso de largura é UM SÓ nos dois grupos do
+   * mesmo eixo. `BarraAssunto` usava `Math.max(4, …)` e `BarraTarefa`
+   * `Math.max(12, …)` — medido a 390×844, um assunto de 1 dia media 8,38 px e
+   * uma tarefa de 1 dia, 12 px: 43% de diferença para a MESMA duração, uma
+   * linha abaixo da outra. O piso existe por legibilidade (uma barra de 4 px
+   * não é clicável nem visível), e legibilidade não muda de valor conforme o
+   * grupo.
+   */
+  const largura = Math.max(LARGURA_MINIMA_BARRA, xFor(row.fim) - x);
   // P5g (achado ALTO A3, rodada 6): "termina depois da janela" passou a ser
   // medido contra o FIM DESENHADO (o teto de dias corta o eixo antes de
   // `maxIso`) — era exatamente o corte mudo do crítico: uma barra de 400 dias
@@ -1824,6 +1935,12 @@ function BarraAssunto({
       onClick={onAtivar}
       tabIndex={-1}
       aria-hidden="true"
+      /*
+        Rodada 11 (achado ALTO 1): gancho de SELEÇÃO da guarda — só diz "isto
+        é uma barra ancorada pelo início"; a data continua vindo do `title`,
+        que é o que o operador lê, e o pixel do `getBoundingClientRect`.
+      */
+      data-lb-barra="assunto"
       className={`absolute cursor-pointer ${terminaForaAssunto ? "rounded-l-sm" : "rounded-sm"} ${cor.barra} ${ativo ? "ring-2 ring-gold-500" : ""} opacity-90 hover:opacity-100`}
       style={{ left: x, top, width: largura, height: BAR_H }}
       title={`${row.titulo} — ${periodoAssunto}${avisoFim}`}
@@ -1928,6 +2045,25 @@ function BarraTarefa({
     );
   }
 
+  /**
+   * Rodada 11 (achado MÉDIO 3) — A DECISÃO: sem início ou sem duração, a
+   * tarefa NÃO recebe barra. Posição e comprimento no eixo do tempo são
+   * afirmações sobre datas; quem não tem a data não pode fazer a afirmação.
+   * Até aqui ela recebia as duas, fabricadas: `left` = a faixa do "Hoje" e
+   * `width` = exatamente 1 dia — indistinguível, na mesma tela, de uma tarefa
+   * de 1 dia real (e a 390px, com o piso de largura, indistinguível também de
+   * uma de 0,5 dia).
+   *
+   * Ela não some: o motivo vai POR EXTENSO para a coluna de rótulos e para o
+   * `aria-label` (`motivoForaDaGrade`), e a gaveta continua com a frase
+   * inteira. O que se perde é o início PROJETADO pelo CPM de uma tarefa sem
+   * duração — que continua escrito, só não vira mais um retângulo.
+   *
+   * `semBarra` (concluída fora do CPM) já foi tratada acima: ela tem um ponto
+   * de conclusão com data REAL, que é outro desenho e não afirma duração.
+   */
+  if (!desenhaBarraDeDuracao(row)) return null;
+
   // Achados ALTO #2/#7 (rodada 3): tarefa cujo início cai antes da janela
   // vigente — nunca mais um coto grudado em `x=0` sem nenhum aviso. Chevron
   // na borda esquerda, com as datas reais no `title`.
@@ -1990,37 +2126,24 @@ function BarraTarefa({
           ? "bg-state-progress"
           : "bg-state-open";
   /**
-   * P5f (achado BAIXO A9, rodada 5): tarefa FORA do CPM, com estimativa mas
-   * SEM data real de início — a barra sólida afirmava um início que ninguém
-   * informou (e o conector que chega nela já dizia "indefinido": a tela
-   * falava duas coisas diferentes sobre o mesmo dado). Borda tracejada +
-   * preenchimento translúcido no MESMO tom do estado/crítico — continua
-   * dizendo "crítica"/"em andamento", mas sem afirmar a data.
+   * Rodada 11 (achado MÉDIO 3): as duas variantes TRACEJADAS sumiram daqui
+   * junto com as barras que elas vestiam. Até a rodada 10 havia "sem data"
+   * (contorno tracejado sobre fundo transparente) e "início não definido"
+   * (tracejado + preenchimento a 30%) — as duas desenhavam comprimento e
+   * posição que o dado não tinha, e a diferença para uma barra real era uma
+   * borda de 2 px que some no piso de largura a 390px. Agora essas tarefas
+   * não têm barra nenhuma (`desenhaBarraDeDuracao`), e toda barra que existe
+   * é sólida e sustentada por duas datas.
    */
-  const preenchimentoTranslucido = row.critico
-    ? "border-aresta-critico bg-aresta-critico/30"
-    : row.status === "done"
-      ? "border-state-done bg-state-done/30"
-      : row.status === "blocked"
-        ? "border-state-blocked bg-state-blocked/30"
-        : row.status === "in_progress"
-          ? "border-state-progress bg-state-progress/30"
-          : "border-state-open bg-state-open/30";
-  const classesEstado =
-    row.semDuracao && !row.critico
-      ? "border-2 border-dashed border-bone-400 bg-transparent"
-      : row.inicioEstimado
-        ? `border-2 border-dashed ${preenchimentoTranslucido}`
-        : preenchimento;
+  const classesEstado = preenchimento;
   /**
-   * P5g (achado ALTO A3, rodada 6): a barra só é SÓLIDA quando o
-   * preenchimento de estado/crítico está lá. Nos dois casos translúcidos
-   * ("sem data" e "início não definido") o fundo real é o canvas escuro — um
-   * "▶" `navy-950` sumiria nele. `bone-300` sobre `navy-950` mede 11,49:1.
+   * P5g (achado ALTO A3, rodada 6): o "▶" de "continua além da janela" vive
+   * DENTRO da barra. Com as variantes translúcidas fora (rodada 11), o fundo
+   * atrás dele é sempre um preenchimento de estado/crítico — `navy-950` mede
+   * ≥ 4,68:1 sobre todos eles (`scripts/checar-contraste.mjs`).
    */
-  const corDoChevronDeFim =
-    (row.semDuracao && !row.critico) || row.inicioEstimado ? "text-bone-300" : "text-navy-950";
-  const rotuloLateral = row.atrasada ? "atrasada" : row.semDuracao ? "sem data" : null;
+  const corDoChevronDeFim = "text-navy-950";
+  const rotuloLateral = row.atrasada ? "atrasada" : null;
   // P5g (achado ALTO A3, rodada 6): a mesma régua do assunto — o fim real é
   // comparado com o FIM DESENHADO, nunca com `maxIso`.
   const terminaForaTarefa = depoisDaJanela(row.fim);
@@ -2092,6 +2215,7 @@ function BarraTarefa({
       tabIndex={-1}
       aria-hidden="true"
       onClick={onAtivar}
+      data-lb-barra="tarefa"
       className={`absolute cursor-pointer ${terminaForaTarefa ? "rounded-l-sm" : "rounded-sm"} ${classesEstado} ${anel} ${row.critico ? "lb-tl-bar-critico" : ""}`}
       style={{ left: x, top, width: largura, height: BAR_H }}
       title={tituloBarra}
@@ -2528,15 +2652,14 @@ export function PainelDetalheAssunto({
   useEffect(() => {
     tituloRef.current?.focus();
   }, [linha.id]);
-  const estado =
-    linha.estado === "mergeado" ? "mergeado" : linha.estado === "fechado" ? "fechado sem merge" : "aberto";
-  const periodo = linha.dataInvalida
-    ? "data inválida"
-    : linha.datasInconsistentes
-      ? "datas inconsistentes"
-      : linha.marco
-        ? `${diaMesAnoCurto(linha.inicio)} (mesmo dia)`
-        : `${diaMesAnoCurto(linha.inicio)} → ${linha.aberto ? "em aberto" : diaMesAnoCurto(linha.fim)}`;
+  /*
+    Rodada 11 (achado MÉDIO 4): as duas frases vinham de um `?:` escrito aqui
+    e de outro escrito na barra — a gaveta e o `title` podiam divergir, e o
+    `aria-label` não dizia nem uma nem outra. Uma função pura para cada, e as
+    três superfícies bebem dela.
+  */
+  const estado = estadoDoAssunto(linha);
+  const periodo = textoDoPeriodoDoAssunto(linha, diaMesAnoCurto);
   return (
     <div
       role="dialog"
@@ -2621,9 +2744,22 @@ function Legenda({
       label: "conflito",
     },
     {
+      /*
+        Rodada 11 (achado MÉDIO 3): a amostra deixou de ser uma BARRA
+        tracejada — barra nenhuma se desenha mais para tarefa sem dado. O que
+        a tela mostra agora é a etiqueta de texto na coluna de rótulos, e é
+        ela que a legenda decodifica.
+      */
       chave: "sem-data",
-      amostra: <span aria-hidden="true" className="h-2 w-5 rounded-sm border-2 border-dashed border-bone-400" />,
-      label: "sem data",
+      amostra: (
+        <span
+          aria-hidden="true"
+          className="rounded-full border border-navy-600 px-1 text-[12px] leading-4 text-bone-300"
+        >
+          sem data
+        </span>
+      ),
+      label: "sem data: fora da grade do tempo",
     },
     {
       chave: "marco",
@@ -2677,18 +2813,6 @@ function Legenda({
         </span>
       ),
       label: "prazo antes do início ou depois do fim",
-    },
-    {
-      // Achado BAIXO A9 (rodada 5): barra tracejada translúcida = a tarefa
-      // tem estimativa, mas a data de início é nossa, não dela.
-      chave: "inicio-nao-definido",
-      amostra: (
-        <span
-          aria-hidden="true"
-          className="h-2 w-5 rounded-sm border-2 border-dashed border-state-open bg-state-open/30"
-        />
-      ),
-      label: "início não definido (só estimativa)",
     },
   ];
   // Achado BAIXO #12 (rodada 2): a legenda inteira era `aria-hidden`, o que

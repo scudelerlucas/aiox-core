@@ -109,3 +109,60 @@ export function textoDoPeriodo(
 export function periodoEhIncerto(row: PeriodoDeTarefa): boolean {
   return row.semBarra || row.semDuracao || row.inicioEstimado;
 }
+
+/**
+ * ── O DESENHO TAMBÉM PAROU DE MENTIR (rodada 11, achado MÉDIO 3) ────────────
+ *
+ * A rodada 10 consertou o TEXTO: a gaveta e o `title` passaram a dizer
+ * "duração não estimada" e "início não definido" em vez de estampar datas
+ * fabricadas. O DESENHO continuou mentindo, no eixo que é a única razão de um
+ * Gantt existir. Medido a 1440×1000, "Auto", 42,769 px/dia:
+ *
+ * | tarefa | o texto | a barra |
+ * |---|---|---|
+ * | "Revisar PR do time" | duração não estimada | `width 42,769` = 1 dia exato |
+ * | "Deploy de produção" (1 dia real) | 24/09 → 25/09 | `width 42,769` — idêntico |
+ * | "Escrever documentação" | início não definido | `left` = o `left` da faixa do "Hoje" |
+ * | "Rascunhar ideia" e 3 outras | sem início nem duração | começa hoje, dura 1 dia |
+ *
+ * O único diferenciador era uma borda tracejada de 2 px — e a 390×844, onde o
+ * piso de largura entra, o diferencial de COMPRIMENTO sumia de vez: 1 dia
+ * real, "sem duração" e "0,5 dia" mediam os mesmos 12 px.
+ *
+ * ## A decisão (declarada): sem dado suficiente, a tarefa sai da grade
+ *
+ * A referência citada pelo crítico (Asana) não desenha barra para tarefa sem
+ * datas — ela fica na lista, fora da grade. É a escolha feita aqui, e pela
+ * razão mais simples: no eixo do tempo, **posição e comprimento são
+ * afirmações sobre datas**. Uma tarefa sem início não tem posição; uma tarefa
+ * sem duração não tem comprimento. Desenhar um retângulo "só para não sumir"
+ * é inventar as duas.
+ *
+ * O que ela ganha em troca (nunca vira uma linha muda): o motivo POR EXTENSO
+ * na coluna de rótulos (`motivoForaDaGrade`), o mesmo motivo no `aria-label`
+ * da linha, e a frase inteira na gaveta. Cor não é sinal nenhum aqui — é
+ * texto.
+ *
+ * O que custa: some da tela o início PROJETADO pelo CPM de uma tarefa sem
+ * duração (ela tinha um `left` verdadeiro). Continua escrito ("início
+ * previsto dd/MM/aaaa") no rótulo, na gaveta e no `title` — só não vira mais
+ * um retângulo de 1 dia que ninguém estimou.
+ */
+
+/** `true` quando esta tarefa tem início E duração para virar uma barra com comprimento. */
+export function desenhaBarraDeDuracao(row: PeriodoDeTarefa): boolean {
+  return !row.semBarra && !row.semDuracao && !row.inicioEstimado;
+}
+
+/**
+ * Por que esta tarefa não tem barra na grade — a frase curta que vai para a
+ * coluna de rótulos e para o `aria-label`. `null` quando ela TEM barra (ou
+ * quando é uma `semBarra`, que já é outro desenho: o ponto de conclusão).
+ */
+export function motivoForaDaGrade(row: PeriodoDeTarefa): string | null {
+  if (row.semBarra) return null;
+  if (row.semDuracao && row.inicioEstimado) return "sem início nem duração";
+  if (row.semDuracao) return "sem duração";
+  if (row.inicioEstimado) return "sem início";
+  return null;
+}

@@ -19,7 +19,14 @@ const C = {
   card: "#0F1E33",
   border: "#1E3350",
   muted: "#8593A8",
-  red: "#CF5C48",
+  /**
+   * Rodada 11 (achado ALTO 2): era `#CF5C48` — 4,21:1 sobre o cartão
+   * (`#0F1E33`), abaixo da régua de 4,5:1, em texto de 13px. Nunca tinha sido
+   * medido: a régua só enxergava `text-<token>` do Tailwind, e esta tela
+   * inteira pinta por `style` inline. `#FF9C90` é o mesmo pixel de
+   * `state-error-fg` (o vermelho legível da casa) e mede 6,32:1 aqui.
+   */
+  red: "#FF9C90",
 };
 
 export default function LoginPage(): JSX.Element {

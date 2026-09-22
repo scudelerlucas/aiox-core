@@ -147,7 +147,15 @@ describe("LinhaDoTempoView — render", () => {
   it("assunto abre o painel de detalhe, e a URL da mudança é a ação de lá", () => {
     const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
     expect(html).toContain('aria-haspopup="dialog"');
-    expect(html).toContain('aria-label="Um assunto aberto — assunto em org/repo"');
+    /*
+      Rodada 11 (achado MÉDIO 4): o rótulo era só `título — assunto em repo`,
+      e as barras são todas `aria-hidden` — mergeado, aberto, data podre e
+      datas invertidas chegavam a um leitor de tela com a MESMA frase. Estado
+      e período por extenso agora.
+    */
+    expect(html).toContain(
+      'aria-label="Um assunto aberto — assunto em org/repo; aberto; 01/09/2026 → em aberto"',
+    );
     const painel = renderToStaticMarkup(
       <PainelDetalheAssunto linha={assunto()} onFechar={() => {}} />,
     );
@@ -240,7 +248,15 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     expect(html).toContain("lb-tl-ponto-concluida");
   });
 
-  it("aberta sem estimativa: contorno tracejado + rótulo 'sem data' (nunca barra sólida)", () => {
+  /**
+   * Rodada 11 (achado MÉDIO 3): o nome deste teste era "contorno tracejado +
+   * rótulo 'sem data'" — e ele continuava VERDE depois de a barra tracejada
+   * deixar de existir, porque procurava as strings "sem data" e
+   * "border-dashed" no HTML inteiro (as duas estão na legenda). Um teste que
+   * passa medindo outra coisa é pior que um teste ausente. Agora ele mira o
+   * contrato novo: sem duração, nada é desenhado na grade.
+   */
+  it("aberta sem estimativa: nenhuma barra na grade, e o motivo escrito na linha", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
@@ -261,13 +277,13 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
       ],
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
-    expect(html).toContain("sem data");
-    expect(html).toContain("border-dashed");
-    // P5f (rodada 5): a asserção mira a BARRA (a sequência de classes dela),
-    // não o HTML inteiro — a legenda ganhou uma amostra translúcida
-    // (`bg-state-open/30`) para "início não definido", e o que este teste
-    // precisa provar continua sendo que a BARRA não é sólida.
+    expect(html).not.toContain('data-lb-barra="tarefa"');
     expect(html).not.toContain("rounded-sm bg-state-open");
+    // O que substitui a barra: a etiqueta de texto na coluna de rótulos.
+    expect(html).toContain("lb-tl-fora-da-grade");
+    expect(html).toContain("sem duração");
+    // E o rótulo acessível diz a mesma coisa, sem depender de cor nem forma.
+    expect(html).toContain("sem duração — fora da grade do tempo");
   });
 
   it("atrasada: contorno vermelho + rótulo 'atrasada' + marcador em dueDate", () => {
@@ -419,6 +435,30 @@ describe("LinhaDoTempoView — fechado sem merge e legenda (achado ALTO #9)", ()
     for (const rotulo of ["crítico", "sucessão", "folga", "conflito", "sem data", "marco"]) {
       expect(html).toContain(rotulo);
     }
+  });
+
+  /**
+   * Rodada 11 (achado BAIXO 7): com o quadro vazio a tela abria com os 13
+   * símbolos da legenda decodificando um gráfico que não existia, e sem
+   * nenhuma saída. É o primeiro contato de um quadro novo.
+   */
+  it("quadro vazio: sem legenda de símbolos, e com caminho para sair", () => {
+    const vazio: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      duracaoTotal: 0,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        { titulo: "Tarefas", linhas: [] },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...vazio} />);
+    expect(html).not.toContain("lb-tl-legenda");
+    expect(html).toContain("Nada para mostrar na linha do tempo ainda.");
+    expect(html).toContain('href="/frentes"');
+    expect(html).toContain('href="/"');
+    // E a legenda continua existindo quando HÁ o que decodificar.
+    expect(renderToStaticMarkup(<LinhaDoTempoView {...props()} />)).toContain("lb-tl-legenda");
   });
 });
 
@@ -922,7 +962,15 @@ describe("LinhaDoTempoView — rodada 5", () => {
     expect(html).toContain("◀ ▶");
   });
 
-  it("A9: fora do CPM sem início real — barra tracejada translúcida e 'início não definido'", () => {
+  /**
+   * Rodada 11 (achado MÉDIO 3): este caso NÃO desenha mais barra nenhuma. A
+   * rodada 5 tinha dado a ele uma barra tracejada translúcida — honesta no
+   * preenchimento, mentirosa na geometria: o `left` era a faixa do "Hoje"
+   * (uma data que ninguém informou) e o comprimento, uma duração real. A
+   * diferença para uma barra de verdade era uma borda de 2px, que some no
+   * piso de largura a 390px. Agora a linha sai da grade e diz por quê.
+   */
+  it("A9: fora do CPM sem início real — nenhuma barra, e o motivo por extenso na linha", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
@@ -947,10 +995,14 @@ describe("LinhaDoTempoView — rodada 5", () => {
       ],
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
-    expect(html).toContain("border-dashed");
-    expect(html).toContain("bg-state-open/30");
-    expect(html).toContain("início não definido — estimativa de 3 dias");
+    // Nenhuma barra: nem sólida, nem translúcida, nem tracejada.
+    expect(html).not.toContain('data-lb-barra="tarefa"');
+    expect(html).not.toContain("bg-state-open/30");
     expect(html).not.toContain("rounded-sm bg-state-open ");
+    // E a linha diz o que tem e o que não tem — em texto, nunca só em cor.
+    expect(html).toContain("lb-tl-fora-da-grade");
+    expect(html).toContain("sem início");
+    expect(html).toContain("início não definido — estimativa de 3 dias");
   });
 
   it("A12: a tela tem o botão 'Hoje' (e o atalho declarado no title)", () => {

@@ -42,6 +42,7 @@ vi.mock("react", () => reactFalso);
 
 import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import { montarLinhaDoTempo } from "@/core/timeline/linha-do-tempo";
+import { desenhaBarraDeDuracao } from "@/core/timeline/periodo-da-tarefa";
 import type { Pr } from "@/lib/frentes/types";
 import type { HierarqScore, Source, Task } from "@/types/canonical";
 import type { LinhaDoTempoProps, LinhaDoTempoTarefaRow } from "@/types/linha-do-tempo";
@@ -260,34 +261,70 @@ describe("CRÍTICO 1 · a gaveta de uma tarefa sem duração estimada", () => {
     expect(datasDitas(dito)).toHaveLength(1); // só o início previsto
   });
 
-  it("a gaveta e o `title` da barra dizem a MESMA coisa sobre o período", () => {
+  /**
+   * Rodada 11 (achado MÉDIO 3): a tarefa sem duração DEIXOU DE TER BARRA — o
+   * desenho não pode afirmar um comprimento que ninguém estimou. O invariante
+   * que este teste guarda continua o mesmo ("as duas superfícies dizem a
+   * mesma coisa"), só que agora ele cobre os dois casos: quando há barra, é o
+   * `title` dela; quando não há, é o `title` do RÓTULO, que passa a ser a
+   * única superfície da linha no quadro. O que nunca pode acontecer é a linha
+   * ficar sem NENHUMA superfície dizendo o período.
+   */
+  it("a gaveta e a superfície da linha dizem a MESMA coisa sobre o período", () => {
     const p = props();
-    const linha = tarefaPorId(p, "SEM-DURACAO");
-    const gaveta = texto(
-      montar(novaInstancia(), PainelDetalheTarefa, { linha, onFechar: () => undefined }),
-    );
-    // O `title` nasce DENTRO de `<BarraTarefa>`, que é um componente — a
-    // árvore da tela só carrega o elemento e as props. Monta-se a barra com as
-    // props que a tela dá a ela e lê-se o `title` que ela devolve de verdade.
-    const barra = componentes(arvoreDaTela(), "BarraTarefa").find(
-      (b) => (b.props.row as { id?: string } | undefined)?.id === linha.id,
-    );
-    expect(barra).toBeDefined();
-    const titulos = nos(
-      montar(
+    for (const id of ["SEM-DURACAO", "MEIO-DIA", "META"]) {
+      const linha = tarefaPorId(p, id);
+      const gaveta = texto(
+        montar(novaInstancia(), PainelDetalheTarefa, { linha, onFechar: () => undefined }),
+      );
+      const periodoNaGaveta = gaveta.slice(gaveta.indexOf("Período:") + "Período:".length);
+      const trecho = periodoNaGaveta.split("Folga:")[0]?.trim() ?? "";
+      expect(trecho.length).toBeGreaterThan(0);
+
+      const temBarra = desenhaBarraDeDuracao(linha);
+      const alvo = temBarra ? "BarraTarefa" : "RotuloLinha";
+      // O `title` nasce DENTRO do componente — a árvore da tela só carrega o
+      // elemento e as props. Monta-se com as props que a tela dá e lê-se o
+      // `title` que ele devolve de verdade.
+      const elemento = componentes(arvoreDaTela(), alvo).find((b) => {
+        const chave = temBarra ? b.props.row : b.props.linha;
+        return (chave as { id?: string } | undefined)?.id === linha.id;
+      });
+      expect(elemento).toBeDefined();
+      const titulos = nos(
+        montar(
+          novaInstancia(),
+          elemento?.type as (q: Record<string, unknown>) => unknown,
+          elemento?.props as Record<string, unknown>,
+        ) as never,
+      )
+        .map((n) => String((n.props as { title?: string }).title ?? ""))
+        .filter((t) => t.startsWith(`${linha.titulo} —`));
+      expect(titulos.length).toBeGreaterThan(0);
+      expect(titulos[0]).toContain(trecho);
+    }
+  });
+
+  /** A outra metade do MÉDIO 3: sem dado suficiente, nada é desenhado na grade. */
+  it("tarefa sem início ou sem duração não desenha barra nenhuma", () => {
+    const p = props();
+    for (const linha of p.grupos.flatMap((g) => g.linhas)) {
+      if (linha.kind !== "tarefa" || linha.semBarra) continue;
+      const barra = componentes(arvoreDaTela(), "BarraTarefa").find(
+        (b) => (b.props.row as { id?: string } | undefined)?.id === linha.id,
+      );
+      if (!barra) continue;
+      const saida = montar(
         novaInstancia(),
-        barra?.type as (p: Record<string, unknown>) => unknown,
-        barra?.props as Record<string, unknown>,
-      ) as never,
-    )
-      .map((n) => String((n.props as { title?: string }).title ?? ""))
-      .filter((t) => t.startsWith(`${linha.titulo} —`));
-    expect(titulos.length).toBeGreaterThan(0);
-    // O pedaço que descreve o período é comum às duas superfícies.
-    const periodoNaGaveta = gaveta.slice(gaveta.indexOf("Período:") + "Período:".length);
-    const trecho = periodoNaGaveta.split("Folga:")[0]?.trim() ?? "";
-    expect(trecho.length).toBeGreaterThan(0);
-    expect(titulos[0]).toContain(trecho);
+        barra.type as (q: Record<string, unknown>) => unknown,
+        barra.props as Record<string, unknown>,
+      );
+      if (desenhaBarraDeDuracao(linha)) {
+        expect(saida).not.toBeNull();
+      } else {
+        expect(saida).toBeNull();
+      }
+    }
   });
 });
 

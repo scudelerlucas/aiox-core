@@ -48,6 +48,20 @@ const RESOLVIDAS = {
   // 0,9×bone-500(#6C7A99) + 0,1×navy-950(#05070F) — a barra "fechado sem
   // merge" (cinza, `opacity-90`) sobre o canvas. Medido pelo crítico: 3,94:1.
   "barra-fechada-composta": "#626E8B",
+  /**
+   * Rodada 11 (achado ALTO 2): a tela de login (`app/login/page.tsx`) pinta
+   * TODA a sua cor por `style={{ color: … }}`, com hex literais num objeto
+   * `C` no topo do arquivo. Nenhum deles é um token do tema, então nem a
+   * lista à mão nem o gate derivado de `text-<token>` jamais os viram — a
+   * tela inteira era invisível para esta régua. Entram aqui, com o pixel
+   * literal, e passam a ser medidos como qualquer outro par.
+   */
+  "login-navy": "#0A1628",
+  "login-bone": "#F5F2EC",
+  "login-gold": "#A8895A",
+  "login-card": "#0F1E33",
+  "login-muted": "#8593A8",
+  "login-erro": "#FF9C90",
 };
 
 const canal = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
@@ -199,6 +213,26 @@ const PARES = [
   ["state-error", "navy-950", 4.5, "ícone de alerta do cartão e borda de 'datas inconsistentes' do Gantt"],
   ["state-error", "navy-850", 4.5, "ícone de alerta do cartão sobre o painel (P4)"],
   ["state-success-fg", "navy-800", 4.5, "etiqueta de conta 'pandora' — fundo fixo navy-800 (frentes)"],
+  // ── Pares que a trava nova cobrou (rodada 11, achado ALTO 2) ──
+  // Os três já estavam na régua como TRAÇO (3:1, arestas do grafo), e a P5 os
+  // usa também como TEXTO: a frase que decodifica as cores no topo da tela, o
+  // "◀ ▶" de fora-da-janela numa linha crítica e o "✕" da legenda. Nenhum
+  // deles era medido contra a régua de texto até agora — passavam pelo par
+  // decorativo. Todos com folga sobre o fundo da página (`navy-950`).
+  ["aresta-critico", "navy-950", 4.5, "'vermelho triplo' na frase do topo, '◀ ▶' crítico e '✕' da legenda (P5, rodada 11)"],
+  ["aresta-sucessao", "navy-950", 4.5, "'verde' na frase que decodifica as cores no topo da linha do tempo (P5, rodada 11)"],
+  ["aresta-predecessor", "navy-950", 4.5, "'amarelo' na frase que decodifica as cores no topo da linha do tempo (P5, rodada 11)"],
+  // ── Tela de login (rodada 11, achado ALTO 2) — cor por `style` inline ──
+  // Medidos agora pela primeira vez. O vermelho do erro media 4,21:1 (`#CF5C48`
+  // sobre o cartão, 13px): abaixo da régua, e invisível para o gate antigo
+  // porque não passa por `text-<token>` nenhum. Trocado por `#FF9C90` (o mesmo
+  // pixel de `state-error-fg`, que já é o vermelho legível da casa).
+  ["login-bone", "login-navy", 4.5, "texto da página de login sobre o fundo"],
+  ["login-bone", "login-card", 4.5, "título 'ALMA PETRA' sobre o cartão de login"],
+  ["login-gold", "login-card", 4.5, "'OS-LIFEBOARD' e o botão em carregamento, sobre o cartão"],
+  ["login-muted", "login-card", 4.5, "parágrafo de explicação do login"],
+  ["login-erro", "login-card", 4.5, "mensagem de erro do login (era #CF5C48, 4,21:1)"],
+  ["login-navy", "login-gold", 4.5, "rótulo do botão 'Entrar com Google' sobre o dourado"],
 ];
 
 /** Nome de token em `tailwind.config.ts` OU chave já resolvida em `RESOLVIDAS` (pixel composto). */
@@ -257,21 +291,100 @@ function resolveCor(nome) {
  * não é texto e vale 3:1. Cada exceção nomeia o arquivo e some da lista
  * quando o uso sumir do código (uma exceção que não corresponde a nada é
  * FALHA, para a lista não apodrecer).
+ *
+ * ── O QUE A RODADA 11 CONSERTOU AQUI (achado ALTO 2) ────────────────────────
+ *
+ * O parágrafo acima descreve a régua da rodada 10, e ela media o autor um
+ * nível acima: exigia que todo token usado como `text-*` aparecesse como lado
+ * esquerdo de **algum** par — sem nunca olhar CONTRA QUAL FUNDO ele está
+ * sendo usado. Um par registrado como borda decorativa a 3:1 virava passe
+ * livre para o mesmo token ser texto corrido. Sabotagem de duas linhas do
+ * crítico (`text-bone-300` → `text-navy-700` e `text-bone-100` →
+ * `text-navy-700`, nas duas gavetas): o script imprimia "27 tokens usados
+ * como cor de texto — todos na régua" e "70 pares verificados, todos dentro
+ * da régua", enquanto o Chromium media **2,76:1** naquele texto.
+ *
+ * Dois buracos maiores, sem sabotagem nenhuma: a expressão
+ * `text-([a-zA-Z]+)-([\w-]+)` não vê `text-[#3a3a3a]` (valor arbitrário do
+ * Tailwind), nem `style={{ color: … }}`, nem cor vinda de um arquivo CSS. A
+ * tela de login inteira (todo o texto dela é `style` inline) era invisível —
+ * e tinha um vermelho a 4,21:1 esperando lá desde sempre.
+ *
+ * As três travas que entram agora, e o que cada uma consegue:
+ *
+ * 1. **Todo token de TEXTO precisa de um par de TEXTO (≥ 4,5:1).** Um token
+ *    cujo único registro é decorativo (3:1) deixa de servir como cor de
+ *    texto. `navy-700` tem exatamente um par — `navy-700 × navy-950, 3:1,
+ *    "borda de cartão"` — então a sabotagem do crítico cai aqui, sem
+ *    navegador.
+ * 2. **Os três canais escondidos são DETECTADOS e nenhum passa em silêncio.**
+ *    Valor arbitrário (`text-[…]`), `color:` em objeto de estilo e `color:`
+ *    em arquivo CSS: cada ocorrência tem de estar num arquivo DECLARADO em
+ *    `ARQUIVOS_COM_COR_LITERAL`, e cada arquivo declarado tem de listar os
+ *    pares que ele pinta (medidos acima, como qualquer outro). Arquivo não
+ *    declarado = FALHA; arquivo declarado que parou de usar cor literal =
+ *    FALHA (a lista não apodrece).
+ * 3. **O par de verdade se mede no navegador.** Nada aqui sabe qual é o fundo
+ *    REAL de um `<span>` cujo `bg-` vem de dois componentes acima, nem
+ *    compõe opacidade. Quem faz isso é `tests/navegador/guarda-p5.mjs`
+ *    (medida I): lê a cor computada de cada nó de texto visível, sobe até o
+ *    primeiro ancestral com fundo, compõe alfa e exige 4,5:1 (3:1 para texto
+ *    grande). É ela que fecha o caso das gavetas — este arquivo cobre o
+ *    código inteiro de forma mais grossa; ela cobre uma rota inteira de forma
+ *    exata. As duas juntas, nunca uma só.
  */
 const RAIZ_SRC = fileURLToPath(new URL("../src", import.meta.url));
 
-function arquivosDeFonte(dir) {
+function arquivosDeFonte(dir, padrao = /\.(tsx?|jsx?)$/) {
   const achados = [];
   for (const nome of readdirSync(dir)) {
     const caminho = join(dir, nome);
     if (statSync(caminho).isDirectory()) {
-      achados.push(...arquivosDeFonte(caminho));
-    } else if (/\.(tsx?|jsx?)$/.test(nome)) {
+      achados.push(...arquivosDeFonte(caminho, padrao));
+    } else if (padrao.test(nome)) {
       achados.push(caminho);
     }
   }
   return achados;
 }
+
+/**
+ * Os TRÊS CANAIS por onde uma cor de texto entra na tela sem passar por
+ * `text-<token>` — e que a régua até a rodada 10 não via de jeito nenhum.
+ * Cada padrão só DETECTA; quem julga é `ARQUIVOS_COM_COR_LITERAL` abaixo.
+ */
+const CANAIS_ESCONDIDOS = [
+  {
+    nome: "valor arbitrário do Tailwind (text-[…])",
+    // `text-[12px]`, `text-[length:…]` e afins não são cor; só entram os que
+    // trazem um valor de COR (hex, rgb/hsl, nome CSS ou variável).
+    re: /(?:^|[\s"'`{(\[])text-\[(#[0-9A-Fa-f]{3,8}|(?:rgb|hsl)a?\(|var\(--|color:)/,
+  },
+  {
+    nome: "cor em objeto de estilo (style={{ color: … }})",
+    re: /(?:^|[\s{,(])color\s*:\s*(?!["']?inherit)(?!["']?transparent)(?!["']?currentColor)[^,;}\n]+/,
+  },
+];
+/** O mesmo, dentro de CSS — `color-scheme` NÃO é cor de texto e fica de fora. */
+const CANAL_CSS = /(?:^|[;{\s])color\s*:/;
+
+/**
+ * Arquivos autorizados a pintar cor de texto fora do canal `text-<token>`.
+ *
+ * Estar aqui não é perdão: é a promessa de que os pares que o arquivo pinta
+ * estão em `PARES` acima, medidos. `pares` lista as chaves desses pares (as
+ * mesmas de `RESOLVIDAS`/tokens) — se nenhuma delas existir na régua, é
+ * FALHA. Se o arquivo parar de usar cor literal, também é FALHA: a
+ * autorização some junto com o uso.
+ */
+const ARQUIVOS_COM_COR_LITERAL = [
+  {
+    arquivo: "app/login/page.tsx",
+    pares: ["login-bone", "login-gold", "login-muted", "login-erro", "login-navy"],
+    porque:
+      "tela pré-sessão, fora do tema Tailwind por decisão antiga; os 6 pares dela estão em PARES",
+  },
+];
 
 /**
  * `text-bone-400` → `bone-400`, mas só quando o nome resolve num token real
@@ -317,6 +430,13 @@ function semComentarios(conteudo) {
 }
 
 const textoUsado = new Map(); // token → [arquivo:linha]
+/** arquivo → [canal:linha] — onde uma cor entra fora de `text-<token>`. */
+const literaisPorArquivo = new Map();
+function anotarLiteral(ondeArquivo, canal, i) {
+  if (!literaisPorArquivo.has(ondeArquivo)) literaisPorArquivo.set(ondeArquivo, []);
+  literaisPorArquivo.get(ondeArquivo).push(`${canal} (linha ${String(i + 1)})`);
+}
+
 for (const arquivo of arquivosDeFonte(RAIZ_SRC)) {
   const conteudo = semComentarios(readFileSync(arquivo, "utf8"));
   const ondeArquivo = relative(RAIZ_SRC, arquivo);
@@ -325,25 +445,78 @@ for (const arquivo of arquivosDeFonte(RAIZ_SRC)) {
       if (!textoUsado.has(t)) textoUsado.set(t, []);
       textoUsado.get(t).push(`${ondeArquivo}:${String(i + 1)}`);
     }
+    for (const canal of CANAIS_ESCONDIDOS) {
+      if (canal.re.test(linha)) anotarLiteral(ondeArquivo, canal.nome, i);
+    }
   });
+}
+for (const arquivo of arquivosDeFonte(RAIZ_SRC, /\.css$/)) {
+  const ondeArquivo = relative(RAIZ_SRC, arquivo);
+  readFileSync(arquivo, "utf8")
+    .split("\n")
+    .forEach((linha, i) => {
+      if (/color-scheme/.test(linha)) return;
+      if (CANAL_CSS.test(linha)) anotarLiteral(ondeArquivo, "cor em arquivo CSS", i);
+    });
 }
 
 const tokensNaRegua = new Set(PARES.map(([t]) => t));
+/**
+ * Rodada 11 (achado ALTO 2): "estar na régua" deixou de bastar. Um token só
+ * pode ser COR DE TEXTO se tiver ao menos um par medido com a régua de TEXTO
+ * (4,5:1). `navy-700` só existia como borda a 3:1 — e era exatamente essa
+ * brecha que deixava um texto a 2,76:1 passar com tudo verde.
+ */
+const tokensComParDeTexto = new Set(PARES.filter(([, , min]) => min >= 4.5).map(([t]) => t));
 const derivados = [];
 let derivadosFalhos = 0;
 
 for (const [token, ondes] of [...textoUsado].sort()) {
-  if (tokensNaRegua.has(token)) continue;
   if (ICONES_DECORATIVOS.includes(token)) continue;
-  derivadosFalhos++;
-  derivados.push(
-    `FALHA  token de TEXTO usado no código e ausente da régua: ${token}  — ${ondes.slice(0, 3).join(", ")}`,
-  );
+  const onde3 = ondes.slice(0, 3).join(", ");
+  if (!tokensNaRegua.has(token)) {
+    derivadosFalhos++;
+    derivados.push(`FALHA  token de TEXTO usado no código e ausente da régua: ${token}  — ${onde3}`);
+    continue;
+  }
+  if (!tokensComParDeTexto.has(token)) {
+    derivadosFalhos++;
+    derivados.push(
+      `FALHA  token usado como TEXTO mas só registrado em par decorativo (< 4,5:1): ${token}  — ${onde3}`,
+    );
+  }
 }
 for (const exceção of ICONES_DECORATIVOS) {
   if (textoUsado.has(exceção)) continue;
   derivadosFalhos++;
   derivados.push(`FALHA  exceção de ícone decorativo sem uso no código: ${exceção}`);
+}
+
+// ── Os três canais escondidos ──────────────────────────────────────────────
+const declarados = new Map(ARQUIVOS_COM_COR_LITERAL.map((d) => [d.arquivo, d]));
+for (const [arquivo, ocorrencias] of [...literaisPorArquivo].sort()) {
+  const d = declarados.get(arquivo);
+  if (!d) {
+    derivadosFalhos++;
+    derivados.push(
+      `FALHA  cor de texto fora de \`text-<token>\` em arquivo NÃO declarado: ${arquivo} — ${ocorrencias
+        .slice(0, 3)
+        .join(", ")}`,
+    );
+    continue;
+  }
+  const semPar = d.pares.filter((c) => !tokensNaRegua.has(c));
+  if (semPar.length > 0) {
+    derivadosFalhos++;
+    derivados.push(
+      `FALHA  arquivo declarado com par ausente da régua: ${arquivo} — ${semPar.join(", ")}`,
+    );
+  }
+}
+for (const d of ARQUIVOS_COM_COR_LITERAL) {
+  if (literaisPorArquivo.has(d.arquivo)) continue;
+  derivadosFalhos++;
+  derivados.push(`FALHA  arquivo declarado que não usa mais cor literal: ${d.arquivo}`);
 }
 
 let falhou = derivadosFalhos;
@@ -370,7 +543,7 @@ console.log("%s", linhas.join("\n"));
 console.log(
   "%s",
   derivados.length === 0
-    ? `\nderivado do código: ${String(textoUsado.size)} tokens usados como cor de texto em src/ — todos na régua.`
+    ? `\nderivado do código: ${String(textoUsado.size)} tokens usados como cor de texto em src/ — todos com par de TEXTO (≥ 4,5:1) na régua; ${String(literaisPorArquivo.size)} arquivo(s) pintando cor fora de \`text-<token>\`, todos declarados.`
     : `\nderivado do código (${String(derivados.length)} problema(s)):\n${derivados.join("\n")}`,
 );
 console.log(
