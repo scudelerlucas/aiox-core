@@ -519,6 +519,54 @@ describe("todo passo de CI que usa bash declara bash", () => {
     ).toContain("→ ${nome} …");
   });
 
+  /*
+   * ═══════════════════════════════════════════════════ ALTO #4, rodada 17-B ═
+   * A MEDIDA K TRAVOU NO CI PORQUE ESPEROU UM QUADRO QUE SÓ A GUARDA PODIA DAR.
+   *
+   * Com `clock.install()`, o `requestAnimationFrame` da página é FALSO (medido:
+   * `String(requestAnimationFrame).includes("[native code]")` → `false`). Quem
+   * decide que existe um quadro passa a ser a guarda, então esperar por um é
+   * impasse por construção. No contêiner isso custou uma medida travada; aqui
+   * passava porque o relógio falso ia andando com o tempo real.
+   */
+  it("PRONTO QUANDO: com relógio de mentira, a guarda CAUSA o quadro em vez de esperar por ele", () => {
+    const texto = guarda();
+    const corpo = texto.slice(
+      texto.indexOf("async function assentar(pagina)"),
+      texto.indexOf("async function assentar(pagina)") + 900,
+    );
+    expect(
+      corpo,
+      "`assentar` voltou a não distinguir a página com relógio de mentira — e é nela que esperar quadro trava",
+    ).toContain("pagina.__relogioDeMentira === true");
+    expect(
+      corpo,
+      "com relógio de mentira o quadro tem de ser CAUSADO (`clock.runFor`), nunca esperado",
+    ).toContain("await pagina.clock.runFor(DOIS_QUADROS_MS)");
+    // E a marca tem de ser posta em TODA página que a guarda abre — é o que
+    // impede que uma chamada nova de `assentar` erre sozinha.
+    expect(
+      texto,
+      "a página deixou de se marcar como sendo de relógio de mentira em `abrir()`",
+    ).toContain("pagina.__relogioDeMentira = comRelogioDeMentira === true;");
+  });
+
+  it("PRONTO QUANDO: sem relógio de mentira, a espera por quadro tem saída em tempo real", () => {
+    const texto = guarda();
+    expect(
+      /const SAIDA_DE_ASSENTAR_MS = \d+/.test(texto),
+      "sumiu a saída de emergência do assentamento — quadro que não vem voltaria a ser espera infinita",
+    ).toBe(true);
+    const corpo = texto.slice(
+      texto.indexOf("async function assentar(pagina)"),
+      texto.indexOf("async function assentar(pagina)") + 900,
+    );
+    expect(
+      corpo,
+      "a espera por quadro precisa correr contra um temporizador REAL, senão volta a poder esperar para sempre",
+    ).toContain("setTimeout(fim, saidaMs)");
+  });
+
   it("PRONTO QUANDO: `page.evaluate` — a única chamada do Playwright sem tempo limite — tem teto", () => {
     const texto = guarda();
     expect(

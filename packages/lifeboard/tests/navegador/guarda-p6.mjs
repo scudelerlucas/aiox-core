@@ -270,17 +270,23 @@ const medidas = [];
  * 25 min 8 s contra `timeout-minutes: 25`, e **nenhuma linha impressa em 24
  * minutos**. Aqui na máquina a mesma corrida leva ~2 min 40 s.
  *
- * ## O que a investigação DERRUBOU
+ * ## A suspeita que esta máquina não confirmava — e que o CI depois confirmou
  *
  * A suspeita principal era o relógio de mentira das medidas K: com
- * `clock.install()`, `assentar()` espera dois `requestAnimationFrame` e, se o
- * relógio estivesse congelado, esperaria para sempre. **Medido e falso** —
- * experimento próprio, mesmo Chromium, quatro casos (sem relógio · com relógio
- * · depois de um `fastForward(30 min)` · depois de dois) e ainda com a aba em
- * segundo plano: o `assentar` voltou em 6–34 ms em todos. `clock.install()` do
- * Playwright NÃO para o relógio; ele segue andando com o tempo real, e é
- * `pauseAt()` que pararia. A hipótese do coordenador está derrubada com medida,
- * não com opinião.
+ * `clock.install()`, `assentar()` espera dois `requestAnimationFrame` e, se
+ * nada acordar esse quadro, espera para sempre. Aqui ela **não reproduzia** —
+ * experimento próprio, mesmo Chromium, com e sem relógio, depois de um e de
+ * dois `fastForward(30 min)`, com a aba em segundo plano: o `assentar` voltava
+ * em 6–34 ms em todos os casos, porque o relógio falso do Playwright ia andando
+ * junto com o tempo real nesta máquina.
+ *
+ * **A corrida seguinte do CI (head `feed811e`) mostrou que a suspeita estava
+ * certa e a minha refutação estava incompleta:** K travou, e travou exatamente
+ * nesse `assentar`. O que faltava não era a hipótese, era um experimento que
+ * FORÇASSE a condição em vez de esperar por ela. Está tudo no bloco de
+ * `assentar()`, com os números — inclusive a medição de que
+ * `requestAnimationFrame` **não é o nativo** enquanto o relógio está instalado.
+ * Uma refutação que só sabe dizer "aqui não acontece" não é uma refutação.
  *
  * ## O que a investigação NÃO consegue afirmar, e por que isso é o achado
  *
@@ -538,6 +544,15 @@ async function abrir(rota, largura = 1280, altura = 1200, comRelogioDeMentira = 
     atributos: ATRIBUTOS_DO_CONTRATO,
   });
   const pagina = comTetoNoEvaluate(await contexto.newPage());
+  /*
+   * [ALTO #4, rodada 17-B] A MARCA QUE FECHA A CLASSE.
+   *
+   * Quem sabe se o relógio desta página é de mentira é quem a abriu — e a
+   * informação some no caminho até `assentar()`. A marca fica NA PÁGINA, e não
+   * num parâmetro, porque parâmetro se esquece: as oito chamadas de
+   * `assentar()` deste arquivo (e as que vierem) passam a acertar sozinhas.
+   */
+  pagina.__relogioDeMentira = comRelogioDeMentira === true;
   await pagina.goto(`${BASE}${rota}`, { waitUntil: "networkidle" });
   await pagina.waitForSelector("h1", { timeout: 30000 });
   registrarRota(rota);
@@ -690,10 +705,102 @@ function campoPorNome(pagina, nome) {
   return pagina.getByRole("textbox", { name: nome });
 }
 
+/**
+ * ════════════════════════════════════════════════════ ALTO #4, rodada 17-B ═══
+ * A MEDIDA K TRAVOU NO CI, E O QUE TRAVOU FOI ESTA FUNÇÃO.
+ *
+ * Corrida no GitHub Actions (PR #43, head `feed811e`, contêiner
+ * `mcr.microsoft.com/playwright:v1.55.1-noble`):
+ *
+ *   [01:44] → K /tarefa/task-docs …
+ *   medida travada: "K /tarefa/task-docs" passou de 150s
+ *   [02:14] FALHA K /tarefa/task-docs · (a medida estourou o teto de tempo) —
+ *           um page.evaluate desta página passou de 30000 ms sem voltar
+ *
+ * **A aritmética nomeia a chamada, sem palpite:** 01:44 → 02:14 são exatamente
+ * 30 s, que é `TETO_DO_EVALUATE_MS`; o `fastForward` anterior já tinha voltado
+ * (senão o estouro seria o da medida, 150 s); e o PRIMEIRO `page.evaluate` de K
+ * é este `assentar`. Era este `await` que não voltava.
+ *
+ * ## Por que, e por que só em K
+ *
+ * `clock.install()` **substitui o `requestAnimationFrame` da página** — medido:
+ * `String(requestAnimationFrame).includes("[native code]")` devolve `false`
+ * dentro de uma página com o relógio instalado. Com o relógio de mentira ligado,
+ * **quem decide quando existe um quadro é a guarda**, não o navegador. Esperar
+ * um quadro ali é esperar por uma coisa que só nós podemos causar: um impasse
+ * por construção, que nesta máquina passava batido porque o relógio falso do
+ * Playwright ia andando junto com o tempo real, e naquele contêiner não foi.
+ *
+ * É também a explicação de por que **só K trava, e já na primeira rota**: as
+ * sentinelas J vivem nas mesmas páginas, em segundo plano, com os mesmos campos
+ * exercidos — mas sem relógio de mentira, então o `requestAnimationFrame` delas
+ * é o nativo e o quadro vem sozinho. `assentar()` sobre página com relógio
+ * instalado só acontece dentro de K.
+ *
+ * ## O que foi medido aqui (a reprodução é FORÇADA, não torcida)
+ *
+ * Não consegui fazer o travamento aparecer sozinho nesta máquina — rodei a
+ * matriz de 16 casos (com e sem as três chaves anti-congelamento, com e sem
+ * `--disable-gpu`, aba em primeiro e em segundo plano, com e sem `fastForward`)
+ * e ainda repeti tudo com o **`playwright-core@1.55.1` do contêiner** (aqui o
+ * padrão é 1.63.0): passou nos 32. **Digo isso com todas as letras: o
+ * travamento do contêiner não foi reproduzido espontaneamente aqui.**
+ *
+ * Então forcei a condição, em vez de esperar por ela — "o renderer nunca
+ * entrega um quadro", deixando o resto da página viva:
+ *
+ *   TRAVOU   10000ms  ANTIGO (dois rAF)        ← o impasse, isolado
+ *   ok           3ms  NOVO (clock.runFor 32ms)
+ *
+ * E o substituto **preserva o sentido**, com o relógio parado (`pauseAt`):
+ *
+ *   relogio parado:  {"quadros":0,"timer":0}
+ *   apos runFor(32): {"quadros":2,"timer":1}
+ *
+ * Os dois `requestAnimationFrame` encadeados correm, e os temporizadores que
+ * venceriam nesses 32 ms também — que é mais do que "dois quadros" davam.
+ *
+ * ## A regra que fica
+ *
+ * **Com relógio de mentira instalado, a guarda nunca espera um quadro: ela o
+ * causa.** Sem relógio de mentira, o `requestAnimationFrame` é o nativo e a
+ * espera tem saída por temporizador REAL. Nos dois caminhos o fim é garantido
+ * por construção — não por o ambiente colaborar. O teto de 30 s do
+ * `page.evaluate`, o teto por medida e o teto de corrida continuam onde
+ * estavam: foram eles que transformaram 25 minutos de silêncio neste
+ * diagnóstico, e nenhum deles foi afrouxado para "caber".
+ */
+const DOIS_QUADROS_MS = 32;
+
+/**
+ * A saída de emergência, em tempo REAL, do caminho sem relógio de mentira: se o
+ * quadro não vier, o `setTimeout` (que ali é o nativo) devolve a promessa.
+ */
+const SAIDA_DE_ASSENTAR_MS = 1000;
+
 /** Dois quadros: o que uma `ref` faz no nó acontece depois do commit do React. */
 async function assentar(pagina) {
+  if (pagina.__relogioDeMentira === true) {
+    // O rAF desta página é FALSO. Quem o acorda é esta linha, e mais ninguém.
+    await pagina.clock.runFor(DOIS_QUADROS_MS);
+    return;
+  }
   await pagina.evaluate(
-    () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))),
+    (saidaMs) =>
+      new Promise((r) => {
+        let pronto = false;
+        const fim = () => {
+          if (pronto) return;
+          pronto = true;
+          r(null);
+        };
+        requestAnimationFrame(() => requestAnimationFrame(fim));
+        // Relógio de verdade: este temporizador é o nativo e sempre vence o
+        // impasse. Quadro que não vem deixa de ser espera infinita.
+        setTimeout(fim, saidaMs);
+      }),
+    SAIDA_DE_ASSENTAR_MS,
   );
 }
 
