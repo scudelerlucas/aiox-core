@@ -140,6 +140,20 @@ const CHAVE_ZOOM = "lifeboard:linha-do-tempo:zoom";
  * para o cálculo de `top` das barras, que continuam alinhadas 1:1 com o
  * rótulo do lado esquerdo (mesma constante, sempre).
  */
+/**
+ * [ALTO 1, rodada 13] A altura da linha do CANVAS. Ela tem de ser igual à
+ * altura da caixa do RÓTULO (`h-[42px]` em `RotuloLinha`) — são duas pilhas
+ * independentes, e esta igualdade é o que as mantém lado a lado.
+ *
+ * Isto era só um comentário. O crítico trocou o 42 por 44 e os cinco portões
+ * ficaram verdes com a linha 20 a mais de uma linha inteira de distância do
+ * nome dela; e `(i + 1) * ROW_H` desceu TODA barra 42px, também com tudo
+ * verde. Hoje a igualdade é conferida em dois lugares, nenhum deles um
+ * comentário: `tests/unit/linha-do-tempo-componente.test.tsx` (lê as duas
+ * alturas da árvore que este componente devolve) e a medida **Q** de
+ * `tests/navegador/guarda-p5.mjs` (casa cada desenho com o seu rótulo pela
+ * chave da linha e mede centro contra centro no Chromium, em 9 contextos).
+ */
 const ROW_H = 42;
 const BAR_H = 16;
 const HEADER_H = 40;
@@ -1443,6 +1457,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                 ) : (
                   <RotuloLinha
                     key={l.chave}
+                    chave={l.chave}
                     linha={l.linha}
                     /*
                       Rodada 12 (achado ALTO 3): a coluna de rótulos passa a
@@ -1542,6 +1557,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                     return (
                       <BarraAssunto
                         key={l.chave}
+                        chave={l.chave}
                         row={l.linha}
                         top={top}
                         ativo={ativaChave === l.chave}
@@ -1558,6 +1574,7 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                   return (
                     <BarraTarefa
                       key={l.chave}
+                      chave={l.chave}
                       row={l.linha}
                       top={top}
                       xFor={xFor}
@@ -1738,6 +1755,7 @@ function RotuloForaDaJanela({
 }
 
 function RotuloLinha({
+  chave,
   linha,
   foraDaJanela,
   ativo,
@@ -1747,6 +1765,16 @@ function RotuloLinha({
   registrarBotao,
   onAtivar,
 }: {
+  /**
+   * [ALTO 1, rodada 13] A IDENTIDADE DA LINHA, a mesma dos dois lados. A
+   * coluna de rótulos e o canvas são duas pilhas independentes que só se
+   * alinhavam porque `ROW_H` e a altura da caixa do rótulo eram dois números
+   * escritos à mão com o mesmo valor — e a lei que os amarra vivia num
+   * COMENTÁRIO. `data-lb-linha` é o gancho que permite casar, por geometria,
+   * cada barra com o rótulo que a nomeia (medida Q da guarda do navegador):
+   * sem ele, a única ponte era o prefixo do `title`, que é texto, não posição.
+   */
+  chave: string;
   linha: LinhaDoTempoRow;
   /**
    * Rodada 12 (achado ALTO 3): `null` quando o canvas desenha a linha no
@@ -1773,6 +1801,13 @@ function RotuloLinha({
     constante (`ROW_H`) que posiciona a barra do Gantt à direita: subir para 44
     desalinharia rótulo e barra, ou custaria 2px × N linhas de altura de página
     — e a altura da linha não é o que dificulta o toque, a largura é.
+
+    [ALTO 1, rodada 13] "Desalinharia rótulo e barra" era uma frase de
+    comentário, e comentário não é portão: o crítico subiu para 44 e os cinco
+    portões ficaram verdes. O `h-[42px]` daqui e o `ROW_H` de lá são agora
+    conferidos como iguais pelo teste de componente, e o alinhamento real é
+    medido no Chromium pela medida Q da guarda (par rótulo × desenho pela
+    chave da linha). Mexer num dos dois números sem o outro fica vermelho.
   */
   const classeBase =
     "flex h-[42px] items-center gap-1 border-b border-navy-800 bg-navy-850 px-2 py-1 text-xs";
@@ -1791,6 +1826,7 @@ function RotuloLinha({
         type="button"
         ref={registrarBotao}
         onClick={onAtivar}
+        data-lb-linha={chave}
         /*
           Rodada 7 (achado BAIXO #9): `aria-pressed` descrevia um botão de
           alternância de ESTADO; o que este botão faz é ABRIR UM DIÁLOGO. O par
@@ -1895,6 +1931,7 @@ function RotuloLinha({
       type="button"
       ref={registrarBotao}
       onClick={onAtivar}
+      data-lb-linha={chave}
       /* Rodada 7 (achado BAIXO #9): abre um DIÁLOGO — `aria-expanded` +
          `aria-haspopup`, nunca `aria-pressed` (que anuncia um interruptor). */
       aria-expanded={ativo}
@@ -1936,6 +1973,7 @@ function RotuloLinha({
 }
 
 function BarraAssunto({
+  chave,
   row,
   top,
   xFor,
@@ -1947,6 +1985,14 @@ function BarraAssunto({
   ativo,
   onAtivar,
 }: {
+  /**
+   * [ALTO 1, rodada 13] A MESMA identidade do rótulo desta linha. Todo desenho
+   * que esta função devolve a carrega — barra, losango, ponto, chevron ou
+   * caixa de erro — para a guarda poder casar, POR GEOMETRIA, o desenho com o
+   * rótulo que o nomeia. Antes, a única ponte entre as duas pilhas era o
+   * prefixo do `title` (texto), e nenhuma medida comparava as duas alturas.
+   */
+  chave: string;
   row: LinhaDoTempoAssuntoRow;
   top: number;
   xFor: (iso: string) => number;
@@ -1972,6 +2018,7 @@ function BarraAssunto({
         tabIndex={-1}
         aria-hidden="true"
         className="lb-tl-erro absolute flex items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-dashed border-state-warning px-1 text-[12px] text-state-warning"
+        data-lb-linha={chave}
         style={{ left: 0, top, height: BAR_H, maxWidth: larguraErro }}
         title={`${row.titulo} — data inválida`}
       >
@@ -1988,6 +2035,7 @@ function BarraAssunto({
         tabIndex={-1}
         aria-hidden="true"
         className="lb-tl-erro absolute flex items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-dashed border-state-error px-1 text-[12px] text-state-error-fg"
+        data-lb-linha={chave}
         style={{ left: x, top, height: BAR_H, maxWidth: larguraErro }}
         title={`${row.titulo} — datas inconsistentes`}
       >
@@ -2007,6 +2055,7 @@ function BarraAssunto({
         tabIndex={-1}
         aria-hidden="true"
         className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${cor.texto}`}
+        data-lb-linha={chave}
         style={{ left: 0, top, height: BAR_H }}
         title={`${row.titulo} — ${periodoAssunto} (começa antes da janela)`}
       >
@@ -2025,6 +2074,7 @@ function BarraAssunto({
         tabIndex={-1}
         aria-hidden="true"
         className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${cor.texto}`}
+        data-lb-linha={chave}
         style={{ left: larguraTotal - 10, top, height: BAR_H }}
         title={`${row.titulo} — ${periodoAssunto} (começa depois da janela)`}
       >
@@ -2042,6 +2092,7 @@ function BarraAssunto({
         tabIndex={-1}
         aria-hidden="true"
         className={`lb-tl-marco absolute rotate-45 ${cor.barra}`}
+        data-lb-linha={chave}
         style={{ left: x - 5, top: top + (BAR_H - 10) / 2, width: 10, height: 10 }}
         title={`${row.titulo} — ${periodoAssunto}`}
       />
@@ -2081,6 +2132,7 @@ function BarraAssunto({
       */
       data-lb-barra="assunto"
       className={`absolute cursor-pointer ${terminaForaAssunto ? "rounded-l-sm" : "rounded-sm"} ${cor.barra} ${ativo ? "ring-2 ring-gold-500" : ""} opacity-90 hover:opacity-100`}
+      data-lb-linha={chave}
       style={{ left: x, top, width: largura, height: BAR_H }}
       title={`${row.titulo} — ${periodoAssunto}${avisoFim}`}
     >
@@ -2100,6 +2152,7 @@ function BarraAssunto({
 }
 
 function BarraTarefa({
+  chave,
   row,
   top,
   xFor,
@@ -2113,6 +2166,14 @@ function BarraTarefa({
   sucessora,
   onAtivar,
 }: {
+  /**
+   * [ALTO 1, rodada 13] A MESMA identidade do rótulo desta linha. Todo desenho
+   * que esta função devolve a carrega — barra, losango, ponto, chevron ou
+   * caixa de erro — para a guarda poder casar, POR GEOMETRIA, o desenho com o
+   * rótulo que o nomeia. Antes, a única ponte entre as duas pilhas era o
+   * prefixo do `title` (texto), e nenhuma medida comparava as duas alturas.
+   */
+  chave: string;
   row: LinhaDoTempoTarefaRow;
   top: number;
   xFor: (iso: string) => number;
@@ -2141,6 +2202,7 @@ function BarraTarefa({
         aria-hidden="true"
         onClick={onAtivar}
         className="lb-tl-erro absolute flex cursor-pointer items-center overflow-hidden text-ellipsis whitespace-nowrap rounded-sm border border-dashed border-state-error px-1 text-[12px] text-state-error-fg"
+        data-lb-linha={chave}
         style={{ left: xFor(row.inicio), top, height: BAR_H, maxWidth: larguraErro }}
         title={`${row.titulo} — datas inconsistentes`}
       >
@@ -2164,6 +2226,7 @@ function BarraTarefa({
           aria-hidden="true"
           onClick={onAtivar}
           className="lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold text-state-done"
+          data-lb-linha={chave}
           style={{ left: antes ? 0 : larguraTotal - 10, top, height: BAR_H }}
           title={`${row.titulo} — concluída em ${diaMesAnoCurto(row.pontoConcluidoEm)} (${antes ? "antes" : "depois"} da janela)`}
         >
@@ -2178,6 +2241,7 @@ function BarraTarefa({
         aria-hidden="true"
         onClick={onAtivar}
         className="lb-tl-ponto-concluida absolute cursor-pointer rounded-full bg-state-done"
+        data-lb-linha={chave}
         style={{ left: cx - 4, top: top + (BAR_H - 8) / 2, width: 8, height: 8 }}
         title={`${row.titulo} — concluída em ${diaMesAnoCurto(row.pontoConcluidoEm)}`}
       />
@@ -2215,6 +2279,7 @@ function BarraTarefa({
         aria-hidden="true"
         onClick={onAtivar}
         className={`lb-tl-fora-da-janela absolute flex cursor-pointer items-center text-[12px] font-semibold ${row.critico ? "text-aresta-critico" : "text-bone-300"}`}
+        data-lb-linha={chave}
         style={{ left: antes ? 0 : larguraTotal - 10, top, height: BAR_H }}
         title={`${row.titulo} — ${periodoTarefa} (${antes ? "começa antes" : "começa depois"} da janela)`}
       >
@@ -2235,6 +2300,7 @@ function BarraTarefa({
         className={`lb-tl-marco absolute cursor-pointer rotate-45 ${row.critico ? "bg-aresta-critico" : "bg-gold-400"} ${
           ativo ? "ring-2 ring-gold-500" : ""
         }`}
+        data-lb-linha={chave}
         style={{ left: x - 6, top: top + (BAR_H - 12) / 2, width: 12, height: 12 }}
         title={`${row.titulo} — marco em ${diaMesAnoCurto(row.inicio)}`}
       />
@@ -2378,6 +2444,7 @@ function BarraTarefa({
       onClick={onAtivar}
       data-lb-barra="tarefa"
       className={`absolute cursor-pointer ${terminaForaTarefa ? "rounded-l-sm" : "rounded-sm"} ${classesEstado} ${anel} ${row.critico ? "lb-tl-bar-critico" : ""}`}
+      data-lb-linha={chave}
       style={{ left: x, top, width: largura, height: BAR_H }}
       title={tituloBarra}
     >

@@ -117,7 +117,7 @@ function tarefa(input: {
     successorIds: input.successorIds ?? [],
     sourceId: "src-calendar",
     externalRef: input.id,
-    updatedAt: "2026-09-10T00:00:00.000Z",
+    updatedAt: "2026-09-10T12:00:00.000Z",
     estimativaDias: input.estimativaDias === undefined ? 2 : input.estimativaDias,
     iniciadoEm: null,
     parentId: null,
@@ -163,8 +163,8 @@ function props(): LinhaDoTempoProps {
     tarefas,
     [],
     [
-      assunto(2, "Assunto de setembro", "2026-09-18T00:00:00.000Z"),
-      assunto(1, "Assunto de agosto", "2026-08-02T00:00:00.000Z"),
+      assunto(2, "Assunto de setembro", "2026-09-18T12:00:00.000Z"),
+      assunto(1, "Assunto de agosto", "2026-08-02T12:00:00.000Z"),
     ],
     FONTES,
     cpm,
@@ -378,5 +378,109 @@ describe("MÉDIO 5 · a ordem das linhas que o componente desenha", () => {
     ]);
     const tops = barras.map((b) => Number(b.props.top));
     expect(tops).toEqual([...tops].sort((x, y) => x - y));
+  });
+});
+
+// ── ALTO 1 (rodada 13) · A LEI DA ALTURA DA LINHA, COMO CÓDIGO ──────────────
+
+/**
+ * A coluna de rótulos e o canvas são DUAS PILHAS INDEPENDENTES. Elas só se
+ * alinham porque `ROW_H = 42` (que posiciona as barras) e `h-[42px]` (a caixa
+ * do rótulo) são dois números escritos à mão com o mesmo valor. A lei que os
+ * amarra estava escrita num COMENTÁRIO do componente — *"subir para 44
+ * desalinharia rótulo e barra"* — e comentário não é portão: o crítico trocou
+ * o 42 por 44 e os cinco portões ficaram verdes, com a linha 20 a mais de uma
+ * linha inteira de distância do nome dela.
+ *
+ * Aqui a lei vira código, lendo as DUAS pontas da árvore que o componente
+ * devolve (nenhuma constante importada, nenhum `grep` de fonte):
+ *   · a altura da linha de CABEÇALHO de grupo, que usa `ROW_H` em `style`;
+ *   · a altura da caixa do RÓTULO, que é a classe `h-[Npx]` do botão.
+ * Elas têm de ser o mesmo número, e as barras têm de nascer dentro da faixa da
+ * própria linha — o que amarra também a ORIGEM da pilha, não só o passo.
+ */
+
+/**
+ * O `h-[Npx]` do botão de rótulo (a altura da caixa da coluna esquerda). O
+ * botão mora DENTRO de `<RotuloLinha>`, que é um componente — a árvore da tela
+ * traz o elemento, não o que ele devolve; então cada um é chamado aqui, com as
+ * props que a tela lhe deu (mesmo truque de `arvore-react.ts`).
+ */
+function alturaDaCaixaDoRotulo(): number {
+  const botoes = componentes(arvoreDaTela(), "RotuloLinha")
+    .map((r) => (r.type as (p: Record<string, unknown>) => { props: Record<string, unknown> })(r.props))
+    .filter((b) => typeof b.props["data-lb-linha"] === "string");
+  expect(botoes.length).toBeGreaterThan(0);
+  const alturas = new Set<number>();
+  for (const b of botoes) {
+    const m = /\bh-\[(\d+)px\]/.exec(String((b.props as { className?: string }).className ?? ""));
+    if (!m?.[1]) throw new Error("botão de rótulo sem altura declarada em `h-[Npx]`");
+    alturas.add(Number(m[1]));
+  }
+  expect([...alturas]).toHaveLength(1);
+  return [...alturas][0] as number;
+}
+
+/** A altura em `style` do cabeçalho de grupo — é `ROW_H` direto do componente. */
+function alturaDaLinhaDoCanvas(): number {
+  const cabecalhos = nos(arvoreDaTela()).filter((n) => {
+    const st = (n.props as { style?: { height?: unknown } }).style;
+    return (
+      n.type === "div" &&
+      typeof st?.height === "number" &&
+      String((n.props as { className?: string }).className ?? "").includes("uppercase")
+    );
+  });
+  expect(cabecalhos.length).toBeGreaterThan(0);
+  const alturas = new Set(
+    cabecalhos.map((c) => Number((c.props as { style: { height: number } }).style.height)),
+  );
+  expect([...alturas]).toHaveLength(1);
+  return [...alturas][0] as number;
+}
+
+/** A ordem em que a tela empilha as linhas: cabeçalho de grupo + linhas dele. */
+function indicePorChave(p: LinhaDoTempoProps): Map<string, number> {
+  const mapa = new Map<string, number>();
+  let i = 0;
+  for (const grupo of p.grupos) {
+    i += 1; // o cabeçalho do grupo ocupa uma linha inteira
+    for (const linha of grupo.linhas) {
+      mapa.set(`${linha.kind}-${linha.id}`, i);
+      i += 1;
+    }
+  }
+  return mapa;
+}
+
+describe("ALTO 1 · a altura da linha é UM número, não dois iguais por sorte", () => {
+  it("a faixa do canvas e a caixa do rótulo medem o mesmo — comentário não é portão", () => {
+    expect(alturaDaLinhaDoCanvas()).toBe(alturaDaCaixaDoRotulo());
+  });
+
+  it("toda barra nasce dentro da faixa da PRÓPRIA linha (mesmo passo, mesma origem)", () => {
+    const quadro = props();
+    const indices = indicePorChave(quadro);
+    const passo = alturaDaCaixaDoRotulo();
+    const arvore = arvoreDaTela();
+    const desenhos = [...componentes(arvore, "BarraAssunto"), ...componentes(arvore, "BarraTarefa")];
+    /* Casar zero não pode ser sucesso: o quadro tem linhas, e cada uma tem de
+       ter chegado aqui com a sua chave. */
+    expect(desenhos.length).toBe(indices.size);
+
+    const sobras = new Set<number>();
+    for (const d of desenhos) {
+      const chave = String((d.props as { chave?: string }).chave ?? "");
+      const top = Number((d.props as { top?: number }).top);
+      const i = indices.get(chave);
+      expect(i, `desenho sem rótulo correspondente: ${chave}`).toBeTypeOf("number");
+      sobras.add(top - (i ?? 0) * passo);
+    }
+    /* Um passo diferente (ROW_H = 44 contra `h-[42px]`) espalha a sobra; uma
+       origem deslocada (`(i + 1) * ROW_H`) empurra a sobra para fora da faixa. */
+    expect([...sobras]).toHaveLength(1);
+    const sobra = [...sobras][0] as number;
+    expect(sobra).toBeGreaterThanOrEqual(0);
+    expect(sobra).toBeLessThan(passo);
   });
 });

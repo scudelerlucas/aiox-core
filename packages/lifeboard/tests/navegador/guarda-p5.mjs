@@ -56,6 +56,7 @@
  * | N | **toda camada que a guarda afirma ver está PINTADA** | alfa real > 0 E pixel que muda ao esconder |
  * | O | **nenhum mecanismo desenhado soma ZERO nos 4 estados** | ≥ 1 de cada mecanismo obrigatório |
  * | P | **todo item fora da janela diz a sua data por escrito na coluna** | 1 rótulo datado por chevron |
+ * | Q | **cada desenho na FAIXA VERTICAL do rótulo que o nomeia** (o eixo Y) | ±1,5 px de centro a centro, 9 contextos |
  *
  * ## Rodada 11 — por que H, I e J nasceram
  *
@@ -126,6 +127,35 @@
  *   desenho da mesma linha, nas 27 linhas da tela.
  * - **E (MÉDIO 2).** Lê a DATA do texto, não o pixel clampado: a ordenação
  *   ganhou poder de reprovar, e a posição continua sendo assunto de H.
+ *
+ * ## Rodada 13 — o eixo Y existia e ninguém o media
+ *
+ * **Q (achado ALTO 1).** As 26 medidas da rodada 12 mediam o eixo X inteiro —
+ * H, M, J, K e E cruzam três fontes para dizer *quando*. **Nenhuma comparava a
+ * posição vertical de uma barra com a do rótulo que a nomeia**, e um Gantt
+ * afirma duas coisas por barra: *quando* (x) e *de quem* (y). A medida C casa
+ * gaveta × desenho por prefixo de `title` — texto, não geometria — e a E só
+ * ordena os RÓTULOS entre si. O canvas e a coluna são duas pilhas
+ * independentes que só se alinhavam porque `ROW_H = 42` e `h-[42px]` eram dois
+ * números escritos à mão com o mesmo valor, e a lei que os amarra vivia num
+ * COMENTÁRIO do componente. Duas sabotagens passaram pelos cinco portões:
+ * `(i + 1) * ROW_H` (toda barra 42px abaixo do próprio rótulo) e `ROW_H = 44`
+ * (erro que ACUMULA — a linha 20 a mais de uma linha inteira do nome dela).
+ * Q casa os dois lados pela chave da linha (`data-lb-linha`, que as duas
+ * pontas passaram a carregar) e mede centro contra centro. A mesma lei também
+ * virou teste barato em `linha-do-tempo-componente.test.tsx`, lendo as duas
+ * alturas da árvore que o componente devolve.
+ *
+ * **Os 9 contextos (achado BAIXO 3a).** H, J e Q rodavam em 3 contextos, dos
+ * quais dois eram "Auto": **Mês e Trimestre nunca entravam** — os dois zooms
+ * em que o histórico inteiro cabe na tela e o piso de largura da barra morde
+ * em quase toda linha. Não era vazamento; era buraco. Agora são 4 zooms × 2
+ * larguras + 1024×768.
+ *
+ * **As `dentro-da-barra` (achado BAIXO 3b).** Este cabeçalho afirmava, por
+ * escrito, que "a exceção não é um `continue`" — e as três classes
+ * `dentro-da-barra` saíam por um `continue` puro. Cada uma tem agora a
+ * conferência que o motivo dela promete (`confereDentroDaBarra`).
  *
  * **J (achado MÉDIO 3).** O texto parou de mentir na rodada 10; o desenho
  * não. Quatro tarefas cujo próprio `title` dizia "sem início nem duração
@@ -1232,9 +1262,24 @@ async function lerGeometria(pagina) {
         medida: "clamp-declarado",
         motivo: "dado podre (data inválida / datas inconsistentes): a caixa não afirma intervalo nenhum",
       },
-      "lb-tl-bar-critico": { medida: "dentro-da-barra", motivo: "é a própria barra (mesmo elemento de data-lb-barra)" },
-      "lb-tl-atrasada-marcador": { medida: "dentro-da-barra", motivo: "inset-x-0 dentro da barra: não tem posição própria" },
-      "lb-tl-connector": { medida: "dentro-da-barra", motivo: "derivado das pontas de duas barras já medidas" },
+      /* [BAIXO 3b, rodada 13] `dentro-da-barra` DEIXOU de ser um `continue`.
+         Cada uma destas três tem agora a sua conferência própria, no fim de
+         `medirPixelContraData` — `confereDentroDaBarra` diz qual: */
+      "lb-tl-bar-critico": {
+        medida: "dentro-da-barra",
+        confere: "eh-a-propria-barra",
+        motivo: "é a própria barra (mesmo elemento de data-lb-barra) — conferido: o elemento TEM `data-lb-barra`",
+      },
+      "lb-tl-atrasada-marcador": {
+        medida: "dentro-da-barra",
+        confere: "colado-na-barra",
+        motivo: "inset-x-0 dentro da barra — conferido: as duas bordas coincidem com as da barra-pai",
+      },
+      "lb-tl-connector": {
+        medida: "dentro-da-barra",
+        confere: "pontas-em-barras",
+        motivo: "derivado das pontas de dois desenhos — conferido: cada ponta cai numa ponta de desenho já medido (borda de barra, centro de losango/ponto) ou na borda do eixo",
+      },
     };
 
     /* ── a régua desenhada ────────────────────────────────────────────── */
@@ -1246,6 +1291,7 @@ async function lerGeometria(pagina) {
     /* ── a coleta derivada ────────────────────────────────────────────── */
     const afirmacoes = [];
     const excecoes = [];
+    const dentroDaBarra = [];
     const desconhecidos = [];
     const classesNoPainel = {};
     const semRegua = [];
@@ -1301,8 +1347,27 @@ async function lerGeometria(pagina) {
         });
         continue;
       }
+      /* `regua` não é pulo: as guias e a faixa do "Hoje" SÃO a régua, e elas
+         têm conferência própria em três lugares — `montarRegua` exige que toda
+         guia caia numa segunda-feira no pixel que a conta manda, M as compara
+         com os rótulos impressos do eixo e N exige que as duas estejam
+         PINTADAS. Medir a régua contra ela mesma aqui é que seria vazio. */
       if (entrada && entrada.medida === "regua") continue;
-      if (entrada && entrada.medida === "dentro-da-barra") continue;
+      /* [BAIXO 3b, rodada 13] Aqui havia um `continue` puro, embaixo de um
+         cabeçalho que afirmava, por escrito, que "a exceção não é um
+         `continue`: cada uma tem a sua própria conferência". Não tinha. Agora
+         cada uma leva a evidência de que precisa para ser conferida lá em
+         cima, por `confereDentroDaBarra`. */
+      if (entrada && entrada.medida === "dentro-da-barra") {
+        const barraPai = el.closest("[data-lb-barra]");
+        dentroDaBarra.push({
+          ...comum,
+          confere: entrada.confere,
+          ehBarra: el.hasAttribute("data-lb-barra"),
+          pai: barraPai ? cx(barraPai) : null,
+        });
+        continue;
+      }
       /*
        * Uma classe registrada como "intervalo" ou "posicao-*" que NÃO trouxe
        * as datas que devia declarar cai aqui. Sem esta rede, arrancar
@@ -1386,6 +1451,15 @@ async function lerGeometria(pagina) {
       scrollLeft: painel.scrollLeft,
       afirmacoes,
       excecoes,
+      dentroDaBarra,
+      /* As PONTAS de todo desenho que já foi medido contra uma data: as duas
+         bordas de uma barra e o centro de um losango/ponto (que é onde a data
+         dele cai). É a lista contra a qual as pontas de um conector têm de
+         pousar — medido: o conector da tarefa CONCLUÍDA pousa no centro do
+         ponto de conclusão dela, que não é barra nenhuma. */
+      ancorasDeDesenho: afirmacoes.flatMap((a) =>
+        a.tipo ? [a.esquerda, a.direita] : a.medida === "posicao-centro" ? [a.centro] : [],
+      ),
       desconhecidos: [...new Set(desconhecidos)],
       semRegua,
       classesNoPainel,
@@ -1453,6 +1527,237 @@ function datasDoTitulo(title, hojeIso) {
     ?? /(\d{2}\/\d{2}\/\d{4})\s*\(mesmo dia\)/.exec(title);
   if (unica) return { inicio: unica[1], fim: unica[1], parDeDatas: true };
   return { inicio: null, fim: null, parDeDatas: false };
+}
+
+/**
+ * ── Q · CADA BARRA NA FAIXA DO RÓTULO QUE A NOMEIA (achado ALTO 1, rodada 13)
+ *
+ * As 26 medidas anteriores mediam o eixo X inteiro — "quando" — e NENHUMA
+ * comparava a posição VERTICAL de uma barra com a do rótulo que a nomeia. Um
+ * Gantt afirma duas coisas por barra: *quando* (x) e *de quem* (y). A medida C
+ * casava gaveta × desenho por prefixo de `title` (texto, não geometria) e a E
+ * só ordenava os RÓTULOS entre si.
+ *
+ * O canvas e a coluna de rótulos são duas pilhas independentes que só se
+ * alinhavam porque `ROW_H = 42` e `h-[42px]` eram dois números escritos à mão
+ * com o mesmo valor, e a lei que os amarra vivia num COMENTÁRIO do componente.
+ * Duas sabotagens passaram pelos cinco portões com 26 medidas "ok":
+ *   · `(i + 1) * ROW_H` — toda barra 42px abaixo do próprio rótulo;
+ *   · `ROW_H = 44`      — erro que ACUMULA (31, 35, 37, 45px medidos): a linha
+ *     20 ficava a mais de uma linha inteira do nome dela.
+ *
+ * Como esta medida funciona:
+ *   · o universo é DERIVADO — todo `button[data-lb-linha]` da coluna e todo
+ *     `[data-lb-linha]` dentro do painel; o par se faz pela chave da linha, que
+ *     as duas pontas carregam (nunca por prefixo de texto);
+ *   · casar ZERO é REPROVAÇÃO: a contagem de rótulos tem de bater com
+ *     `LINHAS_DA_FIXTURE`, e o número de pares não pode cair abaixo do piso;
+ *   · rótulo SEM desenho só passa por exceção com conferência própria: a linha
+ *     tem de estar marcada "fora da grade" na própria coluna (a etiqueta
+ *     `.lb-tl-fora-da-grade`, que a medida J já usa). Desenho sem rótulo é
+ *     reprovação seca — ninguém desenha uma linha que a coluna não nomeia.
+ *
+ * A régua: o CENTRO vertical do desenho contra o CENTRO vertical da caixa do
+ * rótulo. Por construção eles são o mesmo ponto — a barra nasce em
+ * `i·ROW_H + (ROW_H − BAR_H)/2` e tem `BAR_H` de altura, logo o centro dela é
+ * `i·ROW_H + ROW_H/2`, que é o meio da caixa de 42px do rótulo de índice `i`
+ * (losango, ponto e chevron são centrados na mesma faixa de `BAR_H`). A folga
+ * de ±1,5px é a MESMA de H, e pelo mesmo motivo: arredondamento de sub-pixel
+ * do layout do Chromium, não margem de erro de alinhamento. Meia linha (21px)
+ * seria folga bastante para o par sair da própria faixa, e é o que esta medida
+ * existe para proibir.
+ */
+const LINHAS_DA_FIXTURE = 27;
+/**
+ * O piso de pares. Medido no quadro de fixture: 27 linhas, das quais 7 são
+ * "fora da grade" (sem início e/ou sem duração — elas não recebem desenho
+ * nenhum, e a coluna diz o motivo por escrito). Sobram 20 desenhadas em todos
+ * os zooms — o que muda entre eles é a FORMA (barra, chevron, ponto), nunca a
+ * quantidade. Se este número cair, alguma linha deixou de ser desenhada sem
+ * dizer por quê, e a medida reprova em vez de aprovar por ausência.
+ */
+const PARES_MINIMOS = 20;
+
+async function medirRotuloContraDesenho(pagina) {
+  return await pagina.evaluate(() => {
+    const painel = document.querySelector('[role="region"][aria-label^="Linha do tempo"]');
+    if (!painel) return { erro: "painel da linha do tempo não encontrado" };
+    const meio = (el) => {
+      const r = el.getBoundingClientRect();
+      return { centro: (r.top + r.bottom) / 2, topo: r.top, base: r.bottom, altura: r.height };
+    };
+    /* A coluna de rótulos vive FORA do painel (só o canvas rola na horizontal),
+       então os dois conjuntos não se misturam: botão de um lado, desenho do
+       outro. */
+    const rotulos = [...document.querySelectorAll("button[data-lb-linha]")].map((el, i) => ({
+      chave: el.getAttribute("data-lb-linha"),
+      indice: i,
+      nome: (el.getAttribute("aria-label") ?? "").slice(0, 40),
+      foraDaGrade: el.querySelector(".lb-tl-fora-da-grade") !== null,
+      ...meio(el),
+    }));
+    const desenhos = [...painel.querySelectorAll("[data-lb-linha]")].map((el) => ({
+      chave: el.getAttribute("data-lb-linha"),
+      classes: [...el.classList].filter((c) => c.startsWith("lb-tl-")).join(",") || "barra",
+      ...meio(el),
+    }));
+    return { rotulos, desenhos };
+  });
+}
+
+function conferirParesDeLinha(dados, contexto) {
+  if (dados.erro) {
+    conferir(`Q · cada barra na faixa do rótulo que a nomeia (${contexto})`, false, dados.erro);
+    return;
+  }
+  const { rotulos, desenhos } = dados;
+  const porChave = new Map();
+  for (const d of desenhos) porChave.set(d.chave, [...(porChave.get(d.chave) ?? []), d]);
+
+  const foraDaRegua = [];
+  const semDesenhoIndevido = [];
+  const duplicados = [];
+  let pares = 0;
+  let semDesenhoDeclarado = 0;
+  let pior = { delta: -1, quem: "" };
+  let maisFundo = -1;
+
+  for (const r of rotulos) {
+    const casados = porChave.get(r.chave) ?? [];
+    if (casados.length === 0) {
+      /* Exceção com conferência própria, nunca um `continue`: a linha sem
+         desenho TEM de estar marcada "fora da grade" na própria coluna. */
+      if (r.foraDaGrade) semDesenhoDeclarado += 1;
+      else semDesenhoIndevido.push(`"${r.nome}" (linha ${String(r.indice)}) sem desenho e sem motivo escrito`);
+      continue;
+    }
+    if (casados.length > 1) duplicados.push(`"${r.nome}" tem ${String(casados.length)} desenhos`);
+    for (const d of casados) {
+      const delta = Math.abs(d.centro - r.centro);
+      pares += 1;
+      maisFundo = Math.max(maisFundo, r.indice);
+      if (delta > pior.delta) pior = { delta, quem: `${r.nome} [${d.classes}]` };
+      if (delta > TOLERANCIA_PX) {
+        foraDaRegua.push(
+          `"${r.nome}" [${d.classes}]: desenho em ${d.centro.toFixed(1)}, rótulo em ${r.centro.toFixed(
+            1,
+          )} — ${delta.toFixed(1)}px (linha ${String(r.indice)}, faixa de ${r.altura.toFixed(0)}px)`,
+        );
+      }
+    }
+  }
+
+  const chavesDeRotulo = new Set(rotulos.map((r) => r.chave));
+  const orfaos = desenhos.filter((d) => !chavesDeRotulo.has(d.chave));
+  const ok =
+    rotulos.length === LINHAS_DA_FIXTURE &&
+    pares >= PARES_MINIMOS &&
+    foraDaRegua.length === 0 &&
+    semDesenhoIndevido.length === 0 &&
+    duplicados.length === 0 &&
+    orfaos.length === 0;
+
+  conferir(
+    `Q · cada barra na faixa do rótulo que a nomeia (${contexto})`,
+    ok,
+    ok
+      ? `${String(pares)} pares casados por chave de linha (piso ${String(PARES_MINIMOS)}) de ${String(
+          rotulos.length,
+        )} rótulos — ${String(semDesenhoDeclarado)} sem desenho, todos marcados "fora da grade" na coluna · ` +
+        `linha mais funda conferida: ${String(maisFundo)} · pior desvio ${pior.delta.toFixed(
+          2,
+        )}px em "${pior.quem}" (régua ±${String(TOLERANCIA_PX)}px)`
+      : [
+          rotulos.length !== LINHAS_DA_FIXTURE
+            ? `a coluna tem ${String(rotulos.length)} rótulos, e a fixture desenha ${String(LINHAS_DA_FIXTURE)} linhas`
+            : null,
+          pares < PARES_MINIMOS ? `só ${String(pares)} pares casados (piso ${String(PARES_MINIMOS)})` : null,
+          orfaos.length > 0
+            ? `desenho sem rótulo na coluna: ${orfaos.map((d) => `${d.chave} [${d.classes}]`).join(" · ")}`
+            : null,
+          semDesenhoIndevido.length > 0 ? semDesenhoIndevido.join(" · ") : null,
+          duplicados.length > 0 ? duplicados.join(" · ") : null,
+          foraDaRegua.length > 0
+            ? `${String(foraDaRegua.length)} fora da faixa: ${foraDaRegua.slice(0, 4).join(" · ")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+  );
+}
+
+/**
+ * [BAIXO 3b, rodada 13] As três classes `dentro-da-barra`, CONFERIDAS.
+ *
+ * Elas saíam por `if (entrada.medida === "dentro-da-barra") continue;` —
+ * literalmente um `continue`, três linhas abaixo de um cabeçalho que afirmava
+ * que "a exceção não é um `continue`: cada uma tem a sua própria conferência".
+ * Checagem pulada é checagem aprovada, e o arquivo afirmava o contrário do que
+ * fazia. Cada uma tem agora a conferência que o motivo dela promete:
+ *
+ *   · `eh-a-propria-barra` — o motivo diz "é o mesmo elemento de
+ *     `data-lb-barra`"; confere-se que ele TEM o atributo. Mover a classe para
+ *     um elemento à parte (um traço decorativo com posição própria) deixa de
+ *     ser silêncio e vira reprovação até alguém dizer como se mede.
+ *   · `colado-na-barra` — o motivo diz "`inset-x-0`, não tem posição própria";
+ *     confere-se que as duas bordas horizontais coincidem com as da barra-pai.
+ *     Medido: coincidem em 0,00px, porque é a mesma caixa.
+ *   · `pontas-em-barras` — o motivo diz "derivado das pontas de duas barras já
+ *     medidas"; confere-se que cada ponta horizontal cai sobre uma borda de
+ *     barra MEDIDA, ou sobre uma borda do eixo (é onde a ponta pousa quando a
+ *     tarefa do outro lado está fora da janela). A folga é de 4px: a seta de
+ *     chegada é um polígono de 7px de largura centrado no ponto de chegada,
+ *     então a caixa do `<g>` passa 3,5px do ponto — mais um respiro de
+ *     sub-pixel. Não é tolerância de posição, é a metade da seta.
+ */
+const FOLGA_DA_SETA_PX = 4;
+
+function confereDentroDaBarra(g) {
+  const tortos = [];
+  const contagem = {};
+  for (const d of g.dentroDaBarra) {
+    contagem[d.classes] = (contagem[d.classes] ?? 0) + 1;
+    if (d.confere === "eh-a-propria-barra") {
+      if (!d.ehBarra) {
+        tortos.push(
+          `"${d.classes}" se declara "a própria barra" e não tem \`data-lb-barra\` — ganhou posição própria e nenhuma medida a segue`,
+        );
+      }
+      continue;
+    }
+    if (d.confere === "colado-na-barra") {
+      if (d.pai === null) {
+        tortos.push(`"${d.classes}" se declara dentro de uma barra e não está dentro de nenhuma`);
+        continue;
+      }
+      const dEsq = Math.abs(d.esquerda - d.pai.esquerda);
+      const dDir = Math.abs(d.direita - d.pai.direita);
+      if (dEsq > TOLERANCIA_PX || dDir > TOLERANCIA_PX) {
+        tortos.push(
+          `"${d.classes}" se declara \`inset-x-0\` mas sobra ${dEsq.toFixed(2)}px à esquerda e ${dDir.toFixed(2)}px à direita da barra-pai`,
+        );
+      }
+      continue;
+    }
+    if (d.confere === "pontas-em-barras") {
+      const ancoras = [...g.ancorasDeDesenho, 0, g.larguraTotal];
+      const solta = (x) => !ancoras.some((a) => Math.abs(a - x) <= FOLGA_DA_SETA_PX);
+      const pontasSoltas = [d.esquerda, d.direita].filter(solta);
+      if (pontasSoltas.length > 0) {
+        tortos.push(
+          `"${d.classes}" se declara derivado de dois desenhos medidos, mas ${pontasSoltas
+            .map((x) => x.toFixed(2))
+            .join(" e ")} não cai em ponta de desenho nenhum (nem na borda do eixo)`,
+        );
+      }
+      continue;
+    }
+    tortos.push(`"${d.classes}" está registrada como \`dentro-da-barra\` sem dizer QUAL conferência a segue`);
+  }
+  const resumo = Object.entries(contagem)
+    .map(([c, n]) => `${c}=${String(n)}`)
+    .join(" ");
+  return { tortos, resumo: resumo || "nenhuma na tela" };
 }
 
 /** Uma passada de H + J numa página já aberta e num zoom já escolhido. */
@@ -1582,11 +1887,18 @@ async function medirPixelContraData(pagina, contexto) {
     }
   }
 
-  const resumoDePulos = g.excecoes.length === 0
-    ? "0 pulados"
-    : `${String(g.excecoes.length)} por exceção declarada: ${[
-        ...new Set(g.excecoes.map((e) => `${e.classes || "?"} (${e.motivo})`)),
-      ].join(" ; ")}`;
+  /* [BAIXO 3b] As `dentro-da-barra` entram na conta de H: se uma delas se
+     soltar da barra que a sustenta, H fica vermelha e diz qual. */
+  const dentro = confereDentroDaBarra(g);
+  excecoesTortas.push(...dentro.tortos);
+
+  const resumoDePulos =
+    (g.excecoes.length === 0
+      ? "0 pulados"
+      : `${String(g.excecoes.length)} por exceção declarada: ${[
+          ...new Set(g.excecoes.map((e) => `${e.classes || "?"} (${e.motivo})`)),
+        ].join(" ; ")}`) +
+    ` — dentro-da-barra conferidas (${dentro.resumo})`;
 
   return {
     contexto,
@@ -1641,11 +1953,26 @@ async function medirPixelContraData(pagina, contexto) {
 }
 
 {
+  /*
+   * [BAIXO 3a, rodada 13] O produto tem QUATRO estados de escala — Auto,
+   * Semana, Mês e Trimestre — e este laço rodava em três contextos, dos quais
+   * dois eram "Auto". **Mês e Trimestre nunca entravam**: os dois zooms em que
+   * o histórico inteiro cabe na tela, onde a densidade cai para 6–12px/dia e
+   * o piso de largura da barra morde em quase toda linha. Não era vazamento
+   * (o crítico estendeu o laço e o produto passou em todos), era BURACO — a
+   * guarda não sabia se passaria. Custo de fechar: seis linhas neste array.
+   */
   const resultados = [];
   for (const [largura, altura, zoom] of [
     [1440, 1000, null],
     [1440, 1000, "Semana"],
+    [1440, 1000, "Mês"],
+    [1440, 1000, "Trimestre"],
     [390, 844, null],
+    [390, 844, "Semana"],
+    [390, 844, "Mês"],
+    [390, 844, "Trimestre"],
+    [1024, 768, null],
   ]) {
     const { contexto, pagina } = await abrir(largura, altura);
     if (zoom) {
@@ -1654,9 +1981,11 @@ async function medirPixelContraData(pagina, contexto) {
         () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null)))),
       );
     }
-    resultados.push(
-      await medirPixelContraData(pagina, `${String(largura)}×${String(altura)} ${zoom ?? "Auto"}`),
-    );
+    const nomeDoContexto = `${String(largura)}×${String(altura)} ${zoom ?? "Auto"}`;
+    resultados.push(await medirPixelContraData(pagina, nomeDoContexto));
+    /* Q roda no MESMO estado que H e J — mesma página, mesmo zoom, mesma
+       rolagem: o eixo Y é medido onde o eixo X já é medido. */
+    conferirParesDeLinha(await medirRotuloContraDesenho(pagina), nomeDoContexto);
     await contexto.close();
   }
   for (const r of resultados) {

@@ -10,6 +10,16 @@ import type { LinhaDoTempoTarefaRow } from "@/types/linha-do-tempo";
  * OS-LIFEBOARD · P5 — testes da montagem PURA da linha do tempo. Mesma
  * convenção de `tests/unit/caminho-critico.test.ts`: helpers `task`/`edge`,
  * mesmo exemplo canônico (A→D→F→G = 12 d).
+ *
+ * [ALTO 2, rodada 13] Os instantes de fixture deste arquivo eram todos
+ * `T00:00:00.000Z` — meia-noite em UTC, que é 21h do DIA ANTERIOR em São
+ * Paulo. Enquanto a montagem truncava em UTC (`iso.slice(0, 10)`) isso não
+ * aparecia; agora que ela converte para o fuso do operador, `T00:00Z` passou
+ * a ser, corretamente, o dia anterior. Os instantes viraram `T12:00:00.000Z`
+ * (9h da manhã em São Paulo): o MESMO dia de calendário nos dois fusos, para
+ * que cada teste volte a falar só do que ele mede — ordem, marco, folga,
+ * atraso. A conversão de fuso tem os testes dela logo abaixo e em
+ * `tests/unit/fuso.test.ts`; nenhum deles depende de `new Date()` real.
  */
 
 const HOJE = "2026-09-13";
@@ -41,7 +51,7 @@ function task(input: TaskInput): Task {
     successorIds: input.successorIds ?? [],
     sourceId: input.sourceId ?? "src-calendar",
     externalRef: input.id,
-    updatedAt: "2026-07-09T00:00:00.000Z",
+    updatedAt: "2026-07-09T12:00:00.000Z",
     estimativaDias: input.estimativaDias ?? null,
     iniciadoEm: input.iniciadoEm ?? null,
     parentId: null,
@@ -59,7 +69,7 @@ function pr(overrides: Partial<Pr> & Pick<Pr, "repo" | "numero" | "estado" | "ti
     branch: "b",
     rascunho: false,
     url: `https://github.com/${overrides.repo}/pull/${overrides.numero}`,
-    atualizado_em: "2026-09-10T00:00:00.000Z",
+    atualizado_em: "2026-09-10T12:00:00.000Z",
     fechado_em: null,
     mergeado_em: null,
     checks: null,
@@ -147,16 +157,16 @@ describe("montarLinhaDoTempo — assuntos: aberto vs mergeado", () => {
       numero: 1,
       titulo: "feat: em andamento",
       estado: "aberto",
-      criado_em: "2026-09-01T00:00:00.000Z",
+      criado_em: "2026-09-01T12:00:00.000Z",
     }),
     pr({
       repo: "org/mergeado",
       numero: 2,
       titulo: "fix: já entrou",
       estado: "mergeado",
-      criado_em: "2026-09-01T00:00:00.000Z",
-      mergeado_em: "2026-09-05T00:00:00.000Z",
-      fechado_em: "2026-09-05T00:00:00.000Z",
+      criado_em: "2026-09-01T12:00:00.000Z",
+      mergeado_em: "2026-09-05T12:00:00.000Z",
+      fechado_em: "2026-09-05T12:00:00.000Z",
     }),
   ];
   const cpm = caminhoCritico([], []);
@@ -213,7 +223,7 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
 
   it("fora do subgrafo do goal (ramo que não leva a ele): usa iniciadoEm + estimativaDias", () => {
     const tasks = [
-      task({ id: "LATERAL", iniciadoEm: "2026-09-10T00:00:00.000Z", estimativaDias: 5 }),
+      task({ id: "LATERAL", iniciadoEm: "2026-09-10T12:00:00.000Z", estimativaDias: 5 }),
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
@@ -280,7 +290,7 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
 
   it("aberta fora do CPM sem estimativa: continua semDuracao=true (a view desenha tracejado)", () => {
     const tasks = [
-      task({ id: "SOLTA-SEM-ESTIMATIVA", iniciadoEm: "2026-09-10T00:00:00.000Z" }),
+      task({ id: "SOLTA-SEM-ESTIMATIVA", iniciadoEm: "2026-09-10T12:00:00.000Z" }),
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
@@ -379,7 +389,7 @@ describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes 
         titulo: "fix: data podre",
         estado: "mergeado",
         criado_em: "abc",
-        mergeado_em: "2026-09-05T00:00:00.000Z",
+        mergeado_em: "2026-09-05T12:00:00.000Z",
       }),
     ];
     const cpm = caminhoCritico([], []);
@@ -401,8 +411,8 @@ describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes 
         numero: 10,
         titulo: "fix: mergeado antes de criado",
         estado: "mergeado",
-        criado_em: "2026-09-10T00:00:00.000Z",
-        mergeado_em: "2026-09-05T00:00:00.000Z",
+        criado_em: "2026-09-10T12:00:00.000Z",
+        mergeado_em: "2026-09-05T12:00:00.000Z",
       }),
     ];
     const cpm = caminhoCritico([], []);
@@ -470,5 +480,88 @@ describe("montarLinhaDoTempo — nunca lança", () => {
     expect(() => montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE)).not.toThrow();
     const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
     expect(tarefaPorId(props, "ORFAO").predecessores).toEqual([]);
+  });
+});
+
+/**
+ * [ALTO 2, rodada 13] A CLASSE, medida no produto: o dia que a linha do tempo
+ * afirma é o dia do calendário DO OPERADOR, o mesmo de onde sai `hoje`.
+ *
+ * O defeito era invisível a todos os portões porque o texto e o pixel mentiam
+ * a mesma mentira: o `title` da barra e a posição dela saem do MESMO campo
+ * `inicio`. Só uma terceira fonte — o fuso declarado — separa as duas.
+ */
+describe("o dia de um item é o dia do operador, nunca o dia em UTC", () => {
+  /** 2026-09-22T02:00Z = 21/09 23h00 em São Paulo. */
+  const VINTE_E_UM_AS_23H = "2026-09-22T02:00:00.000Z";
+  const HOJE_SP = "2026-09-21";
+
+  it("PR criado às 23h de 21/09 começa em 21/09 — nunca 'amanhã', à direita do Hoje", () => {
+    const props = montarLinhaDoTempo(
+      [],
+      [],
+      [pr({ repo: "o/r", numero: 1, estado: "aberto", titulo: "tarde da noite", criado_em: VINTE_E_UM_AS_23H })],
+      SOURCES,
+      caminhoCritico([], [], HOJE_SP),
+      HOJE_SP,
+    );
+    const linha = props.grupos[0]?.linhas[0];
+    expect(linha?.kind).toBe("assunto");
+    expect(linha?.inicio).toBe("2026-09-21");
+    // E o mesmo dia de `hoje`: a barra nasce EM CIMA da faixa dourada, não depois dela.
+    expect(linha?.inicio).toBe(props.hoje);
+  });
+
+  it("PR mergeado às 22h de sexta não é mergeado no sábado", () => {
+    // 2026-09-18 é uma sexta; 2026-09-19T01:00Z = sexta 22h em São Paulo.
+    const props = montarLinhaDoTempo(
+      [],
+      [],
+      [
+        pr({
+          repo: "o/r",
+          numero: 2,
+          estado: "mergeado",
+          titulo: "sexta à noite",
+          criado_em: "2026-09-18T12:00:00.000Z",
+          mergeado_em: "2026-09-19T01:00:00.000Z",
+        }),
+      ],
+      SOURCES,
+      caminhoCritico([], [], HOJE_SP),
+      HOJE_SP,
+    );
+    const linha = props.grupos[0]?.linhas[0];
+    expect(linha?.fim).toBe("2026-09-18");
+    expect(new Date("2026-09-18T12:00:00.000Z").getUTCDay()).toBe(5); // sexta, não sábado
+    expect("2026-09-19T01:00:00.000Z".slice(0, 10)).toBe("2026-09-19"); // o sábado que o `slice` dizia
+  });
+
+  it("`dueDate` de 23h de hoje NÃO conta como atrasada (era, pelo dia de UTC)", () => {
+    const tasks = [task({ id: "PRAZO-HOJE-A-NOITE", dueDate: VINTE_E_UM_AS_23H, estimativaDias: 1 })];
+    const props = montarLinhaDoTempo(
+      tasks,
+      [],
+      [],
+      SOURCES,
+      caminhoCritico(tasks, [], HOJE_SP),
+      HOJE_SP,
+    );
+    const linha = tarefaPorId(props, "PRAZO-HOJE-A-NOITE");
+    expect(linha.dueDate).toBe("2026-09-21");
+    expect(linha.atrasada).toBe(false);
+  });
+
+  it("uma data `AAAA-MM-DD` sem hora atravessa sem ganhar nem perder um dia", () => {
+    const tasks = [task({ id: "SO-DATA", iniciadoEm: "2026-09-10", estimativaDias: 2 })];
+    const props = montarLinhaDoTempo(
+      tasks,
+      [],
+      [],
+      SOURCES,
+      caminhoCritico([], [], HOJE_SP),
+      HOJE_SP,
+    );
+    expect(tarefaPorId(props, "SO-DATA").inicio).toBe("2026-09-10");
   });
 });

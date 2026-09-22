@@ -25,6 +25,7 @@ import "server-only";
 import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import type { Pr } from "@/lib/frentes/types";
 import { limparTitulo } from "@/lib/frentes/compose";
+import { diaNoFusoDoOperador } from "@/lib/fuso";
 import type { Source, SourceKind, Task, TaskEdge } from "@/types/canonical";
 import type {
   LinhaDoTempoAssuntoRow,
@@ -46,9 +47,24 @@ function paraEpoch(iso: string | null | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** Corta para `AAAA-MM-DD` — nunca lança mesmo com string fora do formato ISO. */
-function paraDataCurta(iso: string): string {
-  return iso.length >= 10 ? iso.slice(0, 10) : iso;
+/**
+ * [ALTO 2, rodada 13] O DIA DE CALENDÁRIO de um instante, NO FUSO DO OPERADOR.
+ *
+ * Era `iso.slice(0, 10)`: o dia em UTC. O `hoje` desta mesma função vem de
+ * `hojeNoFusoDoOperador` (America/São Paulo) — então a faixa dourada, a origem
+ * da régua e a comparação de atraso falavam um calendário enquanto as datas
+ * dos itens falavam outro. Um PR criado às 23h de 21/09 em São Paulo nascia
+ * desenhado em 22/09, à DIREITA do "Hoje", e o `title`, o `aria-label` e a
+ * gaveta imprimiam 22/09/2026. Não era divergência de texto contra pixel (por
+ * isso nenhum portão via): os dois saíam do mesmo valor errado.
+ *
+ * Delega à conversão única (`@/lib/fuso`), que devolve `AAAA-MM-DD` sem hora
+ * INTACTO (não há instante para converter) e `null` para ISO ilegível — aqui
+ * o `null` devolve a string como veio, porque esta função nunca lança e o
+ * chamador já marcou `dataInvalida` antes de chegar neste ponto.
+ */
+function diaNoCalendarioDoOperador(iso: string): string {
+  return diaNoFusoDoOperador(iso) ?? iso;
 }
 
 /** `iso` + `dias` dias corridos, devolvido como `AAAA-MM-DD`. */
@@ -113,8 +129,8 @@ function montaAssunto(pr: Pr, hoje: string): LinhaDoTempoAssuntoRow {
   const fimEpoch = paraEpoch(fimIsoBruto);
   const dataInvalida = inicioEpoch === null || fimEpoch === null;
 
-  const inicio = dataInvalida ? hoje : paraDataCurta(inicioIsoBruto);
-  const fim = dataInvalida ? hoje : paraDataCurta(fimIsoBruto);
+  const inicio = dataInvalida ? hoje : diaNoCalendarioDoOperador(inicioIsoBruto);
+  const fim = dataInvalida ? hoje : diaNoCalendarioDoOperador(fimIsoBruto);
   // Comparação por DIA de calendário (`inicio`/`fim` já truncados), não pelo
   // instante exato — um PR criado 08h e mergeado 18h do MESMO dia é "marco"
   // (mesmo dia), não duas datas diferentes por causa da hora.
@@ -195,7 +211,7 @@ function calcularRanks(predecessores: ReadonlyMap<string, Set<string>>): Map<str
 
 /** ISO curto de `t.dueDate`, só quando parseia; `null` senão (nunca lança). */
 function dueDateValida(t: Task): string | null {
-  return t.dueDate && paraEpoch(t.dueDate) !== null ? paraDataCurta(t.dueDate) : null;
+  return t.dueDate && paraEpoch(t.dueDate) !== null ? diaNoCalendarioDoOperador(t.dueDate) : null;
 }
 
 /**
@@ -213,7 +229,7 @@ function estaAtrasada(t: Task, dueDateCurta: string | null, hoje: string): boole
 
 /** ISO curto de `t.updatedAt`, quando parseia — o "ponto de conclusão" de uma `done` fora do CPM. */
 function pontoDeConclusao(t: Task): string | null {
-  return paraEpoch(t.updatedAt) !== null ? paraDataCurta(t.updatedAt) : null;
+  return paraEpoch(t.updatedAt) !== null ? diaNoCalendarioDoOperador(t.updatedAt) : null;
 }
 
 function montaTarefa(
@@ -328,7 +344,7 @@ function montaTarefa(
   // disso para não desenhar uma barra sólida afirmando uma data que ninguém
   // informou (o conector já dizia "indefinido"; a barra dizia o contrário).
   const temInicioReal = Boolean(t.iniciadoEm && paraEpoch(t.iniciadoEm) !== null);
-  const inicio = temInicioReal ? paraDataCurta(t.iniciadoEm as string) : hoje;
+  const inicio = temInicioReal ? diaNoCalendarioDoOperador(t.iniciadoEm as string) : hoje;
   const fim = somaDias(inicio, duracao);
   const row: LinhaDoTempoTarefaRow = {
     ...base,
@@ -426,7 +442,7 @@ export function montarLinhaDoTempo(
   ];
 
   return {
-    hoje: paraDataCurta(hoje),
+    hoje: diaNoCalendarioDoOperador(hoje),
     grupos,
     goalId: cpm.goalId,
     duracaoTotal: cpm.duracaoTotal,
