@@ -287,7 +287,10 @@ describe("CRÍTICO — o vigia do contrato, o canário e as sentinelas continuam
     // persistência. Os nomes `P · <op>` NÃO são literais desta lista: eles são
     // DERIVADOS da lista canônica de `src/app/tarefa/pedido.ts`, e é o teste
     // logo abaixo que confere essa derivação sem precisar de navegador.
-    const PISO_DE_MEDIDAS = 35;
+    // Rodada 17: subiu de 35 para 36 — entrou `P-loja · `, o reinício que
+    // semeia a loja antes da família P (sem ele, duas sabotagens medidas nesta
+    // rodada passavam verdes sobre um estado já estragado por outras medidas).
+    const PISO_DE_MEDIDAS = 36;
     expect(
       nomes.length,
       "a lista nominal de medidas encolheu — se foi de propósito, baixe o piso neste arquivo e diga por quê",
@@ -455,5 +458,83 @@ describe("todo passo de CI que usa bash declara bash", () => {
       /^\s*shell:\s*bash\s*$/m.test(passo?.texto ?? ""),
       "sem `shell: bash` o passo morre em `set: Illegal option -o pipefail` dentro da imagem do Playwright",
     ).toBe(true);
+  });
+
+  /*
+   * ═════════════════════════════════════════════════════ ALTO #3, rodada 17 ═
+   * A GUARDA FOI CANCELADA PELO CI SEM DIZER ONDE ESTAVA.
+   *
+   * Medido no GitHub Actions (PR #43, head ab04af06): 25 min 8 s contra
+   * `timeout-minutes: 25`, e NENHUMA linha impressa em 24 minutos — a saída só
+   * existia no fim. Um log assim não distingue "travou" de "ficou lento", e é
+   * essa impossibilidade que os três testes abaixo impedem de voltar.
+   */
+  it("PRONTO QUANDO: o teto interno da corrida cabe, com folga, dentro do `timeout-minutes` do CI", () => {
+    const teto = Number(/const TETO_DA_CORRIDA_MS = (\d+)/.exec(guarda())?.[1] ?? "0");
+    expect(teto, "a guarda perdeu o teto de tempo da corrida inteira").toBeGreaterThan(0);
+    const bloco = ci().slice(ci().indexOf("lifeboard-navegador:"));
+    const minutos = Number(/timeout-minutes:\s*(\d+)/.exec(bloco)?.[1] ?? "0");
+    expect(minutos, "o job da guarda perdeu o `timeout-minutes`").toBeGreaterThan(0);
+    /*
+     * A folga é a diferença entre "reprova dizendo o nome da medida" e
+     * "cancelada sem dizer nada". Cinco minutos cobrem o `npm ci` e o checkout
+     * do job, que também correm contra o mesmo relógio.
+     */
+    const FOLGA_MINIMA_MS = 5 * 60_000;
+    expect(
+      minutos * 60_000 - teto,
+      `o teto da guarda (${String(teto / 60_000)} min) ficou perto demais do corte do CI (${String(minutos)} min)`,
+    ).toBeGreaterThanOrEqual(FOLGA_MINIMA_MS);
+  });
+
+  it("PRONTO QUANDO: cada medida tem teto próprio, e estourar o teto vira reprovação COM NOME", () => {
+    const texto = guarda();
+    expect(
+      /const TETO_POR_MEDIDA_MS = \d+/.test(texto),
+      "a guarda perdeu o teto por medida — uma medida travada voltaria a consumir a corrida inteira",
+    ).toBe(true);
+    expect(
+      texto,
+      "o teto por medida existe mas não é aplicado dentro de `medir`",
+    ).toContain("await comTeto(fn(), teto,");
+    expect(
+      texto,
+      "estourar o teto tem de registrar uma medida VERMELHA com o nome, nunca sumir em silêncio",
+    ).toContain("a medida estourou o teto de tempo");
+  });
+
+  it("PRONTO QUANDO: a guarda fala enquanto mede — veredito e nome saem na hora", () => {
+    const texto = guarda();
+    const corpoDoConferir = texto.slice(
+      texto.indexOf("function conferir(nome, ok, detalhe)"),
+      texto.indexOf("async function medir(nome, fn)"),
+    );
+    expect(
+      /console\.log\(/.test(corpoDoConferir),
+      "o `conferir` voltou a guardar tudo para o fim — foi assim que 24 minutos de silêncio viraram um cancelamento sem diagnóstico",
+    ).toBe(true);
+    expect(
+      texto,
+      "a guarda não anuncia mais qual medida COMEÇOU — sem isso, uma corrida morta não nomeia a culpada",
+    ).toContain("→ ${nome} …");
+  });
+
+  it("PRONTO QUANDO: `page.evaluate` — a única chamada do Playwright sem tempo limite — tem teto", () => {
+    const texto = guarda();
+    expect(
+      /const TETO_DO_EVALUATE_MS = \d+/.test(texto),
+      "sem teto no `page.evaluate`, uma aba congelada em segundo plano espera para sempre e nenhum tempo limite do Playwright a interrompe",
+    ).toBe(true);
+    expect(texto, "o teto do evaluate existe mas não é instalado na página").toContain(
+      "comTetoNoEvaluate(await contexto.newPage())",
+    );
+    // E a causa-raiz, desligada na linha de comando do navegador.
+    for (const chave of [
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+    ]) {
+      expect(texto, `o Chromium voltou a subir sem ${chave}`).toContain(chave);
+    }
   });
 });

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { env } from "@/config/env";
 import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import { descendentesDe, tiposBloqueadosPorCandidata } from "@/core/prioritize/candidatas";
 import { elosDePrecedencia } from "@/core/prioritize/elos-de-precedencia";
@@ -10,12 +9,7 @@ import { scoreAssimetria } from "@/core/prioritize/assimetria";
 import { herancaEfetiva } from "@/core/prioritize/heranca";
 import { avisarHumano } from "@/lib/avisar-humano";
 import { formatRelativeTime } from "@/lib/format-relative-time";
-import {
-  listarEdgesFixture,
-  listarNotesFixture,
-  listarTasksFixture,
-} from "@/lib/repositories/tasks.fixture-store";
-import { getSourcesRepository, getTasksRepository } from "@/lib/repositories/factory";
+import { carregarEstado } from "@/app/tarefa/estado";
 import type { Source, Task, TaskEdge, TaskNote } from "@/types/canonical";
 
 import { AtomosForm } from "@/components/task/atomos-form";
@@ -49,30 +43,6 @@ export const dynamic = "force-dynamic";
 
 interface PaginaTarefaProps {
   params: Promise<{ id: string }>;
-}
-
-async function carregarEstado(): Promise<{
-  tasks: Task[];
-  edges: TaskEdge[];
-  notes: TaskNote[];
-  sources: Source[];
-}> {
-  if (env.LIFEBOARD_DATA_MODE === "live") {
-    const tasksRepo = getTasksRepository();
-    const [tasks, edges, notes, sources] = await Promise.all([
-      tasksRepo.listAll(),
-      tasksRepo.listEdges(),
-      tasksRepo.listNotes(),
-      getSourcesRepository().listAll(),
-    ]);
-    return { tasks, edges, notes, sources };
-  }
-  return {
-    tasks: listarTasksFixture(),
-    edges: listarEdgesFixture(),
-    notes: listarNotesFixture(),
-    sources: await getSourcesRepository().listAll(),
-  };
 }
 
 export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promise<JSX.Element> {

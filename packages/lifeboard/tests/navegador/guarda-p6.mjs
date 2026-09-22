@@ -103,8 +103,8 @@
  * | J | as SENTINELAS de tempo real, uma POR ROTA: nada mexeu no contrato em toda a vida da guarda | canário conferido; 0 mudança fora da régua; vida ≥ 30 s; 7 campos EXERCIDOS |
  * | K | as SENTINELAS DO RELÓGIO, uma POR ROTA: meia hora adiantada, os campos exercidos, meia hora de novo | canário conferido; 0 mudança fora da régua; ≥ 7 campos no DOM e exercidos; 0 `type=number` |
  * | L | o alcance cobre TODAS as rotas, estados e CAMPOS EXERCIDOS que a guarda visita | 0 rota sem sentinela; sentinela ≥ o estado medido; os três números ≥ o piso escrito à mão (7) |
- * | P0 | o universo das escritas sai da lista canônica da página (`pedido.ts`) | 15 op(s); toda op com conferência ou dispensa com motivo; ≥ 15 conferidas |
- * | P·op | uma por operação de escrita: **o que o operador pediu está lá depois do F5** | pedido ≠ estado de antes, e o valor depois do F5 === o valor PEDIDO |
+ * | P0 | o universo das escritas sai da lista canônica da página (`pedido.ts`), e toda op declara ALCANCE e PRECONDIÇÃO | 15 op(s); ≥ 15 conferidas; motivo escrito de alcance em todas; classe da duração com ≥ 2 grafias decimais |
+ * | P·op | uma por operação de escrita: precondição PRÓPRIA conferida · o que o operador pediu está lá depois do F5 · **só o que foi pedido mudou na loja INTEIRA** · o anúncio da tela bate com o que foi gravado | precondição === a declarada (senão reprova, nunca se adapta); pedido ≠ antes; depois do F5 === PEDIDO; 0 campo e 0 entidade fora do alcance declarado; a frase exata do desfecho, e nenhuma do desfecho oposto |
  * | V-* | uma por medida: o CANAL do vigia provou que ainda reporta, e nada mexeu no contrato | canário nas 3 cópias pelas 6 redes; 0 mudança fora da régua |
  *
  * D, H e I cobrem TRÊS dos cinco formulários no navegador. Os cinco estão
@@ -128,6 +128,19 @@
  * com motivo escrito; e há piso — conferir zero nunca é sucesso. A conferência
  * é sempre a mesma: **pedir um valor DIFERENTE do que está lá, recarregar, e
  * exigir o valor PEDIDO** — nunca "algum valor", que é o regex que passou.
+ *
+ * ## A pergunta que faltava até a rodada 17: **e o RESTO continua como estava?**
+ *
+ * A família P nasceu perguntando "o valor que pedi voltou?", uma op por vez,
+ * cada uma lendo só o seu próprio campo. O crítico da rodada 17 derrubou a
+ * guarda inteira com uma linha em `statusSetFixture` que, ao mudar o status,
+ * apagava a duração — e a guarda IMPRIMIU o apagamento (`antes=""` onde antes
+ * era `"2"`) e chamou de `ok`. Agora cada escrita tem **alcance conferido**:
+ * fotografia derivada da loja INTEIRA antes e depois, e só pode ter mudado o
+ * que aquela op declarou (com motivo escrito). Junto vieram a **precondição
+ * própria** de cada medida (nenhuma herda o estrago de outra) e a **classe**
+ * de valores derivada do contrato do campo, no lugar de um chute que era
+ * sempre inteiro. Detalhe e medição: o bloco da família P, mais abaixo.
  *
  * ## O veredito não se conta a si mesmo (rodada 14)
  *
@@ -181,7 +194,7 @@ async function esperarResponder(base, limiteMs) {
 }
 
 /** Sobe `next dev` a partir DESTE pacote, em porta livre, no modo fixture. */
-async function subirServidorProprio() {
+async function subirServidorProprio(limiteMs = 180000) {
   const req = createRequire(import.meta.url);
   let binarioDoNext;
   try {
@@ -204,7 +217,7 @@ async function subirServidorProprio() {
     }
   };
   process.on("exit", encerrar);
-  if (!(await esperarResponder(base, 180000))) {
+  if (!(await esperarResponder(base, limiteMs))) {
     encerrar();
     return null;
   }
@@ -213,6 +226,8 @@ async function subirServidorProprio() {
 
 let encerrarServidor = () => {};
 let BASE = process.env.LIFEBOARD_URL ?? null;
+/** A guarda subiu o servidor? Só então ela pode reiniciá-lo para semear a loja. */
+const SERVIDOR_PROPRIO = BASE === null;
 if (BASE === null) {
   const proprio = await subirServidorProprio();
   if (proprio === null) {
@@ -241,9 +256,120 @@ if (!chromium) {
 const falhas = [];
 const medidas = [];
 
+/*
+ * ══════════════════════════════════════════════════════════ ALTO #3, rodada 17 ═
+ * A GUARDA TRAVOU NO CI E NÃO DISSE ONDE.
+ *
+ * Medido pelo coordenador no GitHub Actions (PR #43, head ab04af06, container
+ * `mcr.microsoft.com/playwright:v1.55.1-noble`):
+ *
+ *   08:18:25  servidor próprio no ar em http://127.0.0.1:39901
+ *   08:42:23  context canceled
+ *   08:42:23  ##[error]The operation was canceled.
+ *
+ * 25 min 8 s contra `timeout-minutes: 25`, e **nenhuma linha impressa em 24
+ * minutos**. Aqui na máquina a mesma corrida leva ~2 min 40 s.
+ *
+ * ## O que a investigação DERRUBOU
+ *
+ * A suspeita principal era o relógio de mentira das medidas K: com
+ * `clock.install()`, `assentar()` espera dois `requestAnimationFrame` e, se o
+ * relógio estivesse congelado, esperaria para sempre. **Medido e falso** —
+ * experimento próprio, mesmo Chromium, quatro casos (sem relógio · com relógio
+ * · depois de um `fastForward(30 min)` · depois de dois) e ainda com a aba em
+ * segundo plano: o `assentar` voltou em 6–34 ms em todos. `clock.install()` do
+ * Playwright NÃO para o relógio; ele segue andando com o tempo real, e é
+ * `pauseAt()` que pararia. A hipótese do coordenador está derrubada com medida,
+ * não com opinião.
+ *
+ * ## O que a investigação NÃO consegue afirmar, e por que isso é o achado
+ *
+ * Com a saída impressa **só no fim**, aquele log não distingue "travou" de
+ * "ficou lento": os dois produzem exatamente 24 minutos de silêncio. Ninguém
+ * — nem o coordenador, nem esta correção — pode dizer, daquele log, qual das
+ * duas aconteceu. **Essa impossibilidade é o defeito**, e é ela que se
+ * conserta aqui. Diagnóstico por adivinhação não é diagnóstico.
+ *
+ * ## O que ficou provado que PODE travar, e foi fechado
+ *
+ * `page.evaluate` **não tem tempo limite no Playwright** — nem o padrão da
+ * página, nem nenhum outro. São 31 chamadas neste arquivo, e três delas
+ * (`assentar`, `exercitarCampos`, a leitura do vigia) rodam sobre páginas
+ * SENTINELA que ficam abertas em segundo plano a corrida inteira. O Chromium
+ * congela aba de segundo plano depois de ~5 min (page freezing): numa máquina
+ * onde a corrida passa desse ponto antes das medidas J/K — e o contêiner é
+ * mais lento —, um `evaluate` sobre página congelada **não volta nunca**, e
+ * nenhum tempo limite do Playwright o interrompe. Três travas:
+ *
+ *  1. o Chromium sobe com o congelamento de segundo plano DESLIGADO
+ *     (`--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`,
+ *     `--disable-background-timer-throttling`) — é a causa-raiz, e sai declarada
+ *     na linha de comando do navegador, não num comentário;
+ *  2. todo `page.evaluate` desta guarda passa a ter teto (`TETO_DO_EVALUATE_MS`):
+ *     página que não responde vira reprovação com nome, nunca espera infinita;
+ *  3. cada medida tem teto próprio e a corrida tem teto total — abaixo.
+ *
+ * ## E a guarda passa a falar enquanto mede
+ *
+ * Cada medida anuncia que começou, e anuncia o veredito com o tempo que levou.
+ * O relatório do fim continua inteiro, como estava. Uma corrida que morrer no
+ * meio passa a dizer, na última linha do log, qual medida estava rodando.
+ * ════════════════════════════════════════════════════════════════════════════
+ */
+
+/** O relógio da corrida — é dele que saem os carimbos e o teto total. */
+const INICIO_DA_CORRIDA = Date.now();
+
+/**
+ * Teto de tempo de UMA medida. Escrito à mão, sem porta de saída por variável
+ * de ambiente: um teto que a corrida pode afrouxar sozinha não é teto.
+ * 2 min 30 s é ~5× a medida mais cara desta base (a família P inteira leva menos
+ * que isso), então ele só dispara em travamento de verdade.
+ */
+const TETO_POR_MEDIDA_MS = 150000;
+
+/**
+ * Teto da corrida inteira: 18 min, contra os 25 min do passo de CI. Os 7 min de
+ * diferença são a folga que o coordenador pediu — e ela é REAL, não estimada:
+ * com o teto, a guarda não tem como ser cancelada pelo CI sem antes dizer, no
+ * log, em que medida estava.
+ */
+const TETO_DA_CORRIDA_MS = 1080000;
+
+/** Teto de um `page.evaluate` — a única chamada do Playwright sem tempo limite. */
+const TETO_DO_EVALUATE_MS = 30000;
+
+class EstourouOTeto extends Error {}
+
+/** Corre a promessa contra um relógio; estourar é erro com nome, nunca espera. */
+async function comTeto(promessa, ms, oQue) {
+  let relogio;
+  try {
+    return await Promise.race([
+      promessa,
+      new Promise((_, rejeitar) => {
+        relogio = setTimeout(
+          () => rejeitar(new EstourouOTeto(`${oQue} passou de ${String(ms)} ms sem voltar`)),
+          ms,
+        );
+      }),
+    ]);
+  } finally {
+    if (relogio !== undefined) clearTimeout(relogio);
+  }
+}
+
+function carimbo() {
+  const s = Math.round((Date.now() - INICIO_DA_CORRIDA) / 1000);
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function conferir(nome, ok, detalhe) {
-  medidas.push(`${ok ? "ok   " : "FALHA"} ${nome} — ${detalhe}`);
+  const linha = `${ok ? "ok   " : "FALHA"} ${nome} — ${detalhe}`;
+  medidas.push(linha);
   if (!ok) falhas.push(nome);
+  // [ALTO #3, rodada 17] o veredito sai NA HORA, não só no relatório do fim.
+  console.log("%s", `[${carimbo()}] ${linha}`);
 }
 
 /**
@@ -258,15 +384,77 @@ function conferir(nome, ok, detalhe) {
  * sempre a lista inteira, e um estouro é uma reprovação com nome.
  */
 async function medir(nome, fn) {
+  // [ALTO #3, rodada 17] o teto total, conferido ANTES de começar: uma medida
+  // que não caberia é uma reprovação com nome, não um cancelamento do CI.
+  const restante = TETO_DA_CORRIDA_MS - (Date.now() - INICIO_DA_CORRIDA);
+  if (restante <= 0) {
+    conferir(
+      `${nome} · (a medida não chegou a rodar)`,
+      false,
+      `a corrida estourou o teto de ${String(Math.round(TETO_DA_CORRIDA_MS / 60000))} min antes desta medida começar`,
+    );
+    encerrarAgora(`a corrida estourou o teto de ${String(Math.round(TETO_DA_CORRIDA_MS / 60000))} min — parada em "${nome}"`);
+  }
+  const teto = Math.min(TETO_POR_MEDIDA_MS, restante);
+  // [ALTO #3, rodada 17] diz o que está rodando AGORA. Se a corrida morrer, a
+  // última linha do log nomeia a medida — era isto que faltava no contêiner.
+  console.log("%s", `[${carimbo()}] → ${nome} …`);
+  const t0 = Date.now();
   try {
-    await fn();
+    await comTeto(fn(), teto, `a medida "${nome}"`);
   } catch (erro) {
     const msg = erro instanceof Error ? erro.message.split("\n")[0] : String(erro);
+    if (erro instanceof EstourouOTeto) {
+      conferir(
+        `${nome} · (a medida estourou o teto de tempo)`,
+        false,
+        `${msg} — travar sem dizer o nome é "aprovar por ausência" do outro lado`,
+      );
+      /*
+       * A corrida PARA aqui, e é de propósito: a medida abandonada deixou uma
+       * operação do Playwright em voo, e tudo o que ela registrasse a partir de
+       * agora seria leitura de um estado que ninguém controla. Melhor um
+       * relatório curto e honesto, com o nome do culpado, do que 40 medidas
+       * sobre uma aba abandonada.
+       */
+      encerrarAgora(`medida travada: "${nome}" passou de ${String(Math.round(teto / 1000))}s`);
+    }
     conferir(`${nome} · (a medida não chegou ao fim)`, false, `a medida ESTOUROU: ${msg}`);
   }
+  console.log("%s", `[${carimbo()}] ← ${nome} — ${String(Math.round((Date.now() - t0) / 1000))}s`);
 }
 
-const navegador = await chromium.launch(CHROMIUM ? { executablePath: CHROMIUM } : {});
+/** O fim abrupto: imprime o que já se sabe, com nome, e sai vermelho. */
+function encerrarAgora(motivo) {
+  console.error("%s", `\n${motivo}`);
+  console.log("%s", `\n${medidas.join("\n")}`);
+  try {
+    encerrarServidor();
+  } catch {
+    // o servidor já morreu
+  }
+  process.exit(1);
+}
+
+/*
+ * [ALTO #3, rodada 17] O CONGELAMENTO DE ABA EM SEGUNDO PLANO, DESLIGADO.
+ *
+ * As seis sentinelas ficam abertas a corrida inteira e, por desenho, em
+ * segundo plano. O Chromium congela aba de segundo plano depois de ~5 min, e
+ * `page.evaluate` sobre aba congelada não volta — e não tem tempo limite.
+ * Estas três chaves são a causa-raiz do travamento do contêiner, desligada no
+ * único lugar onde isso se declara: a linha de comando do navegador.
+ */
+const ARGUMENTOS_DO_CHROMIUM = [
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+  "--disable-background-timer-throttling",
+];
+
+const navegador = await chromium.launch({
+  ...(CHROMIUM ? { executablePath: CHROMIUM } : {}),
+  args: ARGUMENTOS_DO_CHROMIUM,
+});
 
 /**
  * ══════════════════════════════════════════════════════ CRÍTICO #1, rodada 15 ═
@@ -295,6 +483,21 @@ function registrarRota(rota) {
 function registrarCampos(rota, quantos) {
   const antes = CAMPOS_VISTOS_POR_ROTA.get(rota) ?? 0;
   if (quantos > antes) CAMPOS_VISTOS_POR_ROTA.set(rota, quantos);
+}
+
+/**
+ * [ALTO #3, rodada 17] `page.evaluate` É A ÚNICA CHAMADA DO PLAYWRIGHT SEM
+ * TEMPO LIMITE — nem o padrão do contexto a alcança. São 31 neste arquivo, e
+ * as que rodam sobre as páginas SENTINELA (`assentar`, `exercitarCampos`, a
+ * leitura do vigia) são justamente as que uma aba congelada em segundo plano
+ * faria esperar para sempre. Aqui todas passam a ter teto, e página que não
+ * responde vira reprovação com nome.
+ */
+function comTetoNoEvaluate(pagina) {
+  const original = pagina.evaluate.bind(pagina);
+  pagina.evaluate = async (fn, arg) =>
+    await comTeto(original(fn, arg), TETO_DO_EVALUATE_MS, "um page.evaluate desta página");
+  return pagina;
 }
 
 /** Um contexto novo por medida: nada de rascunho de uma vazar na outra. */
@@ -334,7 +537,7 @@ async function abrir(rota, largura = 1280, altura = 1200, comRelogioDeMentira = 
     propriedades: PROPRIEDADES_DO_CONTRATO,
     atributos: ATRIBUTOS_DO_CONTRATO,
   });
-  const pagina = await contexto.newPage();
+  const pagina = comTetoNoEvaluate(await contexto.newPage());
   await pagina.goto(`${BASE}${rota}`, { waitUntil: "networkidle" });
   await pagina.waitForSelector("h1", { timeout: 30000 });
   registrarRota(rota);
@@ -405,10 +608,20 @@ async function revelarEstadosOcultos(pagina) {
  *     parar de mostrá-los, as duas leituras continuam concordando e a medida L
  *     reprova assim mesmo.
  *
- * O que fica FORA, dito por extenso e sem maquiagem: um temporizador armado por
- * um evento que esta bateria não dispara (arrastar, colar, rolar, tocar), ou
- * pelo clique num botão que a sentinela não pode apertar sem gravar no
- * servidor. É o limite declarado desta família — e as duas redes de fonte
+ * O que fica FORA, dito por extenso e MEDIDO (a frase anterior estava errada nos
+ * dois sentidos, e o crítico da rodada 17 conferiu):
+ *
+ *  - **`colar` NÃO está de fora:** `paste` é um dos 18 eventos de
+ *    `EVENTOS_EXERCIDOS`. A palavra sobrava na lista do que a bateria não faz;
+ *  - **o alcance é `input, textarea`, e só:** é o seletor desta função. Ficam de
+ *    fora `<select>` (a "Tarefa mãe" e o "Destino" da relação são dois deles),
+ *    `window` e `document` — um handler instalado em qualquer um dos três não
+ *    tem quem o acorde aqui;
+ *  - continuam de fora, como já estava dito: arrastar, rolar, tocar em tela
+ *    sensível, e o clique em BOTÃO — este de propósito, porque apertar um botão
+ *    da página é gravar no servidor, e a sentinela existe para observar.
+ *
+ * É o limite declarado desta família — e as duas redes de fonte
  * (`tiposDeInput` e `escritasNoDom`) continuam sendo a segunda linha para ele.
  */
 const EVENTOS_EXERCIDOS = [
@@ -605,12 +818,15 @@ async function assentar(pagina) {
  * rede real que demore mais que isso; (c) rota do produto que esta guarda NÃO
  * visita: a medida L prova que o alcance cobre tudo o que a guarda visita, e não
  * que a guarda visita tudo; (d) **interação que o exercício da sentinela não
- * faz**: arrastar, colar com o mouse, rolar, tocar em tela sensível, e o clique
- * em BOTÃO — este último de propósito, porque apertar um botão da página é
- * gravar no servidor, e a sentinela existe para observar, não para escrever. A
- * lista exata dos eventos exercidos é `EVENTOS_EXERCIDOS`, e o número de campos
- * exercidos sai impresso em cada medida J, K e L: hoje, 7 campos × 18 eventos
- * por rota.
+ * faz**: arrastar, rolar, tocar em tela sensível, e o clique em BOTÃO — este
+ * último de propósito, porque apertar um botão da página é gravar no servidor, e
+ * a sentinela existe para observar, não para escrever. **`colar` NÃO entra nesta
+ * lista** (`paste` está na bateria; a palavra sobrava aqui), e o que entra e não
+ * estava dito é o ALCANCE do exercício: `exercitarCampos` varre
+ * `input, textarea` e nada mais — `<select>`, `window` e `document` ficam de
+ * fora. A lista exata dos eventos exercidos é `EVENTOS_EXERCIDOS`, e o número de
+ * campos exercidos sai impresso em cada medida J, K e L: hoje, 7 campos × 18
+ * eventos por rota.
  *
  * O que compensa, sem ser o bastante sozinho: as duas redes de fonte
  * (`tiposDeInput` e `escritasNoDom`, no `src/` inteiro) pegam a escrita quando
@@ -2638,35 +2854,82 @@ for (const sentinela of SENTINELAS) await sentinela.contexto.close();
 // P · A PERSISTÊNCIA, DERIVADA DA LISTA CANÔNICA DAS OPERAÇÕES
 //
 // [ALTOS #1 e #3, rodada 16] A GUARDA NUNCA PERGUNTAVA SE O QUE O OPERADOR
-// PEDIU CHEGOU AO BANCO.
+// PEDIU CHEGOU AO BANCO. O universo saiu de `OPERACOES_DE_ESCRITA`
+// (`src/app/tarefa/pedido.ts`, lido do fonte) e a régua passou a ser: pedir um
+// valor DIFERENTE do atual, recarregar, e exigir o valor PEDIDO.
 //
-// Das 15 escritas desta página, a guarda conferia PERSISTÊNCIA em três lugares
-// (três `reload()` no arquivo inteiro). Em todo o resto, o anúncio de sucesso e
-// o estado do controle eram lidos DO CLIENTE — que é exatamente quem a
-// sabotagem controla. Duas provas do crítico, as duas com os cinco portões
-// verdes e as 34 medidas verdes:
+// ── rodada 17 ────────────────────────────────────────────────────────────────
+// O crítico derrubou essa versão com DUAS sabotagens de uma linha, as duas com
+// os cinco portões e as 50 medidas verdes:
 //
-//   1. dois campos trocados de lugar em `atomos-form.tsx`
-//      (`esforco: String(custo)`), o erro de digitação mais comum que existe.
-//      NA TELA {"Esforço":"1","Custo":"5"} + "Átomos salvos."; DEPOIS DO F5
-//      {"Esforço":"5","Custo":"1"}. A única medida que tocava em "Salvar
-//      átomos" (M) perguntava ao score `/assimetria \(A\) = \d+/` — um regex
-//      que só quer saber se EXISTE score, nunca se é o score do que foi pedido;
-//   2. `status-form.tsx` mandando `confirmadoRef.current` em vez de `novo`: a
-//      tela dizia "Status atualizado para concluída." com a opção marcada, e
-//      depois do F5 a tarefa voltava a "aberta" — e seguia entrando no caminho
-//      crítico e na fila.
+//   1. **ALCANCE.** `statusSetFixture` gravando também `estimativaDias: null`
+//      ("ao mudar o status, a estimativa antiga não vale mais"). A família P
+//      perguntava "o valor que pedi voltou?", **uma op por vez, cada uma lendo
+//      só o seu próprio campo** — nenhuma perguntava "e o resto continua como
+//      estava?". Pior: a guarda IMPRIMIU o apagamento e chamou de `ok`:
 //
-// A régua que substitui NÃO é uma medida a mais escrita à mão. O universo sai
-// da LISTA CANÔNICA da página (`OPERACOES_DE_ESCRITA`, em
-// `src/app/tarefa/pedido.ts`, lida do fonte): toda `op` que existe lá tem de
-// ter, aqui, ou uma conferência de persistência ou uma DISPENSA com motivo
-// escrito. Operação nova no `pedido.ts` sem linha nesta tabela reprova a
-// medida P0 — e conferir zero nunca é sucesso: há um piso escrito à mão.
+//        base: ok P · duracao · … antes="2"  · PEDIDO="3" · depois do F5="3"
+//        sab:  ok P · duracao · … antes=""   · PEDIDO="4" · depois do F5="4"
 //
-// A forma da conferência, onde o valor pedido é visível na tela: **pedir um
-// valor DIFERENTE do atual, recarregar a página, e exigir o valor PEDIDO** —
-// nunca "algum valor". É o que separa esta régua do regex que passou.
+//      `P · status` roda antes, na mesma rota e no mesmo store; apagou a
+//      duração; e `P · duracao` leu a PRÓPRIA PRECONDIÇÃO JÁ ESTRAGADA,
+//      recalculou o pedido a partir dela (`atual + 1`), gravou, releu e disse
+//      ok. Era o universo por convenção outra vez — agora aplicado ao
+//      **alcance da escrita**: um campo, por convenção.
+//
+//   2. **CLASSE.** `estimativaSetFixture` devolvendo `{ ok: true }` sem gravar
+//      quando o número tem casa decimal. As três medidas que tocam a duração
+//      passaram: `C` só testa a recusa de `2e`; `G` digita `9.9` e **não
+//      salva**; e `P · duracao` pedia `atual + 1` — sempre inteiro, e o
+//      fallback (`4`) também. **Nenhuma das 15 conferências gravava um número
+//      fracionário em lugar nenhum**, e `1.5` é um valor que a própria tela
+//      PEDE ("com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5)"), numa coluna
+//      `numeric(6,2)`. Era conferir o caso, não a classe.
+//
+//   3. **ANÚNCIO.** O anúncio da tela era capturado, impresso dentro de
+//      `extra` e **nunca comparado com o que foi gravado**. Onde o texto é
+//      alternativo (`/Duração (salva|removida)\./`,
+//      `/Tarefa mãe (atualizada|removida)\./`, `/(Marcada como meta|Meta
+//      removida)\./`), a guarda aceitava **os dois desfechos opostos da mesma
+//      escrita**.
+//
+// ── as três respostas, e elas são estruturais ────────────────────────────────
+//
+// **1. Toda escrita tem ALCANCE CONFERIDO.** Antes e depois de cada medida, a
+// guarda tira uma FOTOGRAFIA do estado inteiro (`/api/tarefa/estado`, o mesmo
+// `carregarEstado()` que a página usa) e derruba a medida se mudou qualquer
+// coisa fora do que aquela op declarou. A fotografia é DERIVADA: as chaves
+// saem de `Object.keys` de cada entidade, não de uma lista de campos escrita à
+// mão — campo novo no modelo entra na conferência sozinho. O que muda
+// legitimamente junto entra como exceção DECLARADA, com motivo escrito (hoje,
+// em modo fixture, nenhuma op tem exceção desse tipo: nenhum mutador mexe em
+// `updatedAt`).
+//
+// E ela é da LOJA INTEIRA, não da tarefa aberta — de propósito. O ataque que o
+// crítico nomeou e não tentou (uma op que grava o valor certo na tarefa aberta
+// e, no mesmo ato, estraga um VIZINHO do grafo: a mãe, a subtarefa recém-criada,
+// o destino da relação) cai aqui junto, porque o vizinho está na fotografia
+// mesmo sem nenhuma medida visitar a página dele.
+//
+// **2. Nenhuma medida P herda o estrago de outra.** Cada op declara e ESCREVE
+// a própria precondição, e a confere depois do F5 antes de medir: se a
+// precondição não for a esperada, a medida REPROVA — nunca se adapta a ela em
+// silêncio, que foi exatamente o que aconteceu com `atual + 1`. E o alcance é
+// conferido nos DOIS intervalos (antes→precondição e precondição→fim), senão
+// uma sabotagem que estraga durante a preparação ficaria escondida atrás do
+// saldo.
+//
+// **3. O valor pedido é uma CLASSE derivada do contrato do campo.** Para a
+// duração, as grafias decimais saem da própria frase de recusa do servidor
+// (`actions.ts`), o número de casas sai de `ESTIMATIVA_CASAS_MAX` e a borda de
+// baixo sai de `DURACAO_MINIMA_DIAS` — se a tela promete ponto E vírgula, a
+// classe tem os dois. A subtarefa, que tem o mesmo campo, grava um fracionário
+// também, e a conferência lê o que ficou na loja.
+//
+// **4. O anúncio entra no veredito.** Cada op declara a frase EXATA que aquele
+// desfecho tem de produzir e as frases do desfecho OPOSTO que o proíbem. Dizer
+// "removida" depois de gravar, ou "salva" depois de apagar, passa a ser
+// vermelho.
 // ════════════════════════════════════════════════════════════════════════════
 
 /** A lista canônica das escritas da página, lida do fonte — não uma cópia. */
@@ -2685,12 +2948,323 @@ const PISO_DE_OPS_CONFERIDAS = 15;
 
 const ROTA_DOCS = "/tarefa/task-docs";
 const ROTA_BUILD = "/tarefa/task-build";
+/** O id da tarefa de cada rota, derivado da própria rota. */
+const ID_DOCS = ROTA_DOCS.slice(ROTA_DOCS.lastIndexOf("/") + 1);
+const ID_BUILD = ROTA_BUILD.slice(ROTA_BUILD.lastIndexOf("/") + 1);
 
 /** Marcadores desta corrida — nenhum fixture os tem, e eles atravessam o F5. */
-const MARCAS = {};
 function marcador(prefixo) {
   return `${prefixo}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+// ════════════════════════════════ A FOTOGRAFIA DO ESTADO (ALTO #1, rodada 17) ═
+
+/** As coleções que a fotografia cobre — as três que a página escreve. */
+const COLECOES_DA_FOTOGRAFIA = ["tasks", "edges", "notes"];
+
+/**
+ * O piso da fotografia, escrito à mão e fora dela. A semente do fixture tem 11
+ * tarefas, 6 relações e 4 notas = 21 entidades; o piso é 15 para não quebrar se
+ * outra medida da guarda tiver apagado alguma no caminho. Fotografia vazia (ou
+ * quase) é cegueira, não aprovação — a mesma lei de "checagem pulada é checagem
+ * aprovada".
+ */
+const PISO_DA_FOTOGRAFIA = 15;
+
+/**
+ * O estado INTEIRO, como um mapa `coleção/id` → (campo → valor serializado).
+ *
+ * Os nomes dos campos saem de `Object.keys` de cada entidade: **derivada, não
+ * uma lista escrita à mão**. Campo novo no modelo canônico entra aqui sozinho,
+ * e passa a ser conferido sozinho.
+ */
+async function fotografia() {
+  const r = await comTeto(
+    fetch(`${BASE}/api/tarefa/estado`, { signal: globalThis.AbortSignal.timeout(20000) }),
+    25000,
+    "a fotografia do estado",
+  );
+  if (!r.ok) throw new Error(`/api/tarefa/estado respondeu ${String(r.status)}`);
+  const bruto = await r.json();
+  const foto = new Map();
+  for (const colecao of COLECOES_DA_FOTOGRAFIA) {
+    const lista = bruto[colecao];
+    if (!Array.isArray(lista)) {
+      throw new Error(`a fotografia não trouxe a coleção "${colecao}" — universo incompleto`);
+    }
+    for (const item of lista) {
+      const campos = new Map();
+      for (const nome of Object.keys(item)) campos.set(nome, JSON.stringify(item[nome]));
+      foto.set(`${colecao}/${String(item.id)}`, campos);
+    }
+  }
+  if (foto.size < PISO_DA_FOTOGRAFIA) {
+    throw new Error(
+      `a fotografia trouxe só ${String(foto.size)} entidade(s), piso escrito à mão ${String(
+        PISO_DA_FOTOGRAFIA,
+      )} — fotografia vazia aprovaria qualquer coisa`,
+    );
+  }
+  return foto;
+}
+
+/** O que mudou entre duas fotografias — entidades nascidas, mortas e campos. */
+function diferenca(antes, depois) {
+  const criadas = [...depois.keys()].filter((c) => !antes.has(c));
+  const removidas = [...antes.keys()].filter((c) => !depois.has(c));
+  const campos = [];
+  for (const [chave, camposAntes] of antes) {
+    const camposDepois = depois.get(chave);
+    if (camposDepois === undefined) continue;
+    for (const nome of new Set([...camposAntes.keys(), ...camposDepois.keys()])) {
+      const a = camposAntes.get(nome) ?? "(ausente)";
+      const b = camposDepois.get(nome) ?? "(ausente)";
+      if (a !== b) campos.push({ chave: `${chave}/${nome}`, de: a, para: b });
+    }
+  }
+  return { criadas, removidas, campos };
+}
+
+function colecaoDe(chave) {
+  return chave.slice(0, chave.indexOf("/"));
+}
+
+function descreverCampo(m) {
+  return `${m.chave}: ${m.de} → ${m.para}`;
+}
+
+/**
+ * O ALCANCE CONFERIDO: só pode ter mudado o que a op declarou.
+ *
+ * - **entidades** (nascidas/mortas) contam no SALDO da medida inteira
+ *   (`antes` → `fim`): uma op que cria na precondição e apaga na medida tem
+ *   saldo zero, e é isso que ela declara;
+ * - **campos** contam nos DOIS intervalos, separadamente. Sem isso, uma
+ *   sabotagem que estraga durante a preparação e "desestraga" depois passaria
+ *   pelo saldo — e a sabotagem do ALTO #1 estraga justamente na escrita que a
+ *   precondição usa;
+ * - **campo declarado que não mudou em intervalo nenhum** também reprova:
+ *   declaração larga demais é o mesmo buraco com outro nome.
+ */
+function problemasDeAlcance(foto0, foto1, fotoFim, alcance) {
+  const problemas = [];
+  const saldo = diferenca(foto0, fotoFim);
+  for (const colecao of COLECOES_DA_FOTOGRAFIA) {
+    const nascidas = saldo.criadas.filter((c) => colecaoDe(c) === colecao);
+    const esperadasN = alcance.criadas?.[colecao] ?? 0;
+    if (nascidas.length !== esperadasN) {
+      problemas.push(
+        `${colecao}: ${String(nascidas.length)} entidade(s) nova(s) no saldo, declarado ${String(
+          esperadasN,
+        )}${nascidas.length > 0 ? ` (${nascidas.join(", ")})` : ""}`,
+      );
+    }
+    const mortas = saldo.removidas.filter((c) => colecaoDe(c) === colecao);
+    const esperadasM = alcance.removidas?.[colecao] ?? 0;
+    if (mortas.length !== esperadasM) {
+      problemas.push(
+        `${colecao}: ${String(mortas.length)} entidade(s) a menos no saldo, declarado ${String(
+          esperadasM,
+        )}${mortas.length > 0 ? ` (${mortas.join(", ")})` : ""}`,
+      );
+    }
+  }
+  const declarados = new Set(alcance.campos ?? []);
+  const mudadosNaPreparacao = diferenca(foto0, foto1).campos;
+  const mudadosNaMedida = diferenca(foto1, fotoFim).campos;
+  const todos = [...mudadosNaPreparacao, ...mudadosNaMedida];
+  const aMais = todos.filter((m) => !declarados.has(m.chave));
+  if (aMais.length > 0) {
+    problemas.push(
+      `campo(s) que ninguém pediu mudaram: ${aMais.map(descreverCampo).join(" · ")}`,
+    );
+  }
+  const tocados = new Set(todos.map((m) => m.chave));
+  const aMenos = [...declarados].filter((c) => !tocados.has(c));
+  if (aMenos.length > 0) {
+    problemas.push(
+      `campo(s) declarado(s) no alcance que não mudaram em intervalo nenhum: ${aMenos.join(", ")}`,
+    );
+  }
+  const resumo = `alcance: ${String(saldo.criadas.length)} entidade(s) nova(s), ${String(
+    saldo.removidas.length,
+  )} a menos, ${String(todos.length)} campo(s) mudado(s)${
+    todos.length > 0 ? ` [${todos.map(descreverCampo).join(" · ")}]` : ""
+  }`;
+  return { problemas, resumo };
+}
+
+// ═══════════════════════ A CLASSE DE VALORES DA DURAÇÃO (ALTO #2, rodada 17) ═
+
+/**
+ * Os valores que a duração tem de aceitar, **derivados do contrato do campo** —
+ * e não um chute único que por acaso é sempre inteiro.
+ *
+ * Três fontes, todas lidas do fonte do produto:
+ *
+ *  1. as grafias decimais que a PRÓPRIA frase de recusa promete
+ *     (`actions.ts`: "com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5)") — se
+ *     a tela pede as duas, a classe tem as duas;
+ *  2. o número de casas que a coluna guarda (`ESTIMATIVA_CASAS_MAX`, que espelha
+ *     `numeric(6,2)`);
+ *  3. a borda de baixo (`DURACAO_MINIMA_DIAS`, em `tipos-v3.ts`).
+ *
+ * O inteiro entra como representante do caso fácil — que era o ÚNICO coberto.
+ */
+function classeDaDuracao() {
+  const acoes = readFileSync(join(RAIZ_DO_PACOTE, "src", "app", "tarefa", "actions.ts"), "utf8");
+  const tipos = readFileSync(
+    join(RAIZ_DO_PACOTE, "src", "core", "prioritize", "tipos-v3.ts"),
+    "utf8",
+  );
+  const frase = /precisa ser um número em dias, com [^(]*\(ex\.: ([^)]+)\)/.exec(acoes);
+  const exemplos = (frase?.[1] ?? "")
+    .split(/\s+ou\s+/)
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+  const casas = Number(/const ESTIMATIVA_CASAS_MAX = (\d+)/.exec(acoes)?.[1] ?? "0");
+  const minimo = /export const DURACAO_MINIMA_DIAS = ([\d.]+)/.exec(tipos)?.[1] ?? "";
+  const classe = ["3", ...exemplos];
+  if (casas > 0) classe.push(`2.${"2".repeat(casas)}`);
+  if (minimo !== "") classe.push(minimo);
+  return [...new Set(classe)];
+}
+
+const CLASSE_DA_DURACAO = classeDaDuracao();
+
+/**
+ * O piso de GRAFIAS DECIMAIS na classe, escrito à mão e fora da derivação: se a
+ * leitura do fonte quebrar e devolver só inteiros, a medida reprova em vez de
+ * voltar a conferir o caso fácil. 2 = ponto e vírgula.
+ */
+const PISO_DE_FORMAS_DECIMAIS = 2;
+
+/** O valor de partida da duração — inteiro, e fora da classe, para o pedido diferir. */
+const DURACAO_DE_PARTIDA = "7";
+
+/*
+ * ════════════════════════════════════ O ESTADO DE PARTIDA DE CADA ROTA ═══════
+ * [ALTO #1, rodada 17 — SEGUNDA VOLTA, medida] A primeira versão desta correção
+ * pôs alcance conferido em toda escrita da família P e MESMO ASSIM a sabotagem
+ * do status passou verde. A corrida mostrou por quê, e a razão é instrutiva:
+ *
+ *   P · status · … alcance: 2 campo(s) mudado(s)
+ *                  [tasks/task-docs/status: "done" → "open"
+ *                 · tasks/task-docs/status: "open" → "in_progress"]
+ *
+ * `estimativaDias` não aparece na diferença porque **já era `null` antes de a
+ * família P começar**: a medida D, lá no começo da guarda, também escreve
+ * status nesta mesma tarefa, e foi ela que apagou a duração. Quando `P · status`
+ * chegou, não havia mais nada para apagar — a escrita não mudou nada a mais, e
+ * o alcance, corretamente, não acusou nada.
+ *
+ * É a quarta forma viciada ("mede um instante só") mordendo a terceira: um
+ * alcance conferido sobre um estado JÁ ESTRAGADO não tem como acusar o estrago.
+ *
+ * A resposta é o **estado de partida**: antes de cada medida P, a guarda
+ * escreve, PELA INTERFACE, um estado declarado da rota — status na primeira
+ * opção, sem mãe, sem meta, átomos limpos, duração `7` — e **confere os cinco
+ * campos depois do F5**. Se o estado de partida não for o declarado, a medida
+ * reprova ali, sem medir. Só então a fotografia é tirada.
+ *
+ * **A duração é escrita POR ÚLTIMO, de propósito.** Uma escrita da preparação
+ * que apague a duração (exatamente a sabotagem) é desfeita pela escrita
+ * seguinte, e a rodada começa com a duração INTEIRA — que é o que dá à medida
+ * algo para perder. O caminho inverso (uma escrita de duração que apague o
+ * status) cai na conferência de leitura do próprio estado de partida.
+ */
+const CAMPOS_DO_ESTADO_DE_PARTIDA = ["status", "mãe", "meta", "átomos", "duração"];
+
+async function lerEstadoDaRota(pagina) {
+  const status = await marcadoNoGrupo(pagina, "Status da tarefa");
+  const select = pagina.locator('select[aria-label="Tarefa mãe"]');
+  const mae =
+    (await select.count()) === 0
+      ? "(o <select> da mãe não está na página)"
+      : ((await select.first().inputValue()) === "" ? "(nenhuma)" : await select.first().inputValue());
+  const botaoMeta = pagina.locator("button[aria-pressed]");
+  const meta =
+    (await botaoMeta.count()) === 0
+      ? "(o botão de meta não está na página)"
+      : `aria-pressed=${String(await botaoMeta.first().getAttribute("aria-pressed"))}`;
+  const trio = await trioNaTela(pagina);
+  const duracao = await duracaoNaCaixa(pagina);
+  return { status, mae, meta, trio, duracao };
+}
+
+function descreverEstadoDaRota(e) {
+  return `status=${e.status} · mãe=${e.mae} · meta=${e.meta} · átomos=${
+    e.trio === TRIO_LIMPO ? "limpos" : e.trio
+  } · duração=${JSON.stringify(e.duracao)}`;
+}
+
+/**
+ * Escreve o estado de partida da rota pela interface e devolve o que foi
+ * DECLARADO e o que a página mostra depois do F5 — a conferência é de quem chama.
+ */
+async function escreverEstadoDePartida(pagina) {
+  const opcoesStatus = await opcoesDoGrupo(pagina, "Status da tarefa");
+  const statusPartida = opcoesStatus[0] ?? "(o grupo de status não tem opção)";
+  if ((await marcadoNoGrupo(pagina, "Status da tarefa")) !== statusPartida) {
+    await escolherNoGrupo(pagina, "Status da tarefa", statusPartida);
+    await anunciou(pagina, /Status atualizado para/);
+    await recarregar(pagina);
+  }
+  const select = pagina.locator('select[aria-label="Tarefa mãe"]').first();
+  if ((await select.count()) === 1 && (await select.inputValue()) !== "") {
+    await select.selectOption("");
+    await anunciou(pagina, /Tarefa mãe (atualizada|removida)\./);
+    await recarregar(pagina);
+  }
+  const botaoMeta = pagina.locator("button[aria-pressed]").first();
+  if ((await botaoMeta.count()) === 1 && (await botaoMeta.getAttribute("aria-pressed")) === "true") {
+    await botaoMeta.click();
+    await anunciou(pagina, /(Marcada como meta|Meta removida)\./);
+    await recarregar(pagina);
+  }
+  const limpar = pagina.getByRole("button", { name: "Limpar átomos" });
+  if ((await limpar.count()) === 1) {
+    await limpar.click();
+    await anunciou(pagina, /Átomos limpos\./);
+    await recarregar(pagina);
+  }
+  // A DURAÇÃO POR ÚLTIMO — ver o bloco acima. Não é ordem à toa.
+  if ((await duracaoNaCaixa(pagina)) !== DURACAO_DE_PARTIDA) {
+    await salvarDuracao(pagina, DURACAO_DE_PARTIDA);
+    await recarregar(pagina);
+  }
+  const lido = await lerEstadoDaRota(pagina);
+  return {
+    opcoesStatus,
+    status: statusPartida,
+    esperado: descreverEstadoDaRota({
+      status: statusPartida,
+      mae: "(nenhuma)",
+      meta: "aria-pressed=false",
+      trio: TRIO_LIMPO,
+      duracao: DURACAO_DE_PARTIDA,
+    }),
+    obtido: descreverEstadoDaRota(lido),
+  };
+}
+
+/**
+ * A forma que o servidor GUARDA, espelhada aqui: é o que a caixa tem de mostrar
+ * depois do F5. Mesma lei de `duracaoCanonica` (`duracao-form.tsx`) e de
+ * `comDecimalCanonico` (`actions.ts`): UMA vírgula decimal vira ponto.
+ */
+function duracaoCanonicaNaGuarda(bruta) {
+  const t = bruta.trim();
+  if (t.length === 0) return "";
+  const semVirgula =
+    t.indexOf(",") !== -1 && t.indexOf(".") === -1 && t.indexOf(",") === t.lastIndexOf(",")
+      ? t.replace(",", ".")
+      : t;
+  const n = Number(semVirgula);
+  return Number.isFinite(n) ? String(n) : bruta;
+}
+
+// ══════════════════════════════════════════════ OS AJUDANTES DA FAMÍLIA P ═
 
 /** Espera a frase aparecer numa região viva; devolve o que havia lá no fim. */
 async function anunciou(pagina, regex, limiteMs = 20000) {
@@ -2744,6 +3318,8 @@ async function trioNaTela(pagina) {
   return `Opcionalidade=${o} · Esforço=${e} · Custo=${c}`;
 }
 
+const TRIO_LIMPO = "Opcionalidade=(nenhum) · Esforço=(nenhum) · Custo=(nenhum)";
+
 /** Todo item de lista da página, com o texto INTEIRO (a nota da relação inclusa). */
 async function textoDasListas(pagina) {
   return await pagina.evaluate(() =>
@@ -2770,7 +3346,16 @@ async function excluirItemComMarca(pagina, marca) {
   return false;
 }
 
-/** Cria uma relação com a NOTA como marcador, e devolve o anúncio. */
+/**
+ * Cria uma relação com a NOTA como marcador, e devolve o anúncio.
+ *
+ * [ALTO #1, rodada 17] Agora ela PROCURA um destino livre em vez de usar
+ * sempre o primeiro. Desde que cada medida passou a criar a própria
+ * precondição, duas medidas seguidas pediriam a mesma correlação
+ * `task-build → primeiro destino` e a segunda cairia em "Já existe uma aresta
+ * desse tipo entre essas duas tarefas" — uma falha de encanamento que se
+ * disfarçaria de falha de persistência.
+ */
 async function criarRelacaoMarcada(pagina, marca) {
   await escolherNoGrupo(pagina, "Tipo de relação", "correlação");
   await pagina.waitForTimeout(250);
@@ -2779,22 +3364,23 @@ async function criarRelacaoMarcada(pagina, marca) {
     [...el.options].map((o) => o.value).filter((v) => v !== ""),
   );
   if (valores.length === 0) return "(não há destino disponível para relação nova)";
-  await destino.selectOption(valores[0]);
-  await campoPorNome(pagina, /^Nota da relação/)
-    .first()
-    .fill(marca);
-  await pagina.getByRole("button", { name: "Adicionar relação" }).click();
-  return await anunciou(pagina, /Relação criada\./);
+  for (const v of valores) {
+    await destino.selectOption(v);
+    await campoPorNome(pagina, /^Nota da relação/)
+      .first()
+      .fill(marca);
+    await pagina.getByRole("button", { name: "Adicionar relação" }).click();
+    const texto = await anunciou(pagina, /Relação criada\.|Já existe uma aresta/, 10000);
+    if (/Relação criada\./.test(texto)) return texto;
+  }
+  return "(nenhum destino livre para uma correlação nova)";
 }
 
 /**
  * Espera a lista REFLETIR o que acabou de acontecer, e devolve o texto dela.
  *
  * Sem isto a medida lia o quadro anterior: a exclusão acontece no servidor, e
- * a lista só muda quando o `router.refresh()` da porta volta — medido nesta
- * rodada, a primeira versão destas duas medidas dizia "o pedido é IGUAL ao
- * estado de antes" sobre uma exclusão que tinha acontecido. É a mesma
- * armadilha que a medida E fechou com um `waitForFunction`.
+ * a lista só muda quando o `router.refresh()` da porta volta.
  */
 async function esperarPresenca(pagina, marca, presente, limiteMs = 15000) {
   const ate = Date.now() + limiteMs;
@@ -2811,144 +3397,308 @@ function presencaDe(texto, marca) {
   return texto.includes(marca) ? `"${marca}" está na lista` : `"${marca}" NÃO está na lista`;
 }
 
+/** Grava um valor na caixa de duração e devolve o anúncio que chegou. */
+async function salvarDuracao(pagina, valor) {
+  const campo = campoPorNome(pagina, /^Duração \(dias, p80/).first();
+  await campo.fill(valor);
+  await pagina.getByRole("button", { name: "Salvar duração" }).click();
+  return await anunciou(pagina, /Duração (salva|removida)\./);
+}
+
+async function duracaoNaCaixa(pagina) {
+  return await campoPorNome(pagina, /^Duração \(dias, p80/)
+    .first()
+    .inputValue();
+}
+
+/** Cria uma nota marcada, confirma o F5, e devolve o texto das listas. */
+async function criarNotaMarcada(pagina, marca) {
+  await campoPorNome(pagina, /^Nova nota$/)
+    .first()
+    .fill(marca);
+  await pagina.getByRole("button", { name: "Salvar nota" }).click();
+  return await anunciou(pagina, /Nota salva\./);
+}
+
+/** Declara um trio de átomos com Esforço ≠ Custo e devolve o que foi pedido. */
+async function declararTrio(pagina) {
+  const opcoesO = await opcoesDoGrupo(pagina, "Opcionalidade");
+  const opcoesE = await opcoesDoGrupo(pagina, "Esforço");
+  const opcoesC = await opcoesDoGrupo(pagina, "Custo");
+  const pedidoO = opcoesO[0] ?? "(sem opção)";
+  const pedidoE = opcoesE[0] ?? "(sem opção)";
+  /*
+   * Esforço e Custo DIFERENTES ENTRE SI, de propósito: com os dois iguais,
+   * trocar um campo pelo outro no despacho (`esforco: String(custo)`) seria
+   * invisível — é a sabotagem do ALTO #1 da rodada 16.
+   */
+  const pedidoC = opcoesC.filter((o) => o !== pedidoE).at(-1) ?? "(sem opção)";
+  await escolherNoGrupo(pagina, "Opcionalidade", pedidoO);
+  await escolherNoGrupo(pagina, "Esforço", pedidoE);
+  await escolherNoGrupo(pagina, "Custo", pedidoC);
+  await pagina.getByRole("button", { name: "Salvar átomos" }).click();
+  const anuncio = await anunciou(pagina, /Átomos salvos\./);
+  return { trio: `Opcionalidade=${pedidoO} · Esforço=${pedidoE} · Custo=${pedidoC}`, anuncio };
+}
+
 /**
- * A TABELA. Cada `op` da lista canônica aparece aqui, com uma conferência de
- * persistência ou uma dispensa com motivo escrito — nunca com nada.
+ * A TABELA. Cada `op` da lista canônica aparece aqui com:
+ *
+ *  - `precondicao` — o estado PRÓPRIO desta medida, escrito por ela e CONFERIDO
+ *    depois do F5. Nenhuma medida herda o que outra deixou;
+ *  - `conferir` — a escrita medida, com o valor PEDIDO e o valor depois do F5;
+ *  - `alcance` — o que esta escrita pode ter tocado, com motivo escrito;
+ *  - `anuncioEsperado` / `anunciosProibidos` — a frase da tela entra no veredito.
  */
 const PERSISTENCIA_POR_OP = {
   nota_criar: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
+    alcance: {
+      criadas: { notes: 1 },
+      motivo:
+        "salvar uma nota cria UMA nota e não toca em mais nada — nenhuma tarefa, nenhuma relação, nenhum campo de quem já existia.",
+    },
+    precondicao: async (pagina) => {
       const marca = marcador("nota");
-      MARCAS.nota = marca;
-      const antes = presencaDe(await textoDasListas(pagina), marca);
-      await campoPorNome(pagina, /^Nova nota$/)
-        .first()
-        .fill(marca);
-      await pagina.getByRole("button", { name: "Salvar nota" }).click();
-      const anuncio = await anunciou(pagina, /Nota salva\./);
+      return {
+        esperado: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        dado: { marca },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
+      const anuncio = await criarNotaMarcada(pagina, dado.marca);
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Nota salva\./,
+        anunciosProibidos: [/Nota restaurada\./, /Excluída\./],
       };
     },
   },
   nota_excluir: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
-      const marca = MARCAS.nota ?? "(a nota_criar não deixou marcador)";
-      const antes = presencaDe(await textoDasListas(pagina), marca);
-      const achou = await excluirItemComMarca(pagina, marca);
+    alcance: {
+      motivo:
+        "a nota que esta medida apaga foi criada pela PRÓPRIA precondição: no saldo do antes contra o depois a loja tem o mesmo número de notas, e nada mais pode ter mudado.",
+    },
+    precondicao: async (pagina) => {
+      const marca = marcador("nota-excluir");
+      await criarNotaMarcada(pagina, marca);
+      await recarregar(pagina);
+      return {
+        esperado: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        dado: { marca },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
+      const achou = await excluirItemComMarca(pagina, dado.marca);
       const anuncio = achou ? await anunciou(pagina, /Excluída\./) : "(não achei a nota)";
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" NÃO está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `achei a nota para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Excluída\./,
+        anunciosProibidos: [/Nota restaurada\./, /Nota salva\./],
+        extra: `achei a nota para excluir=${String(achou)}`,
       };
     },
   },
   nota_desfazer: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
+    alcance: {
+      criadas: { notes: 1 },
+      motivo:
+        "desfazer a exclusão grava a nota de volta com id novo (o store não ressuscita o id antigo): no saldo, UMA nota a mais do que antes da precondição, e nada além.",
+    },
+    precondicao: async (pagina) => {
       const marca = marcador("nota-desfazer");
-      await campoPorNome(pagina, /^Nova nota$/)
-        .first()
-        .fill(marca);
-      await pagina.getByRole("button", { name: "Salvar nota" }).click();
-      await anunciou(pagina, /Nota salva\./);
+      await criarNotaMarcada(pagina, marca);
       await recarregar(pagina);
       const achou = await excluirItemComMarca(pagina, marca);
       await anunciou(pagina, /Excluída\./);
-      // O estado DEPOIS da exclusão é o "atual" contra o qual o desfazer pede
-      // outra coisa — sem isto a medida pediria o que já estava lá.
-      const antes = presencaDe(await esperarPresenca(pagina, marca, false), marca);
+      return {
+        esperado: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await esperarPresenca(pagina, marca, false), marca),
+        dado: { marca, achou },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
       await pagina.getByRole("button", { name: "Desfazer" }).first().click();
       const anuncio = await anunciou(pagina, /Nota restaurada\./);
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `achei a nota para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Nota restaurada\./,
+        anunciosProibidos: [/Excluída\./],
+        extra: `achei a nota para excluir=${String(dado.achou)}`,
       };
     },
   },
   subtarefa_criar: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
+    alcance: {
+      criadas: { tasks: 1 },
+      motivo:
+        "criar subtarefa cria UMA tarefa; a mãe não muda de campo nenhum (o laço é o `parentId` da filha). É aqui que o ataque do vizinho apareceria: a mãe está na fotografia.",
+    },
+    precondicao: async (pagina) => {
       const marca = marcador("sub");
-      const antes = presencaDe(await textoDasListas(pagina), marca);
+      return {
+        esperado: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        dado: { marca },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      /*
+       * [ALTO #2, rodada 17] A SUBTAREFA TAMBÉM TEM O CAMPO DE DURAÇÃO, e o
+       * fracionário passa por aqui também — `subtarefaAddFixture` e
+       * `estimativaSetFixture` são duas portas para o MESMO campo.
+       */
+      const fracionario =
+        CLASSE_DA_DURACAO.find((v) => /[.,]/.test(v)) ?? "(a classe não tem fracionário)";
+      const esperadoNaLoja = Number(duracaoCanonicaNaGuarda(fracionario));
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
       await campoPorNome(pagina, /^Título da subtarefa$/)
         .first()
-        .fill(marca);
+        .fill(dado.marca);
+      await campoPorNome(pagina, /^Duração \(dias\)$/)
+        .first()
+        .fill(fracionario);
       await pagina.getByRole("button", { name: "Adicionar subtarefa" }).click();
       const anuncio = await anunciou(pagina, /Subtarefa criada\./);
       await recarregar(pagina);
+      const foto = await fotografia();
+      let gravada = "(a subtarefa não está na loja)";
+      for (const [chave, campos] of foto) {
+        if (colecaoDe(chave) !== "tasks") continue;
+        if (campos.get("title") !== JSON.stringify(dado.marca)) continue;
+        gravada = campos.get("estimativaDias") ?? "(sem campo)";
+      }
       return {
-        antes,
-        pedido: `"${marca}" está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        antes: `${antes} · duração gravada=(ainda não existe)`,
+        pedido: `"${dado.marca}" está na lista · duração gravada=${JSON.stringify(esperadoNaLoja)}`,
+        obtido: `${presencaDe(await textoDasListas(pagina), dado.marca)} · duração gravada=${gravada}`,
+        anuncio,
+        anuncioEsperado: /Subtarefa criada\./,
+        anunciosProibidos: [],
+        extra: `duração pedida na criação=${JSON.stringify(fracionario)} (da classe derivada)`,
       };
     },
   },
   relacao_criar: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
+    alcance: {
+      criadas: { edges: 1 },
+      motivo:
+        "criar relação cria UMA aresta; nem a origem nem o destino mudam de campo. O destino é o vizinho que nenhuma medida visita — e ele está na fotografia.",
+    },
+    precondicao: async (pagina) => {
       const marca = marcador("rel");
-      MARCAS.relacao = marca;
-      const antes = presencaDe(await textoDasListas(pagina), marca);
-      const anuncio = await criarRelacaoMarcada(pagina, marca);
+      return {
+        esperado: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        dado: { marca },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
+      const anuncio = await criarRelacaoMarcada(pagina, dado.marca);
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Relação criada\./,
+        anunciosProibidos: [/Relação desfeita\./, /Relação restaurada\./],
       };
     },
   },
   relacao_excluir: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
-      const marca = MARCAS.relacao ?? "(a relacao_criar não deixou marcador)";
-      const antes = presencaDe(await textoDasListas(pagina), marca);
-      const achou = await excluirItemComMarca(pagina, marca);
+    alcance: {
+      motivo:
+        "a relação que esta medida apaga foi criada pela PRÓPRIA precondição: saldo zero de arestas, e nenhum campo de tarefa pode ter mudado no caminho.",
+    },
+    precondicao: async (pagina) => {
+      const marca = marcador("rel-excluir");
+      await criarRelacaoMarcada(pagina, marca);
+      await recarregar(pagina);
+      return {
+        esperado: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        dado: { marca },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
+      const achou = await excluirItemComMarca(pagina, dado.marca);
       const anuncio = achou ? await anunciou(pagina, /Excluída\./) : "(não achei a relação)";
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" NÃO está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `achei a relação para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Excluída\./,
+        anunciosProibidos: [/Relação restaurada\./, /Relação criada\./],
+        extra: `achei a relação para excluir=${String(achou)}`,
       };
     },
   },
   relacao_desfazer_criacao: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
+    alcance: {
+      motivo:
+        "a criação é da precondição e o desfazer a apaga: saldo zero de arestas. Se o desfazer não desfizesse, o saldo acusaria UMA aresta a mais.",
+    },
+    precondicao: async (pagina) => {
+      // Sem F5 aqui de propósito: o F5 fecharia a janela de "Desfazer" da criação.
       const marca = marcador("rel-criada");
       await criarRelacaoMarcada(pagina, marca);
-      const antes = presencaDe(await esperarPresenca(pagina, marca, true), marca);
+      return {
+        esperado: `"${marca}" está na lista`,
+        obtido: presencaDe(await esperarPresenca(pagina, marca, true), marca),
+        dado: { marca },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
       await pagina.getByRole("button", { name: "Desfazer" }).first().click();
       const anuncio = await anunciou(pagina, /Relação desfeita\./);
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" NÃO está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Relação desfeita\./,
+        anunciosProibidos: [/Relação restaurada\./],
       };
     },
   },
   relacao_desfazer_exclusao: {
     rota: ROTA_BUILD,
-    conferir: async (pagina) => {
+    alcance: {
+      criadas: { edges: 1 },
+      motivo:
+        "desfazer a exclusão regrava a aresta com id novo: no saldo, UMA aresta a mais do que antes da precondição (que criou e apagou a original), e nada além.",
+    },
+    precondicao: async (pagina) => {
       const marca = marcador("rel-excluida");
       await criarRelacaoMarcada(pagina, marca);
       // O F5 fecha a janela de desfazer da CRIAÇÃO: o único "Desfazer" que
@@ -2956,24 +3706,45 @@ const PERSISTENCIA_POR_OP = {
       await recarregar(pagina);
       const achou = await excluirItemComMarca(pagina, marca);
       await anunciou(pagina, /Excluída\./);
-      const antes = presencaDe(await esperarPresenca(pagina, marca, false), marca);
+      return {
+        esperado: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await esperarPresenca(pagina, marca, false), marca),
+        dado: { marca, achou },
+      };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = presencaDe(await textoDasListas(pagina), dado.marca);
       await pagina.getByRole("button", { name: "Desfazer" }).first().click();
       const anuncio = await anunciou(pagina, /Relação restaurada\./);
       await recarregar(pagina);
       return {
         antes,
-        pedido: `"${marca}" está na lista`,
-        obtido: presencaDe(await textoDasListas(pagina), marca),
-        extra: `achei a relação para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+        pedido: `"${dado.marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), dado.marca),
+        anuncio,
+        anuncioEsperado: /Relação restaurada\./,
+        anunciosProibidos: [/Relação desfeita\./],
+        extra: `achei a relação para excluir=${String(dado.achou)}`,
       };
     },
   },
   status: {
     rota: ROTA_DOCS,
-    conferir: async (pagina) => {
+    alcance: {
+      campos: [`tasks/${ID_DOCS}/status`],
+      motivo:
+        "mudar o status muda O STATUS. Foi aqui que a sabotagem da rodada 17 gravou também `estimativaDias: null` — e a duração desta tarefa é um campo desta mesma entidade, na fotografia.",
+    },
+    // O estado de partida da rota já pôs o status na primeira opção; aqui a
+    // medida confere o SEU campo, de novo, antes de medir.
+    precondicao: async (pagina, partida) => ({
+      esperado: partida.status,
+      obtido: await marcadoNoGrupo(pagina, "Status da tarefa"),
+      dado: { opcoes: partida.opcoesStatus, partida: partida.status },
+    }),
+    conferir: async (pagina, dado) => {
       const antes = await marcadoNoGrupo(pagina, "Status da tarefa");
-      const opcoes = await opcoesDoGrupo(pagina, "Status da tarefa");
-      const pedido = opcoes.find((o) => o !== antes) ?? "(nenhuma opção diferente na tela)";
+      const pedido = dado.opcoes[1] ?? "(o grupo de status só tem uma opção)";
       await escolherNoGrupo(pagina, "Status da tarefa", pedido);
       const anuncio = await anunciou(pagina, /Status atualizado para/);
       const naTela = await marcadoNoGrupo(pagina, "Status da tarefa");
@@ -2982,159 +3753,228 @@ const PERSISTENCIA_POR_OP = {
         antes,
         pedido,
         obtido: await marcadoNoGrupo(pagina, "Status da tarefa"),
-        extra: `anúncio=${JSON.stringify(anuncio)} · na tela ANTES do F5=${JSON.stringify(naTela)}`,
+        anuncio,
+        // A frase tem de nomear O STATUS PEDIDO — não "algum status".
+        anuncioEsperado: new RegExp(`Status atualizado para ${escaparParaRegex(pedido)}\\.`),
+        anunciosProibidos: [
+          new RegExp(`Status atualizado para ${escaparParaRegex(dado.partida)}\\.`),
+        ],
+        extra: `na tela ANTES do F5=${JSON.stringify(naTela)}`,
       };
     },
   },
   mae: {
     rota: ROTA_DOCS,
+    alcance: {
+      campos: [`tasks/${ID_DOCS}/parentId`],
+      motivo:
+        "escolher a mãe muda o `parentId` DESTA tarefa. A mãe escolhida é um vizinho que nenhuma medida abre, e ela está na fotografia — se a escrita a tocasse, apareceria aqui.",
+    },
+    precondicao: async (pagina) => {
+      const select = pagina.locator('select[aria-label="Tarefa mãe"]').first();
+      return {
+        esperado: "(nenhuma)",
+        obtido: (await select.inputValue()) === "" ? "(nenhuma)" : await select.inputValue(),
+        dado: {},
+      };
+    },
     conferir: async (pagina) => {
       const select = pagina.locator('select[aria-label="Tarefa mãe"]').first();
       const antes = await select.inputValue();
       const valores = await select.evaluate((el) => [...el.options].map((o) => o.value));
-      const pedido = valores.find((v) => v !== antes) ?? "(nenhuma opção diferente)";
+      const pedido = valores.find((v) => v !== "") ?? "(nenhuma opção de mãe)";
       await select.selectOption(pedido);
       const anuncio = await anunciou(pagina, /Tarefa mãe (atualizada|removida)\./);
       await recarregar(pagina);
       return {
         antes: antes === "" ? "(nenhuma)" : antes,
-        pedido: pedido === "" ? "(nenhuma)" : pedido,
+        pedido,
         obtido: await select
           .inputValue()
           .then((v) => (v === "" ? "(nenhuma)" : v))
           .catch(() => "(o <select> sumiu)"),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        anuncio,
+        anuncioEsperado: /Tarefa mãe atualizada\./,
+        // Os dois desfechos opostos da MESMA escrita: era isto que a guarda
+        // aceitava sem distinguir (BAIXO #3, rodada 17).
+        anunciosProibidos: [/Tarefa mãe removida\./],
       };
     },
   },
   meta: {
     rota: ROTA_DOCS,
+    alcance: {
+      campos: [`tasks/${ID_DOCS}/isGoal`],
+      motivo:
+        "marcar como meta muda o `isGoal` DESTA tarefa. Nenhuma outra tarefa é desmarcada pelo store, então qualquer `isGoal` de vizinho que mudasse apareceria na fotografia.",
+    },
+    precondicao: async (pagina) => ({
+      esperado: "aria-pressed=false",
+      obtido: `aria-pressed=${String(
+        await pagina.locator("button[aria-pressed]").first().getAttribute("aria-pressed"),
+      )}`,
+      dado: {},
+    }),
     conferir: async (pagina) => {
-      const botao = pagina.locator("button[aria-pressed]").first();
-      const antes = await botao.getAttribute("aria-pressed");
-      await botao.click();
+      const botao = () => pagina.locator("button[aria-pressed]").first();
+      const antes = await botao().getAttribute("aria-pressed");
+      await botao().click();
       const anuncio = await anunciou(pagina, /(Marcada como meta|Meta removida)\./);
       await recarregar(pagina);
       return {
         antes: `aria-pressed=${String(antes)}`,
-        pedido: `aria-pressed=${antes === "true" ? "false" : "true"}`,
-        obtido: `aria-pressed=${String(
-          await pagina.locator("button[aria-pressed]").first().getAttribute("aria-pressed"),
-        )}`,
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        pedido: "aria-pressed=true",
+        obtido: `aria-pressed=${String(await botao().getAttribute("aria-pressed"))}`,
+        anuncio,
+        anuncioEsperado: /Marcada como meta\./,
+        anunciosProibidos: [/Meta removida\./],
       };
     },
   },
   duracao: {
     rota: ROTA_DOCS,
+    alcance: {
+      campos: [`tasks/${ID_DOCS}/estimativaDias`],
+      motivo:
+        "salvar a duração muda a duração DESTA tarefa, e mais nada — nem o status, nem a mãe, nem a duração de nenhuma outra tarefa do grafo.",
+    },
+    precondicao: async (pagina) => ({
+      esperado: DURACAO_DE_PARTIDA,
+      obtido: await duracaoNaCaixa(pagina),
+      dado: {},
+    }),
+    /*
+     * [ALTO #2, rodada 17] A CLASSE, NÃO O CASO.
+     *
+     * Aqui estava a medida que pedia `atual + 1` — sempre inteiro — e por isso
+     * passou verde sobre um servidor que respondia sucesso e não gravava
+     * fracionário. Agora ela percorre a classe DERIVADA do contrato do campo, e
+     * cada valor é gravado, recarregado e relido na forma que o servidor guarda.
+     */
     conferir: async (pagina) => {
-      const campo = campoPorNome(pagina, /^Duração \(dias, p80/).first();
-      const antes = await campo.inputValue();
-      const atual = Number(antes);
-      const pedido = String(Number.isFinite(atual) && antes.trim() !== "" ? atual + 1 : 4);
-      await campo.fill(pedido);
-      await pagina.getByRole("button", { name: "Salvar duração" }).click();
-      const anuncio = await anunciou(pagina, /Duração (salva|removida)\./);
-      await recarregar(pagina);
+      const antes = await duracaoNaCaixa(pagina);
+      const pedidos = [];
+      const obtidos = [];
+      const anuncios = [];
+      for (const bruto of CLASSE_DA_DURACAO) {
+        const canonico = duracaoCanonicaNaGuarda(bruto);
+        const anuncio = await salvarDuracao(pagina, bruto);
+        anuncios.push(`${bruto}→${JSON.stringify(anuncio)}`);
+        await recarregar(pagina);
+        const naCaixa = await duracaoNaCaixa(pagina);
+        pedidos.push(`${bruto}→${canonico}`);
+        obtidos.push(
+          `${bruto}→${naCaixa}${/Duração salva\./.test(anuncio) ? "" : " [ANÚNCIO ERRADO]"}`,
+        );
+      }
       return {
         antes,
-        pedido,
-        obtido: await campoPorNome(pagina, /^Duração \(dias, p80/)
-          .first()
-          .inputValue(),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        pedido: pedidos.join(" · "),
+        obtido: obtidos.join(" · "),
+        anuncio: anuncios.join(" | "),
+        anuncioEsperado: /Duração salva\./,
+        // "Duração removida." é o desfecho OPOSTO da mesma escrita.
+        anunciosProibidos: [/Duração removida\./],
+        extra: `classe derivada do contrato do campo: ${JSON.stringify(CLASSE_DA_DURACAO)}`,
       };
     },
   },
   atomos_salvar: {
     rota: ROTA_BUILD,
+    alcance: {
+      campos: [`tasks/${ID_BUILD}/assimetria`],
+      motivo:
+        "salvar os átomos escreve o objeto `assimetria` DESTA tarefa. O score de prioridade é calculado da leitura, não gravado — então nenhum outro campo pode mudar junto.",
+    },
+    precondicao: async (pagina) => ({
+      esperado: TRIO_LIMPO,
+      obtido: await trioNaTela(pagina),
+      dado: {},
+    }),
     conferir: async (pagina) => {
       const antes = await trioNaTela(pagina);
-      /*
-       * O pedido escolhe Esforço e Custo DIFERENTES ENTRE SI, de propósito:
-       * com os dois iguais, trocar um campo pelo outro no despacho
-       * (`esforco: String(custo)`) seria invisível — é a sabotagem do ALTO #1.
-       */
-      const opcoesO = await opcoesDoGrupo(pagina, "Opcionalidade");
-      const opcoesE = await opcoesDoGrupo(pagina, "Esforço");
-      const opcoesC = await opcoesDoGrupo(pagina, "Custo");
-      const atualO = await marcadoNoGrupo(pagina, "Opcionalidade");
-      const atualE = await marcadoNoGrupo(pagina, "Esforço");
-      const atualC = await marcadoNoGrupo(pagina, "Custo");
-      const pedidoO = opcoesO.find((o) => o !== atualO) ?? "(sem opção diferente)";
-      const pedidoE = opcoesE.find((o) => o !== atualE) ?? "(sem opção diferente)";
-      const pedidoC =
-        opcoesC.find((o) => o !== atualC && o !== pedidoE) ?? "(sem opção diferente)";
-      await escolherNoGrupo(pagina, "Opcionalidade", pedidoO);
-      await escolherNoGrupo(pagina, "Esforço", pedidoE);
-      await escolherNoGrupo(pagina, "Custo", pedidoC);
-      await pagina.getByRole("button", { name: "Salvar átomos" }).click();
-      const anuncio = await anunciou(pagina, /Átomos salvos\./);
+      const { trio, anuncio } = await declararTrio(pagina);
       const naTela = await trioNaTela(pagina);
-      await recarregar(pagina);
-      MARCAS.trio = `Opcionalidade=${pedidoO} · Esforço=${pedidoE} · Custo=${pedidoC}`;
-      return {
-        antes,
-        pedido: MARCAS.trio,
-        obtido: await trioNaTela(pagina),
-        extra: `anúncio=${JSON.stringify(anuncio)} · na tela ANTES do F5=${JSON.stringify(naTela)}`,
-      };
-    },
-  },
-  atomos_limpar: {
-    rota: ROTA_BUILD,
-    conferir: async (pagina) => {
-      const antes = await trioNaTela(pagina);
-      const limpar = pagina.getByRole("button", { name: "Limpar átomos" });
-      const tem = (await limpar.count()) === 1;
-      if (tem) await limpar.click();
-      const anuncio = tem
-        ? await anunciou(pagina, /Átomos limpos\./)
-        : '(o botão "Limpar átomos" não existe nesta tarefa)';
-      await recarregar(pagina);
-      return {
-        antes,
-        pedido: "Opcionalidade=(nenhum) · Esforço=(nenhum) · Custo=(nenhum)",
-        obtido: await trioNaTela(pagina),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
-      };
-    },
-  },
-  atomos_desfazer_limpeza: {
-    rota: ROTA_BUILD,
-    conferir: async (pagina) => {
-      // Precondição própria: declarar um trio, para haver o que limpar.
-      const opcoesE = await opcoesDoGrupo(pagina, "Esforço");
-      const opcoesC = await opcoesDoGrupo(pagina, "Custo");
-      const opcoesO = await opcoesDoGrupo(pagina, "Opcionalidade");
-      await escolherNoGrupo(pagina, "Opcionalidade", opcoesO[0] ?? "");
-      await escolherNoGrupo(pagina, "Esforço", opcoesE[0] ?? "");
-      await escolherNoGrupo(pagina, "Custo", opcoesC[opcoesC.length - 1] ?? "");
-      await pagina.getByRole("button", { name: "Salvar átomos" }).click();
-      await anunciou(pagina, /Átomos salvos\./);
-      await recarregar(pagina);
-      const trio = await trioNaTela(pagina);
-      await pagina.getByRole("button", { name: "Limpar átomos" }).click();
-      await anunciou(pagina, /Átomos limpos\./);
-      const limpo = "Opcionalidade=(nenhum) · Esforço=(nenhum) · Custo=(nenhum)";
-      const ate = Date.now() + 15000;
-      let antes = await trioNaTela(pagina);
-      while (antes !== limpo && Date.now() < ate) {
-        await pagina.waitForTimeout(250);
-        antes = await trioNaTela(pagina);
-      }
-      await pagina.getByRole("button", { name: "Desfazer" }).first().click();
-      const anuncio = await anunciou(pagina, /Átomos restaurados\./);
       await recarregar(pagina);
       return {
         antes,
         pedido: trio,
         obtido: await trioNaTela(pagina),
-        extra: `anúncio=${JSON.stringify(anuncio)}`,
+        anuncio,
+        anuncioEsperado: /Átomos salvos\./,
+        anunciosProibidos: [/Átomos limpos\./, /Átomos restaurados\./],
+        extra: `na tela ANTES do F5=${JSON.stringify(naTela)}`,
+      };
+    },
+  },
+  atomos_limpar: {
+    rota: ROTA_BUILD,
+    alcance: {
+      campos: [`tasks/${ID_BUILD}/assimetria`],
+      motivo:
+        "limpar os átomos apaga o objeto `assimetria` DESTA tarefa — é o campo que a precondição acabou de escrever, e nenhum outro.",
+    },
+    precondicao: async (pagina) => {
+      const { trio } = await declararTrio(pagina);
+      await recarregar(pagina);
+      return { esperado: trio, obtido: await trioNaTela(pagina), dado: { trio } };
+    },
+    conferir: async (pagina) => {
+      const antes = await trioNaTela(pagina);
+      await pagina.getByRole("button", { name: "Limpar átomos" }).click();
+      const anuncio = await anunciou(pagina, /Átomos limpos\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: TRIO_LIMPO,
+        obtido: await trioNaTela(pagina),
+        anuncio,
+        anuncioEsperado: /Átomos limpos\./,
+        anunciosProibidos: [/Átomos restaurados\./, /Átomos salvos\./],
+      };
+    },
+  },
+  atomos_desfazer_limpeza: {
+    rota: ROTA_BUILD,
+    alcance: {
+      campos: [`tasks/${ID_BUILD}/assimetria`],
+      motivo:
+        "desfazer a limpeza devolve o MESMO objeto `assimetria` que a precondição declarou antes de limpar — e nada mais da loja participa desse caminho de volta.",
+    },
+    precondicao: async (pagina) => {
+      const { trio } = await declararTrio(pagina);
+      await recarregar(pagina);
+      await pagina.getByRole("button", { name: "Limpar átomos" }).click();
+      await anunciou(pagina, /Átomos limpos\./);
+      const ate = Date.now() + 15000;
+      let agora = await trioNaTela(pagina);
+      while (agora !== TRIO_LIMPO && Date.now() < ate) {
+        await pagina.waitForTimeout(250);
+        agora = await trioNaTela(pagina);
+      }
+      return { esperado: TRIO_LIMPO, obtido: agora, dado: { trio } };
+    },
+    conferir: async (pagina, dado) => {
+      const antes = await trioNaTela(pagina);
+      await pagina.getByRole("button", { name: "Desfazer" }).first().click();
+      const anuncio = await anunciou(pagina, /Átomos restaurados\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: dado.trio,
+        obtido: await trioNaTela(pagina),
+        anuncio,
+        anuncioEsperado: /Átomos restaurados\./,
+        anunciosProibidos: [/Átomos limpos\./],
       };
     },
   },
 };
+
+/** Escapa o que vier do produto antes de virar expressão regular. */
+function escaparParaRegex(texto) {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 // P0 — o universo não é convenção: é a lista canônica da página.
 await medir("P0", async () => {
@@ -3172,15 +4012,144 @@ await medir("P0", async () => {
       )} — conferir zero (ou pouco) nunca é sucesso`,
     );
   }
+  // [ALTO #1, rodada 17] toda op conferida declara ALCANCE, com motivo escrito.
+  const semAlcance = conferidas.filter(
+    (op) => (PERSISTENCIA_POR_OP[op]?.alcance?.motivo ?? "").trim().length < 40,
+  );
+  if (semAlcance.length > 0) {
+    problemas.push(
+      `op(s) sem ALCANCE declarado com motivo escrito: ${semAlcance.join(
+        ", ",
+      )} — sem isso a escrita volta a ter alcance por convenção`,
+    );
+  }
+  // [ALTO #1, rodada 17] e toda op conferida tem precondição PRÓPRIA.
+  const semPrecondicao = conferidas.filter(
+    (op) => typeof PERSISTENCIA_POR_OP[op]?.precondicao !== "function",
+  );
+  if (semPrecondicao.length > 0) {
+    problemas.push(
+      `op(s) sem precondição própria: ${semPrecondicao.join(
+        ", ",
+      )} — medida que herda o estado de outra não mede nada`,
+    );
+  }
+  /*
+   * [ALTO #1, rodada 17] O ESTADO DE PARTIDA COBRE OS CAMPOS QUE A PÁGINA
+   * ESCREVE. Piso escrito à mão: encolher a lista (e voltar a medir sobre um
+   * estado já estragado) passa a exigir baixar este número de propósito.
+   */
+  const PISO_DE_CAMPOS_DE_PARTIDA = 5;
+  if (CAMPOS_DO_ESTADO_DE_PARTIDA.length < PISO_DE_CAMPOS_DE_PARTIDA) {
+    problemas.push(
+      `o estado de partida cobre só ${String(
+        CAMPOS_DO_ESTADO_DE_PARTIDA.length,
+      )} campo(s), piso escrito à mão ${String(
+        PISO_DE_CAMPOS_DE_PARTIDA,
+      )} — campo fora dele começa a medida já estragado e o alcance não tem como acusar`,
+    );
+  }
+  // [ALTO #2, rodada 17] a classe de valores da duração continua sendo classe.
+  const formasDecimais = CLASSE_DA_DURACAO.filter((v) => /[.,]/.test(v));
+  if (formasDecimais.length < PISO_DE_FORMAS_DECIMAIS) {
+    problemas.push(
+      `a classe da duração tem só ${String(
+        formasDecimais.length,
+      )} grafia(s) decimal(is), piso escrito à mão ${String(
+        PISO_DE_FORMAS_DECIMAIS,
+      )} — a derivação do contrato quebrou e a medida voltaria a conferir só o inteiro`,
+    );
+  }
   conferir(
-    "P0 · o universo das escritas sai da lista canônica da página, e toda op tem conferência ou dispensa com motivo",
+    "P0 · o universo das escritas sai da lista canônica da página, e toda op tem conferência (com alcance e precondição) ou dispensa com motivo",
     problemas.length === 0,
     `${String(OPS_DA_PAGINA.length)} op(s) em src/app/tarefa/pedido.ts: ${OPS_DA_PAGINA.join(
       ", ",
     )} · ${String(conferidas.length)} conferida(s) por persistência (piso ${String(
       PISO_DE_OPS_CONFERIDAS,
-    )}) · ${String(dispensadas.length)} dispensada(s) com motivo escrito${
-      problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`
+    )}) · ${String(dispensadas.length)} dispensada(s) com motivo escrito · estado de partida: ${CAMPOS_DO_ESTADO_DE_PARTIDA.join(
+      ", ",
+    )} · classe da duração (derivada do contrato): ${JSON.stringify(CLASSE_DA_DURACAO)}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
+  );
+});
+
+/*
+ * ══════════════════════════════ ALTO #1, rodada 17 — A TERCEIRA VOLTA, MEDIDA ═
+ * A FAMÍLIA P MEDE SOBRE A LOJA RECÉM-SEMEADA. NÃO É CONFORTO: É O QUE FAZ A
+ * FOTOGRAFIA VALER ALGUMA COISA.
+ *
+ * Duas sabotagens desta rodada passaram verdes pela MESMA razão, e as duas
+ * foram medidas aqui, não imaginadas:
+ *
+ *  1. a do crítico (`statusSetFixture` apagando a duração): quando `P · status`
+ *     chegou, a medida D já tinha escrito status naquela tarefa lá atrás e a
+ *     duração já era `null`. A escrita medida não mudou nada A MAIS, e o
+ *     alcance — corretamente — não acusou nada;
+ *  2. a minha (`parentSetFixture` marcando a MÃE como meta, um vizinho que
+ *     nenhuma medida P abre): quando `P · mae` chegou, a medida H já tinha
+ *     escolhido `task-setup` como mãe, o `isGoal` do vizinho JÁ ESTAVA `true`,
+ *     e de novo não havia o que mudar.
+ *
+ * O estado de partida da rota resolve o caso (1) — ele restaura os cinco campos
+ * DA TAREFA ABERTA. Não resolve o (2), e não tem como: o dano está num vizinho
+ * que a página aberta não mostra e a guarda não visita.
+ *
+ * A resposta que cobre os dois é a única honesta: **a loja volta à semente**.
+ * O store do modo fixture vive no `globalThis` do processo do servidor, então
+ * reiniciar o servidor É semear de novo — sem endpoint de escrita, sem
+ * `resetarFixtureStore` importado em `src/` (a varredura de
+ * `tests/unit/tarefa-escritas-varredura` acusaria isso como escrita fora da
+ * porta, e acusou: a primeira versão desta correção tinha um `POST` e ele caiu).
+ *
+ * Por que não rodar a família P ANTES das medidas A–M, que seria de graça: elas
+ * também dependem da semente (a medida C exige a duração em `2`, a G exige a
+ * caixa igual ao valor gravado). As duas famílias querem a loja limpa; o
+ * reinício é o que dá isso às duas.
+ */
+await medir("P-loja", async () => {
+  if (!SERVIDOR_PROPRIO) {
+    conferir(
+      "P-loja · a família P mede sobre a loja recém-semeada",
+      false,
+      "esta corrida recebeu LIFEBOARD_URL e a guarda não subiu o servidor — então não pode reiniciá-lo, e as medidas P abaixo mediriam sobre um estado que as medidas A–M já sujaram. Rode sem LIFEBOARD_URL (`npm run guarda:navegador`), que é como o CI roda.",
+    );
+    return;
+  }
+  const sujo = await fotografia();
+  encerrarServidor();
+  await new Promise((ok) => setTimeout(ok, 1500));
+  const novo = await subirServidorProprio(120000);
+  if (novo === null) {
+    conferir(
+      "P-loja · a família P mede sobre a loja recém-semeada",
+      false,
+      "não consegui subir o servidor de novo depois de encerrá-lo — sem isso a família P mediria sobre estado sujo",
+    );
+    return;
+  }
+  BASE = novo.base;
+  encerrarServidor = novo.encerrar;
+  const semeado = await fotografia();
+  /*
+   * A prova de que semeou: nenhuma entidade criada POR ESTA CORRIDA sobreviveu.
+   * `novoId` (tasks.fixture-store.ts) carimba tudo o que nasce em tempo de
+   * execução com `-fixture-`; a semente não tem nenhum id assim.
+   */
+  const nascidasNaCorrida = (foto) => [...foto.keys()].filter((c) => c.includes("-fixture-"));
+  const sobreviventes = nascidasNaCorrida(semeado);
+  conferir(
+    "P-loja · a família P mede sobre a loja recém-semeada",
+    sobreviventes.length === 0 && semeado.size >= PISO_DA_FOTOGRAFIA,
+    `a loja suja tinha ${String(sujo.size)} entidade(s), ${String(
+      nascidasNaCorrida(sujo).length,
+    )} delas criadas por esta corrida; depois do reinício são ${String(
+      semeado.size,
+    )} entidade(s) e ${String(sobreviventes.length)} criada(s) por esta corrida (piso da fotografia: ${String(
+      PISO_DA_FOTOGRAFIA,
+    )})${
+      sobreviventes.length === 0
+        ? ""
+        : ` — a loja NÃO voltou à semente: ${sobreviventes.join(", ")}`
     }`,
   );
 });
@@ -3199,19 +4168,106 @@ for (const [rota, ops] of OPS_POR_ROTA) {
   const aberta = await abrir(rota);
   for (const op of ops) {
     await medir(`P ${op}`, async () => {
+      const entrada = PERSISTENCIA_POR_OP[op];
       await recarregar(aberta.pagina);
-      const r = await PERSISTENCIA_POR_OP[op].conferir(aberta.pagina);
+
+      /*
+       * 1 · O ESTADO DE PARTIDA DA ROTA, escrito por esta medida e CONFERIDO
+       *     campo a campo. É o que garante que a escrita medida tenha o que
+       *     perder — sem ele, a sabotagem que apaga a duração ao mudar o status
+       *     passa verde porque a duração já tinha sido apagada por outra
+       *     medida da guarda, lá atrás (medido nesta rodada).
+       */
+      const partida = await escreverEstadoDePartida(aberta.pagina);
+      if (partida.obtido !== partida.esperado) {
+        conferir(
+          `P · ${op} · o que o operador pediu é o que está lá DEPOIS DO F5`,
+          false,
+          `rota=${rota} · o ESTADO DE PARTIDA desta rota não é o declarado: esperava ${JSON.stringify(
+            partida.esperado,
+          )} e achei ${JSON.stringify(
+            partida.obtido,
+          )} — os ${String(
+            CAMPOS_DO_ESTADO_DE_PARTIDA.length,
+          )} campos escritos pela página (${CAMPOS_DO_ESTADO_DE_PARTIDA.join(
+            ", ",
+          )}) têm de estar no ponto declarado ANTES de medir, senão a medida mede um estado que já veio estragado`,
+        );
+        return;
+      }
+
+      // 2 · a fotografia — depois do estado de partida, antes de tudo o mais.
+      const foto0 = await fotografia();
+
+      // 3 · a precondição PRÓPRIA da op, conferida. Nunca herdada em silêncio.
+      const pre = await entrada.precondicao(aberta.pagina, partida);
+      if (pre.obtido !== pre.esperado) {
+        conferir(
+          `P · ${op} · o que o operador pediu é o que está lá DEPOIS DO F5`,
+          false,
+          `rota=${rota} · a PRECONDIÇÃO desta medida não é a esperada: esperava ${JSON.stringify(
+            pre.esperado,
+          )} e achei ${JSON.stringify(
+            pre.obtido,
+          )} — a medida NÃO se adapta ao estado que outra deixou (foi exatamente assim que \`P · duracao\` mediu a própria precondição estragada e disse ok)`,
+        );
+        return;
+      }
+
+      // 4 · a fotografia depois da preparação: é entre 2 e 4 que uma sabotagem
+      //     escondida na escrita da precondição apareceria.
+      const foto1 = await fotografia();
+
+      // 5 · a escrita medida.
+      const r = await entrada.conferir(aberta.pagina, pre.dado ?? {});
+
+      // 6 · a fotografia do fim, e o ALCANCE.
+      const fotoFim = await fotografia();
+      const { problemas: problemasDoAlcance, resumo } = problemasDeAlcance(
+        foto0,
+        foto1,
+        fotoFim,
+        entrada.alcance ?? {},
+      );
+
       const pediuOutraCoisa = r.pedido !== r.antes;
+      const chegou = r.obtido === r.pedido;
+      const anuncio = r.anuncio ?? "";
+      const anuncioBate = r.anuncioEsperado.test(anuncio);
+      const proibidoQueApareceu = (r.anunciosProibidos ?? []).filter((re) => re.test(anuncio));
+
+      const problemas = [...problemasDoAlcance];
+      if (!pediuOutraCoisa) {
+        problemas.push("o pedido é IGUAL ao estado de antes: esta medida não mediu nada");
+      }
+      if (!chegou) problemas.push("o valor depois do F5 NÃO é o valor pedido");
+      if (!anuncioBate) {
+        problemas.push(
+          `a tela não anunciou o que esta escrita fez: esperava ${String(
+            r.anuncioEsperado,
+          )} e li ${JSON.stringify(anuncio)}`,
+        );
+      }
+      if (proibidoQueApareceu.length > 0) {
+        problemas.push(
+          `a tela anunciou o desfecho OPOSTO: ${proibidoQueApareceu
+            .map((re) => String(re))
+            .join(", ")} em ${JSON.stringify(anuncio)}`,
+        );
+      }
+
       conferir(
         `P · ${op} · o que o operador pediu é o que está lá DEPOIS DO F5`,
-        pediuOutraCoisa && r.obtido === r.pedido,
-        `rota=${rota} · antes=${JSON.stringify(r.antes)} · PEDIDO=${JSON.stringify(
-          r.pedido,
-        )} · depois do F5=${JSON.stringify(r.obtido)}${
-          pediuOutraCoisa
-            ? ""
-            : " — o pedido é IGUAL ao estado de antes: esta medida não mediu nada"
-        } · ${r.extra}`,
+        problemas.length === 0,
+        `rota=${rota} · partida=${JSON.stringify(
+          partida.esperado,
+        )} · precondição=${JSON.stringify(pre.esperado)} · antes=${JSON.stringify(
+          r.antes,
+        )} · PEDIDO=${JSON.stringify(r.pedido)} · depois do F5=${JSON.stringify(
+          r.obtido,
+        )} · anúncio=${JSON.stringify(anuncio)} · ${resumo}${
+          r.extra === undefined ? "" : ` · ${r.extra}`
+        }${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
       );
     });
   }
@@ -3285,6 +4341,8 @@ const MEDIDAS_EXIGIDAS = [
    * conferências cair abaixo do piso.
    */
   "P0 · ",
+  // [ALTO #1, rodada 17] o reinício que semeia a loja antes da família P.
+  "P-loja · ",
   ...[...OPS_POR_ROTA.values()].flat().map((op) => `P · ${op} · `),
 ];
 const ausentes = MEDIDAS_EXIGIDAS.filter(
