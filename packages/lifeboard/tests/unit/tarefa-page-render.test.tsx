@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  goalSetFixture,
   resetarFixtureStore,
   statusSetFixture,
   subtarefaAddFixture,
@@ -186,6 +187,39 @@ describe("PaginaTarefa (fixture)", () => {
     const html = renderToStaticMarkup(elemento);
     expect(html).toContain("Subtarefas (2)");
     expect(html).toContain("Subtarefa já concluída");
+  });
+
+  /**
+   * ═════════════════════════════════════════════════════ MÉDIO #8, rodada 13 ═
+   * O CABEÇALHO DIZIA O CONTRÁRIO DO PAINEL A DOIS CENTÍMETROS DELE.
+   *
+   * `task.isGoal` só quer dizer "está marcada". Quem VALE é a meta vigente —
+   * entre várias marcadas, a de menor id, a mesma régua do cronograma. A
+   * rodada 12 tirou a reivindicação do botão ("Marcada como meta — mas quem
+   * vale é outra") e esqueceu do cabeçalho, que seguia estampando
+   * "· meta do ciclo" na mesma tela.
+   *
+   * MUTAÇÃO: voltar o cabeçalho a `task.isGoal ? "· meta do ciclo" : null`.
+   */
+  it("PRONTO QUANDO: o cabeçalho de uma tarefa marcada que NÃO vale não se declara a meta", async () => {
+    // `task-deploy` é a meta semeada (menor id vence); marcar `task-docs`
+    // também não a faz valer.
+    goalSetFixture("task-docs", true);
+    const html = renderToStaticMarkup(
+      await PaginaTarefa({ params: Promise.resolve({ id: "task-docs" }) }),
+    );
+    expect(html).not.toContain("· meta do cronograma");
+    expect(html).toContain("marcada como meta, mas quem vale é outra");
+    // E "ciclo" não é termo desta tela — o painel e o título dizem "cronograma".
+    expect(html).not.toContain("meta do ciclo");
+  });
+
+  it("PRONTO QUANDO: o cabeçalho da tarefa que VALE se declara a meta do cronograma", async () => {
+    const html = renderToStaticMarkup(
+      await PaginaTarefa({ params: Promise.resolve({ id: "task-deploy" }) }),
+    );
+    expect(html).toContain("· meta do cronograma");
+    expect(html).not.toContain("quem vale é outra");
   });
 
   it("PRONTO QUANDO: id desconhecido aciona notFound() (404 de verdade, não tela em branco)", async () => {

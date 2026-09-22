@@ -196,7 +196,7 @@ export function oQueATelaDiz(raiz: ReactNode): string {
  *
  * O que ele continua NÃO sendo: um navegador. Um `type` posto à mão num nó
  * do DOM por uma `ref` não aparece aqui — essa forma é vigiada pela segunda
- * rede, léxica (`atribuicoesDeTipoNoDom`), e medida no Chromium.
+ * rede, léxica (`escritasNoDom`), e medida no Chromium.
  */
 export function expandir(raiz: ReactNode, limite = 40): ReactNode {
   const passo = (n: ReactNode, profundidade: number): ReactNode => {

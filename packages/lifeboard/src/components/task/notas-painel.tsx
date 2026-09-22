@@ -23,7 +23,6 @@ import {
   gravarRascunhoNota,
   lerRascunhoAutorNota,
   lerRascunhoNota,
-  limparRascunhoNota,
 } from "@/components/task/rascunho-nota";
 import { dataCurtaNoFusoDoOperador } from "@/lib/fuso";
 import { formatRelativeTime } from "@/lib/format-relative-time";
@@ -292,16 +291,48 @@ function FormularioNovaNota({
 }): JSX.Element {
   const [texto, setTexto] = useState("");
   const [autor, setAutor] = useState("");
+  /**
+   * ═════════════════════════════════════════════════════════ ALTO #4, rodada 13 ═
+   * SÓ SE ESVAZIA O CAMPO QUE AINDA TEM O QUE FOI ENVIADO.
+   *
+   * `aoSucesso` roda depois do `await` e esvaziava a caixa sem olhar o que
+   * havia nela. Medido no Chromium com 2,5 s de latência: escrever "primeira
+   * nota", clicar "Salvar nota" e continuar escrevendo 300 ms depois — quando
+   * a resposta chegava, "segunda nota que eu estava escrevendo" virava `""` e
+   * o rascunho do `sessionStorage` ia junto para `null`.
+   *
+   * O rascunho existe desde a rodada 5 exatamente para *"escrever meia nota e
+   * não perder"*. Ele protegia contra NAVEGAR e não protegia contra SALVAR —
+   * e salvar é o que o operador faz o tempo todo.
+   *
+   * Estes dois refs são o espelho do que está NA CAIXA agora (o `useState` lido
+   * por `aoSucesso` seria o do render em que a closure nasceu) e o que de fato
+   * foi enviado. Campo intacto: esvazia e apaga o rascunho dele. Campo mexido:
+   * não se toca em nenhum dos dois — o que a pessoa está escrevendo é dela.
+   */
+  const naCaixaRef = useRef({ texto, autor });
+  naCaixaRef.current = { texto, autor };
+  const enviadoRef = useRef<{ texto: string; autor: string } | null>(null);
   const porta = usarPortaDeEscrita({
     op: "nota_criar",
     // [ALTO #1, rodada 6] o campo que ficou vazio é para onde o trabalho
     // continua — e é o foco que o `disabled` levava para o `<body>`.
     alvo: () => textareaRef.current,
     aoSucesso: () => {
-      setTexto("");
-      setAutor("");
-      // [BAIXO #6, rodada 5] salvou: o rascunho deixou de existir.
-      limparRascunhoNota(taskId);
+      const enviado = enviadoRef.current;
+      if (enviado === null) return;
+      const textoIntacto = naCaixaRef.current.texto === enviado.texto;
+      const autorIntacto = naCaixaRef.current.autor === enviado.autor;
+      if (textoIntacto) {
+        setTexto("");
+        // [BAIXO #6, rodada 5] salvou: o rascunho daquele campo deixou de
+        // existir. Valor vazio já é `removeItem` em `gravarRascunhoNota`.
+        gravarRascunhoNota(taskId, "");
+      }
+      if (autorIntacto) {
+        setAutor("");
+        gravarRascunhoAutorNota(taskId, "");
+      }
     },
   });
 
@@ -334,7 +365,13 @@ function FormularioNovaNota({
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    porta.escrever({ task_id: taskId, texto, autor }, { valido: texto.trim().length > 0 });
+    // Mesma lei dos CRÍTICOs #1/#2: o ref do que foi enviado só se escreve
+    // depois do veredito. Uma recusa não pode passar por cima do que está em voo.
+    const decisao = porta.escrever(
+      { task_id: taskId, texto, autor },
+      { valido: texto.trim().length > 0 },
+    );
+    if (decisao === "gravar") enviadoRef.current = { texto, autor };
   }
 
   const vazia = texto.trim().length === 0;
@@ -484,8 +521,13 @@ function NotaLinha({
     if (confirmando) {
       // [MÉDIO #3, rodada 9] o 2º clique sai da confirmação SEM anunciar
       // cancelamento — quem fala é o sucesso da exclusão.
-      aoConfirmarExecutado();
-      porta.escrever({ id: nota.id, task_id: taskId });
+      // [CRÍTICO #1/#2, varredura de gêmeos, rodada 13] A SAÍDA DA CONFIRMAÇÃO
+      // também é estado, e também só acontece depois do veredito: com uma
+      // gravação em voo a porta recusa ("Aguarde…") e o 2º clique NÃO apaga —
+      // sair da confirmação ali deixava a linha de volta em "excluir", como se
+      // o clique tivesse sido cancelado, e o operador tinha de recomeçar os
+      // dois cliques sem nada explicar por quê.
+      if (porta.escrever({ id: nota.id, task_id: taskId }) === "gravar") aoConfirmarExecutado();
       return;
     }
     // [MÉDIO #5, rodada 7] 1º clique: sem `setTimeout`, o pedido fica até
@@ -500,7 +542,27 @@ function NotaLinha({
   return (
     <li className="rounded-lg border border-navy-700 bg-navy-850 p-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm leading-relaxed text-bone-100">{nota.texto}</p>
+        {/*
+          [ALTO #5, rodada 13] `min-w-0` + `break-words`: um item de flex nasce
+          com `min-width: auto`, então ele se recusa a ficar menor que a
+          palavra mais longa que contém. Um e-mail dentro da nota
+          (`lucas.scudeler@pandoratreinamentos.com.br`) empurrava a linha
+          inteira e o `<li>` estourava a viewport — medido a 390 px:
+          `scrollWidth` 435 contra `clientWidth` 390, e quem saía da tela era
+          justamente o botão "excluir" DESTA nota (borda direita em 435 px), a
+          única forma de apagá-la. Um SHA de 40 caracteres dava 459; um token
+          de 64, 632.
+
+          [MÉDIO #9, rodada 13] `whitespace-pre-line`: o banco guarda
+          `"linha um\nlinha dois\n\n- item a\n- item b"` e a tela devolvia
+          tudo numa frase corrida (uma linha de 23 px de altura, medida no
+          Chromium) — uma lista de 4 itens virava parágrafo. `pre-line`
+          preserva a quebra que o operador digitou e continua quebrando o
+          texto longo sozinho, ao contrário de `pre`.
+        */}
+        <p className="min-w-0 whitespace-pre-line break-words text-sm leading-relaxed text-bone-100">
+          {nota.texto}
+        </p>
         <button
           ref={refDoBotao}
           type="button"

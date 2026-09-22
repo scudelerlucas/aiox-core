@@ -4,6 +4,7 @@ import {
   componenteFilho,
   disparar,
   expandir,
+  nos,
   oQueATelaDiz,
   porTag,
   propsDe,
@@ -60,6 +61,26 @@ interface PedidoEspiado {
 
 function pedidos(): PedidoEspiado[] {
   return acao.mock.calls.map((c) => c[1] as PedidoEspiado);
+}
+
+/**
+ * [rodada 13] Uma gravação que NÃO responde até alguém mandar — é o único
+ * jeito de medir o que acontece com o que o operador digita ENQUANTO a
+ * escrita está em voo (ALTO #4).
+ */
+function gravacaoEmVoo(): { responder: () => void } {
+  const liberadores: ((v: unknown) => void)[] = [];
+  acao.mockImplementation(
+    () =>
+      new Promise((r) => {
+        liberadores.push(r);
+      }),
+  );
+  return {
+    responder: () => {
+      for (const r of liberadores) r({ ok: true });
+    },
+  };
 }
 
 /** Deixa as promessas pendentes do despacho resolverem. */
@@ -262,6 +283,246 @@ describe("AtomosForm — trio incompleto não chega ao servidor", () => {
     expect(oQueATelaDiz(depois)).toContain(MENSAGEM_INVALIDO.atomos_salvar);
     // E a string "null" — o que a mutação mandaria — nunca sai daqui.
     expect(JSON.stringify(pedidos())).not.toContain("null");
+  });
+});
+
+// ═══════════════════════════════════════════════════════ ALTO #4, rodada 13 ═
+describe("O que o operador digita DURANTE a gravação sobrevive à resposta", () => {
+  /**
+   * MUTAÇÃO 4 da rodada 13: esvaziar o campo no sucesso sem conferir se ele
+   * mudou (`setTexto("")` direto, como era até aqui).
+   *
+   * O que ia — e foi — para produção: com 2,5 s de latência, escrever
+   * "primeira nota", clicar "Salvar nota" e continuar escrevendo 300 ms depois
+   * fazia a resposta apagar "segunda nota que eu estava escrevendo" e zerar o
+   * rascunho do `sessionStorage` junto. O rascunho nasceu na rodada 5 para
+   * "escrever meia nota e não perder": ele protegia contra navegar e não
+   * protegia contra salvar.
+   */
+  it("PRONTO QUANDO: a nota digitada em voo NÃO é apagada pela resposta", async () => {
+    const emVoo = gravacaoEmVoo();
+    const inst = novaInstancia();
+    const props = { taskId: "task-review", notas: [], agora: AGORA };
+    const painel = montar(inst, NotasPainel, props);
+    const filho = componenteFilho(painel, "FormularioNovaNota");
+    const instFilho = novaInstancia();
+    let form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "textarea"), "onChange", { target: { value: "primeira nota" } });
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "form"), "onSubmit");
+    // …e o operador continua escrevendo enquanto a gravação está em voo.
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "textarea"), "onChange", {
+      target: { value: "segunda nota que eu estava escrevendo" },
+    });
+    form = montar(instFilho, filho.fn, filho.props);
+    emVoo.responder();
+    await assentar();
+    const depois = montar(instFilho, filho.fn, filho.props);
+    expect(porTag(depois, "textarea").props.value).toBe("segunda nota que eu estava escrevendo");
+    // E o rascunho do que ele ainda está escrevendo continua no depósito.
+    expect(janela.deposito.get(chaveRascunhoNota("task-review"))).toBe(
+      "segunda nota que eu estava escrevendo",
+    );
+  });
+
+  it("PRONTO QUANDO: a nota intacta CONTINUA sendo esvaziada no sucesso", async () => {
+    acao.mockResolvedValue({ ok: true });
+    const inst = novaInstancia();
+    const props = { taskId: "task-review", notas: [], agora: AGORA };
+    const painel = montar(inst, NotasPainel, props);
+    const filho = componenteFilho(painel, "FormularioNovaNota");
+    const instFilho = novaInstancia();
+    let form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "textarea"), "onChange", { target: { value: "uma nota" } });
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "form"), "onSubmit");
+    await assentar();
+    const depois = montar(instFilho, filho.fn, filho.props);
+    expect(porTag(depois, "textarea").props.value).toBe("");
+  });
+
+  /** O gêmeo sem rede nenhuma: subtarefa não tem rascunho para socorrer. */
+  it("PRONTO QUANDO: título e duração da subtarefa digitados em voo sobrevivem", async () => {
+    const emVoo = gravacaoEmVoo();
+    const inst = novaInstancia();
+    const painel = montar(inst, SubtarefasPainel, { parentId: "task-docs", filhas: [] });
+    const filho = componenteFilho(painel, "FormularioNovaSubtarefa");
+    const instFilho = novaInstancia();
+    let form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "input"), "onChange", { target: { value: "primeira sub" } });
+    form = montar(instFilho, filho.fn, filho.props);
+    digitar(propsDe(form, "CampoNumerico"), "2");
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "form"), "onSubmit");
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "input"), "onChange", {
+      target: { value: "segunda sub que eu estava escrevendo" },
+    });
+    form = montar(instFilho, filho.fn, filho.props);
+    digitar(propsDe(form, "CampoNumerico"), "7");
+    form = montar(instFilho, filho.fn, filho.props);
+    emVoo.responder();
+    await assentar();
+    const depois = montar(instFilho, filho.fn, filho.props);
+    expect(porTag(depois, "input").props.value).toBe("segunda sub que eu estava escrevendo");
+    expect(propsDe(depois, "CampoNumerico").valor).toBe("7");
+  });
+});
+
+// ═══════════════════════════════════════════════════════ BAIXO #11, rodada 13 ═
+describe("DuracaoForm — a caixa passa a mostrar o que ficou gravado", () => {
+  it("PRONTO QUANDO: salvar `007` deixa `7` na caixa, e o clique seguinte não fala 'nada mudou'", async () => {
+    acao.mockResolvedValue({ ok: true });
+    const inst = novaInstancia();
+    const props = { taskId: "task-docs", estimativaDias: 2 };
+    let arvore = montar(inst, DuracaoForm, props);
+    digitar(propsDe(arvore, "CampoNumerico"), "007");
+    arvore = montar(inst, DuracaoForm, props);
+    disparar(porTag(arvore, "form"), "onSubmit");
+    await assentar();
+    const depois = montar(inst, DuracaoForm, props);
+    expect(propsDe(depois, "CampoNumerico").valor).toBe("7");
+    // E o confirmado passou a ser `7`: salvar de novo é que é "nada mudou".
+    disparar(porTag(depois, "form"), "onSubmit");
+    expect(pedidos()).toHaveLength(1);
+  });
+});
+
+// ═════════════════════════════════════════════ ALTO #5 e MÉDIO #9, rodada 13 ═
+describe("O texto que o operador escreveu cabe na tela e mantém as quebras", () => {
+  /**
+   * MUTAÇÃO 5 da rodada 13: tirar a quebra de palavra do bloco de texto.
+   * O que ia — e foi — para produção: medido a 390 px no Chromium, um e-mail
+   * dentro de uma nota levava `documentElement.scrollWidth` a 435 contra 390
+   * de `clientWidth`, e o que saía da tela era o botão "excluir" DAQUELA nota,
+   * a única forma de apagá-la. Um SHA de 40 caracteres dava 459; um token de
+   * 64, 632; um título de subtarefa de 200 caracteres, 1801.
+   *
+   * Um item de flex nasce com `min-width: auto` e se recusa a ficar menor que
+   * a palavra mais longa que contém: o remédio são as DUAS classes, `min-w-0`
+   * (tira o piso) e `break-words` (deixa a palavra quebrar). A medição em
+   * pixel está no relatório; aqui fica a trava barata que roda em 50 ms.
+   */
+  it("PRONTO QUANDO: o texto da nota quebra palavra, não estica a tela", () => {
+    const nota = {
+      id: "n1",
+      taskId: "task-review",
+      texto: "lucas.scudeler@pandoratreinamentos.com.br",
+      autor: "Claude",
+      createdAt: "2026-07-09T10:00:00.000Z",
+    };
+    const arvore = expandir(
+      montar(novaInstancia(), NotasPainel, { taskId: "task-review", notas: [nota], agora: AGORA }),
+    );
+    const bloco = todasAsTags(arvore, "p").find((n) => n.props.children === nota.texto);
+    const classes = String(bloco?.props.className ?? "");
+    expect(classes, "o texto da nota precisa de min-w-0").toContain("min-w-0");
+    expect(classes, "o texto da nota precisa de break-words").toContain("break-words");
+    // [MÉDIO #9] e as quebras de linha que o operador digitou são preservadas:
+    // o banco guarda "linha um\nlinha dois\n\n- item a\n- item b" e a tela
+    // devolvia tudo numa frase corrida (1 linha de 23 px, medida no Chromium).
+    expect(classes, "as quebras de linha da nota precisam aparecer").toContain(
+      "whitespace-pre-line",
+    );
+  });
+
+  it("PRONTO QUANDO: o título da subtarefa quebra palavra", () => {
+    const filha = {
+      id: "task-x",
+      title: "T".repeat(200),
+      status: "open" as const,
+      estimativaDias: null,
+      isGoal: false,
+      parentId: "task-docs",
+      predecessorIds: [],
+      successorIds: [],
+      assimetria: null,
+      sourceId: "s1",
+      updatedAt: "2026-07-09T10:00:00.000Z",
+    };
+    const arvore = expandir(
+      montar(novaInstancia(), SubtarefasPainel, {
+        parentId: "task-docs",
+        filhas: [filha] as never,
+      }),
+    );
+    const link = nos(arvore).find((n) => n.props.children === filha.title);
+    const classes = String(link?.props.className ?? "");
+    expect(classes, "o título da subtarefa precisa de min-w-0").toContain("min-w-0");
+    expect(classes, "o título da subtarefa precisa de break-words").toContain("break-words");
+  });
+});
+
+// ═══════════════════════════════════════════════════════ MÉDIO #7, rodada 13 ═
+describe("O <select> 'Destino' não pode mentir sobre o que vai enviar", () => {
+  /**
+   * O que ia — e foi — para produção: a candidata escolhida deixava de estar
+   * disponível por causa de OUTRA escrita (o `router.refresh()` traz a lista
+   * nova), o `<select>` voltava a exibir "Escolha a tarefa…" porque o valor
+   * não casa com opção nenhuma, e `destino` continuava preenchido: a dica
+   * sumia, o botão ficava ativo e a escrita saía contra um alvo invisível.
+   * A troca de TIPO já zerava o campo; a troca vinda do servidor, não.
+   */
+  it("PRONTO QUANDO: candidata bloqueada pelo servidor zera a escolha, a dica volta e nada é enviado", () => {
+    const inst = novaInstancia();
+    const base = {
+      taskId: "task-standup",
+      saindo: [],
+      entrando: [],
+      elosDerivados: [],
+      tituloPorId: new Map([["task-docs", "Escrever documentação"]]),
+    };
+    const painel = montar(inst, RelacoesPainel, {
+      ...base,
+      opcoesDestino: [{ id: "task-docs", title: "Escrever documentação", bloqueadaPara: [] }],
+    });
+    const filho = componenteFilho(painel, "FormularioNovaAresta");
+    const instFilho = novaInstancia();
+    let form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "select"), "onChange", { target: { value: "task-docs" } });
+    form = montar(instFilho, filho.fn, filho.props);
+    expect(porTag(form, "select").props.value).toBe("task-docs");
+
+    // Outra escrita aconteceu: o servidor passa a bloquear esta candidata.
+    const painelDepois = montar(inst, RelacoesPainel, {
+      ...base,
+      opcoesDestino: [
+        { id: "task-docs", title: "Escrever documentação", bloqueadaPara: ["predecessor"] },
+      ],
+    });
+    const filhoDepois = componenteFilho(painelDepois, "FormularioNovaAresta");
+    const comListaNova = montar(instFilho, filhoDepois.fn, filhoDepois.props);
+    expect(porTag(comListaNova, "select").props.value).toBe("");
+    expect(oQueATelaDiz(comListaNova)).toContain(MENSAGEM_INVALIDO.relacao_criar);
+    disparar(porTag(comListaNova, "form"), "onSubmit");
+    expect(acao).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════ BAIXO #12, rodada 13 ═
+describe("A relação criada pela tela pode ter nota", () => {
+  it("PRONTO QUANDO: o texto escrito no campo de nota viaja no pedido", () => {
+    const inst = novaInstancia();
+    const painel = montar(inst, RelacoesPainel, {
+      taskId: "task-standup",
+      saindo: [],
+      entrando: [],
+      elosDerivados: [],
+      opcoesDestino: [{ id: "task-docs", title: "Escrever documentação", bloqueadaPara: [] }],
+      tituloPorId: new Map([["task-docs", "Escrever documentação"]]),
+    });
+    const filho = componenteFilho(painel, "FormularioNovaAresta");
+    const instFilho = novaInstancia();
+    let form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "select"), "onChange", { target: { value: "task-docs" } });
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "textarea"), "onChange", {
+      target: { value: "Andam juntos, sem ordem." },
+    });
+    form = montar(instFilho, filho.fn, filho.props);
+    disparar(porTag(form, "form"), "onSubmit");
+    expect(pedidos()[0]?.campos.nota).toBe("Andam juntos, sem ordem.");
   });
 });
 

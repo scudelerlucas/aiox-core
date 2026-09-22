@@ -172,7 +172,24 @@ export default async function PaginaTarefa({ params }: PaginaTarefaProps): Promi
         <h1 className="mt-2 text-2xl font-bold tracking-tight text-bone-50">{task.title}</h1>
         <p className="mt-1 text-xs text-bone-400">
           fonte {fonte} · atualizada {formatRelativeTime(task.updatedAt)}
-          {task.isGoal ? <span className="ml-2 text-gold-300">· meta do ciclo</span> : null}
+          {/*
+            [MÉDIO #8, rodada 13] O CABEÇALHO DIZIA O CONTRÁRIO DO PAINEL LOGO
+            ABAIXO. `task.isGoal` só quer dizer "está marcada"; quem VALE é a
+            `metaVigente` (entre várias marcadas, a de menor id — mesma régua do
+            cronograma). Marcar uma segunda tarefa como meta estampava
+            "· meta do ciclo" a dois centímetros de "Marcada como meta — mas
+            quem vale é outra". A rodada 12 tirou a reivindicação do botão e
+            esqueceu daqui. O termo também muda: "cronograma", o mesmo que o
+            painel e o título da seção usam — "ciclo" não aparece em lugar
+            nenhum da tela.
+          */}
+          {task.isGoal ? (
+            <span className="ml-2 text-gold-300">
+              {metaVigente !== null && metaVigente.id === task.id
+                ? "· meta do cronograma"
+                : "· marcada como meta, mas quem vale é outra"}
+            </span>
+          ) : null}
         </p>
       </div>
 

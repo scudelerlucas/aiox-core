@@ -173,8 +173,19 @@ export function AtomosForm({
     // acusando o que acabou de funcionar.
     portaLimpar.aoMudarCampo();
     const trio = chaveDoTrio(todosEscolhidos ? { opcionalidade, esforco, custo } : null);
-    trioRef.current = trio;
-    portaSalvar.escrever(
+    // [CRÍTICO #2, rodada 13] O TRIO SUBMETIDO SÓ SE ESCREVE DEPOIS DO
+    // VEREDITO — gêmeo exato do `valorEnviadoRef` de `duracao-form.tsx`, e
+    // pela mesma lei da rodada 10 que `status`, `mae` e `meta` já cumpriam.
+    //
+    // Escrito antes, uma recusa sobrescrevia o trio EM VOO. Medido: opcionalidade
+    // 1→3 e salvar; 120 ms depois esforço 2→5 e salvar (recusado, "Aguarde…").
+    // A resposta da PRIMEIRA gravação chegava, anunciava "Átomos salvos." e
+    // guardava em `confirmadoRef` o trio `3/5/1`, que o servidor nunca recebeu —
+    // o banco tinha `3/2/1`. A tela mostrava esforço 5, o score de assimetria
+    // saía calculado com esforço 2, e "Salvar átomos" respondia "já estão
+    // salvos assim — nada mudou": o estado ficava preso, e a prioridade da
+    // tarefa seguia sendo calculada com o número errado.
+    const decisao = portaSalvar.escrever(
       {
         task_id: taskId,
         opcionalidade: String(opcionalidade),
@@ -183,6 +194,7 @@ export function AtomosForm({
       },
       { valido: todosEscolhidos, mudou: trio !== confirmadoRef.current },
     );
+    if (decisao === "gravar") trioRef.current = trio;
   }
 
   function limpar(): void {

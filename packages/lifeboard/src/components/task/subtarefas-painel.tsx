@@ -30,12 +30,22 @@ export function SubtarefasPainel({ parentId, filhas }: SubtarefasPainelProps): J
             >
               {/* [BAIXO #6, rodada 6] alvo de toque: o link ocupa a altura
                   inteira da linha (≥ 44 px), não só a altura do texto. */}
+              {/* [ALTO #5, rodada 13] mesmo remédio de `notas-painel.tsx`, e
+                  aqui o estrago era maior: um título de subtarefa de 200
+                  caracteres levava a página a 1801 px de `scrollWidth` numa
+                  tela de 390. `min-w-0` tira o piso que o flex dá ao item e
+                  `break-words` deixa a palavra quebrar. */}
               <Link
                 href={`/tarefa/${f.id}`}
                 prefetch={false}
-                className="inline-flex min-h-[44px] flex-1 items-center text-sm font-medium text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
+                className="flex min-h-[44px] min-w-0 flex-1 items-center text-sm font-medium text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
               >
-                {f.title}
+                {/* O texto precisa do `min-w-0` DELE: dentro de um flex, o
+                    conteúdo vira um item anônimo com `min-width: auto` e a
+                    quebra de palavra posta no container nunca chega nele —
+                    medido, o título de 200 caracteres continuava levando a
+                    página a 1707 px de largura a 390. */}
+                <span className="min-w-0 break-words">{f.title}</span>
               </Link>
               <StatusChip status={f.status} />
               {f.estimativaDias != null ? (
@@ -60,21 +70,37 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
   // [ALTO #1, rodada 9] uma porta, e nada mais: sem despacho cru a obter, e
   // com o foco entregue ao campo que acabou de esvaziar (era ele que o
   // `disabled` por validade mandava para o `<body>`).
+  /**
+   * [ALTO #4, rodada 13] O MESMO DE `notas-painel.tsx`, e aqui sem rede nenhuma
+   * por baixo: título e duração digitados durante a gravação viravam `""` na
+   * resposta, e subtarefa não tem rascunho em `sessionStorage` para socorrer.
+   * Medido com 2,5 s de latência: "segunda sub que eu estava escrevendo" e a
+   * duração 7, digitados 300 ms depois do clique, sumiam sem aviso.
+   */
+  const naCaixaRef = useRef({ title, estimativa });
+  naCaixaRef.current = { title, estimativa };
+  const enviadoRef = useRef<{ title: string; estimativa: string } | null>(null);
+
   const porta = usarPortaDeEscrita({
     op: "subtarefa_criar",
     alvo: () => tituloRef.current,
     aoSucesso: () => {
-      setTitle("");
-      setEstimativa("");
+      const enviado = enviadoRef.current;
+      if (enviado === null) return;
+      // Só esvazia o campo que ainda tem exatamente o que foi enviado.
+      if (naCaixaRef.current.title === enviado.title) setTitle("");
+      if (naCaixaRef.current.estimativa === enviado.estimativa) setEstimativa("");
     },
   });
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    porta.escrever(
+    // O ref do enviado só depois do veredito (lei dos CRÍTICOs #1/#2).
+    const decisao = porta.escrever(
       { parent_id: parentId, title, estimativa_dias: estimativa },
       { valido: title.trim().length > 0 },
     );
+    if (decisao === "gravar") enviadoRef.current = { title, estimativa };
   }
 
   const semTitulo = title.trim().length === 0;

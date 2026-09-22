@@ -3,7 +3,11 @@ import type { ReactNode } from "react";
 
 import { expandir, todasAsTags } from "./arvore-react";
 import { janelaFalsa, montar, novaInstancia, reactFalso } from "./hooks-falsos";
-import { arquivosComInput, atribuicoesDeTipoNoDom } from "./tarefa-varredura-derivada";
+import {
+  arquivosComInput,
+  escritasNoDom,
+  PROPRIEDADES_TOLERADAS,
+} from "./tarefa-varredura-derivada";
 
 /**
  * ═══════════════════════════════════════════════════════ ALTO #2, rodada 12 ═
@@ -38,8 +42,9 @@ import { arquivosComInput, atribuicoesDeTipoNoDom } from "./tarefa-varredura-der
  * componente que envolve o campo já foi renderizado.
  *
  * O que ela NÃO alcança, e por isso tem uma segunda rede: mexer no nó do DOM
- * por fora do React (`ref={(el) => { el.type = "number"; }}`). Essa família é
- * proibida por inteiro nos arquivos da página (`atribuicoesDeTipoNoDom`).
+ * por fora do React (`ref={(el) => { el.type = "number"; }}`,
+ * `Object.assign(el, …)`, `el[k] = v`, `setAttribute`). Essa família é
+ * proibida por inteiro nos arquivos da página (`escritasNoDom`, rodada 13).
  */
 
 vi.mock("react", () => reactFalso);
@@ -170,15 +175,52 @@ describe("os campos RENDERIZADOS da página da tarefa", () => {
   });
 
   /**
-   * A SEGUNDA REDE: o `type` posto à mão num nó do DOM não aparece em árvore
-   * nenhuma. Nestes arquivos não há uso legítimo de `el.type =`,
-   * `setAttribute` ou `dangerouslySetInnerHTML` — o que está na tela tem de
-   * estar na árvore.
+   * ═════════════════════════════════════════════════════ ALTO #3, rodada 13 ═
+   * A SEGUNDA REDE: NENHUMA ESCRITA EM NÓ DE DOM, DE NENHUMA FORMA.
+   *
+   * A versão da rodada 12 proibia três GRAFIAS (`.type =`, `setAttribute(`,
+   * `dangerouslySetInnerHTML`) e o crítico passou por ela com um
+   * `Object.assign(el, { type: "number" })` dentro de uma `ref` — `tsc`,
+   * `eslint` e 1441 testes verdes, e a duração apagada no Chromium. Agora o
+   * que se proíbe é a FAMÍLIA: qualquer chamada que escreva em nó e qualquer
+   * atribuição a propriedade (inclusive calculada, que é como um apelido
+   * escapa de lista de nomes). As exceções são por PROPRIEDADE, declaradas com
+   * motivo em `PROPRIEDADES_TOLERADAS`.
    */
-  it("PRONTO QUANDO: nenhum arquivo da página mexe no tipo do campo por fora do React", () => {
-    const achados = atribuicoesDeTipoNoDom().map(
-      (a) => `${a.arquivo}:${String(a.linha)} — ${a.trecho}`,
-    );
+  it("PRONTO QUANDO: nenhum arquivo da página escreve em nó de DOM", () => {
+    const achados = escritasNoDom().map((a) => `${a.arquivo}:${String(a.linha)} — ${a.trecho}`);
     expect(achados, `estado fora da árvore:\n${achados.join("\n")}`).toEqual([]);
+  });
+
+  /**
+   * A lista de exceções não pode virar a porta dos fundos que ela fecha:
+   * nenhuma propriedade tolerada pode mudar o CONTRATO do campo — é disso que
+   * o CRÍTICO das rodadas 10/11 era feito (`type="number"` em `badInput`
+   * mostra o texto e entrega `""` ao programa).
+   */
+  it("PRONTO QUANDO: nenhuma exceção declarada mexe no contrato do campo", () => {
+    const proibidas = [
+      "type",
+      "inputMode",
+      "pattern",
+      "step",
+      "min",
+      "max",
+      "checked",
+      "defaultValue",
+      "defaultChecked",
+      "innerHTML",
+      "outerHTML",
+      "textContent",
+      "attributes",
+    ];
+    const invasoras = PROPRIEDADES_TOLERADAS.filter((t) => proibidas.includes(t.prop)).map(
+      (t) => t.prop,
+    );
+    expect(invasoras, `exceção que reabre o CRÍTICO: ${invasoras.join(", ")}`).toEqual([]);
+    // E toda exceção diz POR QUÊ — motivo vazio é exceção sem dono.
+    for (const t of PROPRIEDADES_TOLERADAS) {
+      expect(t.motivo.length, `exceção "${t.prop}" sem motivo escrito`).toBeGreaterThan(40);
+    }
   });
 });

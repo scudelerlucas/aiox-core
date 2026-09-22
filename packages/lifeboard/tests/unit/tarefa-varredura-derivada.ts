@@ -202,33 +202,202 @@ export function varrer(): SitioDeEscrita[] {
   return sitios;
 }
 
+// ══════════════════════════ o ESTADO MARCADO ANTES DO VEREDITO (rodada 13) ═
+/**
+ * [CRÍTICO #1 e #2, rodada 13] O GÊMEO QUE FICOU PARA TRÁS.
+ *
+ * A rodada 10 corrigiu `status-form`, `mae-form` e `meta-form`: o ref da
+ * TENTATIVA (o valor submetido, lido depois do `await` para escolher a frase e
+ * para guardar o confirmado) só se escreve quando a porta ACEITA. O motivo,
+ * nas palavras daquela correção: *"escrito antes, uma recusa sobrescrevia o
+ * valor EM VOO e a gravação a caminho anunciava e confirmava o valor errado"*.
+ *
+ * `duracao-form` e `atomos-form` não receberam a correção, e nada avisou. Doze
+ * rodadas depois o crítico mediu as duas consequências: a duração anunciando o
+ * desfecho OPOSTO ao que gravou e travando em "nada mudou", e os átomos presos
+ * num trio que o servidor nunca recebeu, com o score de prioridade calculado
+ * com o esforço errado.
+ *
+ * Esta é a guarda mecânica que faltava, e ela é DERIVADA: percorre todo sítio
+ * de escrita de `components/task/**`, acha a função que o contém e reprova
+ * qualquer marca de estado — atribuição a `<algo>.current` ou chamada a um
+ * `setAlgumaCoisa(...)` — que aconteça ANTES da chamada a `escrever(`. Um
+ * formulário novo que marque antes nasce vermelho.
+ *
+ * O que continua permitido: marcar DEPOIS do veredito (`if (decisao ===
+ * "gravar") ref.current = x`), marcar no corpo do componente (espelho de
+ * estado em ref, que roda a cada render e não pertence a handler nenhum) e
+ * marcar dentro de `aoSucesso`/`aoFalha`, que por definição já têm veredito.
+ */
+export interface MarcaAntesDoVeredito {
+  arquivo: string;
+  linha: number;
+  /** O trecho que marca o estado (`valorEnviadoRef.current =`, `setTexto(`…). */
+  marca: string;
+  /** A chamada de escrita que vem DEPOIS dele, na mesma função. */
+  escritaNaLinha: number;
+}
+
+/**
+ * O início da FUNÇÃO que contém o índice `i` — não o do bloco mais interno.
+ * Sobe de bloco em bloco até encontrar um `{` precedido de cabeçalho de função
+ * (`… ) {`, `… ): Tipo {`, `… => {`). Sem isso, uma marca posta no corpo da
+ * função e uma escrita dentro de um `if` ficariam em escopos diferentes e a
+ * violação passaria.
+ */
+export function inicioDaFuncao(src: string, i: number): number {
+  let p = i;
+  for (let voltas = 0; voltas < 50; voltas++) {
+    let nivel = 0;
+    let abertura = -1;
+    for (let q = p - 1; q >= 0; q--) {
+      const c = src[q];
+      if (c === "}") nivel++;
+      else if (c === "{") {
+        if (nivel === 0) {
+          abertura = q;
+          break;
+        }
+        nivel--;
+      }
+    }
+    if (abertura === -1) return 0;
+    const cabecalho = src.slice(Math.max(0, abertura - 160), abertura);
+    if (/(\)\s*(:[^(){}=;]*)?|=>)\s*$/.test(cabecalho)) return abertura;
+    p = abertura;
+  }
+  return 0;
+}
+
+export function marcasAntesDoVeredito(): MarcaAntesDoVeredito[] {
+  const achados: MarcaAntesDoVeredito[] = [];
+  const marcadores: [RegExp, string][] = [
+    [/[A-Za-z_$][\w$]*\s*\.\s*current\s*=[^=]/g, ".current ="],
+    [/\bset[A-Z][\w$]*\s*\(/g, "set…("],
+  ];
+  for (const arquivo of arquivosVarridos()) {
+    if (arquivo === ARQUIVO_DA_PORTA) continue;
+    const src = codigo(arquivo);
+    for (const m of src.matchAll(/\bescrever\s*\(/g)) {
+      const indice = m.index ?? 0;
+      const antes = src.slice(Math.max(0, indice - 120), indice);
+      if (/(function|:)\s*$/.test(antes)) continue;
+      const inicio = inicioDaFuncao(src, indice);
+      const corpo = src.slice(inicio, indice);
+      for (const [re, rotulo] of marcadores) {
+        for (const marca of corpo.matchAll(re)) {
+          achados.push({
+            arquivo,
+            linha: linhaDe(src, inicio + (marca.index ?? 0)),
+            marca: rotulo,
+            escritaNaLinha: linhaDe(src, indice),
+          });
+        }
+      }
+    }
+  }
+  return achados;
+}
+
 // ══════════════════════════════════════ a SUPERFÍCIE de escrita do sistema ═
 /**
  * Tudo que consegue mudar uma tarefa no servidor. Quem importa qualquer um
  * destes nomes está escrevendo — por rota de API, por Server Action nova, por
  * componente. A lista é curta de propósito: ela é a fronteira.
  */
-export const SUPERFICIE_DE_ESCRITA: Readonly<Record<string, readonly string[]>> = {
-  // [Achado MAIOR, CodeRabbit] `mutar` saiu daqui: `actions.ts` é `"use server"`
-  // e todo export dele vira Server Action pública. Agora mora no despachante,
-  // que não é `"use server"` — continua sendo superfície de escrita, mas não é
-  // mais um endpoint na internet.
-  "@/app/tarefa/actions": ["escreverTarefaAction"],
-  "@/app/tarefa/despachante": ["mutar"],
-  "@/lib/supabase/live-client": ["mutateLifeboard"],
-  "@/lib/repositories/tasks.fixture-store": [
-    "notaAddFixture",
-    "notaDelFixture",
-    "subtarefaAddFixture",
-    "parentSetFixture",
-    "goalSetFixture",
-    "atomosSetFixture",
-    "estimativaSetFixture",
-    "statusSetFixture",
-    "arestaAddFixture",
-    "arestaDelFixture",
-  ],
-};
+export const MODULO_DO_FIXTURE_STORE = "@/lib/repositories/tasks.fixture-store";
+const ARQUIVO_DO_FIXTURE_STORE = "lib/repositories/tasks.fixture-store.ts";
+
+/**
+ * ═══════════════════════════════════════════════════════ MÉDIO #6, rodada 13 ═
+ * A SUPERFÍCIE DE ESCRITA DO STORE PASSA A SAIR DO CÓDIGO.
+ *
+ * A lista era escrita à mão e listava 10 dos 12 exports que mudam o store:
+ * faltavam `resetarFixtureStore` e `definirPredecessorIdsFixture`. O crítico
+ * abriu uma rota `POST /api/manutencao` de 11 linhas chamando
+ * `resetarFixtureStore()` — `tsc` limpo, `eslint` limpo, 1441 verdes, e a rota
+ * apagou as notas da tarefa. É exatamente o defeito que esta varredura diz ter
+ * aposentado: *"foi assim que a rodada 8 consertou 4 e deixou 6"*.
+ *
+ * A derivação, em três passos, sobre o fonte do store:
+ *  1. separar as funções do módulo (nome → corpo balanceado);
+ *  2. marcar as que mudam a loja DIRETAMENTE — `.tasks`/`.edges`/`.notes` com
+ *     `set`/`delete`/`clear`, o contador de ids, ou a troca do próprio store;
+ *  3. propagar pelas chamadas: quem chama um mutador é mutador.
+ *
+ * O ACESSOR PREGUIÇOSO fica de fora do passo 2, e só dele: é a função que faz
+ * `if (!g.__lifeboardFixtureStore) g.__lifeboardFixtureStore = estadoNovo()`,
+ * reconhecida por esse formato e não pelo nome. Sem a ressalva, TODA leitura
+ * viraria escrita (todas passam por ela) e `listarTasksFixture` — que a página
+ * de prompts importa — apareceria como violação.
+ */
+export function funcoesDoModulo(arquivo: string): Map<string, string> {
+  const src = codigo(arquivo);
+  const out = new Map<string, string>();
+  for (const m of src.matchAll(
+    /\b(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g,
+  )) {
+    out.set(m[1] ?? "", blocoDepois(src, (m.index ?? 0) + m[0].length));
+  }
+  return out;
+}
+
+/** Os três jeitos de mudar a loja neste módulo. */
+const MUTACOES_DIRETAS: readonly RegExp[] = [
+  /\.\s*(?:tasks|edges|notes)\s*\.\s*(?:set|delete|clear)\s*\(/,
+  /\.\s*contador\s*(?:\+\+|--|[+\-*/]?=[^=])/,
+  /__lifeboardFixtureStore\s*=[^=]/,
+];
+
+/** O acessor preguiçoso: cria a loja na primeira leitura. Não é escrita. */
+function ehAcessorPreguicoso(corpo: string): boolean {
+  return /if\s*\(\s*!\s*[A-Za-z_$][\w$]*\s*\.\s*__lifeboardFixtureStore\s*\)/.test(corpo);
+}
+
+export function escritoresDoFixtureStore(): string[] {
+  const funcoes = funcoesDoModulo(ARQUIVO_DO_FIXTURE_STORE);
+  const mutam = new Set<string>();
+  for (const [nome, corpo] of funcoes) {
+    if (ehAcessorPreguicoso(corpo)) continue;
+    if (MUTACOES_DIRETAS.some((re) => re.test(corpo))) mutam.add(nome);
+  }
+  // Propagação por chamada, até o ponto fixo.
+  for (let volta = 0; volta < funcoes.size + 1; volta++) {
+    let mudou = false;
+    for (const [nome, corpo] of funcoes) {
+      if (mutam.has(nome)) continue;
+      for (const chamado of mutam) {
+        if (new RegExp(`\\b${chamado}\\s*\\(`).test(corpo)) {
+          mutam.add(nome);
+          mudou = true;
+          break;
+        }
+      }
+    }
+    if (!mudou) break;
+  }
+  const exportados = new Set(exportsDeValor(ARQUIVO_DO_FIXTURE_STORE));
+  return [...mutam].filter((n) => exportados.has(n)).sort();
+}
+
+/**
+ * Tudo que consegue mudar uma tarefa no servidor. Quem importa qualquer um
+ * destes nomes está escrevendo — por rota de API, por Server Action nova, por
+ * componente. A lista é curta de propósito: ela é a fronteira. A entrada do
+ * store do fixture é DERIVADA do código (MÉDIO #6, rodada 13).
+ */
+export function superficieDeEscrita(): Readonly<Record<string, readonly string[]>> {
+  return {
+    // [Achado MAIOR, CodeRabbit] `mutar` saiu daqui: `actions.ts` é `"use server"`
+    // e todo export dele vira Server Action pública. Agora mora no despachante,
+    // que não é `"use server"` — continua sendo superfície de escrita, mas não
+    // é mais um endpoint na internet.
+    "@/app/tarefa/actions": ["escreverTarefaAction"],
+    "@/app/tarefa/despachante": ["mutar"],
+    "@/lib/supabase/live-client": ["mutateLifeboard"],
+    [MODULO_DO_FIXTURE_STORE]: escritoresDoFixtureStore(),
+  };
+}
 
 /**
  * Quem pode tocar a superfície, e por quê. Diferente das `EXCECOES` da rodada
@@ -290,10 +459,11 @@ export interface ToqueNaEscrita {
 /** Quem, no `src/` inteiro, toca a superfície de escrita. */
 export function tocamAEscrita(): ToqueNaEscrita[] {
   const out: ToqueNaEscrita[] = [];
+  const superficie = superficieDeEscrita();
   for (const arquivo of arquivosDoSrc()) {
     const src = codigo(arquivo);
     for (const imp of importacoes(src)) {
-      const proibidos = SUPERFICIE_DE_ESCRITA[imp.modulo];
+      const proibidos = superficie[imp.modulo];
       if (proibidos === undefined) continue;
       // `import * as X` do módulo traz a superfície inteira junto.
       const nomes = imp.nomes.includes("*")
@@ -436,34 +606,187 @@ export function tiposDeInput(): { arquivo: string; linha: number; tipo: string }
 }
 
 /**
- * [ALTO #2, rodada 12] A SEGUNDA REDE DO CAMPO — o que a árvore não vê.
+ * ═══════════════════════════════════════════════════════ ALTO #3, rodada 13 ═
+ * A SEGUNDA REDE PASSA A PROIBIR A FAMÍLIA, NÃO A GRAFIA.
  *
- * A trava principal agora mede o elemento RENDERIZADO
- * (`tarefa-campos-renderizados.test.tsx`), e é ela que pega espalhamento,
- * variável e objeto importado. Sobra uma família que nenhuma árvore de
- * elementos alcança: mexer no nó do DOM por fora do React —
- * `ref={(el) => { el.type = "number"; }}`, `setAttribute("type", …)`,
- * `dangerouslySetInnerHTML`. Nestes três arquivos de formulário não existe
- * motivo legítimo para nenhuma das três, então aqui elas são proibidas por
- * inteiro, sem julgar o valor: o que estiver na tela tem de estar na árvore.
+ * A rodada 12 proibia TRÊS escritas literais (`.type =`, `setAttribute(`,
+ * `dangerouslySetInnerHTML`). O crítico passou por ela com três linhas:
+ *
+ *     const TECLADO_DO_CELULAR: Record<string, string> = { type: "number", step: "0.25" };
+ *     <input ref={(el) => { if (el !== null) Object.assign(el, TECLADO_DO_CELULAR); }}
+ *            type="text" inputMode="decimal" … />
+ *
+ * `tsc` limpo, `eslint` limpo, 1441/1441 verdes — inclusive as 6 asserções da
+ * suíte que mede o elemento renderizado, porque `Object.assign` acontece no
+ * NÓ, depois que o React já entregou a árvore. No Chromium, `input.type` virava
+ * `number` e digitar `e` na duração 2 apagava o dado dizendo "Duração
+ * removida.": o CRÍTICO das rodadas 10/11 inteiro, com os quatro portões
+ * verdes.
+ *
+ * A pergunta certa não é "este texto aparece?", é **"este arquivo escreve num
+ * nó de DOM?"**. Nestes arquivos a resposta tem de ser não: o que está na tela
+ * tem de estar na árvore do React.
+ *
+ * Duas famílias, e as exceções DECLARADAS por propriedade — nunca por arquivo:
+ *
+ *  1. CHAMADAS que mexem em nó ou copiam propriedades em lote
+ *     (`Object.assign`, `setAttribute`, `defineProperty`, `Reflect.set`,
+ *     `innerHTML`, `appendChild`, `createElement`…). Não há uso legítimo de
+ *     nenhuma delas nestes arquivos.
+ *  2. ATRIBUIÇÕES a propriedade (`x.y = …`) e a propriedade CALCULADA
+ *     (`x[k] = …`, que é como um apelido escapa de qualquer lista de nomes).
+ *     Permitidas só três formas, e cada uma pelo motivo escrito:
+ *       - `<algo>.current = …` — a caixa de ref do React, que não é um nó;
+ *       - `<algo>Ref.current.value = …` — o `<select>` nativo que já trocou de
+ *         valor sozinho e precisa voltar (`mae-form.tsx`); e SÓ em arquivo que
+ *         não desenha `<input>`, que é derivado de `arquivosComInput()`: no
+ *         campo de texto é justamente `value` que faria o programa e a caixa
+ *         discordarem;
+ *       - montar um objeto literal local (`const campos = {…}; campos.peso = …`),
+ *         que é dado, não DOM — e a raiz tem de estar declarada como literal
+ *         no mesmo arquivo.
  */
-export function atribuicoesDeTipoNoDom(): {
+export interface EscritaNoDom {
   arquivo: string;
   linha: number;
   trecho: string;
-}[] {
-  const achados: { arquivo: string; linha: number; trecho: string }[] = [];
-  const padroes: [RegExp, string][] = [
-    [/\.type\s*=[^=]/g, ".type ="],
-    [/setAttribute\s*\(/g, "setAttribute("],
-    [/dangerouslySetInnerHTML/g, "dangerouslySetInnerHTML"],
-  ];
+}
+
+/** As chamadas que escrevem em nó (ou copiam propriedades para dentro de um). */
+export const CHAMADAS_QUE_ESCREVEM_NO_DOM: readonly [RegExp, string][] = [
+  [/\bassign\s*\(/g, "assign("],
+  [/\bdefinePropert(?:y|ies)\s*\(/g, "defineProperty("],
+  [/\bsetPrototypeOf\s*\(/g, "setPrototypeOf("],
+  [/\bReflect\s*\.\s*set\s*\(/g, "Reflect.set("],
+  [/\bsetAttribute(?:NS|Node)?\s*\(/g, "setAttribute("],
+  [/\bremoveAttribute(?:NS|Node)?\s*\(/g, "removeAttribute("],
+  [/\bsetNamedItem\s*\(/g, "setNamedItem("],
+  /*
+   * [rodada 13, achado meu ao conferir a correção] PEGAR O NÓ DE ATRIBUTO
+   * TAMBÉM É ESCRITA. A lista cobria `setNamedItem(` — a escrita direta — e
+   * deixava passar o caminho de duas etapas: pegar o nó do atributo e gravar
+   * no `.value` dele. Medido no Chromium, com os 1466 testes, `tsc` e
+   * `eslint` limpos:
+   *
+   *   ref={(el) => { el.attributes.getNamedItem("type")!.value = "number"; }}
+   *
+   * deixa `input.type` = `number` no DOM, e o campo volta a apagar o que o
+   * operador digita. Um nó de atributo só se pega para escrever nele — ler
+   * atributo é `getAttribute(`, que continua livre.
+   */
+  [/\bgetNamedItem\s*\(/g, "getNamedItem("],
+  [/\bgetAttributeNode(?:NS)?\s*\(/g, "getAttributeNode("],
+  [/\.\s*attributes\b/g, ".attributes"],
+  [/\bdangerouslySetInnerHTML\b/g, "dangerouslySetInnerHTML"],
+  [/\b(?:inner|outer)HTML\b/g, "innerHTML"],
+  [/\binsertAdjacent(?:HTML|Element|Text)\s*\(/g, "insertAdjacentHTML("],
+  [/\b(?:appendChild|replaceChild|replaceChildren|replaceWith|insertBefore|prepend)\s*\(/g, "appendChild("],
+  [/\bcloneNode\s*\(/g, "cloneNode("],
+  [/\bcreateElement(?:NS)?\s*\(/g, "createElement("],
+  [/\bdocument\s*\.\s*write\b/g, "document.write"],
+];
+
+/**
+ * As propriedades que estes arquivos PODEM escrever, com o motivo de cada uma.
+ * Mesma disciplina de `PORTADORES`: a lista não isenta arquivo nenhum — ela é
+ * a própria checagem, e um teste desta rodada recusa qualquer propriedade que
+ * mude o contrato do campo (`type`, `inputMode`, `pattern`, `step`, `min`,
+ * `max`, `checked`, `defaultValue`…).
+ */
+export const PROPRIEDADES_TOLERADAS: readonly {
+  prop: string;
+  motivo: string;
+  /** Quando existe, o caminho inteiro da atribuição tem de casar. */
+  exigeCaminho?: RegExp;
+}[] = [
+  {
+    prop: "current",
+    motivo:
+      "é a caixa de ref do React, um objeto comum — não um nó de DOM. Toda a página guarda estado de closure aqui.",
+  },
+  {
+    prop: "value",
+    exigeCaminho: /Ref\s*\??\.\s*current\s*\.\s*value$/,
+    motivo:
+      "o <select> nativo de mae-form.tsx já trocou de valor sozinho quando a porta recusa, e o React não re-renderiza porque o estado não mudou; devolver o valor visível é a única forma de a caixa não mentir. Só em arquivo SEM <input>: num campo de texto seria `value` justamente o que faria programa e caixa discordarem.",
+  },
+  {
+    prop: "returnValue",
+    motivo:
+      "é o contrato de `beforeunload` (usar-aviso-de-saida.ts): sem ele o navegador não pergunta antes de levar embora uma gravação em voo. Não toca em campo nenhum.",
+  },
+];
+
+/** Palavras que abrem uma DECLARAÇÃO, não uma atribuição a propriedade. */
+const RAIZES_QUE_NAO_SAO_OBJETO = new Set([
+  "const",
+  "let",
+  "var",
+  "readonly",
+  "typeof",
+  "return",
+  "new",
+  "as",
+  "of",
+  "in",
+  "case",
+  "yield",
+  "await",
+]);
+
+/** As raízes declaradas como objeto literal no arquivo — dado, não nó. */
+function objetosLiteraisLocais(src: string): Set<string> {
+  const nomes = new Set<string>();
+  for (const m of src.matchAll(
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*\{/g,
+  )) {
+    nomes.add(m[1] ?? "");
+  }
+  return nomes;
+}
+
+export function escritasNoDom(): EscritaNoDom[] {
+  const achados: EscritaNoDom[] = [];
+  const comInput = new Set(arquivosComInput());
   for (const arquivo of arquivosVarridos()) {
     const src = codigo(arquivo);
-    for (const [re, rotulo] of padroes) {
+    for (const [re, rotulo] of CHAMADAS_QUE_ESCREVEM_NO_DOM) {
       for (const m of src.matchAll(re)) {
         achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), trecho: rotulo });
       }
+    }
+    const literais = objetosLiteraisLocais(src);
+    for (const m of src.matchAll(
+      /([A-Za-z_$][\w$]*)((?:\s*\??\.\s*[A-Za-z_$][\w$]*|\s*\[[^\]\n]*\])+)\s*=(?!=|>)/g,
+    )) {
+      const raiz = m[1] ?? "";
+      const caminho = (m[2] ?? "").replace(/\s+/g, "");
+      // `const [a, b] = …`, `readonly Tipo[] = …`: declaração ou anotação de
+      // tipo, não escrita em propriedade.
+      if (RAIZES_QUE_NAO_SAO_OBJETO.has(raiz)) continue;
+      if (/^(\[[^\]]*\])+$/.test(caminho) && !caminho.includes(".")) {
+        // Só colchetes: ou é `Tipo[] =` (vazio) ou é uma propriedade CALCULADA
+        // num identificador solto — esta última é exatamente a fuga que a
+        // lista de nomes não pega, e por isso continua sendo violação.
+        if (/\[\s*\]/.test(caminho)) continue;
+      }
+      const ultimo = /\.([A-Za-z_$][\w$]*)$/.exec(caminho)?.[1] ?? null;
+      const trecho = `${raiz}${caminho} =`;
+      const inteiro = `${raiz}${caminho}`;
+      if (ultimo !== null) {
+        const tolerada = PROPRIEDADES_TOLERADAS.find((t) => t.prop === ultimo);
+        if (tolerada !== undefined) {
+          const caminhoOk =
+            tolerada.exigeCaminho === undefined || tolerada.exigeCaminho.test(inteiro);
+          // `current` vale em qualquer arquivo (não é DOM); as demais, só onde
+          // não há campo de texto desenhado.
+          const arquivoOk = tolerada.prop === "current" || !comInput.has(arquivo);
+          if (caminhoOk && arquivoOk) continue;
+        }
+        // Montar um objeto literal local é dado, não DOM.
+        if (literais.has(raiz) && !caminho.includes("[")) continue;
+      }
+      achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), trecho });
     }
   }
   return achados;

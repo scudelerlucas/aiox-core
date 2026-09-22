@@ -72,7 +72,31 @@ const ASSIMETRIA_BYTES_MAX = 2_048;
  * leis diferentes. As duas chamam esta função agora; `DURACAO_MINIMA_DIAS`
  * vem de `tipos-v3.ts` — mesmo valor usado pela migration 0010.
  */
-function estimativaValidaOuErro(n: number): string | null {
+/**
+ * [BAIXO #10, rodada 13] O CLIENTE ACEITAVA MAIS CASAS DO QUE A COLUNA GUARDA.
+ *
+ * `tasks.estimativa_dias` é `numeric(6,2)` e `task_edges.peso` é
+ * `numeric(4,3)`. Em modo fixture o JavaScript guardava `1.005` e `0.5555`
+ * inteiros, a tela confirmava "Duração salva." e o número continuava lá; em
+ * modo live o Postgres ARREDONDA na hora de gravar (1.01 e 0.556) — os dois
+ * modos passavam a discordar sobre a mesma entrada, e no modo que vale o
+ * operador via na volta um número que nunca digitou.
+ *
+ * A régua é a da coluna, aplicada ao TEXTO que a pessoa escreveu (depois da
+ * conversão a informação já se perdeu): recusa em português antes de gravar,
+ * como todo o resto deste arquivo.
+ */
+function casasDecimais(bruto: string): number {
+  const ponto = bruto.indexOf(".");
+  return ponto === -1 ? 0 : bruto.length - ponto - 1;
+}
+
+/** `tasks.estimativa_dias` é `numeric(6,2)` (migration 0004). */
+const ESTIMATIVA_CASAS_MAX = 2;
+/** `task_edges.peso` é `numeric(4,3)` (migration 0004). */
+const PESO_CASAS_MAX = 3;
+
+function estimativaValidaOuErro(n: number, bruta: string): string | null {
   // [CRÍTICO, rodada 11] `NaN` é o caminho do que a caixa mostra e o
   // `Number()` não converte (`2e`, `1,5`, `--`): `NaN < x` e `NaN > y` são
   // AMBOS falsos, então sem este ramo o valor atravessaria a régua inteira e
@@ -89,6 +113,9 @@ function estimativaValidaOuErro(n: number): string | null {
   }
   if (n > ESTIMATIVA_DIAS_MAXIMA) {
     return `A duração não pode passar de ${ESTIMATIVA_DIAS_MAXIMA} dias.`;
+  }
+  if (casasDecimais(bruta) > ESTIMATIVA_CASAS_MAX) {
+    return `A duração guarda no máximo ${ESTIMATIVA_CASAS_MAX} casas depois do ponto (ex.: 1.5 ou 1.25).`;
   }
   return null;
 }
@@ -238,7 +265,7 @@ async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> 
   let estimativaDias: number | null = null;
   if (estimativaBruta.length > 0) {
     const n = numeroDigitado(estimativaBruta);
-    const erro = estimativaValidaOuErro(n);
+    const erro = estimativaValidaOuErro(n, estimativaBruta);
     if (erro) return { erro };
     estimativaDias = n;
   }
@@ -327,7 +354,7 @@ async function estimativaSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa>
   if (bruta.length > 0) {
     const n = numeroDigitado(bruta);
     // [BAIXO #10, rodada 2] mesma função de `subtarefaAddAction` — uma só régua.
-    const erro = estimativaValidaOuErro(n);
+    const erro = estimativaValidaOuErro(n, bruta);
     if (erro) return { erro };
     estimativaDias = n;
   }
@@ -386,6 +413,13 @@ async function arestaAdd(
     }
     peso = numeroDigitado(pesoBruto);
     if (!pesoValido(peso)) return { erro: "O desconto precisa ser um número entre 0 e 1." };
+    // [BAIXO #10, rodada 13] `numeric(4,3)`: acima de 3 casas o Postgres
+    // arredonda em silêncio e o fixture não — ver `casasDecimais`.
+    if (casasDecimais(pesoBruto) > PESO_CASAS_MAX) {
+      return {
+        erro: `O desconto guarda no máximo ${PESO_CASAS_MAX} casas depois do ponto (ex.: 0.5 ou 0.125).`,
+      };
+    }
   }
   if (nota !== null && nota.length > ARESTA_NOTA_MAX) {
     return { erro: `A nota da relação não pode passar de ${ARESTA_NOTA_MAX} caracteres.` };

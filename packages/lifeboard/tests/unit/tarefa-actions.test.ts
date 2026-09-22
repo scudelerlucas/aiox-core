@@ -239,6 +239,71 @@ describe("tarefa/actions — validação", () => {
     });
   }
 
+  /**
+   * ══════════════════════════════════════════════════ BAIXO #10, rodada 13 ═
+   * O CLIENTE ACEITAVA MAIS CASAS DO QUE A COLUNA GUARDA.
+   *
+   * `tasks.estimativa_dias` é `numeric(6,2)` e `task_edges.peso` é
+   * `numeric(4,3)` (migration 0004). Em fixture o JavaScript guardava `1.005`
+   * e `0.5555` inteiros e a tela confirmava "Duração salva."; em live o
+   * Postgres ARREDONDA na gravação. Os dois modos discordavam sobre a mesma
+   * entrada, e no modo que vale o operador via na volta um número que nunca
+   * digitou.
+   *
+   * MUTAÇÃO: tirar a checagem de `casasDecimais`.
+   */
+  for (const [bruto, casas] of [
+    ["1.005", 3],
+    ["0.333333", 6],
+    ["2.129", 3],
+  ] as const) {
+    it(`estimativaSetAction: "${bruto}" (${String(casas)} casas) é recusado — a coluna guarda 2`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: bruto }),
+      );
+      expect(r.erro, `"${bruto}" passou`).toContain("2 casas");
+      expect(r.ok).toBeUndefined();
+      nenhumaChamadaFoiFeita();
+    });
+  }
+
+  for (const bom of ["1", "1.5", "1.25", "0.25", "9999.99"]) {
+    it(`estimativaSetAction: "${bom}" continua passando`, async () => {
+      const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: bom }));
+      expect(r.erro, `"${bom}" foi recusado por engano`).toBeUndefined();
+      expect(r.ok).toBe(true);
+    });
+  }
+
+  it("arestaAddAction: desconto com 4 casas é recusado — `peso` é numeric(4,3)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "0.5555" }),
+    );
+    expect(r.erro).toContain("3 casas");
+    expect(r.ok).toBeUndefined();
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("arestaAddAction: desconto com 3 casas continua passando", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "0.125" }),
+    );
+    expect(r.erro).toBeUndefined();
+    expect(r.ok).toBe(true);
+  });
+
+  it("subtarefaAddAction: a duração da subtarefa segue a MESMA régua de casas", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: "1.005" }),
+    );
+    expect(r.erro).toContain("2 casas");
+    nenhumaChamadaFoiFeita();
+  });
+
   it("estimativaSetAction: a recusa do branco ensina como REMOVER de verdade", async () => {
     const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: " " }));
     expect(r.erro).toContain("deixe a caixa vazia");

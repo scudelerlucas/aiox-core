@@ -19,8 +19,12 @@ import {
   portasDeclaradas,
   PORTADORES,
   quantasPortas,
+  escritoresDoFixtureStore,
+  funcoesDoModulo,
+  marcasAntesDoVeredito,
+  MODULO_DO_FIXTURE_STORE,
   rotasDeFuga,
-  SUPERFICIE_DE_ESCRITA,
+  superficieDeEscrita,
   temExportAnonimo,
   tiposDeInput,
   tocamAEscrita,
@@ -339,7 +343,7 @@ describe("ALTO #1 — a segunda rede: quem toca a superfície de escrita (src/ i
     // fronteira `"use server"` (achado MAIOR do CodeRabbit).
     expect(PORTADORES).toHaveLength(3);
     console.log("Superfície de escrita vigiada:");
-    for (const [modulo, nomes] of Object.entries(SUPERFICIE_DE_ESCRITA)) {
+    for (const [modulo, nomes] of Object.entries(superficieDeEscrita())) {
       console.log("  -", modulo, "→", nomes.join(", "));
     }
     console.log("Arquivos do src/ varridos:", String(arquivosDoSrc().length));
@@ -788,6 +792,77 @@ describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4,
    * rede, e frouxa de propósito: a data original é MENCIONADA nos dois
    * painéis.
    */
+  /**
+   * ═════════════════════════════════════════════════════ MÉDIO #6, rodada 13 ═
+   * A LISTA DERIVADA × UM DETECTOR INDEPENDENTE.
+   *
+   * `escritoresDoFixtureStore()` deriva a superfície pelo grafo de chamadas.
+   * Este teste não confia nela: refaz a pergunta do jeito mais burro possível
+   * — o corpo do export contém uma escrita de coleção? — e exige que tudo o
+   * que ele acha esteja na superfície. Sabotar a derivação (tirar um nome)
+   * deixa esta asserção vermelha, que é o ponto: duas leituras independentes
+   * discordando é o sinal.
+   */
+  it("PRONTO QUANDO: a superfície do store do fixture cobre todo export que muda a loja", () => {
+    const funcoes = funcoesDoModulo("lib/repositories/tasks.fixture-store.ts");
+    const exportados = new Set(exportsDeValor("lib/repositories/tasks.fixture-store.ts"));
+    const mutamAOlhoNu = [...funcoes]
+      .filter(
+        ([nome, corpo]) =>
+          exportados.has(nome) &&
+          (/\.\s*(?:set|delete|clear)\s*\(/.test(corpo) ||
+            /__lifeboardFixtureStore\s*=[^=]/.test(corpo)),
+      )
+      .map(([nome]) => nome)
+      .sort();
+    const superficie = superficieDeEscrita()[MODULO_DO_FIXTURE_STORE] ?? [];
+    const esquecidos = mutamAOlhoNu.filter((n) => !superficie.includes(n));
+    expect(
+      esquecidos,
+      `export que muda a loja e não está na superfície:\n${esquecidos.join("\n")}`,
+    ).toEqual([]);
+    // Os dois que a lista escrita à mão esquecia, e que o crítico usou para
+    // apagar as notas da tarefa por uma rota de API de 11 linhas.
+    expect(escritoresDoFixtureStore()).toContain("resetarFixtureStore");
+    expect(escritoresDoFixtureStore()).toContain("definirPredecessorIdsFixture");
+    // E a derivação não pode ser mais curta que o detector burro.
+    expect(superficie.length).toBeGreaterThanOrEqual(mutamAOlhoNu.length);
+  });
+
+  /**
+   * ═══════════════════════════════════════════════ CRÍTICO #1 e #2, rodada 13 ═
+   * A GUARDA DO GÊMEO QUE FICA PARA TRÁS.
+   *
+   * A rodada 10 corrigiu três formulários e deixou dois com a marca de estado
+   * ANTES do veredito da porta. Nada avisou, e duas rodadas depois a duração
+   * anunciava o desfecho oposto ao que gravou e os átomos travavam num trio
+   * que o servidor nunca recebeu. Esta é a rede que faltava: nenhum sítio de
+   * escrita da página pode marcar estado antes de saber se a porta aceitou.
+   */
+  it("PRONTO QUANDO: nenhum formulário marca estado antes do veredito da porta", () => {
+    const achados = marcasAntesDoVeredito().map(
+      (a) => `${a.arquivo}:${String(a.linha)} — ${a.marca} antes do escrever( da linha ${String(a.escritaNaLinha)}`,
+    );
+    expect(achados, `estado marcado antes do veredito:\n${achados.join("\n")}`).toEqual([]);
+  });
+
+  /**
+   * A guarda acima só vale se ela CONSEGUE ver a violação. Aqui o fonte dos
+   * dois gêmeos é lido e a ordem é conferida diretamente: a atribuição ao ref
+   * da tentativa vem DEPOIS da chamada da porta, dentro de um `if` de veredito.
+   */
+  it("PRONTO QUANDO: duração e átomos só gravam o ref da tentativa depois do veredito", () => {
+    for (const [arquivo, ref] of [
+      ["components/task/duracao-form.tsx", "valorEnviadoRef"],
+      ["components/task/atomos-form.tsx", "trioRef"],
+    ] as const) {
+      const src = codigoDoArquivo(arquivo);
+      expect(src, `${arquivo}: o ref da tentativa deve ser escrito sob o veredito`).toMatch(
+        new RegExp(`decisao === "gravar"\\)\\s*${ref}\\.current =`),
+      );
+    }
+  });
+
   it("PRONTO QUANDO: os dois painéis mandam a data original junto do desfazer", () => {
     for (const arquivo of [
       "components/task/notas-painel.tsx",

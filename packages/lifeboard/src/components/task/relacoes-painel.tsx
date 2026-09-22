@@ -450,8 +450,13 @@ function LinhaAresta({
 
   function excluir(): void {
     if (confirmando) {
-      aoConfirmarExecutado();
-      porta.escrever({ id: aresta.id, task_id: taskId });
+      // [CRÍTICO #1/#2, varredura de gêmeos, rodada 13] A SAÍDA DA CONFIRMAÇÃO
+      // também é estado, e também só acontece depois do veredito: com uma
+      // gravação em voo a porta recusa ("Aguarde…") e o 2º clique NÃO apaga —
+      // sair da confirmação ali deixava a linha de volta em "excluir", como se
+      // o clique tivesse sido cancelado, e o operador tinha de recomeçar os
+      // dois cliques sem nada explicar por quê.
+      if (porta.escrever({ id: aresta.id, task_id: taskId }) === "gravar") aoConfirmarExecutado();
       return;
     }
     // `valido: false` nunca grava; o que a porta ainda faz neste clique é
@@ -473,9 +478,11 @@ function LinhaAresta({
           href={`/tarefa/${outraPontaId}`}
           prefetch={false}
           // [BAIXO #6, rodada 6] alvo de toque de 44 px sem quebrar a linha.
-          className="inline-flex min-h-[44px] items-center text-sm text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
+          // [ALTO #5, rodada 13] e o título da outra ponta quebra palavra —
+          // no `<span>`, que é quem de fato contém o texto.
+          className="inline-flex min-h-[44px] min-w-0 items-center text-sm text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
         >
-          {rotuloOutraPonta}
+          <span className="min-w-0 break-words">{rotuloOutraPonta}</span>
         </Link>
         {aresta.tipo === "sinergia" ? (
           <span className="ml-2 font-mono text-xs text-bone-400">desconto {aresta.peso}</span>
@@ -487,7 +494,9 @@ function LinhaAresta({
             da tarefa já recebe em `notas-painel.tsx`: o texto, em uma linha
             abaixo, sem enfeite. */}
         {aresta.nota !== null && aresta.nota.length > 0 ? (
-          <p className="mt-1 text-xs text-bone-400">{aresta.nota}</p>
+          // [ALTO #5, rodada 13] a nota da relação nasceu na rodada 12 sem
+          // quebra de palavra — mesmo e-mail, mesmo estouro.
+          <p className="mt-1 whitespace-pre-line break-words text-xs text-bone-400">{aresta.nota}</p>
         ) : null}
       </div>
       <button
@@ -556,6 +565,15 @@ function FormularioNovaAresta({
   const disponiveis = opcoesDestino.filter((o) => !o.bloqueadaPara.includes(tipo));
   const ocultas = opcoesDestino.length - disponiveis.length;
   const [peso, setPeso] = useState("0.5");
+  /**
+   * [BAIXO #12, rodada 13] A NOTA DA RELAÇÃO GANHA ONDE SER ESCRITA.
+   *
+   * A rodada 12 pôs a nota na lista e o servidor sempre a validou
+   * (`ARESTA_NOTA_MAX`), mas nenhuma relação criada pela tela podia ter uma:
+   * não havia campo. Um dado que o modelo guarda, a semente traz e o
+   * "Desfazer" restaura, e que a tela só sabia ler.
+   */
+  const [nota, setNota] = useState("");
   const [criada, setCriada] = useState<JanelaDeDesfazerCriacao | null>(null);
   /**
    * [BAIXO #8, rodada 7] A verdade sobre "já existe um Desfazer pendente" no
@@ -645,13 +663,41 @@ function FormularioNovaAresta({
       }, JANELA_DESFAZER_MS);
     },
     aoSucesso: (estado) => {
-      setDestino("");
+      // [ALTO #4, rodada 13] só esvazia a escolha se ela ainda for a que foi
+      // enviada — trocar de destino durante a gravação não pode ser desfeito
+      // pela resposta que chega depois.
+      if (naCaixaRef.current === enviadoRef.current) setDestino("");
+      if (naNotaRef.current === notaEnviadaRef.current) setNota("");
       idDoSucessoRef.current =
         typeof estado.id === "string" && estado.id.length > 0 ? estado.id : null;
     },
   });
 
-  const podeEnviar = destino !== "";
+  /**
+   * ════════════════════════════════════════════════════════ MÉDIO #7, rodada 13 ═
+   * O `<select>` NÃO PODE MENTIR SOBRE O QUE VAI ENVIAR.
+   *
+   * `destino` é estado local; `disponiveis` vem do servidor e muda sozinho a
+   * cada `router.refresh()` (toda escrita da página dispara um). Quando a
+   * candidata escolhida deixava de estar disponível por causa de OUTRA escrita,
+   * o `<select>` voltava a exibir "Escolha a tarefa…" — porque o valor não
+   * casa com opção nenhuma —, mas `destino` continuava preenchido: a dica
+   * sumia, `podeEnviar` seguia `true` e o botão disparava contra um alvo que a
+   * tela não mostrava. A troca de TIPO já zerava o campo; a troca vinda do
+   * servidor, não.
+   *
+   * Aqui o valor exibido, o valor enviado e a guarda saem do MESMO lugar: a
+   * escolha só existe enquanto ela estiver na lista.
+   */
+  const destinoEfetivo = disponiveis.some((o) => o.id === destino) ? destino : "";
+  const naCaixaRef = useRef(destinoEfetivo);
+  naCaixaRef.current = destinoEfetivo;
+  const enviadoRef = useRef<string | null>(null);
+  const naNotaRef = useRef(nota);
+  naNotaRef.current = nota;
+  const notaEnviadaRef = useRef<string | null>(null);
+
+  const podeEnviar = destinoEfetivo !== "";
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
@@ -660,11 +706,19 @@ function FormularioNovaAresta({
     // em vez de um botão cinza que não responde.
     const campos: Record<string, string> = {
       origem: taskId,
-      destino,
+      destino: destinoEfetivo,
       tipo,
     };
     if (tipo === "sinergia") campos.peso = peso;
-    porta.escrever(campos, { valido: podeEnviar });
+    // [BAIXO #12, rodada 13] a nota da relação, quando há uma. Ausente é
+    // diferente de vazia só no `peso`; para a nota, `textoOuNulo` no servidor
+    // já trata vazio como "sem nota".
+    if (nota.trim().length > 0) campos.nota = nota;
+    const decisao = porta.escrever(campos, { valido: podeEnviar });
+    if (decisao === "gravar") {
+      enviadoRef.current = destinoEfetivo;
+      notaEnviadaRef.current = nota;
+    }
   }
 
   function desfazer(): void {
@@ -690,7 +744,8 @@ function FormularioNovaAresta({
         Destino
         <select
           ref={selectDestinoRef}
-          value={destino}
+          // [MÉDIO #7] o que se vê é o que se envia — ver `destinoEfetivo`.
+          value={destinoEfetivo}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => {
             setDestino(e.target.value);
             porta.aoMudarCampo();
@@ -732,6 +787,22 @@ function FormularioNovaAresta({
         }}
         desabilitado={porta.pendente}
       />
+      {/* [BAIXO #12, rodada 13] a nota da relação — opcional, e a única
+          adição de funcionalidade desta rodada. A lista já mostrava a nota
+          (rodada 12) e o servidor já a validava; faltava onde escrevê-la. */}
+      <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
+        Nota da relação (opcional)
+        <textarea
+          value={nota}
+          onChange={(e) => {
+            setNota(e.target.value);
+            porta.aoMudarCampo();
+          }}
+          rows={2}
+          placeholder="ex.: Documentação e motor andam juntos, sem ordem."
+          className="w-full rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm font-normal text-bone-100 outline-none focus:border-gold-500"
+        />
+      </label>
       <div className="flex flex-wrap items-end gap-2">
         {tipo === "sinergia" ? (
           /* [CRÍTICO + ALTO A2, rodada 11] aqui o estrago era o pior dos
