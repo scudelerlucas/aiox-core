@@ -51,6 +51,56 @@
 -- Re-aplicável: tudo é `create or replace` / `drop … if exists` / `alter …`.
 -- ════════════════════════════════════════════════════════════════════════════
 
+-- ── 0 · ALTO 2 (rodada 13) · O LIMITE POR ITEM DEIXA DE SER O TETO DO DIA ──
+-- O limite `0 a 500` por item nasceu na 0009, quando o teto do dia era 150:
+-- um item nunca chegava perto. A decisão de 14/09/2026 subiu o teto para 500 e
+-- ninguém revisitou o limite por item — os dois números viraram o mesmo, e a
+-- porta de FECHAMENTO passou a RECUSAR a medição real.
+--
+-- O crítico mediu o desfecho: item com estimativa de 120 que custou 620 de
+-- verdade. `fila_prompts_fechar_interno(620)` levantava exceção, o item morria
+-- em 45 min valendo a ESTIMATIVA (120) no livro, e o pull lia 380 de headroom
+-- livres que não existiam. US$ 620 reais viravam US$ 120 no livro e abriam
+-- US$ 380 de teto falso. Pelas palavras da §6 desta mesma migration: "num
+-- teto, errar para baixo é buraco".
+--
+-- A REGRA, agora: a porta que REGISTRA o que já aconteceu aceita o número
+-- real e o lança. Quem recusa é o PULL — ele não despacha item novo enquanto
+-- o dia não couber (`custo_estimado_usd <= v_headroom`, com o headroom
+-- descontando medido e execução). Recusar a MEDIÇÃO é o que fabrica o buraco;
+-- recusar o DESPACHO é o que fecha a torneira. São coisas diferentes e agora
+-- têm números diferentes.
+--
+-- O que sobra aqui é SANIDADE, não orçamento: um número que não se confunde
+-- com teto nenhum e que existe só para barrar dedo escorregado e valor
+-- absurdo (10^9 digitado na tela, unidade trocada). Ele é DERIVADO de um
+-- lugar só — esta função — em vez de copiado em quatro pontos, que foi
+-- exatamente como o 500 se espalhou.
+create or replace function public.painel_custo_maximo_por_item()
+returns numeric
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select 100000::numeric;
+$$;
+comment on function public.painel_custo_maximo_por_item() is
+  'ALTO 2 (rodada 13): teto de SANIDADE por item (US$ 100.000), não teto de orçamento. O teto do dia vive em painel_teto_diario e quem o aplica é o PULL (fila_prompts_pegar_interno); as portas que REGISTRAM custo já gasto (fila_prompts_fechar_interno, fila_prompts_ajustar_custo) aceitam o número real, porque recusar a medição não economiza dinheiro — apenas lança a estimativa no lugar dela e abre teto falso. Este número existe só para barrar valor absurdo (unidade trocada, dedo escorregado).';
+revoke all on function public.painel_custo_maximo_por_item() from public, anon, authenticated;
+
+-- E a COLUNA junto: `painel_fila_prompts.custo_usd` tinha o mesmo `<= 500` da
+-- 0009 (linha 116). Sem mexer nela, a porta aceitaria o número real e o
+-- `update` seguinte estouraria a check — a recusa só mudaria de lugar. O
+-- limite passa a sair da MESMA função das portas: um lugar só, e o banco
+-- recusa `drop function` enquanto a constraint depender dela.
+alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_custo_usd_check;
+alter table public.painel_fila_prompts
+  add constraint painel_fila_prompts_custo_usd_check
+  check (custo_usd is null
+         or (custo_usd >= 0 and custo_usd <= public.painel_custo_maximo_por_item()));
+comment on column public.painel_fila_prompts.custo_usd is
+  'ALTO 2 (rodada 13): 0..painel_custo_maximo_por_item() — faixa de SANIDADE, não o teto do dia. Era 0..500 desde a 0009, quando o teto diário era 150; em 14/09 o teto virou 500 e os dois números se confundiram, fazendo a porta de fechamento RECUSAR a medição real de uma sessão cara (o item morria valendo a estimativa e o dia abria teto falso). O freio do orçamento é o pull, que não despacha com o dia estourado; negativo continua proibido, que era o achado CRÍTICO #3 da 0009.';
+
 -- ── 1 · fila_prompts_pegar_interno — o texto da 0019 §17, verbatim ─────────
 -- D32c (recusa por medição velha antes de qualquer escrita) · BAIXO 4 (sem
 -- teto declarado recusa, não inventa 150) · BAIXO 5 (headroom nunca negativo)
@@ -163,7 +213,7 @@ begin
            worker_id = null,
            heartbeat_em = null,
            motivo_falha = format('expirou %s vezes sem fechamento', f.tentativas),
-           custo_usd = least(f.custo_estimado_usd, 500),
+           custo_usd = least(f.custo_estimado_usd, public.painel_custo_maximo_por_item()),
            custo_e_estimativa = true,
            custo_origem = 'estimativa',
            concluido_em = now()
@@ -382,8 +432,13 @@ begin
     raise exception 'custo_usd é obrigatório ao fechar (use 0 quando não houver custo).'
       using errcode = 'check_violation';
   end if;
-  if p_custo_usd < 0 or p_custo_usd > 500 then
-    raise exception 'custo_usd fora da faixa aceita (0 a 500): %', p_custo_usd
+  -- ALTO 2 (rodada 13): a faixa é de SANIDADE (ver §0), não o teto do dia. Uma
+  -- sessão que custou mais que o teto PRECISA poder ser relatada: o buraco
+  -- não se fecha recusando a medição, se fecha no pull, que não despacha nada
+  -- novo enquanto o dia não couber.
+  if p_custo_usd < 0 or p_custo_usd > public.painel_custo_maximo_por_item() then
+    raise exception 'custo_usd fora da faixa de sanidade (0 a %): % — este limite não é o teto do dia; quem barra despacho é o pull',
+      public.painel_custo_maximo_por_item(), p_custo_usd
       using errcode = 'check_violation';
   end if;
 
@@ -558,10 +613,20 @@ drop function if exists public.painel_fila_motivo_do_pull(
 -- continuava com `default 150` (0007 §42) e a seed das três contas também.
 --
 -- A régua da casa `teto-de-gasto-diario` registrou a decisão do operador em
--- 14/09/2026: **500 por conta**, nas três. O motivo medido: nos 9 dias com
--- dado em `painel_consumo_por_conta_dia`, 9 de 9 ficaram acima de 150
--- (mediana ~2,6× o teto; 12/09 deu US$ 2.513,29). Um teto que nenhum dia real
--- respeita não é freio — é um bloqueio total esperando a medição funcionar.
+-- 14/09/2026: **500 por conta**. O motivo medido: nos 9 dias com dado em
+-- `painel_consumo_por_conta_dia`, 9 de 9 ficaram acima de 150 (mediana ~2,6×
+-- o teto; 12/09 deu US$ 2.513,29). Um teto que nenhum dia real respeita não é
+-- freio — é um bloqueio total esperando a medição funcionar.
+--
+-- MÉDIO 5 (rodada 13): a régua dizia "500 por conta, nas TRÊS", e esta seed
+-- semeia QUATRO (`arborcactus@gmail.com` já existia em produção com teto 500
+-- desde a 0026 — ver §8). O orçamento despachável da casa é, portanto,
+-- 4 × 500 = **US$ 2.000/dia**, não 1.500. O operador confirmou o número em
+-- 22/09/2026 e a régua do hub foi atualizada no mesmo ato. Quem confere o
+-- total daqui para a frente: o bloco T78 da suíte (soma a tabela no banco) e
+-- `tests/unit/prompts-ultima-palavra-sql.test.ts` (soma a seed do arquivo) —
+-- antes ninguém somava teto nenhum, e foi por isso que 1.500 virou 2.000 sem
+-- uma linha de aviso.
 --
 -- O `update` só mexe em quem AINDA está no default antigo (150). Conta em que
 -- o operador já escolheu outro número não é tocada — o valor do teto é decisão
@@ -593,7 +658,7 @@ insert into public.painel_teto_diario (conta, teto_usd) values
 on conflict (conta) do nothing;
 
 comment on column public.painel_teto_diario.teto_usd is
-  'Teto diário de gasto por conta. 500 por decisão do operador em 14/09/2026 (regra da casa `teto-de-gasto-diario`) — calibragem provisória, a reavaliar com 14 dias de dado real nas quatro contas. Antes: 150.';
+  'Teto diário de gasto por conta. 500 por decisão do operador em 14/09/2026 (regra da casa `teto-de-gasto-diario`), nas QUATRO contas — US$ 2.000/dia de orçamento despachável na casa inteira, confirmado pelo operador em 22/09/2026. Calibragem provisória, a reavaliar com 14 dias de dado real nas quatro contas. Antes: 150 × 3.';
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- RODADA 12 · §5 a §8 — o dinheiro para de depender de quem escreve por último
@@ -1445,7 +1510,7 @@ begin
   -- D12: cancelada que JÁ TEVE DONO gastou dinheiro. Esta é a cláusula que a
   -- mutação M23 apaga — e o bloco T45 fica vermelho quando ela some.
   if v_codigo <> 'cancelado_nunca_pego' and v_row.custo_usd is null then
-    v_lancado := least(v_row.custo_estimado_usd, 500);
+    v_lancado := least(v_row.custo_estimado_usd, public.painel_custo_maximo_por_item());
   end if;
 
   update public.painel_fila_prompts
@@ -1522,8 +1587,11 @@ begin
   if p_id is null then
     raise exception 'Item não identificado.' using errcode = 'check_violation';
   end if;
-  if p_custo_usd is null or p_custo_usd < 0 or p_custo_usd > 500 then
-    raise exception 'O custo precisa ser um número entre 0 e 500.' using errcode = 'check_violation';
+  -- ALTO 2 (rodada 13): o operador corrige com o número REAL, mesmo acima do
+  -- teto do dia. A faixa aqui é de sanidade (§0).
+  if p_custo_usd is null or p_custo_usd < 0 or p_custo_usd > public.painel_custo_maximo_por_item() then
+    raise exception 'O custo precisa ser um número entre 0 e %.', public.painel_custo_maximo_por_item()
+      using errcode = 'check_violation';
   end if;
 
   v_sess := nullif(btrim(coalesce(p_session_id, '')), '');

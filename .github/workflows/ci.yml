@@ -248,6 +248,15 @@ jobs:
       - name: lifeboard - type checking
         run: npm run typecheck --workspace=@aiox/lifeboard
 
+      # MÉDIO 1 (crítico da rodada 13): `checar-contraste.mjs` era a guarda da
+      # régua de contraste (kernel-inicio item 6, >= 4,5:1) e NENHUMA automação
+      # a chamava — ela aparecia só em três comentários, um deles o deste
+      # arquivo, afirmando que ela guarda a tela. Agora ela roda aqui, no mesmo
+      # job que roda o vitest e o tsc da tela, e falha o job quando um par de
+      # cores cai abaixo da régua.
+      - name: lifeboard - contraste da tela (>= 4,5:1)
+        run: npm run contraste --workspace=@aiox/lifeboard
+
       - name: idea-forge - tests (node --test)
         run: npm test --workspace=@aiox/idea-forge
 
@@ -271,19 +280,28 @@ jobs:
   # headroom: 68/68 blocos verdes, e seis pulls despachando US$ 720 contra um
   # teto de 500. Esse caso ganhou bloco (T69) na rodada 13; os buracos que
   # SOBRAM, medidos e nomeados, são:
-  #   · 19 das 44 funções do esquema não são chamadas por bloco nenhum — entre
-  #     elas as PORTAS COM SEGREDO `fila_prompts_pegar` e `fila_prompts_fechar`
-  #     (a suíte exercita as `_interno` que elas embrulham), o extrato do dia
-  #     e os gatilhos, que só são conferidos por permissão (T19/T73);
+  #   · parte das 44 funções do esquema não é chamada por bloco nenhum — o
+  #     extrato do dia (`fila_prompts_extrato_do_dia`), `lifeboard_load`,
+  #     `lifeboard_mutate`, `painel_fila_em_espera`, `painel_fila_na_fila` e os
+  #     gatilhos, que só são conferidos por permissão (T19/T73).
+  #     MÉDIO 4 (rodada 13): este parágrafo citava `fila_prompts_pegar` e
+  #     `fila_prompts_fechar` como "as portas com segredo que embrulham as
+  #     `_interno`" — as duas não existem desde a 0009 (linhas 518-519, `drop
+  #     function if exists`), e nada as recriou. Quem chama as `_interno` é a
+  #     Routine da conta, como papel `postgres`, sem porta intermediária;
   #   · nenhum bloco abre uma conexão como `anon`: as permissões são lidas por
   #     `has_function_privilege`, não exercidas;
   #   · a TELA não passa por aqui — quem a guarda é o vitest, o `tsc` e o
-  #     `checar-contraste.mjs`;
+  #     `npm run contraste` (`scripts/checar-contraste.mjs`), os três no job
+  #     `package-tests` acima;
   #   · o ambiente é um Postgres 16 com os stubs de `00-ambiente-de-teste.sql`,
   #     não o esquema completo do Supabase.
   # Em uma frase: este job pega mudança de comportamento no caminho que os
   # blocos percorrem, e é o único que pega. Ele não é prova de que o resto está
-  # certo — é prova de que estes 74 casos continuam valendo.
+  # certo — é prova de que os casos do manifesto `supabase/tests/BLOCOS.txt`
+  # continuam valendo. CRÍTICO 1 (rodada 13): o esperado vem desse manifesto,
+  # por NOME; antes saía de um `grep -c` sobre o próprio arquivo da suíte, e
+  # apagar um bloco deixava o job verde.
   #
   # Este job aplica as migrations `0001` … `NNNN` EM ORDEM num Postgres 16
   # limpo — o mesmo caminho do DEPLOY.md, que é o que pega migration fora de

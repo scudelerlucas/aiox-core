@@ -323,7 +323,7 @@ leitura** e não escrevem nada.
 | 0c | `PASSO-0c-drift.sql` | **Só leitura.** Compara o histórico do banco com os arquivos de `supabase/migrations/` e nomeia os três casos: o que está **só no banco** (e, se o banco guardar o SQL, devolve o SQL para virar arquivo), o que está **só no repositório**, e que nome foi **registrado duas vezes**. Fecha o vão que o `PASSO-0` não alcança: ele confere os objetos que o repositório conhece e **não pode sentir falta do que nunca foi escrito** — um banco reconstruído sem essas migrations passa 20/20 verde. Não é versionado: gerar com `node scripts/gerar-conferencia-drift.mjs > supabase/aplicar/PASSO-0c-drift.sql`. |
 | 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0027`. **O `alter ... teto_usd set default 500` saiu daqui**: ele era um passo manual que nenhum arquivo conferia, e virou parte da `0027` (achado M3 da rodada 11). |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
-| — | `tests/fila_prompts.test.sql` | A guarda comportamental: **68 blocos**. T60–T62 são da rodada pós-merge (exigem a `0025`); T63–T68 são da rodada 12 e exigem a `0027`. |
+| — | `tests/fila_prompts.test.sql` | A guarda comportamental. **Quantos blocos, e quais, está em `tests/BLOCOS.txt`** — o manifesto nominal, que é também o que o runner exige por nome (CRÍTICO 1 da rodada 13: este número dizia 68 quando já eram 74, e era o próprio arquivo que contava a si mesmo). T60–T62 são da rodada pós-merge (exigem a `0025`); T63–T74 são das rodadas 12 e 13 e exigem a `0027` e a `0028`; T75–T78 são da rodada 13. |
 | — | `scripts/rodar-suite-sql.sh` | **O jeito de rodar tudo isso de uma vez**, num Postgres qualquer: aplica o ambiente de teste (`tests/00-ambiente-de-teste.sql`), as migrations em ordem e a suíte, e sai com erro se um bloco reprovar ou se um bloco não chegar ao veredito. É o mesmo comando que o job `lifeboard-sql` do CI executa — `DATABASE_URL=postgres://… packages/lifeboard/scripts/rodar-suite-sql.sh`. |
 
 ### A `0027`, e por que ela é obrigatória em banco NOVO
@@ -403,11 +403,15 @@ uma a uma, aplique a do hub primeiro.
 
 **Depois de aplicar, o banco está pronto mas VAZIO** — e o app continua sem ler
 dele até `LIFEBOARD_DATA_MODE` virar `live` na Vercel. São duas decisões
-separadas de propósito: "o banco está certo" (provável pelos 68 blocos) e "o app
+separadas de propósito: "o banco está certo" (provável pelos blocos do manifesto
+`tests/BLOCOS.txt`) e "o app
 mostra isso pros usuários" (sua, no seu tempo).
 
 Ainda falta, num banco novo: o `insert` do `load_secret` (item 5 do Passo 3
-acima) e os tetos das 3 contas em `painel_teto_diario`.
+acima). Os tetos das **4 contas** em `painel_teto_diario` já vêm da `0027` §4 —
+4 × US$ 500 = **US$ 2.000/dia** de orçamento despachável na casa (decisão do
+operador de 14/09/2026, total confirmado em 22/09/2026; a régua da casa é
+`teto-de-gasto-diario`). Quem confere o total: o bloco T78 da suíte.
 
 ## Fila de prompts entre as 3 contas (P7 · rodada 6, 13/09/2026)
 

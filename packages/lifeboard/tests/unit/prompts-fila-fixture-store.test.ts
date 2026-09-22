@@ -20,7 +20,7 @@ import {
   vencerBackoffFixture,
 } from "@/lib/repositories/prompts-fila.fixture-store";
 import { AGORA_FIXTURE } from "@/lib/repositories/prompts-fila.fixture";
-import type { Conta } from "@/core/prompts/tipos";
+import { CUSTO_MAXIMO_POR_ITEM_USD, type Conta } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — o fixture-store é o ESPELHO em memória das RPCs. Se ele
@@ -87,11 +87,40 @@ describe("D1 — posse (fencing) e heartbeat", () => {
     expect(deNovo).toEqual({ ok: true, jaFechado: true, reabertoEFechado: false, estado: "concluida" });
   });
 
-  it("custo fora de 0..500 é recusado (negativo zerava o freio do teto)", () => {
+  it("custo negativo é recusado (negativo zerava o freio do teto)", () => {
     const id = (pegarFixture(LUCAS, "W1", AGORA).item as { id: string }).id;
     expect(
       fecharFixture({ id, conta: LUCAS, workerId: "W1", estado: "concluida", custoUsd: -10 }),
-    ).toEqual({ erro: "custo_usd fora da faixa aceita (0 a 500)." });
+    ).toEqual({
+      erro: `custo_usd fora da faixa de sanidade (0 a ${CUSTO_MAXIMO_POR_ITEM_USD}).`,
+    });
+  });
+
+  /**
+   * ALTO 2 (crítico da rodada 13): a porta de fechamento recusava qualquer
+   * número acima de 500 — o teto do DIA. Sessão de US$ 620 não podia ser
+   * relatada, o item morria valendo a estimativa e o dia abria teto falso.
+   * O fixture espelha o banco: a medição real entra, e o valor absurdo (troca
+   * de unidade) continua barrado pela sanidade.
+   */
+  it("custo ACIMA do teto do dia entra pelo valor real; o absurdo continua barrado", () => {
+    const id = (pegarFixture(LUCAS, "W1", AGORA).item as { id: string }).id;
+    // o absurdo (unidade trocada) continua recusado — e a recusa não fecha o item
+    expect(
+      fecharFixture({
+        id,
+        conta: LUCAS,
+        workerId: "W1",
+        estado: "concluida",
+        custoUsd: 1_000_000_000,
+      }),
+    ).toEqual({
+      erro: `custo_usd fora da faixa de sanidade (0 a ${CUSTO_MAXIMO_POR_ITEM_USD}).`,
+    });
+    // o número REAL, acima do teto do dia, entra
+    expect(
+      fecharFixture({ id, conta: LUCAS, workerId: "W1", estado: "concluida", custoUsd: 620 }),
+    ).toMatchObject({ ok: true });
   });
 });
 

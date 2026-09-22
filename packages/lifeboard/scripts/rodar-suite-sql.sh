@@ -8,18 +8,41 @@
 # migration deixa o pull ignorar o teto do dia, e os 1387 testes do vitest
 # continuam verdes — porque eles leem a GRAFIA do .sql, não o comportamento.
 #
+# CRÍTICO 1 + ALTO 1 (rodada 13): ESTE SCRIPT CONTAVA A SI MESMO, e mentia com
+# zero teste. O número esperado saía de `grep -c` sobre o PRÓPRIO arquivo da
+# suíte: apagar um bloco derrubava os dois lados da conta e o script dizia
+# `✓ 73/73 blocos ok`. Foi assim que o crítico apagou o T74 (o piso do dia
+# negativo), tirou dois `greatest(..., 0)` das migrations e despachou US$ 840
+# contra um teto de US$ 500 com os quatro portões verdes. Pior: sem `set -e`,
+# o arquivo da suíte AUSENTE dava `ESPERADOS` vazio, a comparação `[ 0 -lt "" ]`
+# errava sem ser fatal e o script imprimia `✓ 0/ blocos ok` e saía 0.
+# As duas travas de agora:
+#   · o esperado vem de FORA e por NOME — `supabase/tests/BLOCOS.txt`, lista
+#     nominal versionada. Cada identificador listado tem de ter reportado
+#     `RESULTADO: ok`, e bloco que rode sem estar listado também reprova;
+#   · o script morre cedo e alto (`set -euo pipefail` + conferências
+#     explícitas) quando falta o arquivo da suíte, falta o manifesto, o
+#     manifesto está vazio ou NENHUM bloco ficou verde.
+#
 # O QUE ESTA SUÍTE COBRE — e o que não (ALTO 2, rodada 13). O cabeçalho antigo
 # dizia que ela "é a única coisa que distingue um pull que respeita o teto de
 # um que estoura o orçamento". Não era: o crítico apagou `- v_execucao` do
 # cálculo do headroom e os 68 blocos ficaram verdes enquanto seis pulls
 # despachavam US$ 720 contra um teto de 500. Aquele caso ganhou bloco (T69).
 # Os buracos que SOBRAM, para quem confia nesta saída saber do que confia:
-#   · 19 das 44 funções do esquema não são chamadas por bloco nenhum — entre
-#     elas `fila_prompts_pegar` e `fila_prompts_fechar`, as portas com segredo
-#     que embrulham as `_interno` que a suíte de fato exercita;
+#   · parte das 44 funções do esquema não é chamada por bloco nenhum — entre
+#     elas `fila_prompts_extrato_do_dia`, `lifeboard_load`, `lifeboard_mutate`,
+#     `painel_fila_em_espera` e `painel_fila_na_fila`. (MÉDIO 4 da rodada 13:
+#     até aqui este parágrafo citava `fila_prompts_pegar` e
+#     `fila_prompts_fechar` como "as portas com segredo que embrulham as
+#     `_interno`" — as duas NÃO EXISTEM: a 0009, linhas 518-519, apagou as
+#     duas e nada as recriou. Quem chama as `_interno` é a Routine da conta,
+#     como papel `postgres`, sem porta intermediária.);
 #   · ninguém se conecta como `anon`: permissão é LIDA (has_function_
 #     privilege, T19/T73), não exercida;
-#   · a tela não entra aqui (vitest + tsc + checar-contraste.mjs);
+#   · a tela não entra aqui — quem a guarda é o vitest, o `tsc` e o
+#     `npm run contraste` (`scripts/checar-contraste.mjs`), os três no job
+#     `package-tests` do CI;
 #   · o ambiente é um Postgres 16 com os stubs de `00-ambiente-de-teste.sql`.
 # Em uma frase: ela pega mudança de comportamento no caminho que os blocos
 # percorrem. Cobertura fora dali é zero, e dizer o contrário é o que fez o
@@ -35,53 +58,74 @@
 #   2. aplica `supabase/migrations/0001…NNNN` EM ORDEM NUMÉRICA — é o mesmo
 #      caminho do DEPLOY.md, e é ele que pega migration fora de ordem;
 #   3. grava o segredo de carga que as RPCs exigem;
-#   4. roda `supabase/tests/fila_prompts.test.sql` e CONTA os blocos.
+#   4. roda `supabase/tests/fila_prompts.test.sql` e confere a saída contra a
+#      lista nominal de `supabase/tests/BLOCOS.txt`.
 #
-# SAI COM ERRO quando: uma migration não aplica · um bloco reporta FALHA ·
-# o número de blocos verdes é menor que o número de blocos do arquivo (um
-# bloco que estoura antes do veredito não conta como aprovado).
+# SAI COM ERRO quando: uma migration não aplica · um bloco reporta FALHA · um
+# identificador do manifesto não reportou `ok` (bloco apagado, renomeado ou
+# que estourou antes do veredito) · um bloco reportou `ok` sem estar no
+# manifesto · falta o arquivo da suíte ou o manifesto · nenhum bloco ficou
+# verde.
 #
 # NADA AQUI TOCA PRODUÇÃO. O banco alvo é o de `DATABASE_URL`, e cada bloco da
 # suíte termina em `raise exception` — nenhuma escrita persiste.
 # =============================================================================
-set -uo pipefail
+set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DB="${DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:5432/postgres}"
 SEGREDO="${LIFEBOARD_LOAD_SECRET:-segredo-de-suite-sql}"
 
+SUITE="$AQUI/supabase/tests/fila_prompts.test.sql"
+MANIFESTO="$AQUI/supabase/tests/BLOCOS.txt"
+
+morrer() { echo "✗ $*" >&2; exit 1; }
+
 psql_q() { psql "$DB" -q -v ON_ERROR_STOP=1 "$@"; }
 
+# ── 0 · o piso duro: sem estes dois arquivos não existe "verde" possível ─────
+# ALTO 1 (rodada 13): antes, o arquivo da suíte ausente saía 0 com "0/ blocos".
+[ -r "$SUITE" ] || morrer "arquivo da suíte ausente ou ilegível: $SUITE"
+[ -r "$MANIFESTO" ] || morrer "manifesto de blocos ausente ou ilegível: $MANIFESTO
+   (é ele que diz, por nome, quais blocos TÊM de reportar ok — ver o cabeçalho dele)"
+
+# Identificadores esperados, em ordem, do manifesto. Linha vazia e `#` fora.
+BLOCOS_ESPERADOS=()
+while read -r id _resto; do
+  case "$id" in ''|'#'*) continue;; esac
+  BLOCOS_ESPERADOS+=("$id")
+done < "$MANIFESTO"
+
+[ "${#BLOCOS_ESPERADOS[@]}" -gt 0 ] || morrer "o manifesto $MANIFESTO não lista bloco nenhum"
+
 echo "▸ 1/4 ambiente de teste (papéis, auth, painel de frentes)"
-psql_q -f "$AQUI/supabase/tests/00-ambiente-de-teste.sql" || exit 1
+psql_q -f "$AQUI/supabase/tests/00-ambiente-de-teste.sql"
 
 echo "▸ 2/4 migrations, em ordem numérica"
 for arquivo in "$AQUI"/supabase/migrations/[0-9][0-9][0-9][0-9]_*.sql; do
   case "$arquivo" in *.test.sql) continue;; esac
   if ! psql_q -f "$arquivo"; then
-    echo "✗ migration não aplicou: $(basename "$arquivo")"
-    exit 1
+    morrer "migration não aplicou: $(basename "$arquivo")"
   fi
 done
 
 echo "▸ 3/4 segredo de carga"
 psql_q -c "insert into private.lifeboard_config (chave, valor) values ('load_secret', '$SEGREDO')
-           on conflict (chave) do update set valor = excluded.valor;" || exit 1
+           on conflict (chave) do update set valor = excluded.valor;"
 
-echo "▸ 4/4 suíte de comportamento"
-SUITE="$AQUI/supabase/tests/fila_prompts.test.sql"
-SAIDA="$(psql "$DB" -v ON_ERROR_STOP=0 -f "$SUITE" 2>&1)"
+echo "▸ 4/4 suíte de comportamento (${#BLOCOS_ESPERADOS[@]} blocos no manifesto)"
+SAIDA="$(psql "$DB" -v ON_ERROR_STOP=0 -f "$SUITE" 2>&1 || true)"
 
 # Cada bloco termina em `raise exception` — ou com `RESULTADO: ok — …`, ou com
 # `FALHA: …`. `ON_ERROR_STOP=0` de propósito: o primeiro "ok" pararia a suíte.
-VERDES="$(printf '%s' "$SAIDA" | grep -c 'RESULTADO: ok —')"
-VERMELHOS="$(printf '%s' "$SAIDA" | grep -c 'FALHA:')"
-# Quantos blocos o ARQUIVO tem: um `raise exception 'RESULTADO: ok` por bloco.
-# (O cabeçalho do arquivo CITA a frase ao explicar como ler o resultado — por
-# isso a contagem é pela linha do `raise`, não pela frase solta.)
-ESPERADOS="$(grep -c "raise exception 'RESULTADO: ok" "$SUITE")"
+VERDES="$(printf '%s' "$SAIDA" | grep -c 'RESULTADO: ok —' || true)"
+VERMELHOS="$(printf '%s' "$SAIDA" | grep -c 'FALHA:' || true)"
 
-echo "   blocos no arquivo: $ESPERADOS · verdes: $VERDES · vermelhos: $VERMELHOS"
+# Quem reportou ok, por NOME. É esta lista que se compara com o manifesto —
+# nunca mais uma contagem tirada do próprio arquivo que se quer auditar.
+REPORTADOS="$(printf '%s\n' "$SAIDA" | grep -o 'RESULTADO: ok — T[0-9][0-9]' | grep -o 'T[0-9][0-9]' | sort -u || true)"
+
+echo "   blocos no manifesto: ${#BLOCOS_ESPERADOS[@]} · verdes: $VERDES · vermelhos: $VERMELHOS"
 
 if [ "$VERMELHOS" -gt 0 ]; then
   echo "✗ a suíte de comportamento reprovou:"
@@ -89,10 +133,42 @@ if [ "$VERMELHOS" -gt 0 ]; then
   exit 1
 fi
 
-if [ "$VERDES" -lt "$ESPERADOS" ]; then
-  echo "✗ $((ESPERADOS - VERDES)) bloco(s) não chegaram ao veredito (erro antes do raise):"
+if [ "$VERDES" -eq 0 ]; then
+  morrer "nenhum bloco chegou ao veredito — a suíte não rodou (banco fora, arquivo ilegível, erro logo na primeira linha).
+   Saída do psql, primeiras linhas:
+$(printf '%s\n' "$SAIDA" | head -10)"
+fi
+
+# ── a conferência nominal, nos dois sentidos ────────────────────────────────
+FALTANDO=""
+for id in "${BLOCOS_ESPERADOS[@]}"; do
+  if ! printf '%s\n' "$REPORTADOS" | grep -qx "$id"; then
+    FALTANDO="$FALTANDO $id"
+  fi
+done
+
+SOBRANDO=""
+for id in $REPORTADOS; do
+  achou=0
+  for esperado in "${BLOCOS_ESPERADOS[@]}"; do
+    [ "$id" = "$esperado" ] && achou=1 && break
+  done
+  [ "$achou" -eq 0 ] && SOBRANDO="$SOBRANDO $id"
+done
+
+if [ -n "$FALTANDO" ]; then
+  echo "✗ bloco(s) do manifesto que NÃO reportaram ok:$FALTANDO"
+  echo "   (bloco apagado, renomeado, ou que estourou antes do veredito — o manifesto é"
+  echo "    supabase/tests/BLOCOS.txt; remover bloco exige remover a linha de lá E do"
+  echo "    array de tests/unit/suite-sql-blocos.test.ts)"
   printf '%s\n' "$SAIDA" | grep -E '^psql.*ERROR' | grep -v 'RESULTADO: ok —' | head -20
   exit 1
 fi
 
-echo "✓ $VERDES/$ESPERADOS blocos ok"
+if [ -n "$SOBRANDO" ]; then
+  morrer "bloco(s) que reportaram ok sem estar no manifesto:$SOBRANDO
+   (acrescente a linha em supabase/tests/BLOCOS.txt e o identificador no array de
+    tests/unit/suite-sql-blocos.test.ts)"
+fi
+
+echo "✓ ${#BLOCOS_ESPERADOS[@]}/${#BLOCOS_ESPERADOS[@]} blocos do manifesto reportaram ok"

@@ -3848,45 +3848,94 @@ begin
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- T73 · BAIXO 4 (rodada 13) — NENHUMA FUNÇÃO DO LIFEBOARD TEM EXECUTE PÚBLICO
--- ALÉM DAS PORTAS COM SEGREDO
--- T19 conferia só as `_interno`. As cinco funções-GATILHO eram a única exceção
--- ao padrão: `painel_frentes_sessoes_lancar`, `painel_caixa_imutavel`,
--- `painel_caixa_barreira_de_teste`, `painel_fila_prompts_checar_teto` e
--- `lifeboard_touch_updated_at`. Não é explorável (o Postgres recusa chamada
--- direta a função que devolve `trigger`), mas uma exceção sem motivo é o que
--- custa uma investigação a cada varredura de permissão.
--- MUTAÇÃO: tirar qualquer um dos `revoke` (0027 §7b ou 0028 §3).
+-- T73 · BAIXO 4 (rodada 13) + MÉDIO 3 (rodada 13) — NENHUMA FUNÇÃO DO
+-- LIFEBOARD TEM EXECUTE PÚBLICO ALÉM DAS EXCEÇÕES DECLARADAS AQUI
+-- A versão anterior tinha este mesmo título e percorria um ARRAY DE CINCO
+-- NOMES escritos à mão. O crítico mediu o banco com todas as migrations
+-- aplicadas: QUATRO funções do lifeboard continuavam com execute para
+-- public/anon/authenticated e nenhuma delas estava no array —
+-- `lifeboard_check_edge_dag`, `lifeboard_check_task_dag`,
+-- `painel_dia_operador` e `painel_frentes_leitor_autorizado`. Um bloco que
+-- afirma propriedade universal e confere cinco nomes não acende luz nenhuma
+-- na próxima função que nascer sem `revoke`.
+-- Agora ele VARRE `pg_proc` (todo o esquema `public`, pelos três prefixos da
+-- casa) e carrega a lista de EXCEÇÕES, cada uma com o motivo escrito ao lado.
+-- Duas das quatro acima ganharam `revoke` na 0028 §3; as outras duas ficam
+-- como exceção porque tirar o execute delas QUEBRA o produto — está dito
+-- abaixo, uma linha por função.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar qualquer `revoke` da 0027 §7b
+-- ou da 0028 §3 · criar função nova do lifeboard sem `revoke` · pôr na
+-- allowlist um nome que não precisa estar lá (o bloco também reprova exceção
+-- que sobra).
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
-  v_nome text;
-  v_papel text;
+  -- As ÚNICAS funções do lifeboard que podem ter execute para
+  -- public/anon/authenticated, e por quê:
+  --   · as 8 PORTAS COM SEGREDO — a tela as chama como `anon`/`authenticated`
+  --     e elas mesmas exigem o `load_secret` antes de qualquer leitura;
+  --   · `painel_frentes_leitor_autorizado` — é PREDICADO DE RLS (0007, linhas
+  --     174 e 178, `for select to authenticated using (...)`). A policy é
+  --     avaliada pelo papel do leitor: sem execute, a leitura do painel de
+  --     frentes quebra para todo mundo;
+  --   · `painel_dia_operador` — `(instante at time zone 'America/Sao_Paulo')
+  --     ::date`, sem acesso a dado nenhum, chamada de dentro de gatilhos que
+  --     disparam com o papel de quem escreve. Não é SECURITY DEFINER, então
+  --     revogá-la quebraria esses gatilhos sem fechar buraco nenhum: ela não
+  --     lê nem escreve linha alguma.
+  v_permitidas text[] := array[
+    'fila_prompts_enfileirar', 'fila_prompts_listar', 'fila_prompts_cancelar',
+    'fila_prompts_ajustar_custo', 'fila_prompts_consumo_do_dia',
+    'fila_prompts_extrato_do_dia', 'lifeboard_load', 'lifeboard_mutate',
+    'painel_frentes_leitor_autorizado', 'painel_dia_operador'];
   v_sobrou text := '';
-  v_n int := 0;
+  v_exigidas text := '';
+  v_varridas int := 0;
+  v_publicas int := 0;
+  rec record;
+  v_nome text;
 begin
-  foreach v_nome in array array[
-    'painel_frentes_sessoes_lancar', 'painel_caixa_imutavel',
-    'painel_caixa_barreira_de_teste', 'painel_fila_prompts_checar_teto',
-    'lifeboard_touch_updated_at']
+  for rec in
+    select p.oid, p.proname,
+           (has_function_privilege('public', p.oid, 'execute')
+            or has_function_privilege('anon', p.oid, 'execute')
+            or has_function_privilege('authenticated', p.oid, 'execute')) as aberta
+      from pg_proc p
+     where p.pronamespace = 'public'::regnamespace
+       and (p.proname like 'fila\_prompts\_%'
+            or p.proname like 'lifeboard\_%'
+            or p.proname like 'painel\_%')
+     order by p.proname
   loop
-    v_n := v_n + 1;
-    foreach v_papel in array array['public','anon','authenticated'] loop
-      if exists (
-        select 1 from pg_proc p
-         where p.proname = v_nome
-           and p.pronamespace = 'public'::regnamespace
-           and has_function_privilege(v_papel, p.oid, 'execute'))
-      then
-        v_sobrou := v_sobrou || v_nome || '→' || v_papel || ' ';
+    v_varridas := v_varridas + 1;
+    if rec.aberta then
+      v_publicas := v_publicas + 1;
+      if not (rec.proname = any (v_permitidas)) then
+        v_sobrou := v_sobrou || rec.proname || ' ';
       end if;
-    end loop;
+    end if;
   end loop;
 
-  if v_sobrou = '' then
-    raise exception 'RESULTADO: ok — T73 as % funções-gatilho estão sem execute para public/anon/authenticated', v_n;
+  -- e o outro sentido: exceção que ninguém mais precisa é exceção que some
+  foreach v_nome in array v_permitidas loop
+    if not exists (
+      select 1 from pg_proc p
+       where p.proname = v_nome
+         and p.pronamespace = 'public'::regnamespace
+         and (has_function_privilege('public', p.oid, 'execute')
+              or has_function_privilege('anon', p.oid, 'execute')
+              or has_function_privilege('authenticated', p.oid, 'execute')))
+    then
+      v_exigidas := v_exigidas || v_nome || ' ';
+    end if;
+  end loop;
+
+  if v_sobrou = '' and v_exigidas = '' and v_varridas >= 44 then
+    raise exception 'RESULTADO: ok — T73 varreu % funções do lifeboard no catálogo; % com execute público, todas na lista de exceções justificadas',
+      v_varridas, v_publicas;
   end if;
-  raise exception 'FALHA: T73 ainda há execute público em função-gatilho: %', v_sobrou;
+  raise exception 'FALHA: T73 varridas=% · com execute público FORA da lista: [%] · na lista mas SEM execute (exceção que sobra): [%]',
+    v_varridas, v_sobrou, v_exigidas;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -3943,4 +3992,206 @@ begin
   end if;
   raise exception 'FALHA: T74 esperado livro cru -360, para o teto 0 e headroom 500 — obteve cru=% teto=% headroom=%',
     v_cru, v_para_o_teto, v_pull->>'headroom_usd';
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T75 · ALTO 2 (rodada 13) — A PORTA DE FECHAMENTO ACEITA O NÚMERO REAL, AINDA
+-- QUE ELE SEJA MAIOR QUE O TETO DO DIA
+-- O limite por item (`0 a 500`) tinha virado o MESMO número do teto diário, e
+-- a porta que REGISTRA o gasto recusava a medição. O crítico mediu o desfecho:
+-- item de estimativa 120 que custou 620 era recusado, morria em 45 min valendo
+-- 120 no livro e abria US$ 380 de teto que não existiam — "num teto, errar
+-- para baixo é buraco" (0027 §6).
+-- Este bloco prova os dois lados da regra nova: o 620 REAL entra no livro, e o
+-- pull seguinte NÃO despacha nada, porque quem barra despacho é o headroom.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar `p_custo_usd > 500` na 0027 §2
+-- (ou apontar o limite para o teto do dia em vez de painel_custo_maximo_por_item).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_outro uuid;
+  v_r jsonb;
+  v_pull jsonb;
+  v_livro numeric;
+  v_custo numeric;
+  v_origem text;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T75 item que custou mais que o teto', 'maxima', 'Fable') returning id into v_id;
+  -- `criado_em` explícito: dentro de UM MESMO bloco o `now()` é o mesmo para
+  -- os dois inserts, e o desempate do pull cairia no uuid — o bloco passaria
+  -- ou não conforme o sorteio.
+  update public.painel_fila_prompts
+     set custo_estimado_usd = 120, criado_em = now() - interval '10 minutes' where id = v_id;
+  -- um segundo item barato, na fila, para o pull seguinte ter o que tentar
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T75 item barato na fila', 'baixa', 'Haiku') returning id into v_outro;
+  update public.painel_fila_prompts
+     set custo_estimado_usd = 5, criado_em = now() - interval '1 minute' where id = v_outro;
+
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T75');
+
+  -- a sessão volta com o número REAL: 620, acima do teto de 500
+  v_r := public.fila_prompts_fechar_interno(
+           p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T75',
+           p_estado => 'concluida', p_custo_usd => 620, p_session_id => 'sess-T75');
+
+  select custo_usd, custo_origem into v_custo, v_origem
+    from public.painel_fila_prompts where id = v_id;
+  v_livro := public.painel_caixa_do_dia(v_conta, public.painel_dia_operador());
+
+  -- e agora o pull: o dia estourou, nada mais sai
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T75b');
+
+  if (v_r->>'ok')::boolean and v_custo = 620 and v_origem = 'medido' and v_livro = 620
+     and (v_pull->>'item') is null and (v_pull->>'headroom_usd')::numeric = 0 then
+    raise exception 'RESULTADO: ok — T75 ALTO 2 o número real entrou no livro (custo=% origem=% livro=%) e o pull parou (headroom=%, item=null)',
+      v_custo, v_origem, v_livro, v_pull->>'headroom_usd';
+  end if;
+  raise exception 'FALHA: T75 esperado custo=620 origem=medido livro=620 headroom=0 item=null — obteve retorno=% custo=% origem=% livro=% pull=%',
+    v_r, v_custo, v_origem, v_livro, v_pull;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T76 · ALTO 2 (rodada 13) — A CORREÇÃO DO OPERADOR TAMBÉM ACEITA O NÚMERO REAL
+-- `fila_prompts_ajustar_custo` (0027 §10) tinha a mesma trava de 500. Um item
+-- que morreu valendo a estimativa e custou 620 não podia ser corrigido nem
+-- pela tela: o livro ficava com o palpite para sempre.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar `p_custo_usd > 500` na 0027 §10.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_id uuid;
+  v_ajuste jsonb;
+  v_livro numeric;
+  v_origem text;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T76 corrigido acima do teto', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts
+     set estado = 'falhou', worker_id = null, ultimo_worker_id = 'w-T76',
+         tentativas = 3, motivo_falha = 'expirou 3 vezes sem fechamento',
+         custo_usd = 120, custo_e_estimativa = true, custo_origem = 'estimativa',
+         pego_em = now() - interval '3 hours', concluido_em = now()
+   where id = v_id;
+  perform public.painel_caixa_lancar_item(v_id, 120, 'estimativa', null, 'semente T76');
+
+  v_ajuste := public.fila_prompts_ajustar_custo(v_segredo, v_id, 620, null);
+  select custo_origem into v_origem from public.painel_fila_prompts where id = v_id;
+  v_livro := public.painel_caixa_do_dia(v_conta, public.painel_dia_operador());
+
+  if (v_ajuste->>'custo_usd')::numeric = 620 and v_origem = 'operador' and v_livro = 620 then
+    raise exception 'RESULTADO: ok — T76 ALTO 2 o operador corrigiu 120 → 620 acima do teto: origem=% livro=%',
+      v_origem, v_livro;
+  end if;
+  raise exception 'FALHA: T76 esperado custo_usd=620 origem=operador livro=620 — obteve ajuste=% origem=% livro=%',
+    v_ajuste, v_origem, v_livro;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T77 · ALTO 2 (rodada 13) — O QUE SOBRA É SANIDADE, E ELA CONTINUA DE PÉ
+-- Aceitar o número real não é aceitar qualquer número: `10^9` (unidade trocada,
+-- dedo escorregado) continua barrado nas DUAS portas, e a recusa diz que o
+-- limite não é o teto do dia. O número vem de um lugar só,
+-- `public.painel_custo_maximo_por_item()` — derivado, não copiado em quatro
+-- pontos, que foi como o 500 se espalhou.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar a faixa de sanidade das portas,
+-- ou fazer `painel_custo_maximo_por_item()` devolver o teto do dia.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_id uuid;
+  v_sanidade numeric;
+  v_erro_fechar text := '';
+  v_erro_ajuste text := '';
+  v_estado text;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  v_sanidade := public.painel_custo_maximo_por_item();
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T77 unidade trocada', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T77');
+
+  begin
+    perform public.fila_prompts_fechar_interno(
+      p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T77',
+      p_estado => 'concluida', p_custo_usd => 1000000000, p_session_id => 'sess-T77');
+  exception when others then v_erro_fechar := sqlerrm;
+  end;
+
+  select estado into v_estado from public.painel_fila_prompts where id = v_id;
+
+  begin
+    perform public.fila_prompts_ajustar_custo(v_segredo, v_id, 1000000000, null);
+  exception when others then v_erro_ajuste := sqlerrm;
+  end;
+
+  if v_sanidade > 500
+     and v_erro_fechar like '%fora da faixa de sanidade%'
+     and v_erro_fechar like '%não é o teto do dia%'
+     and v_erro_ajuste like '%precisa ser um número entre 0 e%'
+     and v_estado = 'pega' then
+    raise exception 'RESULTADO: ok — T77 sanidade=% recusa o absurdo nas duas portas e não fecha o item (estado=%): "%"',
+      v_sanidade, v_estado, left(v_erro_fechar, 90);
+  end if;
+  raise exception 'FALHA: T77 esperado sanidade>500, recusa nas duas portas e item ainda pega — obteve sanidade=% estado=% fechar="%" ajuste="%"',
+    v_sanidade, v_estado, v_erro_fechar, v_erro_ajuste;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T78 · MÉDIO 5 (rodada 13) — O ORÇAMENTO DA CASA É 4 × 500 = US$ 2.000/DIA
+-- A 0027 §4 semeia QUATRO contas com teto 500. A régua da casa
+-- `teto-de-gasto-diario` dizia "500 por conta, nas TRÊS" — US$ 1.500 — e a
+-- própria régua chama isso de violação ("alterar a trava sem atualizar este
+-- arquivo"). Nenhuma guarda somava teto nem comparava com a régua: o total da
+-- casa subiu 33% sem uma linha de aviso. O operador confirmou US$ 2.000/dia em
+-- 22/09/2026 e a régua foi atualizada no mesmo ato.
+-- Este bloco é a soma feita NO BANCO, depois de aplicar 0001…0028: é ele que
+-- pega conta nova entrando sem ninguém reparar no orçamento total.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: acrescentar uma 5ª conta à seed da
+-- 0027 §4 · mudar o teto de qualquer conta · tirar uma conta da seed.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_contas int;
+  v_total numeric;
+  v_fora text := '';
+begin
+  select count(*), coalesce(sum(teto_usd), 0) into v_contas, v_total
+    from public.painel_teto_diario;
+
+  select string_agg(conta || '=' || teto_usd, ' ' order by conta) into v_fora
+    from public.painel_teto_diario where teto_usd <> 500;
+
+  if v_contas = 4 and v_total = 2000 and v_fora is null then
+    raise exception 'RESULTADO: ok — T78 o orçamento da casa é % contas × 500 = US$ %/dia (régua teto-de-gasto-diario, decisão de 14/09 confirmada em 22/09)',
+      v_contas, v_total;
+  end if;
+  raise exception 'FALHA: T78 esperado 4 contas somando 2000 e nenhuma fora de 500 — obteve contas=% total=% fora_de_500=[%]',
+    v_contas, v_total, coalesce(v_fora, '');
 end $$;

@@ -15,6 +15,7 @@ import { revalidatePath } from "next/cache";
 import { env } from "@/config/env";
 import {
   CONTAS,
+  CUSTO_MAXIMO_POR_ITEM_USD,
   ROTULO_CONTA,
   complexidadeValida,
   contaValida,
@@ -292,7 +293,13 @@ export async function ajustarCustoPromptAction(
   const custo = Number.parseFloat(bruto);
   if (bruto.length === 0) return { erro: "Escreva o custo real antes de salvar." };
   if (!Number.isFinite(custo)) return { erro: "O custo precisa ser um número (ex.: 12,30)." };
-  if (custo < 0 || custo > 500) return { erro: "O custo precisa ficar entre 0 e 500." };
+  // ALTO 2 (rodada 13): era `> 500` — o teto do DIA. O operador corrige com o
+  // número real, mesmo acima do teto: recusar a correção só mantém a
+  // estimativa no livro e abre teto falso. O limite aqui é de sanidade,
+  // espelho de `public.painel_custo_maximo_por_item()` (0027 §0).
+  if (custo < 0 || custo > CUSTO_MAXIMO_POR_ITEM_USD) {
+    return { erro: `O custo precisa ficar entre 0 e ${CUSTO_MAXIMO_POR_ITEM_USD}.` };
+  }
 
   const r = await mutarAjustarCusto(id, custo, sessionId);
   if ("erro" in r) return { erro: formatarRecusaFila(r.erro) };

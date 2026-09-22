@@ -77,6 +77,7 @@ import type {
 import {
   BACKOFF_POR_TENTATIVA_MIN,
   CONTAS,
+  CUSTO_MAXIMO_POR_ITEM_USD,
   JANELA_HEARTBEAT_MS,
   MAX_TENTATIVAS,
   POSTO_ESTIMATIVA,
@@ -99,7 +100,14 @@ import { FIXTURE_CONSUMO, FIXTURE_FILA } from "@/lib/repositories/prompts-fila.f
 
 const LIMITE_PROMPT_RPC = 300;
 const MINUTO_MS = 60_000;
-const TETO_CUSTO_USD = 500;
+/**
+ * ALTO 2 (rodada 13): era 500 — o MESMO número do teto do dia, e por isso a
+ * porta de fechamento recusava a medição real de uma sessão que custou mais
+ * que o teto. Agora é o limite de SANIDADE por item, espelho de
+ *  (0027 §0). Quem barra despacho é o
+ * pull, não a porta que registra o que já aconteceu.
+ */
+const TETO_CUSTO_USD = CUSTO_MAXIMO_POR_ITEM_USD;
 
 export interface ResultadoEnfileirarFixture {
   ok: true;
@@ -665,7 +673,7 @@ export function ajustarCustoFixture(
   const item = estado.fila.get(id);
   if (!item) return { erro: "Item não encontrado." };
   if (custoUsd < 0 || custoUsd > TETO_CUSTO_USD) {
-    return { erro: "O custo precisa ser um número entre 0 e 500." };
+    return { erro: `O custo precisa ser um número entre 0 e ${TETO_CUSTO_USD}.` };
   }
   if (item.estado !== "falhou" && item.estado !== "cancelada") {
     return { erro: "Só dá para ajustar o custo de item que falhou ou foi cancelado." };
@@ -1080,7 +1088,7 @@ export function fecharFixture(input: {
     return { erro: "Item não encontrado ou não pertence à conta informada." };
   }
   if (input.custoUsd < 0 || input.custoUsd > TETO_CUSTO_USD) {
-    return { erro: "custo_usd fora da faixa aceita (0 a 500)." };
+    return { erro: `custo_usd fora da faixa de sanidade (0 a ${TETO_CUSTO_USD}).` };
   }
   const sessionId = input.sessionId ?? null;
   if (sessionId !== null && sessionId === input.workerId) {

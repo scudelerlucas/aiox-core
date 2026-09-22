@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { LIMITE_DEFASAGEM_HORAS, TETO_DIARIO_PADRAO_USD } from "@/core/prompts/tipos";
+import { CONTAS, LIMITE_DEFASAGEM_HORAS, TETO_DIARIO_PADRAO_USD } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — M1 (rodada 11): A GUARDA QUE OLHA A **ÚLTIMA PALAVRA**.
@@ -265,8 +265,63 @@ describe("M1 — a ÚLTIMA definição de cada função é a que vale (varredura
     ).toMatch(
       new RegExp(`alter\\s+column\\s+teto_usd\\s+set\\s+default\\s+${TETO_DIARIO_PADRAO_USD}\\b`),
     );
-    expect(tudo, "as três contas precisam sair da migration com o teto da decisão de 14/09").toMatch(
-      new RegExp(`set teto_usd = ${TETO_DIARIO_PADRAO_USD}`),
+    // MÉDIO 2 (crítico da rodada 13): esta expressão não tinha a borda de
+    // palavra que a de cima tem. "set teto_usd = 5000" CONTÉM
+    // "set teto_usd = 500", então a guarda casava com um teto dez vezes maior
+    // — medido: trocar 500 por 5000 na 0027 §4 mantinha os 1401 testes verdes.
+    expect(
+      tudo,
+      "as contas da casa precisam sair da migration com o teto da decisão de 14/09 — e com ESTE número, não com um que apenas comece por ele",
+    ).toMatch(new RegExp(`set teto_usd = ${TETO_DIARIO_PADRAO_USD}\\b`));
+    // E a seed nominal: cada conta da casa nasce com o teto da decisão. Sem
+    // isto, bastava manter o `update` e inflar as quatro linhas do `insert`.
+    for (const conta of CONTAS) {
+      expect(tudo, `conta sem teto da decisão na seed: ${conta}`).toMatch(
+        new RegExp(`\\('${conta.replace(/\./g, "\\.")}', ${TETO_DIARIO_PADRAO_USD}\\)`),
+      );
+    }
+  });
+
+  /**
+   * MÉDIO 5 (crítico da rodada 13): NINGUÉM SOMAVA OS TETOS.
+   *
+   * A 0027 §4 semeia QUATRO contas com 500 — US$ 2.000/dia de orçamento
+   * despachável na casa. A régua da casa `teto-de-gasto-diario` ainda dizia
+   * "500 por conta, nas TRÊS" (US$ 1.500), e a própria régua nomeia isso como
+   * violação: "alterar a trava sem atualizar este arquivo". Nenhuma guarda
+   * somava teto nem comparava com a régua, então o total da casa subiu 33% sem
+   * uma linha de aviso.
+   *
+   * O operador confirmou US$ 2.000/dia em 22/09/2026 e a régua do hub foi
+   * atualizada. Este teste é o que impede a próxima mudança silenciosa: a
+   * conta da casa é um número fixado, e mexer nele exige mexer aqui.
+   * O irmão deste teste no banco é o bloco T78 da suíte SQL, que soma a
+   * tabela `painel_teto_diario` depois de aplicar todas as migrations.
+   */
+  it("MÉDIO 5 — o orçamento da casa é 4 × 500 = US$ 2.000/dia, e está somado em algum lugar", () => {
+    const TETO_DA_CASA_USD = 2000;
+    expect(
+      CONTAS.length * TETO_DIARIO_PADRAO_USD,
+      "o total da casa mudou — atualize a régua `teto-de-gasto-diario` no hub NO MESMO ato, que é o que ela mesma exige",
+    ).toBe(TETO_DA_CASA_USD);
+
+    const tudo = migrationsEmOrdem()
+      .map((a) => readFileSync(join(DIR_MIGRATIONS, a), "utf8"))
+      .join("\n");
+    // a seed tem de ter uma linha por conta da casa, e nenhuma conta a mais
+    const semeadas = [...tudo.matchAll(/\('([^']+@[^']+)', (\d+)\)/g)].filter(
+      (m) => (m[2] as string) === String(TETO_DIARIO_PADRAO_USD),
     );
+    const contasSemeadas = new Set(semeadas.map((m) => m[1] as string));
+    expect(
+      [...contasSemeadas].sort(),
+      "a seed do teto divergiu da lista de contas da casa — conta nova sobe o orçamento total sem avisar",
+    ).toEqual([...CONTAS].sort());
+
+    // e o comentário da coluna precisa DIZER o total, para quem lê o banco
+    expect(
+      tudo,
+      "o `comment on column` do teto precisa dizer o total da casa em voz alta",
+    ).toContain("US$ 2.000/dia");
   });
 });

@@ -223,3 +223,10 @@ revoke all on function public.painel_caixa_imutavel() from public, anon, authent
 revoke all on function public.painel_caixa_barreira_de_teste() from public, anon, authenticated;
 revoke all on function public.painel_fila_prompts_checar_teto() from public, anon, authenticated;
 revoke all on function public.lifeboard_touch_updated_at() from public, anon, authenticated;
+-- MÉDIO 3 (rodada 13): estas DUAS ficaram de fora da lista acima. O T73 antigo
+-- prometia "nenhuma função do lifeboard tem execute público" e percorria um
+-- array de cinco nomes escritos à mão — elas não estavam nele, e por isso
+-- ninguém viu. Agora o bloco varre `pg_proc` e a lista que ele carrega é a de
+-- EXCEÇÕES justificadas, não a de alvos.
+revoke all on function public.lifeboard_check_edge_dag() from public, anon, authenticated;
+revoke all on function public.lifeboard_check_task_dag() from public, anon, authenticated;

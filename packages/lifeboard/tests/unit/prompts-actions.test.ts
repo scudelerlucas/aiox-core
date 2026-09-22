@@ -25,6 +25,7 @@ vi.mock("@/lib/supabase/user-server", () => ({
 
 import { cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/prompts-fila.fixture-store";
+import { CUSTO_MAXIMO_POR_ITEM_USD } from "@/core/prompts/tipos";
 import {
   ajustarCustoPromptAction,
   cancelarPromptAction,
@@ -158,10 +159,26 @@ describe("prompts/actions — validação", () => {
     expect(await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "doze" }))).toEqual({
       erro: "O custo precisa ser um número (ex.: 12,30).",
     });
-    expect(await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "900" }))).toEqual({
-      erro: "O custo precisa ficar entre 0 e 500.",
+    expect(await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "-1" }))).toEqual({
+      erro: `O custo precisa ficar entre 0 e ${CUSTO_MAXIMO_POR_ITEM_USD}.`,
     });
+    expect(
+      await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "1000000000" })),
+    ).toEqual({ erro: `O custo precisa ficar entre 0 e ${CUSTO_MAXIMO_POR_ITEM_USD}.` });
     nenhumaChamadaFoiFeita();
+  });
+
+  /**
+   * ALTO 2 (crítico da rodada 13): a tela recusava qualquer correção acima de
+   * 500 — o MESMO número do teto do dia. Uma sessão que custou 620 não podia
+   * ser relatada: o item morria valendo a estimativa (120) e o pull lia 380 de
+   * headroom que não existiam. Agora o número real passa; quem barra despacho
+   * é o pull, não a porta que registra o que já aconteceu.
+   */
+  it("ajustarCustoPromptAction: custo ACIMA do teto do dia passa (é medição, não despacho)", async () => {
+    const r = await ajustarCustoPromptAction({}, form({ id: "fila-x", custo_usd: "620" }));
+    expect(r).toMatchObject({ ok: true });
+    expect(fixtureStore.ajustarCustoFixture).toHaveBeenCalledWith("fila-x", 620, null);
   });
 
   it("ajustarCustoPromptAction: aceita vírgula decimal (o operador digita em português)", async () => {

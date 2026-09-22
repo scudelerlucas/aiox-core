@@ -263,9 +263,28 @@ export const LIMITE_DEFASAGEM_HORAS = 12;
  *
  * O valor é calibragem provisória: nos 9 dias com dado em
  * `painel_consumo_por_conta_dia`, 9 de 9 ficaram acima de 150 (mediana ~2,6×
- * o teto). Reavaliar com 14 dias de dado real nas três contas.
+ * o teto). Reavaliar com 14 dias de dado real nas quatro contas — a 0027 §4
+ * semeia QUATRO (`arborcactus@gmail.com` entrou pela 0026), então o orçamento
+ * despachável da casa é 4 × 500 = US$ 2.000/dia.
  */
 export const TETO_DIARIO_PADRAO_USD = 500;
+
+/**
+ * ALTO 2 (crítico da rodada 13): O LIMITE POR ITEM NÃO É O TETO DO DIA.
+ *
+ * O limite `0..500` por item nasceu na migration 0009, quando o teto do dia
+ * era 150 — um item nunca chegava perto. A decisão de 14/09 subiu o teto para
+ * 500 e ninguém revisitou o limite por item: os dois números viraram o mesmo,
+ * e a porta de FECHAMENTO passou a recusar a medição real. Medido: item com
+ * estimativa de 120 que custou 620 era recusado ao fechar, morria valendo 120
+ * no livro e abria US$ 380 de teto que não existiam.
+ *
+ * A régua agora: quem REGISTRA custo já gasto aceita o número real; quem
+ * recusa é o PULL, que não despacha nada novo enquanto o dia não couber. Este
+ * número é só sanidade (unidade trocada, dedo escorregado) e espelha
+ * `public.painel_custo_maximo_por_item()` (0027 §0).
+ */
+export const CUSTO_MAXIMO_POR_ITEM_USD = 100000;
 
 export interface FilaPromptsState {
   fila: ItemFilaPrompt[];
@@ -715,7 +734,7 @@ export function custoAoCancelarUsd(item: ItemFilaPrompt): number {
   if (!jaTeveDono) return 0;
   if (item.custoUsd !== null) return 0;
   if (!livroAceita(item, POSTO_ESTIMATIVA)) return 0;
-  return Math.min(item.custoEstimadoUsd, 500);
+  return Math.min(item.custoEstimadoUsd, CUSTO_MAXIMO_POR_ITEM_USD);
 }
 
 export function textoSemAjuste(item: ItemFilaPrompt): string | null {

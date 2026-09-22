@@ -54,9 +54,26 @@ function migrationsDoDisco(): readonly string[] {
 /** Onde as funções vivem: todas as migrations, porque `create or replace` anda. */
 const ARQUIVOS = migrationsDoDisco();
 
-/** As migrations da fila — a varredura do `raise` (#3) vale para todas. */
-const MIGRATIONS_DA_FILA = migrationsDoDisco().filter((f) =>
-  /fila|caixa|livro_razao|consumo_por_entidade/.test(f),
+/**
+ * As migrations da fila — a varredura do `raise` (#3) vale para todas.
+ *
+ * ALTO 2 (rodada 13): o filtro era só por NOME DE ARQUIVO, e as duas
+ * migrations mais recentes do dinheiro não casavam com nenhuma das palavras —
+ * `0027_lifeboard_v3_ultima_palavra_do_dinheiro` e
+ * `0028_lifeboard_v3_credito_sem_dia_e_a_tela_que_sabe` ficavam de fora de
+ * TODAS as guardas desta lista, inclusive da que exige que função citada pelo
+ * teste SQL exista numa migration. O buraco só apareceu quando uma função
+ * nasceu SÓ na 0027 (`painel_custo_maximo_por_item`): até então toda função
+ * da 0027 também existia numa migration antiga de nome casado, e a ausência
+ * ficava invisível. O filtro passa a olhar o CONTEÚDO — migration que declara
+ * função da fila ou do caixa é migration da fila, tenha o nome que tiver.
+ */
+const MIGRATIONS_DA_FILA = migrationsDoDisco().filter(
+  (f) =>
+    /fila|caixa|livro_razao|consumo_por_entidade/.test(f) ||
+    /create or replace function public\.(fila_prompts_|painel_(fila|caixa)_)/.test(
+      readFileSync(join(DIR_MIGRATIONS, f), "utf8"),
+    ),
 );
 
 /** O teste COMPORTAMENTAL da fila — o que este arquivo NÃO é (ver o bloco D28). */
