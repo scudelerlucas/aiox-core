@@ -298,6 +298,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A VERSAO DO PACOTE SAI DA TAG DA IMAGEM — as duas TEM de casar.
+      # Segunda corrida deste job (22/09, PR #43): depois de consertar o
+      # interpretador, ele reprovou em `playwright-core nao foi encontrado
+      # nesta imagem`. A premissa estava errada, e estava escrita em dois
+      # lugares: a imagem do Playwright traz os NAVEGADORES em /ms-playwright,
+      # nao o pacote npm. Este repo nao depende do Playwright (e um teste de
+      # unidade confere que continua nao dependendo), entao nao havia nada a
+      # achar — procurar melhor nunca resolveria.
+      # `--no-save` e o ponto: instala no node_modules do runner e NAO toca em
+      # package.json nem no lock, nao muda o que o pacote publica.
+      - name: Instalar playwright-core na versao da imagem
+        shell: bash
+        run: |
+          set -uo pipefail
+          VERSAO="$(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/ci.yml | head -1 | sed 's/.*:v//')"
+          if [ -z "$VERSAO" ]; then
+            echo "::error::nao consegui ler a versao da tag da imagem no ci.yml — sem ela o pacote e os navegadores podem divergir."
+            exit 1
+          fi
+          echo "versao lida da tag da imagem: $VERSAO"
+          npm install --no-save --no-audit --no-fund "playwright-core@$VERSAO"
+
       - name: lifeboard - guarda no navegador (P6, Chromium)
         working-directory: packages/lifeboard
         # `shell: bash` e obrigatorio aqui, nao e preferencia: a imagem do
@@ -311,18 +333,14 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
         run: |
           set -uo pipefail
-          # Procurar sem silenciar: nada aqui engole o codigo de saida de nada.
-          # Quem nao acha, reprova em voz alta — e ha um teste de unidade que
-          # confere que este bloco nao ganhou nenhum silenciador.
-          MODULO=""
-          for ONDE in /usr/lib/node_modules /usr/local/lib/node_modules /ms-playwright-agent/node_modules; do
-            if [ -z "$MODULO" ] && [ -d "$ONDE" ]; then
-              ACHADO="$(find "$ONDE" -maxdepth 4 -path '*playwright-core/index.js' -print -quit 2>/dev/null)"
-              if [ -n "$ACHADO" ]; then MODULO="$ACHADO"; fi
-            fi
-          done
-          if [ -z "$MODULO" ]; then
-            echo "::error::playwright-core nao foi encontrado nesta imagem — a guarda de navegador da P6 NAO rodou. Corrija a tag da imagem ou o caminho de busca; nao transforme isto em skip."
+          # Nada aqui engole o codigo de saida de nada, e ha um teste de
+          # unidade que confere que este bloco nao ganhou silenciador.
+          # O modulo se RESOLVE, nao se procura: quem sabe onde o pacote caiu e
+          # o resolvedor do Node, e a resposta dele nao depende do desenho
+          # interno da imagem.
+          MODULO="$(node -e 'process.stdout.write(require.resolve("playwright-core"))' 2>/dev/null)"
+          if [ -z "$MODULO" ] || [ ! -f "$MODULO" ]; then
+            echo "::error::playwright-core nao resolveu — o passo de instalacao acima falhou ou instalou fora do alcance. A guarda de navegador da P6 NAO rodou; nao transforme isto em skip."
             exit 1
           fi
           CHROME=""

@@ -66,12 +66,40 @@ describe("ALTO #2 — a guarda no navegador da P6 tem gatilho de verdade", () =>
     ).toMatch(/npm run guarda:navegador/);
   });
 
-  it("o job roda numa imagem que traz o Chromium, sem dependência nova no repo", () => {
+  /**
+   * PREMISSA CORRIGIDA NA 2ª CORRIDA (22/09, PR #43). Este bloco dizia que "a
+   * imagem de container é quem os traz", os dois — e isso era falso pela
+   * metade: a imagem traz os NAVEGADORES em `/ms-playwright`, não o pacote
+   * `playwright-core`. Como este repo não depende do Playwright, não havia nada
+   * a achar, e o job reprovou em `playwright-core nao foi encontrado nesta
+   * imagem`. Procurar melhor nunca resolveria.
+   *
+   * O desenho passou a ser: a imagem traz o navegador · o job instala o pacote
+   * com `--no-save`, na versão lida da própria tag da imagem · o repo continua
+   * sem depender do Playwright, o que este bloco segue conferindo.
+   */
+  it("a imagem traz o Chromium, o job instala o pacote, e o repo segue sem depender do Playwright", () => {
     const texto = ci();
     expect(
       texto,
-      "a guarda precisa de playwright-core + Chromium, e este repo NÃO depende do Playwright: a imagem de container é quem os traz",
+      "a guarda precisa do Chromium, e quem o traz é a imagem de container",
     ).toMatch(/image: mcr\.microsoft\.com\/playwright:/);
+    expect(
+      texto,
+      "sem o passo de instalação o `playwright-core` não existe em lugar nenhum: a imagem não o traz e o repo não depende dele",
+    ).toContain("Instalar playwright-core na versao da imagem");
+    expect(
+      texto,
+      "a instalação tem de ser `--no-save`: o repo não pode passar a depender do Playwright por causa de um job",
+    ).toMatch(/npm install --no-save[^\n]*playwright-core@/);
+    expect(
+      texto,
+      "a versão do pacote tem de ser LIDA da tag da imagem — número escrito à mão é a próxima divergência esperando acontecer",
+    ).toMatch(/VERSAO="\$\(grep[^\n]*mcr[^\n]*ci\.yml/);
+    expect(
+      texto,
+      "o módulo se RESOLVE pelo Node; procurá-lo por caminho amarra o job ao desenho interno da imagem, que foi o que quebrou na 2ª corrida",
+    ).toContain('require.resolve("playwright-core")');
     const deps = JSON.parse(readFileSync(join(PACOTE, "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
