@@ -20,6 +20,7 @@ import {
   handlerDaConfirmacaoExecutada,
   importacoes,
   janelasDeDesfazer,
+  janelasNoTexto,
   opDoBloco,
   blocoDepois,
   arquivosDeCliente,
@@ -1062,9 +1063,33 @@ describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4,
  *
  * A régua aqui é DERIVADA: toda janela de desfazer da página, achada pelo
  * código (relógio `JANELA_DESFAZER_MS` + porta com `desfazer` na `op`), tem de
- * fechar o relógio no despacho e ter frase para a recusa. A quinta janela que
- * nascer sem isso fica vermelha sem ninguém lembrar de acrescentar nome a
- * lista nenhuma.
+ * fechar o relógio no despacho e ter frase para a recusa.
+ *
+ * ═══════════════════════════════════════════════════════ MÉDIO #4, rodada 16 ═
+ * O QUE ESTE BLOCO AFIRMAVA E NÃO CUMPRIA.
+ *
+ * Até a rodada 15 estava escrito aqui: *"A quinta janela que nascer sem isso
+ * fica vermelha sem ninguém lembrar de acrescentar nome a lista nenhuma."*
+ * Era falso por um motivo mecânico. A varredura casava
+ *
+ *     /const\s+(\w+)\s*=\s*usarPortaDeEscrita\(\{\s*\n\s*op:\s*"(\w*desfazer\w*)"/g
+ *
+ * — `op:` **na linha seguinte**. Uma quinta janela escrita em UMA LINHA SÓ, com
+ * uma `op` de desfazer que já existe e sem fechar o relógio no despacho,
+ * passava pelos cinco portões: `janelasDeDesfazer()` seguia listando quatro, e
+ * as três asserções abaixo continuavam verdes sobre uma janela que elas nunca
+ * tinham visto. Medido pelo coordenador antes do crítico.
+ *
+ * A varredura era derivada da GRAFIA, não da CLASSE. Agora a porta é achada
+ * por `portasNoTexto` (declaração + bloco balanceado + `opDoBloco`), que é a
+ * mesma máquina que resolve as `op` do resto deste arquivo desde a rodada 9.
+ *
+ * E a afirmação deixou de ser só uma frase: o quarto teste deste bloco INJETA
+ * a quinta janela no fonte real, nas duas formas que passavam, e exige que a
+ * varredura a veja e a marque como aberta. O que continua sendo verdade, dito
+ * com precisão: **uma janela nova fica vermelha sozinha; ficar verde é que
+ * exige acrescentar o nome dela na lista abaixo** — de propósito, mesma lei de
+ * `MEDIDAS_EXIGIDAS`.
  */
 describe("ALTO #1 — as janelas de Desfazer da página", () => {
   it("PRONTO QUANDO: a varredura ACHA as janelas (lista vazia não é aprovação)", () => {
@@ -1101,6 +1126,54 @@ describe("ALTO #1 — as janelas de Desfazer da página", () => {
       "janela(s) de Desfazer cujo relógio de 10 s continua correndo durante a chamada — é ele que apaga o texto, o botão E o dado a restaurar:\n" +
         abertas.join("\n"),
     ).toEqual([]);
+  });
+
+  /**
+   * A PROVA de que a varredura é da CLASSE, e não da grafia — a sabotagem
+   * injetada no fonte real, nas duas formas que passavam antes da rodada 16.
+   */
+  it("PRONTO QUANDO: a quinta janela escrita EM UMA LINHA SÓ é vista e marcada como aberta", () => {
+    const arquivo = "components/task/notas-painel.tsx";
+    const original = codigoDoArquivo(arquivo);
+    const antes = janelasNoTexto(arquivo, original);
+    expect(antes.length, "a varredura não acha a janela que JÁ existe neste arquivo").toBe(1);
+
+    // Forma 1: declaração em uma linha só, sem despacho nenhum.
+    const soDeclarada = original.replace(
+      "export function NotasPainel(",
+      'const portaQuinta = usarPortaDeEscrita({ op: "nota_desfazer", alvo: () => null });\n\nexport function NotasPainel(',
+    );
+    const comDeclarada = janelasNoTexto(arquivo, soDeclarada);
+    expect(
+      comDeclarada.length,
+      "a quinta janela declarada em UMA LINHA passou pela varredura — é a grafia de novo",
+    ).toBe(2);
+    expect(
+      comDeclarada.filter((j) => j.porta === "portaQuinta").map((j) => j.fechaORelogioNoDespacho),
+      "janela sem despacho nenhum não pode contar como janela que fecha o relógio",
+    ).toEqual([false]);
+
+    // Forma 2: declaração em uma linha SÓ + despacho que não fecha o relógio.
+    const comDespacho = original.replace(
+      "export function NotasPainel(",
+      'const portaQuinta = usarPortaDeEscrita({ op: "nota_desfazer", alvo: () => null });\n' +
+        "function quintaJanela(): void { portaQuinta.escrever({}); }\n\nexport function NotasPainel(",
+    );
+    const achadas = janelasNoTexto(arquivo, comDespacho);
+    expect(
+      achadas.map((j) => j.porta).sort(),
+      "a quinta janela COM despacho continuou invisível para a varredura",
+    ).toEqual(["portaDesfazer", "portaQuinta"]);
+    expect(
+      achadas.filter((j) => j.porta === "portaQuinta").map((j) => j.fechaORelogioNoDespacho),
+      "a quinta janela despacha sem fechar o relógio e a varredura disse que fecha",
+    ).toEqual([false]);
+    // E a janela que JÁ existe continua sendo lida como fechada — a régua nova
+    // não pode ficar vermelha para o código correto.
+    expect(
+      achadas.filter((j) => j.porta === "portaDesfazer").map((j) => j.fechaORelogioNoDespacho),
+      "a janela que existe e fecha o relógio passou a ser lida como aberta",
+    ).toEqual([true]);
   });
 
   it("PRONTO QUANDO: nenhuma recusa de desfazer é silenciosa", () => {

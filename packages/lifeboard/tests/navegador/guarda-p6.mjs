@@ -1,5 +1,5 @@
 /**
- * OS-LIFEBOARD · P6 — rodada 14. A GUARDA NO NAVEGADOR.
+ * OS-LIFEBOARD · P6 — rodada 16. A GUARDA NO NAVEGADOR.
  *
  * ## Por que ela existe
  *
@@ -100,15 +100,34 @@
  * | G | a duração da tarefa **não** volta com rascunho: a caixa mostra o que o banco tem | caixa = valor gravado |
  * | H | corrida na TAREFA MÃE: o anúncio e o `<select>` ficam no 1º pedido | recusa do 2º + select na 1ª escolha |
  * | I | corrida na META: o anúncio que chega é o do 1º clique | recusa do 2º + "Marcada como meta." |
- * | J | as SENTINELAS de tempo real, uma POR ROTA: nada mexeu no contrato em toda a vida da guarda | canário conferido; 0 mudança fora da régua; vida ≥ 30 s |
- * | K | as SENTINELAS DO RELÓGIO, uma POR ROTA: meia hora adiantada de uma vez | canário conferido; 0 mudança fora da régua; ≥ 4 campos no DOM; 0 `type=number` |
- * | L | o alcance de tempo cobre TODAS as rotas e estados que a guarda visita | 0 rota visitada sem sentinela; sentinela ≥ o estado medido |
+ * | J | as SENTINELAS de tempo real, uma POR ROTA: nada mexeu no contrato em toda a vida da guarda | canário conferido; 0 mudança fora da régua; vida ≥ 30 s; 7 campos EXERCIDOS |
+ * | K | as SENTINELAS DO RELÓGIO, uma POR ROTA: meia hora adiantada, os campos exercidos, meia hora de novo | canário conferido; 0 mudança fora da régua; ≥ 7 campos no DOM e exercidos; 0 `type=number` |
+ * | L | o alcance cobre TODAS as rotas, estados e CAMPOS EXERCIDOS que a guarda visita | 0 rota sem sentinela; sentinela ≥ o estado medido; os três números ≥ o piso escrito à mão (7) |
+ * | P0 | o universo das escritas sai da lista canônica da página (`pedido.ts`) | 15 op(s); toda op com conferência ou dispensa com motivo; ≥ 15 conferidas |
+ * | P·op | uma por operação de escrita: **o que o operador pediu está lá depois do F5** | pedido ≠ estado de antes, e o valor depois do F5 === o valor PEDIDO |
  * | V-* | uma por medida: o CANAL do vigia provou que ainda reporta, e nada mexeu no contrato | canário nas 3 cópias pelas 6 redes; 0 mudança fora da régua |
  *
  * D, H e I cobrem TRÊS dos cinco formulários no navegador. Os cinco estão
  * cobertos pela guarda derivada de `tests/unit/`, que desde a rodada 14 é
  * PROVADA arquivo por arquivo: a sabotagem é injetada no texto de cada arquivo
  * que chama a porta, em cinco grafias, e a guarda tem de acusar todas.
+ *
+ * ## A pergunta que faltava até a rodada 15: **chegou ao banco?**
+ *
+ * As medidas A–M perguntam o que a TELA faz. Nenhuma delas perguntava, das 15
+ * escritas da página, se o valor que o operador pediu é o valor que ficou
+ * gravado — só três `reload()` existiam no arquivo inteiro. O crítico da
+ * rodada 16 derrubou a guarda duas vezes por esse buraco, as duas com os cinco
+ * portões e as 34 medidas verdes: dois campos trocados no despacho dos átomos
+ * ("Átomos salvos." na tela, Esforço e Custo invertidos no banco) e um status
+ * que a tela marcava e o servidor nunca recebia.
+ *
+ * A família **P** é a resposta, e ela é DERIVADA: o universo sai de
+ * `OPERACOES_DE_ESCRITA` (`src/app/tarefa/pedido.ts`), lido do fonte; cada `op`
+ * de lá tem, na tabela `PERSISTENCIA_POR_OP`, uma conferência ou uma dispensa
+ * com motivo escrito; e há piso — conferir zero nunca é sucesso. A conferência
+ * é sempre a mesma: **pedir um valor DIFERENTE do que está lá, recarregar, e
+ * exigir o valor PEDIDO** — nunca "algum valor", que é o regex que passou.
  *
  * ## O veredito não se conta a si mesmo (rodada 14)
  *
@@ -127,6 +146,7 @@
 /* global document, window, requestAnimationFrame, Event */
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -353,6 +373,100 @@ async function revelarEstadosOcultos(pagina) {
 }
 
 /**
+ * ══════════════════════════════════════════════════════════ ALTO #2, rodada 16 ═
+ * A SENTINELA PASSA A EXERCER A INTERAÇÃO, E NÃO SÓ A REVELAÇÃO.
+ *
+ * O cabeçalho afirmava cobrir "qualquer atraso até 30 min nas rotas de
+ * `ROTAS_COM_SENTINELA`, nos estados que a medida L confere". Era falso, e o
+ * crítico da rodada 16 mediu: as sentinelas CLICAVAM num rádio (para revelar o
+ * campo "Desconto") e **nunca punham foco em campo nenhum**. Um temporizador
+ * armado dentro de um `onFocus` — escrito como conserto de teclado de celular —
+ * simplesmente NUNCA EXISTIA na sentinela, e `clock.fastForward(30 min)`
+ * adiantava um relógio sem nada agendado. Cinco portões verdes, 0 FALHA na
+ * guarda, e aos 80 s o campo virava numérico, a tela dizia "Duração removida."
+ * e o valor saía do banco.
+ *
+ * Por que as seis redes do vigia não viam: elas veem — mas só em página que
+ * teve foco, e as únicas medidas que dão foco (C e F) fecham a aba em 15–25 s.
+ * A medida L ficava verde porque **os dois lados encolhiam juntos**: nem a
+ * guarda nem a sentinela punham foco, então "o estado medido" e "o estado
+ * vigiado" concordavam em não existir. Concordância entre duas leituras que
+ * podem encolher juntas não é piso — é eco.
+ *
+ * Duas coisas mudaram:
+ *
+ *  1. **foco é estado, igual a "campo que só nasce depois de um clique".** Cada
+ *     sentinela exerce TODO campo que a rota tem: `focus()` de verdade, a
+ *     bateria de eventos abaixo (ponteiro, teclado, entrada, mudança) e `blur()`.
+ *     Um handler instalado por prop do React (`onFocus`, `onKeyDown`,
+ *     `onPointerDown`…) ou por `addEventListener` dispara igual;
+ *  2. **o piso vem de FORA das duas leituras.** `PISO_DE_CAMPOS_POR_ROTA` é um
+ *     número escrito à mão: se a guarda parar de ver campos E a sentinela
+ *     parar de mostrá-los, as duas leituras continuam concordando e a medida L
+ *     reprova assim mesmo.
+ *
+ * O que fica FORA, dito por extenso e sem maquiagem: um temporizador armado por
+ * um evento que esta bateria não dispara (arrastar, colar, rolar, tocar), ou
+ * pelo clique num botão que a sentinela não pode apertar sem gravar no
+ * servidor. É o limite declarado desta família — e as duas redes de fonte
+ * (`tiposDeInput` e `escritasNoDom`) continuam sendo a segunda linha para ele.
+ */
+const EVENTOS_EXERCIDOS = [
+  "pointerover",
+  "pointerenter",
+  "pointerdown",
+  "mousedown",
+  "focus",
+  "focusin",
+  "click",
+  "keydown",
+  "keypress",
+  "beforeinput",
+  "input",
+  "change",
+  "keyup",
+  "pointerup",
+  "mouseup",
+  "paste",
+  "blur",
+  "focusout",
+];
+
+/**
+ * O piso de campos de uma rota — escrito à mão, fora das duas leituras.
+ * Medido nesta base: 7 campos em cada uma das três rotas, com o "Desconto" da
+ * sinergia revelado. Encolher este número é uma decisão que aparece no diff.
+ */
+const PISO_DE_CAMPOS_POR_ROTA = 7;
+
+/** Exerce todo campo da página e devolve quantos foram exercidos. */
+async function exercitarCampos(pagina) {
+  return await pagina.evaluate((eventos) => {
+    const campos = [...document.querySelectorAll("input, textarea")];
+    for (const el of campos) {
+      try {
+        el.focus();
+      } catch {
+        /* nó que não aceita foco: o que importa é a tentativa */
+      }
+      for (const tipo of eventos) {
+        try {
+          el.dispatchEvent(new Event(tipo, { bubbles: true, cancelable: true }));
+        } catch {
+          /* tipo que este nó recusa */
+        }
+      }
+      try {
+        el.blur();
+      } catch {
+        /* idem */
+      }
+    }
+    return campos.length;
+  }, EVENTOS_EXERCIDOS);
+}
+
+/**
  * Um campo pelo NOME QUE O OPERADOR LÊ. Vai por papel + nome acessível, e não
  * por `label:has-text(...)`: dois dos sete campos da página nomeiam-se por
  * `aria-label` e não por `<label>`, e um localizador que só olha `<label>`
@@ -455,8 +569,24 @@ async function assentar(pagina) {
  *    sentinela revela os estados que só existem depois de um clique (o campo
  *    "Desconto"), e a medida L reprova se aparecer rota visitada sem sentinela
  *    ou sentinela com menos estado do que a guarda viu ali. **A afirmação que
- *    esta guarda faz, por extenso: qualquer atraso até 30 min, em cada uma das
- *    rotas de `ROTAS_COM_SENTINELA`, nos estados que a medida L confere.**
+ *    esta guarda faz, por extenso (revista na rodada 16): qualquer atraso até
+ *    30 min, em cada uma das rotas de `ROTAS_COM_SENTINELA`, nos estados que a
+ *    medida L confere E nos handlers que o exercício de campo da sentinela
+ *    acorda — foco, ponteiro, teclado, entrada e mudança em TODO campo da
+ *    rota.**
+ *
+ *    [ALTO #2, rodada 16] Até a rodada 15 esta mesma frase era FALSA, e o
+ *    crítico mediu por quê: as sentinelas clicavam num rádio (para revelar o
+ *    "Desconto") e **nunca punham foco em campo nenhum**. Um `setTimeout` de
+ *    75 s armado dentro de um `onFocus` nunca chegava a existir na sentinela, e
+ *    `fastForward(30 min)` adiantava um relógio sem nada agendado: 0 FALHA na
+ *    guarda, cinco portões verdes, e aos 80 s o campo virava numérico e a
+ *    duração do operador saía do banco. A medida L ficava verde porque os dois
+ *    lados encolhiam juntos — nem a guarda nem a sentinela punham foco, e
+ *    "estado medido" e "estado vigiado" concordavam em não existir. Agora cada
+ *    sentinela exerce todo campo da rota (`exercitarCampos`), a medida K o faz
+ *    de novo ENTRE dois adiantamentos de meia hora, e a medida L cobra três
+ *    números contra um piso escrito à mão, fora das duas leituras.
  *
  *    MEDIDO na rodada 15, e maior do que a afirmação: `clock.install()` não
  *    congela o relógio da página — ele continua andando com o tempo real —, e
@@ -466,18 +596,31 @@ async function assentar(pagina) {
  *    porque é o número que ela CONTROLA; os ~1,6 min a mais são folga, não
  *    contrato.
  *
- * **O que continua fora de alcance, dito por extenso:** (a) atraso maior que os
- * 30 min que as medidas K adiantam; (b) mutação disparada por algo que o relógio
- * de mentira não controla e que só acontece depois do fim da guarda — por
- * exemplo a resposta de uma requisição de rede real que demore mais que isso;
- * (c) rota do produto que esta guarda NÃO visita: a medida L prova que o
- * alcance cobre tudo o que a guarda visita, e não que a guarda visita tudo. O que
- * compensa, sem ser o bastante sozinho: as duas redes de fonte (`tiposDeInput` e
- * `escritasNoDom`, no `src/` inteiro) pegam a escrita quando ela está escrita
- * neste repositório, em qualquer grafia da família — elas só não alcançam código
- * que a varredura não lê (pacote de fora, import dinâmico, código do próprio
- * Next). A interseção "escrita que a varredura não lê **e** disparada fora do
- * alcance das duas sentinelas" fica descoberta, e está dito aqui.
+ * **O que continua fora de alcance, dito por extenso e medido:** (a) atraso maior
+ * que os 30 min que cada medida K adianta — e ela adianta DUAS vezes, com o
+ * exercício de campo entre elas, então o alcance de uma mutação armada por um
+ * handler que só nasce com o tempo é de mais 30 min depois do exercício;
+ * (b) mutação disparada por algo que o relógio de mentira não controla e que só
+ * acontece depois do fim da guarda — por exemplo a resposta de uma requisição de
+ * rede real que demore mais que isso; (c) rota do produto que esta guarda NÃO
+ * visita: a medida L prova que o alcance cobre tudo o que a guarda visita, e não
+ * que a guarda visita tudo; (d) **interação que o exercício da sentinela não
+ * faz**: arrastar, colar com o mouse, rolar, tocar em tela sensível, e o clique
+ * em BOTÃO — este último de propósito, porque apertar um botão da página é
+ * gravar no servidor, e a sentinela existe para observar, não para escrever. A
+ * lista exata dos eventos exercidos é `EVENTOS_EXERCIDOS`, e o número de campos
+ * exercidos sai impresso em cada medida J, K e L: hoje, 7 campos × 18 eventos
+ * por rota.
+ *
+ * O que compensa, sem ser o bastante sozinho: as duas redes de fonte
+ * (`tiposDeInput` e `escritasNoDom`, no `src/` inteiro) pegam a escrita quando
+ * ela está escrita neste repositório, em qualquer grafia da família — e desde a
+ * rodada 16 a família inclui `getOwnPropertyDescriptor(…)?.set?.call(el, …)`,
+ * `Reflect.apply`, `__lookupSetter__` e o nome do protótipo de qualquer
+ * elemento. Elas só não alcançam código que a varredura não lê (pacote de fora,
+ * import dinâmico, código do próprio Next). A interseção "escrita que a
+ * varredura não lê **e** disparada por uma interação que a sentinela não faz"
+ * fica descoberta, e está dito aqui.
  * ════════════════════════════════════════════════════════════════════════════
  */
 
@@ -522,6 +665,52 @@ function VIGIA_DO_CONTRATO(config) {
    */
   if (Object.prototype.hasOwnProperty.call(window, "__vigiaP6")) return;
   const inicio = Date.now();
+
+  /*
+   * ═════════════════════════ O ATAQUE QUE O CRÍTICO DA RODADA 16 NOMEOU ═
+   * SEQUESTRAR `document.createElement` PARA QUE O CANÁRIO ADOTE UM CAMPO
+   * REAL — E COM ELE A ISENÇÃO.
+   *
+   * Ele não o tentou, e disse isso. O caminho é real: `abrirCanario` fazia
+   * `doc.createElement("input")`, e um `createElement` sequestrado poderia
+   * devolver o `<input>` da duração. Aquele nó entrava no `WeakSet` de
+   * canários, e `foraDaRegua()` passava a absolver TODA mudança nele — para
+   * sempre. Bastava devolver o elemento ao lugar em vez de deixar o
+   * `el.remove()` final tirá-lo da tela para A, B e C não perceberem.
+   *
+   * Três fechos, os três baratos, e nenhum depende de boa vontade da página:
+   *
+   *  1. **as referências NATIVAS, capturadas aqui.** Este corpo roda em
+   *     `addInitScript`, antes do primeiro script da página: `createElement`,
+   *     `appendChild`, `remove` e o getter de `isConnected` ainda são os do
+   *     navegador. O canário passa a usar ESTAS, e sequestrar os nomes depois
+   *     não muda nada — é a mesma técnica que já valia para o canal do Node;
+   *  2. **um canário é um nó NOVO e FORA da árvore.** Se o que voltou de
+   *     `createElement` já está na árvore (ou não é um `<input>`), o canário
+   *     não voa: `abrirCanario` devolve `null`, `soltarCanario` devolve `null`
+   *     e a medida reprova com "O CANAL ESTÁ QUEBRADO" — que é a frase certa,
+   *     porque alguém mexeu na testemunha;
+   *  3. **a isenção dura o voo, não a sessão.** No fim do voo o elemento sai
+   *     do `WeakSet` (`canarios.delete`). Mesmo que um atacante guarde a
+   *     referência do canário e depois o enfie na página no lugar de um campo
+   *     de verdade, ele não herda isenção nenhuma — as anotações do voo já
+   *     foram gravadas com `canario: true`, e tudo o que vier depois é medido
+   *     como qualquer outro campo.
+   */
+  const criarElemento = window.document.createElement;
+  const inserirNo = window.Node.prototype.appendChild;
+  const retirarNo = window.Element.prototype.remove;
+  const descDeConectado = Object.getOwnPropertyDescriptor(window.Node.prototype, "isConnected");
+  /** `isConnected` pelo getter NATIVO — a régua não pode ler um valor forjado. */
+  const naArvore = (no) => {
+    try {
+      const v =
+        typeof descDeConectado?.get === "function" ? descDeConectado.get.call(no) : no.isConnected;
+      return v === true;
+    } catch {
+      return false;
+    }
+  };
 
   /*
    * ══════════════════════════════════════════════════ CRÍTICO #2, rodada 15 ═
@@ -686,7 +875,7 @@ function VIGIA_DO_CONTRATO(config) {
           de,
           para,
           alvo: descrever(this),
-          naArvore: this.isConnected === true,
+          naArvore: naArvore(this),
           canario: canarios.has(this),
           marcaDoCanario: canarios.has(this) ? this.getAttribute("data-vigia-canario") : null,
           emMs: Date.now() - inicio,
@@ -715,7 +904,7 @@ function VIGIA_DO_CONTRATO(config) {
             de,
             para,
             alvo: descrever(this),
-            naArvore: this.isConnected === true,
+            naArvore: naArvore(this),
             canario: canarios.has(this),
             marcaDoCanario: canarios.has(this) ? this.getAttribute("data-vigia-canario") : null,
             emMs: Date.now() - inicio,
@@ -751,7 +940,7 @@ function VIGIA_DO_CONTRATO(config) {
           de,
           para,
           alvo: descrever(alvo),
-          naArvore: alvo.isConnected === true,
+          naArvore: naArvore(alvo),
           canario: canarios.has(alvo),
           marcaDoCanario: canarios.has(alvo) ? alvo.getAttribute("data-vigia-canario") : null,
           emMs: Date.now() - inicio,
@@ -794,12 +983,27 @@ function VIGIA_DO_CONTRATO(config) {
    */
   const abrirCanario = (marca) => {
     const doc = window.document;
-    const el = doc.createElement("input");
+    const el = criarElemento.call(doc, "input");
+    /*
+     * Um canário é um nó NOVO, que não é de ninguém. Se `createElement` foi
+     * sequestrado e devolveu um campo REAL da página, ele já está na árvore —
+     * e adotá-lo aqui o isentaria da régua. Recusar é a resposta certa: a
+     * medida reprova dizendo que o canal está quebrado, que é a verdade.
+     */
+    if (
+      el === null ||
+      typeof el !== "object" ||
+      el.tagName !== "INPUT" ||
+      naArvore(el) ||
+      canarios.has(el)
+    ) {
+      return Promise.resolve(null);
+    }
     el.setAttribute("data-vigia-canario", String(marca));
     canarios.add(el);
     // NA ÁRVORE antes de qualquer mutação: um canário fora da árvore provaria
     // menos do que o que a régua cobra (`naArvore === true`).
-    (doc.body ?? doc.documentElement).appendChild(el);
+    inserirNo.call(doc.body ?? doc.documentElement, el);
     // Uma mutação por rede, na ordem em que elas existem.
     el.type = "number"; // 1ª rede (setter .type) + 3ª (MutationObserver)
     el.inputMode = "decimal"; // 1ª rede (setter .inputMode)
@@ -817,10 +1021,13 @@ function VIGIA_DO_CONTRATO(config) {
         .then(() => undefined)
         .then(() => {
           try {
-            el.remove();
+            retirarNo.call(el);
           } catch {
             /* já saiu da árvore */
           }
+          // A isenção dura o VOO, não a sessão: quem guardar a referência
+          // deste nó e o enfiar na página depois não herda absolvição.
+          canarios.delete(el);
           pronto(marca);
         });
     });
@@ -919,8 +1126,10 @@ async function soltarCanario(pagina) {
     const voou = await pagina.evaluate(async (m) => {
       const v = window.__vigiaP6;
       if (v === undefined || v === null || typeof v.abrirCanario !== "function") return false;
-      await v.abrirCanario(m);
-      return true;
+      // `null` = o vigia RECUSOU soltar o canário (o que voltou de
+      // `createElement` não era um nó novo e fora da árvore). Recusa não é
+      // silêncio: vira "O CANAL ESTÁ QUEBRADO" na medida.
+      return (await v.abrirCanario(m)) !== null;
     }, marca);
     return voou === true ? marca : null;
   } catch {
@@ -1240,10 +1449,13 @@ for (const rota of ROTAS_COM_SENTINELA) {
   for (const comRelogioDeMentira of [false, true]) {
     const aberta = await abrir(rota, 1280, 1200, comRelogioDeMentira);
     const revelados = await revelarEstadosOcultos(aberta.pagina);
+    // [ALTO #2, rodada 16] revelar não basta: a sentinela EXERCE cada campo.
+    const exercidos = await exercitarCampos(aberta.pagina);
     SENTINELAS.push({
       ...aberta,
       comRelogioDeMentira,
       revelados,
+      exercidos,
       nascimento: Date.now(),
     });
   }
@@ -2213,7 +2425,9 @@ for (const sentinela of SENTINELAS.filter((x) => !x.comRelogioDeMentira)) {
         Math.round(vida / 1000),
       )}s — este é o ALCANCE DE TEMPO desta guarda NESTA ROTA, e mutação agendada para depois dele NÃO é vista (piso: ${String(
         Math.round(PISO_DE_VIDA_DA_SENTINELA / 1000),
-      )}s) · estados revelados: ${sentinela.revelados.join(", ") || "(nenhum)"} · ${resumoDoRelato(
+      )}s) · estados revelados: ${sentinela.revelados.join(", ") || "(nenhum)"} · ${String(
+        sentinela.exercidos,
+      )} campo(s) EXERCIDOS (foco + ${String(EVENTOS_EXERCIDOS.length)} eventos) · ${resumoDoRelato(
         relato,
       )}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
     );
@@ -2233,15 +2447,35 @@ for (const sentinela of SENTINELAS.filter((x) => x.comRelogioDeMentira)) {
     await sentinela.pagina.clock.fastForward(ADIANTAMENTO_DO_RELOGIO);
     // Dois quadros para o React processar o que os temporizadores dispararam.
     await assentar(sentinela.pagina);
+    /*
+     * [ALTO #2, rodada 16] E o exercício DE NOVO, depois do adiantamento: um
+     * handler que só passa a existir com o tempo (instalado por um
+     * `setTimeout` que acabou de disparar) só se manifesta se alguém tocar no
+     * campo outra vez. Adiantar o relógio e não tocar em nada mediria o
+     * primeiro caso e não o segundo.
+     */
+    const exercidosDepois = await exercitarCampos(sentinela.pagina);
+    await assentar(sentinela.pagina);
+    await sentinela.pagina.clock.fastForward(ADIANTAMENTO_DO_RELOGIO);
+    await assentar(sentinela.pagina);
     const relato = await auditarPagina(sentinela);
     const contrato = await sentinela.pagina.evaluate(LER_CAMPOS);
     const foraDaReguaNoDom = contrato.filter(
       (c) => c.type === "number" || c.atributoType === "number",
     );
     const problemas = problemasDoRelato(relato);
-    if (contrato.length < 4) {
+    if (contrato.length < PISO_DE_CAMPOS_POR_ROTA) {
       problemas.push(
-        `só ${String(contrato.length)} campo(s) no DOM depois do adiantamento (mínimo 4) — alvo ausente é reprovação`,
+        `só ${String(contrato.length)} campo(s) no DOM depois do adiantamento (piso escrito à mão: ${String(
+          PISO_DE_CAMPOS_POR_ROTA,
+        )}) — alvo ausente é reprovação`,
+      );
+    }
+    if (exercidosDepois < PISO_DE_CAMPOS_POR_ROTA) {
+      problemas.push(
+        `só ${String(exercidosDepois)} campo(s) exercidos DEPOIS do adiantamento (piso: ${String(
+          PISO_DE_CAMPOS_POR_ROTA,
+        )}) — um handler que nasce com o tempo não teria quem o acordasse`,
       );
     }
     if (foraDaReguaNoDom.length > 0) {
@@ -2256,9 +2490,11 @@ for (const sentinela of SENTINELAS.filter((x) => x.comRelogioDeMentira)) {
       problemas.length === 0,
       `relógio adiantado ${String(
         Math.round(ADIANTAMENTO_DO_RELOGIO / 60000),
-      )} min de uma vez — atraso ATÉ ISSO está no alcance desta guarda NESTA ROTA · estados revelados: ${
+      )} min de uma vez, DUAS vezes, com os campos exercidos entre elas — atraso ATÉ ISSO está no alcance desta guarda NESTA ROTA · estados revelados: ${
         sentinela.revelados.join(", ") || "(nenhum)"
-      } · ${String(contrato.length)} campos no DOM depois do adiantamento · ${resumoDoRelato(
+      } · ${String(contrato.length)} campos no DOM depois do adiantamento · ${String(
+        exercidosDepois,
+      )} exercidos depois dele · ${resumoDoRelato(
         relato,
       )}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
     );
@@ -2282,6 +2518,7 @@ await medir("L", async () => {
   const comSentinela = new Set(SENTINELAS.map((x) => x.rota));
   const semSentinela = [...ROTAS_VISITADAS].filter((r) => !comSentinela.has(r));
   const camposDaSentinela = new Map();
+  const exercidosDaSentinela = new Map();
   for (const sentinela of SENTINELAS) {
     const estado = await estadoDaPagina(sentinela.pagina);
     const quantos = estado === null ? -1 : estado.campos;
@@ -2289,6 +2526,11 @@ await medir("L", async () => {
     // A MENOR das duas sentinelas da rota manda: basta uma cega para o
     // alcance daquele estado não existir.
     camposDaSentinela.set(sentinela.rota, antes === -1 ? quantos : Math.min(antes, quantos));
+    const exAntes = exercidosDaSentinela.get(sentinela.rota) ?? -1;
+    exercidosDaSentinela.set(
+      sentinela.rota,
+      exAntes === -1 ? sentinela.exercidos : Math.min(exAntes, sentinela.exercidos),
+    );
   }
   const comEstadoAMenos = [];
   for (const [rota, vistos] of CAMPOS_VISTOS_POR_ROTA) {
@@ -2300,6 +2542,63 @@ await medir("L", async () => {
       );
     }
   }
+  /*
+   * ══════════════════════════════════════════════════════════ ALTO #2, rodada 16 ═
+   * O PISO QUE NÃO VEM DE NENHUMA DAS DUAS LEITURAS.
+   *
+   * As duas comparações acima ("a sentinela mostra pelo menos o que a guarda
+   * viu") são entre duas leituras que podem encolher JUNTAS — e foi
+   * exatamente isso que aconteceu com o foco: nem a guarda o exercia, nem a
+   * sentinela, e as duas concordavam em zero. Concordância entre dois lados
+   * que encolhem juntos é eco, não piso.
+   *
+   * O piso de verdade é um número escrito à mão, fora das duas
+   * (`PISO_DE_CAMPOS_POR_ROTA`), cobrado de TRÊS coisas: quantos campos a
+   * sentinela mostra, quantos ela EXERCEU (foco + a bateria de eventos) e
+   * quantos a guarda viu naquela rota. Encolher qualquer um dos três exige
+   * baixar o número no diff.
+   */
+  const abaixoDoPiso = [];
+  for (const rota of comSentinela) {
+    const mostra = camposDaSentinela.get(rota) ?? -1;
+    const exerceu = exercidosDaSentinela.get(rota) ?? -1;
+    if (mostra < PISO_DE_CAMPOS_POR_ROTA) {
+      abaixoDoPiso.push(
+        `${rota}: a sentinela mostra ${String(mostra)} campo(s), piso ${String(
+          PISO_DE_CAMPOS_POR_ROTA,
+        )}`,
+      );
+    }
+    if (exerceu < PISO_DE_CAMPOS_POR_ROTA) {
+      abaixoDoPiso.push(
+        `${rota}: a sentinela EXERCEU ${String(exerceu)} campo(s), piso ${String(
+          PISO_DE_CAMPOS_POR_ROTA,
+        )} — campo não exercido é campo cujo handler nunca correu`,
+      );
+    }
+  }
+  for (const [rota, vistos] of CAMPOS_VISTOS_POR_ROTA) {
+    if (vistos < PISO_DE_CAMPOS_POR_ROTA) {
+      abaixoDoPiso.push(
+        `${rota}: a guarda só viu ${String(vistos)} campo(s), piso ${String(
+          PISO_DE_CAMPOS_POR_ROTA,
+        )} — os dois lados encolheram juntos`,
+      );
+    }
+  }
+  /** Sentinela que mostra campo e não o exerce é o buraco do ALTO #2 inteiro. */
+  const semExercicioCompleto = [];
+  for (const sentinela of SENTINELAS) {
+    const estado = await estadoDaPagina(sentinela.pagina);
+    const mostra = estado === null ? -1 : estado.campos;
+    if (sentinela.exercidos < mostra) {
+      semExercicioCompleto.push(
+        `${sentinela.rota}${sentinela.comRelogioDeMentira ? " (relógio)" : ""}: mostra ${String(
+          mostra,
+        )} campo(s) e exerceu ${String(sentinela.exercidos)}`,
+      );
+    }
+  }
   const problemas = [];
   if (ROTAS_VISITADAS.size === 0) problemas.push("nenhuma rota registrada — a medida não mediu");
   if (semSentinela.length > 0) {
@@ -2308,22 +2607,616 @@ await medir("L", async () => {
   if (comEstadoAMenos.length > 0) {
     problemas.push(`sentinela com menos estado do que a guarda visitou: ${comEstadoAMenos.join(" · ")}`);
   }
+  if (abaixoDoPiso.length > 0) {
+    problemas.push(`ABAIXO DO PISO escrito à mão: ${abaixoDoPiso.join(" · ")}`);
+  }
+  if (semExercicioCompleto.length > 0) {
+    problemas.push(`sentinela que mostra campo e NÃO o exerce: ${semExercicioCompleto.join(" · ")}`);
+  }
   conferir(
-    "L · o alcance de tempo cobre TODAS as rotas e estados que a guarda visita",
+    "L · o alcance de tempo cobre TODAS as rotas, estados e campos EXERCIDOS que a guarda visita",
     problemas.length === 0,
     `${String(ROTAS_VISITADAS.size)} rota(s) visitada(s): ${[...ROTAS_VISITADAS].join(
       ", ",
     )} · ${String(SENTINELAS.length)} sentinela(s) em ${String(
       comSentinela.size,
-    )} rota(s) · campos por rota — visto pela guarda: ${[...CAMPOS_VISTOS_POR_ROTA]
+    )} rota(s) · piso escrito à mão: ${String(
+      PISO_DE_CAMPOS_POR_ROTA,
+    )} campos por rota · campos por rota — visto pela guarda: ${[...CAMPOS_VISTOS_POR_ROTA]
       .map(([r, n]) => `${r}=${String(n)}`)
       .join(" ")} · na sentinela: ${[...camposDaSentinela]
+      .map(([r, n]) => `${r}=${String(n)}`)
+      .join(" ")} · EXERCIDOS pela sentinela: ${[...exercidosDaSentinela]
       .map(([r, n]) => `${r}=${String(n)}`)
       .join(" ")}${problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`}`,
   );
 });
 
 for (const sentinela of SENTINELAS) await sentinela.contexto.close();
+
+// ════════════════════════════════════════════════════════════════════════════
+// P · A PERSISTÊNCIA, DERIVADA DA LISTA CANÔNICA DAS OPERAÇÕES
+//
+// [ALTOS #1 e #3, rodada 16] A GUARDA NUNCA PERGUNTAVA SE O QUE O OPERADOR
+// PEDIU CHEGOU AO BANCO.
+//
+// Das 15 escritas desta página, a guarda conferia PERSISTÊNCIA em três lugares
+// (três `reload()` no arquivo inteiro). Em todo o resto, o anúncio de sucesso e
+// o estado do controle eram lidos DO CLIENTE — que é exatamente quem a
+// sabotagem controla. Duas provas do crítico, as duas com os cinco portões
+// verdes e as 34 medidas verdes:
+//
+//   1. dois campos trocados de lugar em `atomos-form.tsx`
+//      (`esforco: String(custo)`), o erro de digitação mais comum que existe.
+//      NA TELA {"Esforço":"1","Custo":"5"} + "Átomos salvos."; DEPOIS DO F5
+//      {"Esforço":"5","Custo":"1"}. A única medida que tocava em "Salvar
+//      átomos" (M) perguntava ao score `/assimetria \(A\) = \d+/` — um regex
+//      que só quer saber se EXISTE score, nunca se é o score do que foi pedido;
+//   2. `status-form.tsx` mandando `confirmadoRef.current` em vez de `novo`: a
+//      tela dizia "Status atualizado para concluída." com a opção marcada, e
+//      depois do F5 a tarefa voltava a "aberta" — e seguia entrando no caminho
+//      crítico e na fila.
+//
+// A régua que substitui NÃO é uma medida a mais escrita à mão. O universo sai
+// da LISTA CANÔNICA da página (`OPERACOES_DE_ESCRITA`, em
+// `src/app/tarefa/pedido.ts`, lida do fonte): toda `op` que existe lá tem de
+// ter, aqui, ou uma conferência de persistência ou uma DISPENSA com motivo
+// escrito. Operação nova no `pedido.ts` sem linha nesta tabela reprova a
+// medida P0 — e conferir zero nunca é sucesso: há um piso escrito à mão.
+//
+// A forma da conferência, onde o valor pedido é visível na tela: **pedir um
+// valor DIFERENTE do atual, recarregar a página, e exigir o valor PEDIDO** —
+// nunca "algum valor". É o que separa esta régua do regex que passou.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** A lista canônica das escritas da página, lida do fonte — não uma cópia. */
+function opsDaPagina() {
+  const caminho = join(RAIZ_DO_PACOTE, "src", "app", "tarefa", "pedido.ts");
+  const src = readFileSync(caminho, "utf8");
+  const bloco = /OPERACOES_DE_ESCRITA[^=]*=\s*\[([\s\S]*?)\];/.exec(src);
+  if (bloco === null) return [];
+  return [...(bloco[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+}
+
+const OPS_DA_PAGINA = opsDaPagina();
+
+/** O piso de operações conferidas — escrito à mão. Zero nunca é sucesso. */
+const PISO_DE_OPS_CONFERIDAS = 15;
+
+const ROTA_DOCS = "/tarefa/task-docs";
+const ROTA_BUILD = "/tarefa/task-build";
+
+/** Marcadores desta corrida — nenhum fixture os tem, e eles atravessam o F5. */
+const MARCAS = {};
+function marcador(prefixo) {
+  return `${prefixo}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Espera a frase aparecer numa região viva; devolve o que havia lá no fim. */
+async function anunciou(pagina, regex, limiteMs = 20000) {
+  const ate = Date.now() + limiteMs;
+  let texto = "";
+  while (Date.now() < ate) {
+    texto = await lerRegioesVivas(pagina);
+    if (regex.test(texto)) return texto;
+    await pagina.waitForTimeout(200);
+  }
+  return texto;
+}
+
+/** O F5 do operador. */
+async function recarregar(pagina) {
+  await pagina.reload({ waitUntil: "networkidle" });
+  await pagina.waitForSelector("h1", { timeout: 30000 });
+  await assentar(pagina);
+}
+
+/** O rótulo marcado num grupo segmentado, pelo nome que o operador lê. */
+async function marcadoNoGrupo(pagina, grupo) {
+  return await pagina.evaluate((g) => {
+    const el = document.querySelector(`[role="radiogroup"][aria-label="${g}"]`);
+    if (el === null) return "(grupo ausente)";
+    const m = el.querySelector('[role="radio"][aria-checked="true"]');
+    return m === null ? "(nenhum)" : (m.textContent ?? "").trim();
+  }, grupo);
+}
+
+async function opcoesDoGrupo(pagina, grupo) {
+  return await pagina.evaluate((g) => {
+    const el = document.querySelector(`[role="radiogroup"][aria-label="${g}"]`);
+    if (el === null) return [];
+    return [...el.querySelectorAll('[role="radio"]')].map((b) => (b.textContent ?? "").trim());
+  }, grupo);
+}
+
+async function escolherNoGrupo(pagina, grupo, rotulo) {
+  await pagina
+    .getByRole("radiogroup", { name: grupo })
+    .getByRole("radio", { name: rotulo, exact: true })
+    .click();
+}
+
+/** Os três átomos como o operador os vê, numa string só. */
+async function trioNaTela(pagina) {
+  const o = await marcadoNoGrupo(pagina, "Opcionalidade");
+  const e = await marcadoNoGrupo(pagina, "Esforço");
+  const c = await marcadoNoGrupo(pagina, "Custo");
+  return `Opcionalidade=${o} · Esforço=${e} · Custo=${c}`;
+}
+
+/** Todo item de lista da página, com o texto INTEIRO (a nota da relação inclusa). */
+async function textoDasListas(pagina) {
+  return await pagina.evaluate(() =>
+    [...document.querySelectorAll("li")]
+      .map((el) => (el.innerText || "").replace(/\s+/g, " ").trim())
+      .join(" ~ "),
+  );
+}
+
+/** Excluir (dois cliques) o item cuja linha contém a marca. */
+async function excluirItemComMarca(pagina, marca) {
+  const nos = await pagina.getByRole("button", { name: /excluir/ }).elementHandles();
+  for (const no of nos) {
+    const dentro = await no.evaluate(
+      (el, m) => (el.closest("li")?.innerText ?? "").includes(m),
+      marca,
+    );
+    if (dentro !== true) continue;
+    await no.click();
+    await pagina.waitForTimeout(250);
+    await no.click();
+    return true;
+  }
+  return false;
+}
+
+/** Cria uma relação com a NOTA como marcador, e devolve o anúncio. */
+async function criarRelacaoMarcada(pagina, marca) {
+  await escolherNoGrupo(pagina, "Tipo de relação", "correlação");
+  await pagina.waitForTimeout(250);
+  const destino = pagina.getByLabel("Destino").first();
+  const valores = await destino.evaluate((el) =>
+    [...el.options].map((o) => o.value).filter((v) => v !== ""),
+  );
+  if (valores.length === 0) return "(não há destino disponível para relação nova)";
+  await destino.selectOption(valores[0]);
+  await campoPorNome(pagina, /^Nota da relação/)
+    .first()
+    .fill(marca);
+  await pagina.getByRole("button", { name: "Adicionar relação" }).click();
+  return await anunciou(pagina, /Relação criada\./);
+}
+
+/**
+ * Espera a lista REFLETIR o que acabou de acontecer, e devolve o texto dela.
+ *
+ * Sem isto a medida lia o quadro anterior: a exclusão acontece no servidor, e
+ * a lista só muda quando o `router.refresh()` da porta volta — medido nesta
+ * rodada, a primeira versão destas duas medidas dizia "o pedido é IGUAL ao
+ * estado de antes" sobre uma exclusão que tinha acontecido. É a mesma
+ * armadilha que a medida E fechou com um `waitForFunction`.
+ */
+async function esperarPresenca(pagina, marca, presente, limiteMs = 15000) {
+  const ate = Date.now() + limiteMs;
+  let texto = await textoDasListas(pagina);
+  while (texto.includes(marca) !== presente && Date.now() < ate) {
+    await pagina.waitForTimeout(250);
+    texto = await textoDasListas(pagina);
+  }
+  return texto;
+}
+
+/** "presente"/"ausente" — a régua de identidade das listas. */
+function presencaDe(texto, marca) {
+  return texto.includes(marca) ? `"${marca}" está na lista` : `"${marca}" NÃO está na lista`;
+}
+
+/**
+ * A TABELA. Cada `op` da lista canônica aparece aqui, com uma conferência de
+ * persistência ou uma dispensa com motivo escrito — nunca com nada.
+ */
+const PERSISTENCIA_POR_OP = {
+  nota_criar: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = marcador("nota");
+      MARCAS.nota = marca;
+      const antes = presencaDe(await textoDasListas(pagina), marca);
+      await campoPorNome(pagina, /^Nova nota$/)
+        .first()
+        .fill(marca);
+      await pagina.getByRole("button", { name: "Salvar nota" }).click();
+      const anuncio = await anunciou(pagina, /Nota salva\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  nota_excluir: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = MARCAS.nota ?? "(a nota_criar não deixou marcador)";
+      const antes = presencaDe(await textoDasListas(pagina), marca);
+      const achou = await excluirItemComMarca(pagina, marca);
+      const anuncio = achou ? await anunciou(pagina, /Excluída\./) : "(não achei a nota)";
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `achei a nota para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  nota_desfazer: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = marcador("nota-desfazer");
+      await campoPorNome(pagina, /^Nova nota$/)
+        .first()
+        .fill(marca);
+      await pagina.getByRole("button", { name: "Salvar nota" }).click();
+      await anunciou(pagina, /Nota salva\./);
+      await recarregar(pagina);
+      const achou = await excluirItemComMarca(pagina, marca);
+      await anunciou(pagina, /Excluída\./);
+      // O estado DEPOIS da exclusão é o "atual" contra o qual o desfazer pede
+      // outra coisa — sem isto a medida pediria o que já estava lá.
+      const antes = presencaDe(await esperarPresenca(pagina, marca, false), marca);
+      await pagina.getByRole("button", { name: "Desfazer" }).first().click();
+      const anuncio = await anunciou(pagina, /Nota restaurada\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `achei a nota para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  subtarefa_criar: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = marcador("sub");
+      const antes = presencaDe(await textoDasListas(pagina), marca);
+      await campoPorNome(pagina, /^Título da subtarefa$/)
+        .first()
+        .fill(marca);
+      await pagina.getByRole("button", { name: "Adicionar subtarefa" }).click();
+      const anuncio = await anunciou(pagina, /Subtarefa criada\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  relacao_criar: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = marcador("rel");
+      MARCAS.relacao = marca;
+      const antes = presencaDe(await textoDasListas(pagina), marca);
+      const anuncio = await criarRelacaoMarcada(pagina, marca);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  relacao_excluir: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = MARCAS.relacao ?? "(a relacao_criar não deixou marcador)";
+      const antes = presencaDe(await textoDasListas(pagina), marca);
+      const achou = await excluirItemComMarca(pagina, marca);
+      const anuncio = achou ? await anunciou(pagina, /Excluída\./) : "(não achei a relação)";
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `achei a relação para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  relacao_desfazer_criacao: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = marcador("rel-criada");
+      await criarRelacaoMarcada(pagina, marca);
+      const antes = presencaDe(await esperarPresenca(pagina, marca, true), marca);
+      await pagina.getByRole("button", { name: "Desfazer" }).first().click();
+      const anuncio = await anunciou(pagina, /Relação desfeita\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" NÃO está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  relacao_desfazer_exclusao: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const marca = marcador("rel-excluida");
+      await criarRelacaoMarcada(pagina, marca);
+      // O F5 fecha a janela de desfazer da CRIAÇÃO: o único "Desfazer" que
+      // sobra depois é o da exclusão, que é o que esta medida quer medir.
+      await recarregar(pagina);
+      const achou = await excluirItemComMarca(pagina, marca);
+      await anunciou(pagina, /Excluída\./);
+      const antes = presencaDe(await esperarPresenca(pagina, marca, false), marca);
+      await pagina.getByRole("button", { name: "Desfazer" }).first().click();
+      const anuncio = await anunciou(pagina, /Relação restaurada\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: `"${marca}" está na lista`,
+        obtido: presencaDe(await textoDasListas(pagina), marca),
+        extra: `achei a relação para excluir=${String(achou)} · anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  status: {
+    rota: ROTA_DOCS,
+    conferir: async (pagina) => {
+      const antes = await marcadoNoGrupo(pagina, "Status da tarefa");
+      const opcoes = await opcoesDoGrupo(pagina, "Status da tarefa");
+      const pedido = opcoes.find((o) => o !== antes) ?? "(nenhuma opção diferente na tela)";
+      await escolherNoGrupo(pagina, "Status da tarefa", pedido);
+      const anuncio = await anunciou(pagina, /Status atualizado para/);
+      const naTela = await marcadoNoGrupo(pagina, "Status da tarefa");
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido,
+        obtido: await marcadoNoGrupo(pagina, "Status da tarefa"),
+        extra: `anúncio=${JSON.stringify(anuncio)} · na tela ANTES do F5=${JSON.stringify(naTela)}`,
+      };
+    },
+  },
+  mae: {
+    rota: ROTA_DOCS,
+    conferir: async (pagina) => {
+      const select = pagina.locator('select[aria-label="Tarefa mãe"]').first();
+      const antes = await select.inputValue();
+      const valores = await select.evaluate((el) => [...el.options].map((o) => o.value));
+      const pedido = valores.find((v) => v !== antes) ?? "(nenhuma opção diferente)";
+      await select.selectOption(pedido);
+      const anuncio = await anunciou(pagina, /Tarefa mãe (atualizada|removida)\./);
+      await recarregar(pagina);
+      return {
+        antes: antes === "" ? "(nenhuma)" : antes,
+        pedido: pedido === "" ? "(nenhuma)" : pedido,
+        obtido: await select
+          .inputValue()
+          .then((v) => (v === "" ? "(nenhuma)" : v))
+          .catch(() => "(o <select> sumiu)"),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  meta: {
+    rota: ROTA_DOCS,
+    conferir: async (pagina) => {
+      const botao = pagina.locator("button[aria-pressed]").first();
+      const antes = await botao.getAttribute("aria-pressed");
+      await botao.click();
+      const anuncio = await anunciou(pagina, /(Marcada como meta|Meta removida)\./);
+      await recarregar(pagina);
+      return {
+        antes: `aria-pressed=${String(antes)}`,
+        pedido: `aria-pressed=${antes === "true" ? "false" : "true"}`,
+        obtido: `aria-pressed=${String(
+          await pagina.locator("button[aria-pressed]").first().getAttribute("aria-pressed"),
+        )}`,
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  duracao: {
+    rota: ROTA_DOCS,
+    conferir: async (pagina) => {
+      const campo = campoPorNome(pagina, /^Duração \(dias, p80/).first();
+      const antes = await campo.inputValue();
+      const atual = Number(antes);
+      const pedido = String(Number.isFinite(atual) && antes.trim() !== "" ? atual + 1 : 4);
+      await campo.fill(pedido);
+      await pagina.getByRole("button", { name: "Salvar duração" }).click();
+      const anuncio = await anunciou(pagina, /Duração (salva|removida)\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido,
+        obtido: await campoPorNome(pagina, /^Duração \(dias, p80/)
+          .first()
+          .inputValue(),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  atomos_salvar: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const antes = await trioNaTela(pagina);
+      /*
+       * O pedido escolhe Esforço e Custo DIFERENTES ENTRE SI, de propósito:
+       * com os dois iguais, trocar um campo pelo outro no despacho
+       * (`esforco: String(custo)`) seria invisível — é a sabotagem do ALTO #1.
+       */
+      const opcoesO = await opcoesDoGrupo(pagina, "Opcionalidade");
+      const opcoesE = await opcoesDoGrupo(pagina, "Esforço");
+      const opcoesC = await opcoesDoGrupo(pagina, "Custo");
+      const atualO = await marcadoNoGrupo(pagina, "Opcionalidade");
+      const atualE = await marcadoNoGrupo(pagina, "Esforço");
+      const atualC = await marcadoNoGrupo(pagina, "Custo");
+      const pedidoO = opcoesO.find((o) => o !== atualO) ?? "(sem opção diferente)";
+      const pedidoE = opcoesE.find((o) => o !== atualE) ?? "(sem opção diferente)";
+      const pedidoC =
+        opcoesC.find((o) => o !== atualC && o !== pedidoE) ?? "(sem opção diferente)";
+      await escolherNoGrupo(pagina, "Opcionalidade", pedidoO);
+      await escolherNoGrupo(pagina, "Esforço", pedidoE);
+      await escolherNoGrupo(pagina, "Custo", pedidoC);
+      await pagina.getByRole("button", { name: "Salvar átomos" }).click();
+      const anuncio = await anunciou(pagina, /Átomos salvos\./);
+      const naTela = await trioNaTela(pagina);
+      await recarregar(pagina);
+      MARCAS.trio = `Opcionalidade=${pedidoO} · Esforço=${pedidoE} · Custo=${pedidoC}`;
+      return {
+        antes,
+        pedido: MARCAS.trio,
+        obtido: await trioNaTela(pagina),
+        extra: `anúncio=${JSON.stringify(anuncio)} · na tela ANTES do F5=${JSON.stringify(naTela)}`,
+      };
+    },
+  },
+  atomos_limpar: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      const antes = await trioNaTela(pagina);
+      const limpar = pagina.getByRole("button", { name: "Limpar átomos" });
+      const tem = (await limpar.count()) === 1;
+      if (tem) await limpar.click();
+      const anuncio = tem
+        ? await anunciou(pagina, /Átomos limpos\./)
+        : '(o botão "Limpar átomos" não existe nesta tarefa)';
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: "Opcionalidade=(nenhum) · Esforço=(nenhum) · Custo=(nenhum)",
+        obtido: await trioNaTela(pagina),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+  atomos_desfazer_limpeza: {
+    rota: ROTA_BUILD,
+    conferir: async (pagina) => {
+      // Precondição própria: declarar um trio, para haver o que limpar.
+      const opcoesE = await opcoesDoGrupo(pagina, "Esforço");
+      const opcoesC = await opcoesDoGrupo(pagina, "Custo");
+      const opcoesO = await opcoesDoGrupo(pagina, "Opcionalidade");
+      await escolherNoGrupo(pagina, "Opcionalidade", opcoesO[0] ?? "");
+      await escolherNoGrupo(pagina, "Esforço", opcoesE[0] ?? "");
+      await escolherNoGrupo(pagina, "Custo", opcoesC[opcoesC.length - 1] ?? "");
+      await pagina.getByRole("button", { name: "Salvar átomos" }).click();
+      await anunciou(pagina, /Átomos salvos\./);
+      await recarregar(pagina);
+      const trio = await trioNaTela(pagina);
+      await pagina.getByRole("button", { name: "Limpar átomos" }).click();
+      await anunciou(pagina, /Átomos limpos\./);
+      const limpo = "Opcionalidade=(nenhum) · Esforço=(nenhum) · Custo=(nenhum)";
+      const ate = Date.now() + 15000;
+      let antes = await trioNaTela(pagina);
+      while (antes !== limpo && Date.now() < ate) {
+        await pagina.waitForTimeout(250);
+        antes = await trioNaTela(pagina);
+      }
+      await pagina.getByRole("button", { name: "Desfazer" }).first().click();
+      const anuncio = await anunciou(pagina, /Átomos restaurados\./);
+      await recarregar(pagina);
+      return {
+        antes,
+        pedido: trio,
+        obtido: await trioNaTela(pagina),
+        extra: `anúncio=${JSON.stringify(anuncio)}`,
+      };
+    },
+  },
+};
+
+// P0 — o universo não é convenção: é a lista canônica da página.
+await medir("P0", async () => {
+  const naTabela = Object.keys(PERSISTENCIA_POR_OP);
+  const semLinha = OPS_DA_PAGINA.filter((op) => !Object.hasOwn(PERSISTENCIA_POR_OP, op));
+  const sobrando = naTabela.filter((op) => !OPS_DA_PAGINA.includes(op));
+  const conferidas = OPS_DA_PAGINA.filter(
+    (op) => typeof PERSISTENCIA_POR_OP[op]?.conferir === "function",
+  );
+  const dispensadas = OPS_DA_PAGINA.filter(
+    (op) => typeof PERSISTENCIA_POR_OP[op]?.semConferencia === "string",
+  );
+  const dispensaSemMotivo = dispensadas.filter(
+    (op) => (PERSISTENCIA_POR_OP[op]?.semConferencia ?? "").trim().length < 40,
+  );
+  const problemas = [];
+  if (OPS_DA_PAGINA.length === 0) {
+    problemas.push(
+      "não consegui ler `OPERACOES_DE_ESCRITA` de src/app/tarefa/pedido.ts — universo vazio é cegueira, não aprovação",
+    );
+  }
+  if (semLinha.length > 0) {
+    problemas.push(`op(s) da página SEM linha nesta tabela: ${semLinha.join(", ")}`);
+  }
+  if (sobrando.length > 0) {
+    problemas.push(`linha(s) desta tabela que não existem mais na página: ${sobrando.join(", ")}`);
+  }
+  if (dispensaSemMotivo.length > 0) {
+    problemas.push(`dispensa(s) sem motivo escrito: ${dispensaSemMotivo.join(", ")}`);
+  }
+  if (conferidas.length < PISO_DE_OPS_CONFERIDAS) {
+    problemas.push(
+      `só ${String(conferidas.length)} op(s) com conferência de persistência, piso escrito à mão ${String(
+        PISO_DE_OPS_CONFERIDAS,
+      )} — conferir zero (ou pouco) nunca é sucesso`,
+    );
+  }
+  conferir(
+    "P0 · o universo das escritas sai da lista canônica da página, e toda op tem conferência ou dispensa com motivo",
+    problemas.length === 0,
+    `${String(OPS_DA_PAGINA.length)} op(s) em src/app/tarefa/pedido.ts: ${OPS_DA_PAGINA.join(
+      ", ",
+    )} · ${String(conferidas.length)} conferida(s) por persistência (piso ${String(
+      PISO_DE_OPS_CONFERIDAS,
+    )}) · ${String(dispensadas.length)} dispensada(s) com motivo escrito${
+      problemas.length === 0 ? "" : ` — ${problemas.join(" | ")}`
+    }`,
+  );
+});
+
+/** As ops conferidas, agrupadas por rota — uma aba por rota, F5 entre elas. */
+const OPS_POR_ROTA = new Map();
+for (const op of OPS_DA_PAGINA) {
+  const entrada = PERSISTENCIA_POR_OP[op];
+  if (entrada === undefined || typeof entrada.conferir !== "function") continue;
+  const lista = OPS_POR_ROTA.get(entrada.rota) ?? [];
+  lista.push(op);
+  OPS_POR_ROTA.set(entrada.rota, lista);
+}
+
+for (const [rota, ops] of OPS_POR_ROTA) {
+  const aberta = await abrir(rota);
+  for (const op of ops) {
+    await medir(`P ${op}`, async () => {
+      await recarregar(aberta.pagina);
+      const r = await PERSISTENCIA_POR_OP[op].conferir(aberta.pagina);
+      const pediuOutraCoisa = r.pedido !== r.antes;
+      conferir(
+        `P · ${op} · o que o operador pediu é o que está lá DEPOIS DO F5`,
+        pediuOutraCoisa && r.obtido === r.pedido,
+        `rota=${rota} · antes=${JSON.stringify(r.antes)} · PEDIDO=${JSON.stringify(
+          r.pedido,
+        )} · depois do F5=${JSON.stringify(r.obtido)}${
+          pediuOutraCoisa
+            ? ""
+            : " — o pedido é IGUAL ao estado de antes: esta medida não mediu nada"
+        } · ${r.extra}`,
+      );
+    });
+  }
+  await aberta.contexto.close();
+}
 
 await navegador.close();
 encerrarServidor();
@@ -2384,6 +3277,15 @@ const MEDIDAS_EXIGIDAS = [
   "V-H · ",
   "V-I · ",
   "V-M · ",
+  /*
+   * [ALTOS #1 e #3, rodada 16] A persistência. O nome de cada medida P é
+   * DERIVADO da lista canônica de `src/app/tarefa/pedido.ts` — é o único jeito
+   * de uma operação nova não nascer sem régua. P0 guarda a derivação: ele
+   * reprova se a tabela e a lista canônica discordarem, ou se o número de
+   * conferências cair abaixo do piso.
+   */
+  "P0 · ",
+  ...[...OPS_POR_ROTA.values()].flat().map((op) => `P · ${op} · `),
 ];
 const ausentes = MEDIDAS_EXIGIDAS.filter(
   (nome) => !medidas.some((m) => m.slice(6).startsWith(nome)),

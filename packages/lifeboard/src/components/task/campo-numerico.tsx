@@ -72,6 +72,31 @@ import type { ReactNode } from "react";
  *     uma revela os estados que só existem depois de um clique, e a medida L
  *     reprova se a guarda visitar rota ou estado que sentinela nenhuma vigia.
  *
+ * **E a rodada 16 achou o buraco DISSO** — o mesmo defeito, terceira geração, de
+ * novo com os cinco portões verdes e a duração do operador apagada no Chromium:
+ *
+ *     onFocus={(e) => {
+ *       const el = e.currentTarget;
+ *       window.setTimeout(() => {
+ *         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "type")
+ *           ?.set?.call(el, "number");
+ *       }, 75_000);
+ *     }}
+ *
+ * As sentinelas da guarda CLICAVAM num rádio (para revelar o campo "Desconto")
+ * e **nunca punham foco em campo nenhum**: um temporizador armado no `focus`
+ * nunca chegava a existir lá, e adiantar meia hora adiantava um relógio sem
+ * nada agendado. As duas únicas medidas que dão foco (C e F) fecham a aba em
+ * 15–25 s. Resultado: 0 FALHA na guarda, e aos 80 s o campo virava numérico.
+ *
+ * Duas coisas mudaram, e as duas estão medidas no cabeçalho da guarda:
+ * cada sentinela agora EXERCE todo campo da rota (foco, ponteiro, teclado,
+ * entrada, mudança, `blur`) e a medida K repete o exercício entre dois
+ * adiantamentos de meia hora; e a família
+ * `getOwnPropertyDescriptor(…)?.set?.call(…)` entrou na varredura de fonte
+ * (`CHAMADAS_QUE_ESCREVEM_NO_DOM`), junto com `Reflect.apply`,
+ * `__lookupSetter__` e o nome do protótipo de qualquer elemento.
+ *
  * O que fica fora de alcance está declarado no cabeçalho da guarda — nem aqui
  * nem lá se afirma que ela alcança tudo.
  *

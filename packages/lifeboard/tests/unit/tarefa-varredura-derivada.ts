@@ -218,9 +218,19 @@ export interface PortaDeclarada {
 }
 
 export function portasDeclaradas(arquivo: string): PortaDeclarada[] {
-  const src = codigo(arquivo);
+  return portasNoTexto(arquivo, codigo(arquivo));
+}
+
+/** As portas de UM TEXTO — a forma injetável, para o teste provar a varredura. */
+export function portasNoTexto(arquivo: string, src: string): PortaDeclarada[] {
   const out: PortaDeclarada[] = [];
-  const re = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*usarPortaDeEscrita\s*\(/g;
+  /*
+   * [rodada 16, variante achada ao conferir a própria correção] A ANOTAÇÃO DE
+   * TIPO entre o nome e o `=` fazia a declaração sumir da varredura:
+   * `const porta: PortaDeEscrita = usarPortaDeEscrita({…})` não casava. É a
+   * mesma classe do MÉDIO #4 (grafia, não classe), uma casa adiante.
+   */
+  const re = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*usarPortaDeEscrita\s*\(/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) {
     const bloco = blocoDepois(src, m.index + m[0].length - 1);
@@ -854,6 +864,38 @@ export const CHAMADAS_QUE_ESCREVEM_NO_DOM: readonly [RegExp, string][] = [
   [/\bdefinePropert(?:y|ies)\s*\(/g, "defineProperty("],
   [/\bsetPrototypeOf\s*\(/g, "setPrototypeOf("],
   [/\bReflect\s*\.\s*set\s*\(/g, "Reflect.set("],
+  /*
+   * ═══════════════════════════════════════════════════════ ALTO #2, rodada 16 ═
+   * CHAMAR O SETTER É ESCREVER — A FAMÍLIA INTEIRA, NÃO O CASO.
+   *
+   * O bloco logo abaixo desta lista dizia, desde a rodada 14, que a conclusão
+   * do buraco `d?.set?.call(el, "number")` "não é acrescentar
+   * `getOwnPropertyDescriptor` à lista". O crítico da rodada 16 usou exatamente
+   * essa escrita — disfarçada de conserto de teclado de celular, dentro de um
+   * `onFocus` de 75 s — e passou pelos CINCO portões com ZERO falhas na guarda
+   * de navegador. A frase estava certa sobre uma coisa (a completude mora no
+   * navegador) e errada sobre outra: uma rede barata que não custa nada e pega
+   * a família inteira vale o que custa. As duas coisas valem ao mesmo tempo.
+   *
+   * O que entra aqui é a FAMÍLIA, não a grafia daquele crítico:
+   *
+   *  - pegar a DESCRIÇÃO de uma propriedade (é de onde sai o setter cru);
+   *  - chamar um `set` por `call`/`apply`/`bind` (é como ele é invocado);
+   *  - nomear o PROTÓTIPO de um elemento (é onde o setter mora — e
+   *    `Object.prototype`/`Array.prototype`, que são dado, ficam de fora);
+   *  - `Reflect.apply` e `__lookupSetter__`, os dois caminhos irmãos.
+   *
+   * `Object.defineProperty` e `Reflect.set` já estavam na lista desde a
+   * rodada 13, e continuam.
+   */
+  [/\bgetOwnPropertyDescriptors?\s*\(/g, "getOwnPropertyDescriptor("],
+  [/\b__lookupSetter__\s*\(/g, "__lookupSetter__("],
+  [/\bReflect\s*\.\s*(?:apply|defineProperty|getOwnPropertyDescriptor)\s*\(/g, "Reflect.apply("],
+  [/\.\s*set\s*\??\.\s*(?:call|apply|bind)\s*\(/g, ".set.call("],
+  [
+    /\b(?:HTML\w*Element|SVG\w*Element|Element|Node|CharacterData|Attr|EventTarget)\s*\.\s*prototype\b/g,
+    "Element.prototype",
+  ],
   [/\bsetAttribute(?:NS|Node)?\s*\(/g, "setAttribute("],
   [/\bremoveAttribute(?:NS|Node)?\s*\(/g, "removeAttribute("],
   [/\bsetNamedItem\s*\(/g, "setNamedItem("],
@@ -923,10 +965,22 @@ export const CHAMADAS_QUE_ESCREVEM_NO_DOM: readonly [RegExp, string][] = [
  *
  * Não há atribuição nenhuma ali: o setter da propriedade é CHAMADO. No Chromium
  * a guarda reprovou em cinco medidas (A, B, C, F e G) e o campo voltou a apagar
- * a duração do operador. A conclusão não é "acrescentar `getOwnPropertyDescriptor`
- * à lista" — seria a nona variação do mesmo vício, e a décima já está escrita em
- * algum lugar. A conclusão é que a completude desta peça mora no navegador, e o
- * que está aqui é rede de segurança rápida, com nome e linha.
+ * a duração do operador.
+ *
+ * **O que esta rodada 14 escreveu aqui, e a rodada 16 corrigiu:** a conclusão
+ * daquela rodada foi *"a conclusão não é acrescentar `getOwnPropertyDescriptor`
+ * à lista"*, e a família ficou de fora. O crítico da rodada 16 voltou com ela —
+ * `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "type")?.set?.call(el, …)`
+ * dentro de um `onFocus` agendado para 75 s — e passou pelos cinco portões com
+ * zero falhas. A frase estava certa em dizer que a completude mora no navegador
+ * e errada em concluir que por isso a rede barata não vale: a família está na
+ * lista acima desde a rodada 16, com nome e linha, e continua sendo SEGUNDA
+ * rede. As duas afirmações que ficam de pé, as duas medidas:
+ *
+ *  1. esta varredura não é completa — ela lê texto, e texto tem sempre mais uma
+ *     grafia (pacote de fora, import dinâmico, código gerado);
+ *  2. o que ela cobre, ela cobre por FAMÍLIA e não por caso, e custa 2 s de
+ *     `vitest` em vez de 4 min de navegador.
  */
 
 /** Uma atribuição a propriedade, lida de trás para a frente. */
@@ -1544,54 +1598,170 @@ export interface JanelaDeDesfazer {
 }
 
 /**
- * O corpo da função que contém `agulha`. Anda para trás até o `function` mais
- * próximo e emparelha as chaves para a frente — é o mesmo serviço do
- * `corpoEfetivo` acima, para uma agulha em vez de um nome.
+ * ══════════════════════════════════════════════════════════ MÉDIO #4, rodada 16 ═
+ * A VARREDURA ERA DERIVADA DA **GRAFIA**, NÃO DA **CLASSE** — E O TEXTO
+ * PROMETIA O CONTRÁRIO.
+ *
+ * O teste ao lado dizia, por escrito: *"A quinta janela que nascer sem isso
+ * fica vermelha sem ninguém lembrar de acrescentar nome a lista nenhuma."*
+ * Era falso, e o coordenador mediu antes do crítico. A régua era esta:
+ *
+ *     /const\s+(\w+)\s*=\s*usarPortaDeEscrita\(\{\s*\n\s*op:\s*"(\w*desfazer\w*)"/g
+ *
+ * — `op:` tinha de estar **na linha seguinte** ao `usarPortaDeEscrita({`. Uma
+ * quinta janela declarada numa linha só passava intacta pelos cinco portões:
+ * `janelasDeDesfazer()` continuava listando quatro, e as três asserções em
+ * cima dela seguiam verdes sobre uma janela que elas nunca viram. Era a mesma
+ * armadilha que o cabeçalho da guarda de navegador descreve na primeira
+ * página — *"forma sintática também é grafia"* — morando dentro da rede que
+ * deveria ser a derivada.
+ *
+ * O que substitui: a porta é achada pelo que ela **é**, não por como a linha
+ * foi quebrada. `portasDeclaradas()` já existia neste arquivo desde a rodada 9
+ * e faz exatamente isso — casa a DECLARAÇÃO (`const x = usarPortaDeEscrita(`),
+ * pega o bloco BALANCEADO que vem depois e lê a `op` de dentro dele
+ * (`opDoBloco`). Quebra de linha, espaço, comentário no meio e ordem das
+ * chaves deixam de importar.
+ *
+ * O mesmo vale para as duas outras perguntas que esta varredura fazia por
+ * grafia:
+ *
+ *  - **quem fecha o relógio** era `/function\s+(\w+)\s*\(\s*\)\s*:\s*void\s*\{[^}]*clearTimeout/`
+ *    — só enxergava `function f(): void {` com o `clearTimeout` antes da
+ *    primeira `}`. Agora o fechador é toda função que CONTÉM `clearTimeout(`,
+ *    achada pelo mesmo leitor que anda para trás (`inicioDaFuncao`), seja ela
+ *    `function`, arrow ou método;
+ *  - **onde o desfazer é despachado** era o PRIMEIRO `porta.escrever(` do
+ *    arquivo, com o corpo achado por `lastIndexOf("function ")` — que devolve
+ *    a função errada quando o despacho mora numa arrow. Agora são TODOS os
+ *    despachos daquela porta, cada um com o seu corpo real, e a janela só
+ *    conta como fechada se TODOS fecharem.
  */
-function corpoQueChama(src: string, agulha: string): string | null {
-  const onde = src.indexOf(agulha);
-  if (onde < 0) return null;
-  const inicioDaFuncao = src.lastIndexOf("function ", onde);
-  if (inicioDaFuncao < 0) return null;
-  const abre = src.indexOf("{", inicioDaFuncao);
-  if (abre < 0 || abre > onde) return null;
+
+/**
+ * As palavras que abrem um BLOCO DE CONTROLE — `if (…) {` termina em `)` e,
+ * para `inicioDaFuncao`, parece cabeçalho de função. Foi o que fez o despacho
+ * dentro de `if (janela === null) { … }` ser lido como "o corpo da função", e
+ * a quarta janela de desfazer aparecer como aberta num código que a fecha.
+ */
+const ABERTURAS_DE_CONTROLE = new Set(["if", "for", "while", "switch", "catch", "else", "do"]);
+
+/** O `{` da FUNÇÃO que contém `i`, pulando os blocos de controle no caminho. */
+function inicioDaFuncaoReal(src: string, i: number): number {
+  let p = i;
+  for (let voltas = 0; voltas < 60; voltas += 1) {
+    const abre = inicioDaFuncao(src, p);
+    if (abre === 0) return 0;
+    const cabecalho = src.slice(0, abre).replace(/\s+$/, "");
+    let ehControle = false;
+    if (cabecalho.endsWith(")")) {
+      let nivel = 0;
+      let q = cabecalho.length - 1;
+      for (; q >= 0; q -= 1) {
+        if (cabecalho[q] === ")") nivel += 1;
+        else if (cabecalho[q] === "(") {
+          nivel -= 1;
+          if (nivel === 0) break;
+        }
+      }
+      const palavra = /([A-Za-z_$][\w$]*)\s*$/.exec(cabecalho.slice(0, Math.max(0, q)));
+      ehControle = palavra !== null && ABERTURAS_DE_CONTROLE.has(palavra[1] ?? "");
+    } else if (/\belse\s*$/.test(cabecalho) || /\bdo\s*$/.test(cabecalho)) {
+      ehControle = true;
+    }
+    if (!ehControle) return abre;
+    p = abre;
+  }
+  return 0;
+}
+
+/** O nome da função que CONTÉM o índice `i` — `null` quando ela é anônima. */
+function nomeDaFuncaoQueContem(src: string, i: number): string | null {
+  const abre = inicioDaFuncaoReal(src, i);
+  const cabecalho = src.slice(Math.max(0, abre - 240), abre);
+  let nome: string | null = null;
+  for (const re of [
+    /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g,
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]*)?=\s*(?:async\s*)?\(/g,
+  ]) {
+    for (const m of cabecalho.matchAll(re)) nome = m[1] ?? nome;
+  }
+  return nome;
+}
+
+/** O corpo BALANCEADO da função que contém o índice `i`. */
+function corpoDaFuncaoQueContem(src: string, i: number): string {
+  const abre = inicioDaFuncaoReal(src, i);
   let nivel = 0;
-  for (let i = abre; i < src.length; i += 1) {
-    if (src[i] === "{") nivel += 1;
-    else if (src[i] === "}") {
+  for (let p = abre; p < src.length; p += 1) {
+    if (src[p] === "{") nivel += 1;
+    else if (src[p] === "}") {
       nivel -= 1;
-      if (nivel === 0) return src.slice(abre, i + 1);
+      if (nivel === 0) return src.slice(abre, p + 1);
     }
   }
-  return null;
+  return src.slice(abre);
+}
+
+/** Os nomes das funções deste arquivo que apagam um relógio. */
+export function fechadoresDeRelogio(src: string): string[] {
+  const nomes = new Set<string>();
+  for (const m of src.matchAll(/\bclearTimeout\s*\(/g)) {
+    const nome = nomeDaFuncaoQueContem(src, m.index ?? 0);
+    if (nome !== null && nome.length > 0) nomes.add(nome);
+  }
+  return [...nomes];
+}
+
+/**
+ * Todo despacho DAQUELA porta fecha o relógio no veredito de gravar?
+ *
+ * Sem despacho nenhum a resposta é `false`: uma porta de desfazer que ninguém
+ * chama não é uma janela fechada, é uma janela que a varredura não achou —
+ * e aprovar por ausência é a segunda forma viciada desta base.
+ */
+function fechaEmTodoDespacho(src: string, porta: string, fechadores: readonly string[]): boolean {
+  const agulha = new RegExp(`\\b${porta}\\s*\\.\\s*escrever\\s*\\(`, "g");
+  let achou = false;
+  for (const m of src.matchAll(agulha)) {
+    achou = true;
+    const corpo = corpoDaFuncaoQueContem(src, m.index ?? 0);
+    const decideGravar = /"gravar"/.test(corpo);
+    const fecha =
+      /\bclearTimeout\s*\(/.test(corpo) ||
+      fechadores.some((f) => new RegExp(`\\b${f}\\s*\\(`).test(corpo));
+    if (!decideGravar || !fecha) return false;
+  }
+  return achou;
+}
+
+/**
+ * As janelas de desfazer de UM TEXTO — e não de um arquivo do disco.
+ *
+ * Trabalhar sobre texto é o que permite ao teste INJETAR a quinta janela (em
+ * uma linha só, que era a grafia que passava) no fonte real e PROVAR que a
+ * varredura a vê, em vez de conferir quatro nomes escritos à mão. Mesma lei de
+ * `marcasNoTexto`, pelo mesmo motivo.
+ */
+export function janelasNoTexto(arquivo: string, src: string): JanelaDeDesfazer[] {
+  if (!src.includes("JANELA_DESFAZER_MS")) return [];
+  const fechadores = fechadoresDeRelogio(src);
+  const achados: JanelaDeDesfazer[] = [];
+  for (const declarada of portasNoTexto(arquivo, src)) {
+    const op = declarada.op;
+    if (op === null || !op.includes("desfazer")) continue;
+    achados.push({
+      arquivo,
+      op,
+      porta: declarada.nome,
+      fechaORelogioNoDespacho: fechaEmTodoDespacho(src, declarada.nome, fechadores),
+    });
+  }
+  return achados;
 }
 
 export function janelasDeDesfazer(): JanelaDeDesfazer[] {
-  const achados: JanelaDeDesfazer[] = [];
-  for (const arquivo of arquivosDoSrc()) {
-    const src = codigo(arquivo);
-    if (!src.includes("JANELA_DESFAZER_MS")) continue;
-    // Como se chamam, NESTE arquivo, as funções que apagam o relógio.
-    const fechadores = [
-      ...src.matchAll(/function\s+(\w+)\s*\(\s*\)\s*:\s*void\s*\{[^}]*clearTimeout\s*\(/g),
-    ].map((m) => m[1] ?? "");
-    for (const m of src.matchAll(
-      /const\s+(\w+)\s*=\s*usarPortaDeEscrita\(\{\s*\n\s*op:\s*"(\w*desfazer\w*)"/g,
-    )) {
-      const porta = m[1] ?? "";
-      const corpo = corpoQueChama(src, `${porta}.escrever(`);
-      achados.push({
-        arquivo,
-        op: m[2] ?? "",
-        porta,
-        fechaORelogioNoDespacho:
-          corpo !== null &&
-          /decisao === "gravar"/.test(corpo) &&
-          fechadores.some((f) => f.length > 0 && corpo.includes(`${f}()`)),
-      });
-    }
-  }
-  return achados;
+  return arquivosDoSrc().flatMap((arquivo) => janelasNoTexto(arquivo, codigo(arquivo)));
 }
 
 /**

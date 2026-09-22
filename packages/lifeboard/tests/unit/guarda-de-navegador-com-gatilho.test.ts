@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { OPERACOES_DE_ESCRITA } from "@/app/tarefa/pedido";
+
 /**
  * OS-LIFEBOARD · P6 — ALTO #2 (conferência da rodada 13): GUARDA QUE NINGUÉM
  * RODA NÃO É GUARDA; É DOCUMENTAÇÃO.
@@ -230,6 +232,47 @@ describe("CRÍTICO — o vigia do contrato, o canário e as sentinelas continuam
     }
   });
 
+  /**
+   * ═══════════════════════════════════════════════════ ALTOS #1 e #3, rodada 16 ═
+   * A TABELA DE PERSISTÊNCIA COBRE A LISTA CANÔNICA — CONFERIDO SEM NAVEGADOR.
+   *
+   * A medida P0 da guarda já reprova quando a tabela e `OPERACOES_DE_ESCRITA`
+   * discordam. Mas a guarda de navegador não roda em `npx vitest run`, e uma
+   * régua que só existe atrás de um Chromium é uma régua que alguém vai
+   * esquecer de rodar. Esta é a MESMA pergunta, feita sobre o texto dos dois
+   * arquivos, em 2 s: operação nova em `pedido.ts` sem linha na tabela da
+   * guarda fica vermelha aqui também.
+   */
+  it("a tabela de persistência da guarda cobre TODAS as operações de escrita da página", () => {
+    const texto = guarda();
+    const inicio = texto.indexOf("const PERSISTENCIA_POR_OP = {");
+    expect(inicio, "a tabela de persistência saiu da guarda").toBeGreaterThan(0);
+    const bloco = texto.slice(inicio, texto.indexOf("\n};", inicio));
+    const naTabela = [...bloco.matchAll(/^ {2}([a-z_]+): \{$/gm)].map((m) => m[1] as string);
+    expect(
+      naTabela.length,
+      "a tabela de persistência ficou sem operação nenhuma — lista vazia é cegueira, não aprovação",
+    ).toBeGreaterThanOrEqual(OPERACOES_DE_ESCRITA.length);
+    const semLinha = OPERACOES_DE_ESCRITA.filter((op) => !naTabela.includes(op));
+    expect(
+      semLinha,
+      `op(s) de \`pedido.ts\` sem conferência de persistência na guarda: ${semLinha.join(", ")}`,
+    ).toEqual([]);
+    const sobrando = naTabela.filter(
+      (op) => !(OPERACOES_DE_ESCRITA as readonly string[]).includes(op),
+    );
+    expect(
+      sobrando,
+      `linha(s) da tabela que não existem mais em \`pedido.ts\`: ${sobrando.join(", ")}`,
+    ).toEqual([]);
+    // E o piso da guarda não pode ser zero — "conferir nada" nunca é sucesso.
+    const piso = /const PISO_DE_OPS_CONFERIDAS = (\d+);/.exec(texto)?.[1] ?? "0";
+    expect(
+      Number(piso),
+      "o piso de operações conferidas por persistência caiu abaixo da lista canônica",
+    ).toBeGreaterThanOrEqual(OPERACOES_DE_ESCRITA.length);
+  });
+
   it("toda medida da lista nominal é conferida por um `conferir(...)` da guarda", () => {
     const texto = guarda();
     const inicio = texto.indexOf("const MEDIDAS_EXIGIDAS = [");
@@ -240,7 +283,11 @@ describe("CRÍTICO — o vigia do contrato, o canário e as sentinelas continuam
     // baixar este número de propósito, e isso aparece no diff.
     // Rodada 15: subiu de 20 para 25 (uma sentinela J e uma K por rota, mais a
     // medida L do alcance). Encolher exige baixar este número de propósito.
-    const PISO_DE_MEDIDAS = 34;
+    // Rodada 16: subiu de 34 para 35 — entrou `P0 · `, o fecho da família da
+    // persistência. Os nomes `P · <op>` NÃO são literais desta lista: eles são
+    // DERIVADOS da lista canônica de `src/app/tarefa/pedido.ts`, e é o teste
+    // logo abaixo que confere essa derivação sem precisar de navegador.
+    const PISO_DE_MEDIDAS = 35;
     expect(
       nomes.length,
       "a lista nominal de medidas encolheu — se foi de propósito, baixe o piso neste arquivo e diga por quê",
@@ -277,7 +324,7 @@ describe("CRÍTICO — o vigia do contrato, o canário e as sentinelas continuam
       `nome exigido na lista sem nenhuma medida que o produza: ${semConferir.join(", ")}`,
     ).toEqual([]);
     // E as medidas que nasceram nas rodadas 14 e 15 estão entre elas.
-    for (const nova of ["C2 · ", "L · ", "E2 · ", "E3 · ", "E4 · ", "G2 · ", "M · "]) {
+    for (const nova of ["C2 · ", "L · ", "E2 · ", "E3 · ", "E4 · ", "G2 · ", "M · ", "P0 · "]) {
       expect(nomes, `a medida ${nova} saiu da lista nominal`).toContain(nova);
     }
     /*
