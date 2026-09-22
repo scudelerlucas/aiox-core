@@ -275,9 +275,16 @@ describe("M1 — a ÚLTIMA definição de cada função é a que vale (varredura
     ).toMatch(new RegExp(`set teto_usd = ${TETO_DIARIO_PADRAO_USD}\\b`));
     // E a seed nominal: cada conta da casa nasce com o teto da decisão. Sem
     // isto, bastava manter o `update` e inflar as quatro linhas do `insert`.
+    //
+    // Busca LITERAL, não expressão regular (CodeQL js/incomplete-sanitization,
+    // alerta alto na rodada 13): a versão anterior montava a expressão com
+    // `conta.replace(/\./g, "\\.")`, que escapa o ponto e deixa passar a
+    // barra invertida e os outros caracteres especiais — escape pela metade.
+    // O trecho procurado é texto literal na migration (`('conta', 500)`), então
+    // não há nada a escapar: `toContain` diz a mesma coisa sem a armadilha.
     for (const conta of CONTAS) {
-      expect(tudo, `conta sem teto da decisão na seed: ${conta}`).toMatch(
-        new RegExp(`\\('${conta.replace(/\./g, "\\.")}', ${TETO_DIARIO_PADRAO_USD}\\)`),
+      expect(tudo, `conta sem teto da decisão na seed: ${conta}`).toContain(
+        `('${conta}', ${TETO_DIARIO_PADRAO_USD})`,
       );
     }
   });
