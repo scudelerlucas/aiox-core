@@ -19,11 +19,10 @@ import { alvoAposExclusaoDeNota, type Focavel } from "@/components/task/foco";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita, type RegiaoViva } from "@/components/task/porta-de-escrita";
 import {
-  gravarRascunhoAutorNota,
-  gravarRascunhoNota,
-  lerRascunhoAutorNota,
-  lerRascunhoNota,
-} from "@/components/task/rascunho-nota";
+  CAMPOS_COM_RASCUNHO,
+  gravarRascunho,
+  lerRascunho,
+} from "@/components/task/rascunho";
 import { dataCurtaNoFusoDoOperador } from "@/lib/fuso";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import type { TaskNote } from "@/types/canonical";
@@ -326,12 +325,12 @@ function FormularioNovaNota({
       if (textoIntacto) {
         setTexto("");
         // [BAIXO #6, rodada 5] salvou: o rascunho daquele campo deixou de
-        // existir. Valor vazio já é `removeItem` em `gravarRascunhoNota`.
-        gravarRascunhoNota(taskId, "");
+        // existir. Valor vazio já é `removeItem` em `gravarRascunho`.
+        gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.nota, "");
       }
       if (autorIntacto) {
         setAutor("");
-        gravarRascunhoAutorNota(taskId, "");
+        gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.notaAutor, "");
       }
     },
   });
@@ -343,24 +342,24 @@ function FormularioNovaNota({
    * render do cliente (hidratação quebrada).
    */
   useEffect(() => {
-    const rascunho = lerRascunhoNota(taskId);
+    const rascunho = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.nota);
     if (rascunho.length > 0) setTexto(rascunho);
     // [BAIXO, rodada 11] o autor volta junto: o texto sobrevivia ao F5 e o
     // autor não, e meio formulário restaurado em silêncio é pior que nenhum.
-    const autorSalvo = lerRascunhoAutorNota(taskId);
+    const autorSalvo = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.notaAutor);
     if (autorSalvo.length > 0) setAutor(autorSalvo);
   }, [taskId]);
 
   function aoDigitar(valor: string): void {
     setTexto(valor);
     porta.aoMudarCampo();
-    gravarRascunhoNota(taskId, valor);
+    gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.nota, valor);
   }
 
   function aoDigitarAutor(valor: string): void {
     setAutor(valor);
     porta.aoMudarCampo();
-    gravarRascunhoAutorNota(taskId, valor);
+    gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.notaAutor, valor);
   }
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {

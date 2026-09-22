@@ -29,8 +29,41 @@ import type { ReactNode } from "react";
  * `inputMode="decimal"` mantém o teclado numérico no celular; o que se perde
  * são as setinhas de incremento, que nenhum dos três campos exigia.
  *
- * A trava que impede a volta: `tarefa-escritas-varredura.test.ts` recusa
- * qualquer `<input type="number"` em `components/task/**`.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A TRAVA QUE IMPEDE A VOLTA — e por que ela mudou três vezes (rodada 14).
+ *
+ * Ela já foi: "o texto `type="number"` não aparece neste arquivo" (rodada 10),
+ * "o `<input>` RENDERIZADO não é `number`" (rodada 12) e "nenhum arquivo destas
+ * duas pastas escreve em nó de DOM" (rodada 13). O crítico passou pelas três —
+ * a última com um par de parênteses, `(el).type = "number"`, e com um ajudante
+ * de nome inocente em `src/lib/ui/`, os dois com os quatro portões verdes e a
+ * duração do operador apagada no Chromium.
+ *
+ * A trava de verdade passou a ser **de navegador**:
+ * `tests/navegador/guarda-p6.mjs` abre a página no Chromium e pergunta ao DOM
+ * (`el.type`, `el.inputMode`, `el.value`) — não ao texto do arquivo. Ela não se
+ * importa se a escrita veio de regex, de `ref`, de um ajudante em `lib/`, do
+ * setter do protótipo ou de um pacote de fora.
+ *
+ * **E a rodada 14 achou o buraco dela:** essa pergunta era sempre "o que o
+ * campo é AGORA?", e "agora" eram os primeiros segundos depois da carga. Com
+ * `setTimeout(…, 4000)` dentro da `ref` deste `<input>`, o campo virava
+ * `number` depois de a guarda medir — cinco portões verdes e a duração do
+ * operador apagada no Chromium, outra vez. A pergunta virou **"alguma coisa
+ * mexeu nisto em algum momento?"**: um vigia instalado na página antes da
+ * hidratação anota toda mudança em `type`/`inputMode` de qualquer campo
+ * (setter do protótipo, `setAttribute`, `MutationObserver`), e a guarda reprova
+ * se o registro não estiver vazio. Duas sentinelas dão alcance de tempo a isso:
+ * uma de tempo real (~40 s, o tempo da guarda) e uma com o relógio da página
+ * sob controle da guarda, que adianta meia hora de uma vez. O que fica fora de
+ * alcance está declarado no cabeçalho da guarda — nem aqui nem lá se afirma que
+ * ela alcança tudo.
+ *
+ * As duas redes de fonte continuam, como segunda linha: `tiposDeInput` e
+ * `escritasNoDom` (`tests/unit/tarefa-varredura-derivada.ts`) leem agora o
+ * `src/` INTEIRO, com exceções declaradas por caminho + propriedade + motivo.
+ * A `tiposDeInput` ganhou na rodada 14 um piso e uma exigência nominal: ela
+ * chegava a achar ZERO campo e o portão continuava verde (medido).
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export interface CampoNumericoProps {

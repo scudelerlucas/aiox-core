@@ -245,6 +245,91 @@ jobs:
       - name: idea-inbox - tests (node --test)
         run: npm test --workspace=@aiox/idea-inbox
 
+  # ────────────────────────────────────────────────────────────────────────
+  # A GUARDA NO NAVEGADOR DA P6 — ligada em 22/09/2026 (P6, rodada 14, ALTO #2)
+  #
+  # Medição do coordenador nas três branches do painel: NENHUMA das três
+  # guardas de navegador desta base rodava sozinha.
+  #
+  #   P6 (`tests/navegador/guarda-p6.mjs`)     0 passos de CI, 0 em package.json
+  #   P5 (`tests/navegador/guarda-p5.mjs`)     0 passos de CI, 0 em package.json
+  #   P4 (`scripts/guarda-no-navegador.mjs`)   0 passos de CI, 1 atalho só
+  #
+  # Guarda que só roda quando alguém lembra não é guarda; é documentação. Este
+  # job liga a da P6 — P4 e P5 são outras branches, e o coordenador as liga nas
+  # rodadas próprias delas.
+  #
+  # POR QUE UM JOB SEPARADO, COM IMAGEM DE CONTAINER, e não um passo dentro de
+  # `package-tests`: a guarda precisa de `playwright-core` e de um Chromium, e
+  # **este repositório não depende do Playwright** — nenhuma dependência nova
+  # entrou para ligar isto. A imagem oficial do Playwright já traz os dois, e é
+  # o único jeito de rodar a guarda sem mexer no `package.json` das dependências.
+  #
+  # O QUE NÃO ESTÁ PROVADO, dito por extenso: a sessão que escreveu este job não
+  # tem rede nem Actions — ele foi escrito e NUNCA EXECUTADO. Duas coisas
+  # dependem da primeira corrida real: a tag da imagem e o caminho do
+  # `playwright-core` dentro dela. As duas fazem o job FALHAR ALTO se estiverem
+  # erradas (`exit 1` com mensagem) — nunca `skip`, nunca `continue-on-error`,
+  # nunca `|| true`. Enquanto não houver uma corrida verde aqui, o gatilho que se
+  # pode afirmar é `npm run guarda:navegador --workspace=@aiox/lifeboard` e a
+  # saída colada no relatório da rodada. Não há, neste arquivo nem no cabeçalho
+  # da guarda, nenhuma frase dizendo que ela já protege algo automaticamente.
+  lifeboard-navegador:
+    name: Lifeboard - guarda no navegador (P6)
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.config == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.1-noble
+      options: --ipc=host
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: lifeboard - guarda no navegador (P6, Chromium)
+        working-directory: packages/lifeboard
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+        run: |
+          set -uo pipefail
+          # Procurar sem silenciar: nada aqui engole o codigo de saida de nada.
+          # Quem nao acha, reprova em voz alta — e ha um teste de unidade que
+          # confere que este bloco nao ganhou nenhum silenciador.
+          MODULO=""
+          for ONDE in /usr/lib/node_modules /usr/local/lib/node_modules /ms-playwright-agent/node_modules; do
+            if [ -z "$MODULO" ] && [ -d "$ONDE" ]; then
+              ACHADO="$(find "$ONDE" -maxdepth 4 -path '*playwright-core/index.js' -print -quit 2>/dev/null)"
+              if [ -n "$ACHADO" ]; then MODULO="$ACHADO"; fi
+            fi
+          done
+          if [ -z "$MODULO" ]; then
+            echo "::error::playwright-core nao foi encontrado nesta imagem — a guarda de navegador da P6 NAO rodou. Corrija a tag da imagem ou o caminho de busca; nao transforme isto em skip."
+            exit 1
+          fi
+          CHROME=""
+          if [ -d /ms-playwright ]; then
+            CHROME="$(find /ms-playwright -maxdepth 3 -name chrome -type f -print -quit 2>/dev/null)"
+          fi
+          if [ -z "$CHROME" ]; then
+            echo "::error::o Chromium nao foi encontrado em /ms-playwright — a guarda de navegador da P6 NAO rodou."
+            exit 1
+          fi
+          echo "playwright-core: $MODULO"
+          echo "chromium: $CHROME"
+          PLAYWRIGHT_MODULO="$MODULO" PLAYWRIGHT_CHROMIUM="$CHROME" npm run guarda:navegador
+
   story-validation:
     name: Story Checkbox Validation
     needs: changes

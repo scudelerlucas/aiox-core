@@ -1,13 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
 import { CampoNumerico } from "@/components/task/campo-numerico";
 import { MENSAGEM_INVALIDO } from "@/components/task/escrita";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
+import {
+  CAMPOS_COM_RASCUNHO,
+  gravarRascunho,
+  lerRascunho,
+  limparRascunhos,
+} from "@/components/task/rascunho";
 import { StatusChip } from "@/components/ui/status-chip";
 import type { Task } from "@/types/canonical";
 
@@ -81,15 +87,46 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
   naCaixaRef.current = { title, estimativa };
   const enviadoRef = useRef<{ title: string; estimativa: string } | null>(null);
 
+  /**
+   * [MÉDIO #1, rodada 14] O RASCUNHO CHEGA AQUI. Cada linha da lista acima é um
+   * link para outra tarefa: escrever meia subtarefa e clicar numa delas apagava
+   * os dois campos, e este formulário não tinha rede nenhuma por baixo.
+   * Restaurado no EFEITO, não no `useState` inicial: `sessionStorage` não existe
+   * no servidor, e ler no render faria o HTML do servidor divergir do primeiro
+   * render do cliente (hidratação quebrada).
+   */
+  useEffect(() => {
+    const t = lerRascunho(parentId, CAMPOS_COM_RASCUNHO.subtarefaTitulo);
+    if (t.length > 0) setTitle(t);
+    const d = lerRascunho(parentId, CAMPOS_COM_RASCUNHO.subtarefaDuracao);
+    if (d.length > 0) setEstimativa(d);
+  }, [parentId]);
+
   const porta = usarPortaDeEscrita({
     op: "subtarefa_criar",
     alvo: () => tituloRef.current,
     aoSucesso: () => {
       const enviado = enviadoRef.current;
       if (enviado === null) return;
-      // Só esvazia o campo que ainda tem exatamente o que foi enviado.
-      if (naCaixaRef.current.title === enviado.title) setTitle("");
-      if (naCaixaRef.current.estimativa === enviado.estimativa) setEstimativa("");
+      // Só esvazia o campo que ainda tem exatamente o que foi enviado — e o
+      // rascunho daquele campo sai junto, senão ele voltaria como fantasma.
+      if (naCaixaRef.current.title === enviado.title) {
+        setTitle("");
+        gravarRascunho(parentId, CAMPOS_COM_RASCUNHO.subtarefaTitulo, "");
+      }
+      if (naCaixaRef.current.estimativa === enviado.estimativa) {
+        setEstimativa("");
+        gravarRascunho(parentId, CAMPOS_COM_RASCUNHO.subtarefaDuracao, "");
+      }
+      if (
+        naCaixaRef.current.title === enviado.title &&
+        naCaixaRef.current.estimativa === enviado.estimativa
+      ) {
+        limparRascunhos(parentId, [
+          CAMPOS_COM_RASCUNHO.subtarefaTitulo,
+          CAMPOS_COM_RASCUNHO.subtarefaDuracao,
+        ]);
+      }
     },
   });
 
@@ -117,6 +154,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
           onChange={(e) => {
             setTitle(e.target.value);
             porta.aoMudarCampo();
+            gravarRascunho(parentId, CAMPOS_COM_RASCUNHO.subtarefaTitulo, e.target.value);
           }}
           placeholder="ex.: Escrever os testes de borda"
           className="min-h-[44px] rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
@@ -136,6 +174,7 @@ function FormularioNovaSubtarefa({ parentId }: { parentId: string }): JSX.Elemen
         aoMudar={(texto) => {
           setEstimativa(texto);
           porta.aoMudarCampo();
+          gravarRascunho(parentId, CAMPOS_COM_RASCUNHO.subtarefaDuracao, texto);
         }}
         placeholder="opcional"
         classeDoCampo="min-h-[44px] w-28 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"

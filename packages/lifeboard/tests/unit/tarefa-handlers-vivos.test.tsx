@@ -50,8 +50,8 @@ const { NotasPainel } = await import("@/components/task/notas-painel");
 const { RelacoesPainel } = await import("@/components/task/relacoes-painel");
 const { SubtarefasPainel } = await import("@/components/task/subtarefas-painel");
 const { MENSAGEM_INVALIDO } = await import("@/components/task/escrita");
-const { chaveRascunhoAutorNota, chaveRascunhoNota } = await import(
-  "@/components/task/rascunho-nota"
+const { CAMPOS_COM_RASCUNHO, chaveRascunho } = await import(
+  "@/components/task/rascunho"
 );
 
 interface PedidoEspiado {
@@ -321,7 +321,7 @@ describe("O que o operador digita DURANTE a gravação sobrevive à resposta", (
     const depois = montar(instFilho, filho.fn, filho.props);
     expect(porTag(depois, "textarea").props.value).toBe("segunda nota que eu estava escrevendo");
     // E o rascunho do que ele ainda está escrevendo continua no depósito.
-    expect(janela.deposito.get(chaveRascunhoNota("task-review"))).toBe(
+    expect(janela.deposito.get(chaveRascunho("task-review", CAMPOS_COM_RASCUNHO.nota))).toBe(
       "segunda nota que eu estava escrevendo",
     );
   });
@@ -529,7 +529,7 @@ describe("A relação criada pela tela pode ter nota", () => {
 // ═══════════════════════════════════════ MUTAÇÃO: rascunho não é limpo ═
 describe("NotasPainel — salvar a nota apaga o rascunho", () => {
   /**
-   * MUTAÇÃO 4: remover `limparRascunhoNota(taskId)` do sucesso.
+   * MUTAÇÃO 4: remover `gravarRascunho(taskId, …, "")` do sucesso.
    * O que ia para produção: a nota salva VOLTA no rascunho na próxima visita,
    * e o operador salva duplicado.
    */
@@ -545,20 +545,20 @@ describe("NotasPainel — salvar a nota apaga o rascunho", () => {
     disparar(porTag(form, "input"), "onChange", { target: { value: "Lucas" } });
     form = montar(instFilho, filho.fn, filho.props);
     // O rascunho existe ANTES de salvar (é o que faz ele voltar no F5).
-    expect(janela.deposito.get(chaveRascunhoNota("task-build"))).toBe("meia nota");
-    expect(janela.deposito.get(chaveRascunhoAutorNota("task-build"))).toBe("Lucas");
+    expect(janela.deposito.get(chaveRascunho("task-build", CAMPOS_COM_RASCUNHO.nota))).toBe("meia nota");
+    expect(janela.deposito.get(chaveRascunho("task-build", CAMPOS_COM_RASCUNHO.notaAutor))).toBe("Lucas");
 
     disparar(porTag(form, "form"), "onSubmit");
     await assentar();
     expect(pedidos()[0]?.op).toBe("nota_criar");
-    expect(janela.deposito.has(chaveRascunhoNota("task-build"))).toBe(false);
-    expect(janela.deposito.has(chaveRascunhoAutorNota("task-build"))).toBe(false);
+    expect(janela.deposito.has(chaveRascunho("task-build", CAMPOS_COM_RASCUNHO.nota))).toBe(false);
+    expect(janela.deposito.has(chaveRascunho("task-build", CAMPOS_COM_RASCUNHO.notaAutor))).toBe(false);
   });
 
   /** [BAIXO, rodada 11] o autor também volta no F5 — antes só o texto voltava. */
   it("PRONTO QUANDO: ao remontar a página, texto E autor voltam do rascunho", () => {
-    janela.deposito.set(chaveRascunhoNota("task-build"), "meia nota");
-    janela.deposito.set(chaveRascunhoAutorNota("task-build"), "Lucas");
+    janela.deposito.set(chaveRascunho("task-build", CAMPOS_COM_RASCUNHO.nota), "meia nota");
+    janela.deposito.set(chaveRascunho("task-build", CAMPOS_COM_RASCUNHO.notaAutor), "Lucas");
     const inst = novaInstancia();
     const painel = montar(inst, NotasPainel, { taskId: "task-build", notas: [], agora: AGORA });
     const filho = componenteFilho(painel, "FormularioNovaNota");

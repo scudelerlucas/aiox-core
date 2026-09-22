@@ -112,8 +112,11 @@ describe("PaginaTarefa (fixture)", () => {
     // relação. As de DESFAZER passaram a ser separadas das de ANÚNCIOS: era a
     // fusão que fazia "Confirme: clique de novo…" ser lido colado ao botão
     // "Desfazer" de uma exclusão anterior. A régua do crítico é ≥ 5.
+    //
+    // [ALTO #2, rodada 14] +1: a janela de "Desfazer" do "Limpar átomos", que
+    // antes não existia — apagar os três átomos era 1 clique sem volta.
     expect(total).toBeGreaterThanOrEqual(5);
-    expect(total).toBe(13);
+    expect(total).toBe(14);
     expect(vazias).toBe(total); // nenhuma nasce com texto
     expect(html).toContain('aria-atomic="true"');
   });

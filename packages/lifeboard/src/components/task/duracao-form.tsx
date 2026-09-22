@@ -43,6 +43,23 @@ export function DuracaoForm({ taskId, estimativaDias }: DuracaoFormProps): JSX.E
   const naCaixaRef = useRef<string>(valor);
   naCaixaRef.current = valor;
 
+  /**
+   * [MÉDIO #1, rodada 14] ESTE CAMPO **NÃO** GANHA RASCUNHO, e é por isso.
+   *
+   * Os outros seis campos de texto da página começam VAZIOS: são formulários de
+   * criação, e guardar o que foi digitado só pode ajudar. Esta caixa começa com
+   * o número que o SERVIDOR guarda. Um rascunho aqui faria a tela mostrar `9`
+   * com o banco em `3`, sem dizer que aquilo não está salvo — a página mentindo
+   * sobre o que está gravado, que é exatamente o defeito de onde vêm os
+   * CRÍTICOs das rodadas 10, 11 e 13. Perder uma edição não salva é ruim;
+   * afirmar em silêncio que ela foi salva é pior.
+   *
+   * A régua é derivada, não uma exceção escrita à mão: `camposDeTextoLivre`
+   * (em `tests/unit/tarefa-varredura-derivada.ts`) marca como "nasce do
+   * servidor" todo campo cujo `useState` não começa num literal, e só esses
+   * ficam de fora da cobrança do rascunho.
+   */
+
   const porta = usarPortaDeEscrita({
     op: "duracao",
     alvo: () => botaoRef.current,

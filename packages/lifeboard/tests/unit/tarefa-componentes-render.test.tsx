@@ -280,11 +280,42 @@ describe("cada formulário traz UMA região viva, já no DOM e vazia (MÉDIO #3)
     ],
   ];
 
+  /**
+   * Quantas regiões vivas cada formulário tem, e por quê. Um formulário sem
+   * desfazer tem UMA (a de anúncios); um formulário COM desfazer tem duas — a
+   * de anúncios e a que carrega o botão —, porque fundir as duas era o que
+   * fazia "Confirme: clique de novo…" ser lido colado a um "Desfazer" antigo
+   * (BAIXO #7, rodada 9).
+   *
+   * [ALTO #2, rodada 14] `AtomosForm` entrou nesse segundo grupo: "Limpar
+   * átomos" ganhou janela de desfazer, como a exclusão de nota e de relação já
+   * tinham.
+   */
+  const REGIOES_ESPERADAS: Record<string, number> = {
+    DuracaoForm: 1,
+    MaeForm: 1,
+    MetaForm: 1,
+    StatusForm: 1,
+    SubtarefasPainel: 1,
+    AtomosForm: 2,
+  };
+
   for (const [nome, elemento] of casos) {
-    it(`PRONTO QUANDO: ${nome} nasce com 1 região viva vazia`, () => {
-      expect(regioesStatus(renderToStaticMarkup(elemento))).toEqual({ total: 1, vazias: 1 });
+    const esperadas = REGIOES_ESPERADAS[nome] ?? 1;
+    it(`PRONTO QUANDO: ${nome} nasce com ${String(esperadas)} região(ões) viva(s) vazia(s)`, () => {
+      expect(regioesStatus(renderToStaticMarkup(elemento))).toEqual({
+        total: esperadas,
+        vazias: esperadas,
+      });
     });
   }
+
+  it("PRONTO QUANDO: todo componente desta suíte tem contagem declarada", () => {
+    // Componente novo sem linha em `REGIOES_ESPERADAS` cairia no `?? 1` em
+    // silêncio — e silêncio é o que deixa gêmeo para trás.
+    const nomes = casos.map(([n]) => n).sort();
+    expect(Object.keys(REGIOES_ESPERADAS).sort()).toEqual(nomes);
+  });
 });
 
 describe("nenhum controle usa `disabled` para dizer 'gravando' (achado MÉDIO #2, rodada 5)", () => {

@@ -4,9 +4,17 @@ import type { ReactNode } from "react";
 import { expandir, todasAsTags } from "./arvore-react";
 import { janelaFalsa, montar, novaInstancia, reactFalso } from "./hooks-falsos";
 import {
+  arquivosComCampo,
+  arquivosComCampoDeTexto,
   arquivosComInput,
+  arquivosDoSrc,
+  arquivosVarridos,
+  atribuicoesAPropriedade,
+  codigo as codigoDoArquivo,
   escritasNoDom,
-  PROPRIEDADES_TOLERADAS,
+  ESCRITAS_TOLERADAS,
+  RAIZES_DA_PAGINA,
+  toleracaoDe,
 } from "./tarefa-varredura-derivada";
 
 /**
@@ -214,13 +222,144 @@ describe("os campos RENDERIZADOS da página da tarefa", () => {
       "textContent",
       "attributes",
     ];
-    const invasoras = PROPRIEDADES_TOLERADAS.filter((t) => proibidas.includes(t.prop)).map(
+    const invasoras = ESCRITAS_TOLERADAS.filter((t) => proibidas.includes(t.prop)).map(
       (t) => t.prop,
     );
     expect(invasoras, `exceção que reabre o CRÍTICO: ${invasoras.join(", ")}`).toEqual([]);
     // E toda exceção diz POR QUÊ — motivo vazio é exceção sem dono.
-    for (const t of PROPRIEDADES_TOLERADAS) {
+    for (const t of ESCRITAS_TOLERADAS) {
       expect(t.motivo.length, `exceção "${t.prop}" sem motivo escrito`).toBeGreaterThan(40);
     }
   });
+
+  /**
+   * ═════════════════════════════════════════════════════ CRÍTICO #2, rodada 14 ═
+   * O PERÍMETRO É DERIVADO, E ELE SAI DAS DUAS PASTAS.
+   *
+   * Até a rodada 13 a varredura de escrita em nó de DOM percorria
+   * `["components/task", "app/tarefa"]`. Um ajudante em `src/lib/ui/` importado
+   * pela página era invisível — e foi assim que o crítico apagou a duração do
+   * operador com os quatro portões verdes. Agora: o perímetro da PÁGINA é o
+   * fecho de importações, e a varredura de DOM roda no `src/` INTEIRO.
+   */
+  it("PRONTO QUANDO: as RAÍZES do perímetro existem — raiz que não existe encolhe tudo em silêncio", () => {
+    // `arquivosVarridos()` parte de `RAIZES_DA_PAGINA`. Se um arquivo de raiz
+    // for renomeado, o fecho simplesmente fica menor e a varredura passa a
+    // aprovar por ausência de cobertura — a armadilha desta peça inteira.
+    const todos = new Set(arquivosDoSrc());
+    const sumidas = RAIZES_DA_PAGINA.filter((r) => !todos.has(r));
+    expect(sumidas, `raiz do perímetro que não existe mais:\n${sumidas.join("\n")}`).toEqual([]);
+    const perimetro = new Set(arquivosVarridos());
+    for (const r of RAIZES_DA_PAGINA) expect(perimetro.has(r), r).toBe(true);
+    expect(perimetro.size, "o perímetro encolheu").toBeGreaterThanOrEqual(40);
+  });
+
+  it("PRONTO QUANDO: o perímetro da página sai das duas pastas antigas", () => {
+    const perimetro = arquivosVarridos();
+    const fora = perimetro.filter(
+      (a) => !a.startsWith("components/task/") && !a.startsWith("app/tarefa/"),
+    );
+    expect(
+      fora.length,
+      "o perímetro voltou a ser só as duas pastas — é o CRÍTICO #2 de volta",
+    ).toBeGreaterThan(0);
+    // E o `src/` inteiro é estritamente maior que o perímetro da página: é ele
+    // que a varredura de DOM percorre.
+    expect(arquivosDoSrc().length).toBeGreaterThan(perimetro.length);
+    console.log("Perímetro da página (fecho de importações):", String(perimetro.length), "arquivos");
+    console.log("  fora das duas pastas antigas:", fora.join(", "));
+  });
+
+  it("PRONTO QUANDO: nenhuma exceção por CAMINHO cobre arquivo que desenha um campo", () => {
+    const comCampo = new Set(arquivosComCampo());
+    const perigosas = ESCRITAS_TOLERADAS.filter(
+      (t) => t.arquivo !== null && comCampo.has(t.arquivo),
+    ).map((t) => `${t.arquivo} → ${t.prop}`);
+    expect(
+      perigosas,
+      `exceção por caminho em arquivo que desenha campo:\n${perigosas.join("\n")}`,
+    ).toEqual([]);
+    // A derivação tem de estar medindo algo: se ela devolver vazio, o teste
+    // acima passaria no vácuo — alvo ausente é reprovação, não dispensa.
+    expect(comCampo.size, "a derivação não achou arquivo com campo").toBeGreaterThan(5);
+    expect(arquivosComCampoDeTexto().length).toBeGreaterThan(0);
+    // E toda exceção com caminho aponta para um arquivo que EXISTE.
+    const todos = new Set(arquivosDoSrc());
+    const fantasmas = ESCRITAS_TOLERADAS.filter(
+      (t) => t.arquivo !== null && !todos.has(t.arquivo),
+    ).map((t) => t.arquivo ?? "");
+    expect(fantasmas, `exceção para arquivo que não existe:\n${fantasmas.join("\n")}`).toEqual([]);
+  });
+
+  /**
+   * Exceção que não casa com escrita nenhuma é lixo que esconde a próxima —
+   * "exceção por ausência de cobertura", que a rodada 14 proíbe por escrito.
+   */
+  it("PRONTO QUANDO: toda exceção declarada é USADA por uma escrita real", () => {
+    const comTexto = new Set(arquivosComCampoDeTexto());
+    const usadas = new Set<EscritaToleradaChave>();
+    for (const arquivo of arquivosDoSrc()) {
+      for (const a of atribuicoesAPropriedade(codigoDoArquivo(arquivo))) {
+        const t = toleracaoDe(arquivo, a, (x) => comTexto.has(x));
+        if (t !== null) usadas.add(`${t.arquivo ?? "*"}|${t.prop}`);
+      }
+    }
+    const mortas = ESCRITAS_TOLERADAS.map((t) => `${t.arquivo ?? "*"}|${t.prop}`).filter(
+      (c) => !usadas.has(c),
+    );
+    expect(mortas, `exceção que não cobre escrita nenhuma (apagar):\n${mortas.join("\n")}`).toEqual(
+      [],
+    );
+  });
+
+  /**
+   * ═════════════════════════════════════════════════════ CRÍTICO #1, rodada 14 ═
+   * A FAMÍLIA NÃO TEM MAIS UMA GRAFIA PREFERIDA.
+   *
+   * A regex da rodada 13 exigia identificador nu na raiz. Aqui as quatro
+   * fugas que o crítico nomeou — e mais algumas — são lidas uma a uma.
+   */
+  it("PRONTO QUANDO: o leitor vê `.type =` atrás de parênteses, `as`, `??`, chamada e índice", () => {
+    const casos: [string, string | null][] = [
+      ['el.type = "number";', "type"],
+      ['(el).type = "number";', "type"],
+      ['(el as HTMLInputElement).type = "number";', "type"],
+      ['(a ?? b).type = "number";', "type"],
+      ['f().type = "number";', "type"],
+      ['el!.type = "number";', "type"],
+      ['(((el))).type = "number";', "type"],
+      ['el?.type = "number";', "type"],
+      ['campos["type"] = "number";', null],
+      ['el.dataset.type = "number";', "type"],
+      ['objeto.el.type = "number";', "type"],
+      ['pegar(el).style.width = "1px";', "width"],
+    ];
+    for (const [src, prop] of casos) {
+      const achados = atribuicoesAPropriedade(src);
+      expect(achados.length, `não vi a atribuição em: ${src}`).toBe(1);
+      expect(achados[0]?.prop, src).toBe(prop);
+    }
+    // E o que NÃO é escrita em propriedade continua fora.
+    for (const src of [
+      "const x = 1;",
+      "let y: Tipo[] = [];",
+      "const [a, b] = await Promise.all([]);",
+      "const janelas: GrafoV3Props[\"janelas\"] = {};",
+      "if (a === b) return;",
+      "const f = (e) => e.value;",
+      "x >= 1;",
+    ]) {
+      expect(atribuicoesAPropriedade(src), `falso positivo em: ${src}`).toEqual([]);
+    }
+    // E a atribuição COMPOSTA também é escrita.
+    expect(atribuicoesAPropriedade("el.style.width += 1;")[0]?.prop).toBe("width");
+    expect(atribuicoesAPropriedade("(el).step ??= 1;")[0]?.prop).toBe("step");
+    // O leitor devolve `null` na RAIZ quando ela está escondida atrás de
+    // parênteses — é a informação que a regex antiga transformava em dispensa.
+    expect(atribuicoesAPropriedade('(el).type = "n";')[0]?.raiz).toBeNull();
+    expect(atribuicoesAPropriedade('el.type = "n";')[0]?.raiz).toBe("el");
+  });
 });
+
+/** A chave de uma exceção declarada — caminho + propriedade. */
+type EscritaToleradaChave = string;

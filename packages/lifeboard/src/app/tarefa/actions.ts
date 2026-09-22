@@ -532,5 +532,10 @@ export async function escreverTarefaAction(
       return atomosSet(campos, false);
     case "atomos_limpar":
       return atomosSet(campos, true);
+    // [ALTO #2, rodada 14] o desfazer da limpeza é a MESMA gravação do salvar
+    // (os três números voltam), com operação própria para o anúncio e a
+    // auditoria distinguirem "salvei" de "desfiz".
+    case "atomos_desfazer_limpeza":
+      return atomosSet(campos, false);
   }
 }

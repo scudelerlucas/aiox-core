@@ -39,8 +39,36 @@ import { fileURLToPath } from "node:url";
 
 const RAIZ = fileURLToPath(new URL("../../src/", import.meta.url));
 
-/** As duas árvores da página da tarefa — onde as portas vivem. */
-export const PASTAS_VARRIDAS = ["components/task", "app/tarefa"] as const;
+/**
+ * ═══════════════════════════════════════════════════════ CRÍTICO #2, rodada 14 ═
+ * O PERÍMETRO TINHA DUAS PASTAS; A APLICAÇÃO NÃO TEM.
+ *
+ * Até a rodada 13 o perímetro era a constante `["components/task", "app/tarefa"]`.
+ * O crítico pôs o ajudante
+ *
+ *     // src/lib/ui/teclado-do-celular.ts
+ *     export function ajustarTecladoDecimal(el: HTMLInputElement | null): void {
+ *       if (el === null) return;
+ *       el.type = "number";
+ *     }
+ *
+ * e, em `campo-numerico.tsx`, `ref={ajustarTecladoDecimal}`. O arquivo da página
+ * não continha escrita nenhuma — só uma chamada de nome inocente —, os quatro
+ * portões ficaram verdes e, no Chromium, `input.type` virava `number`: a página
+ * apagando a duração do operador e dizendo "Duração removida.".
+ *
+ * Duas coisas mudaram, e as duas importam:
+ *
+ *  1. O perímetro da PÁGINA deixou de ser lista de pastas: ele é o **fecho de
+ *     importações** a partir do que o navegador monta em `/tarefa/<id>`
+ *     (`RAIZES_DA_PAGINA`). Qualquer arquivo, em qualquer canto do `src/`, que a
+ *     página alcance entra — `lib/ui/teclado-do-celular.ts` inclusive.
+ *  2. A varredura de escrita em nó de DOM (`escritasNoDom`) deixou de rodar no
+ *     perímetro da página e passa a rodar no **`src/` INTEIRO**, com exceções
+ *     declaradas uma a uma, por caminho + propriedade + motivo escrito
+ *     (`ESCRITAS_TOLERADAS`) — nunca por ausência de cobertura.
+ */
+export const RAIZES_DA_PAGINA = ["app/tarefa/[id]/page.tsx", "app/layout.tsx"] as const;
 
 function arquivosDe(pasta: string): string[] {
   const achados: string[] = [];
@@ -59,9 +87,71 @@ function arquivosDe(pasta: string): string[] {
   return achados.sort();
 }
 
-/** Os arquivos da página da tarefa. */
+function existeArquivo(caminho: string): boolean {
+  try {
+    return statSync(RAIZ + caminho).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `@/x/y` e `./y` → o arquivo do `src/`, quando ele existe. Devolve `null` para
+ * pacote de fora (`react`, `next/link`), que não é código desta casa.
+ */
+export function resolverImport(especificador: string, deArquivo: string): string | null {
+  let base: string;
+  if (especificador.startsWith("@/")) base = especificador.slice(2);
+  else if (especificador.startsWith(".")) {
+    const dir = deArquivo.includes("/") ? deArquivo.slice(0, deArquivo.lastIndexOf("/")) : "";
+    const partes = dir.length > 0 ? dir.split("/") : [];
+    for (const p of especificador.split("/")) {
+      if (p === ".") continue;
+      else if (p === "..") partes.pop();
+      else partes.push(p);
+    }
+    base = partes.join("/");
+  } else return null;
+  for (const sufixo of [".ts", ".tsx", "/index.ts", "/index.tsx", ""]) {
+    const candidato = base + sufixo;
+    if (/\.tsx?$/.test(candidato) && existeArquivo(candidato)) return candidato;
+  }
+  return null;
+}
+
+/** Os módulos do `src/` que este arquivo importa (estático e dinâmico). */
+export function importadosPor(arquivo: string): string[] {
+  const src = codigo(arquivo);
+  const fora: string[] = [];
+  for (const m of src.matchAll(
+    /(?:^|[\n;}])\s*(?:import|export)\b[^;\n]*?from\s*["']([^"']+)["']/g,
+  )) {
+    const r = resolverImport(m[1] ?? "", arquivo);
+    if (r !== null) fora.push(r);
+  }
+  for (const m of src.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)) {
+    const r = resolverImport(m[1] ?? "", arquivo);
+    if (r !== null) fora.push(r);
+  }
+  return [...new Set(fora)];
+}
+
+/**
+ * Os arquivos que a página da tarefa ALCANÇA — fecho de importações a partir de
+ * `RAIZES_DA_PAGINA`. É o perímetro da página, e ele não conhece pasta
+ * privilegiada: um ajudante em `lib/`, `hooks/` ou `components/ui/` entra no dia
+ * em que a página o importa.
+ */
 export function arquivosVarridos(): string[] {
-  return PASTAS_VARRIDAS.flatMap((p) => arquivosDe(p)).sort();
+  const vistos = new Set<string>();
+  const pilha: string[] = RAIZES_DA_PAGINA.filter((r) => existeArquivo(r));
+  while (pilha.length > 0) {
+    const atual = pilha.pop();
+    if (atual === undefined || vistos.has(atual)) continue;
+    vistos.add(atual);
+    for (const vizinho of importadosPor(atual)) pilha.push(vizinho);
+  }
+  return [...vistos].sort();
 }
 
 /** TODO o `src/` — é aqui que `app/api/**` entra (buraco 4). */
@@ -269,32 +359,77 @@ export function inicioDaFuncao(src: string, i: number): number {
   return 0;
 }
 
+/**
+ * ══════════════════════════════════════════════════════════ ALTO #1, rodada 14 ═
+ * A GUARDA-GÊMEA CAÍA NO MESMO PARÊNTESE — E O REFORÇO ERA LISTA DE NOMES.
+ *
+ * Os marcadores desta guarda tinham a MESMA exigência de identificador nu da
+ * varredura de DOM: `/[A-Za-z_$][\w$]*\s*\.\s*current\s*=/`. O crítico pôs
+ * `(tentativaRef).current = novo;` antes da porta em `status-form.tsx`, os
+ * quatro portões ficaram verdes, e no Chromium (POST atrasado 4 s, segundo
+ * clique recusado) a tela anunciou o desfecho do SEGUNDO clique enquanto o
+ * servidor recebia o do primeiro.
+ *
+ * Duas mudanças:
+ *  1. as marcas de estado saem do mesmo leitor que anda para trás
+ *     (`atribuicoesAPropriedade`) — `(x).current`, `(x as Y).current`,
+ *     `x["current"]` e `f().current` entram todas;
+ *  2. `marcasNoTexto` trabalha sobre TEXTO, não sobre arquivo, para o teste
+ *     poder injetar a sabotagem em cada arquivo que chama a porta e PROVAR que
+ *     a guarda a vê — em vez de conferir dois nomes de arquivo escritos à mão.
+ */
+export function marcasNoTexto(src: string): Omit<MarcaAntesDoVeredito, "arquivo">[] {
+  const achados: Omit<MarcaAntesDoVeredito, "arquivo">[] = [];
+  const atribuicoes = atribuicoesAPropriedade(src);
+  for (const m of src.matchAll(/\bescrever\s*\(/g)) {
+    const indice = m.index ?? 0;
+    const antes = src.slice(Math.max(0, indice - 120), indice);
+    // A DECLARAÇÃO de `escrever` na porta não é um sítio de escrita.
+    if (/(function|:)\s*$/.test(antes)) continue;
+    const inicio = inicioDaFuncao(src, indice);
+    // `ref.current = …` em qualquer grafia, dentro da mesma função e ANTES da
+    // chamada da porta.
+    for (const a of atribuicoes) {
+      if (a.indice < inicio || a.indice >= indice) continue;
+      const ehCurrent =
+        a.prop === "current" || /^\[\s*["']current["']\s*\]$/.test(a.calculado ?? "");
+      if (!ehCurrent) continue;
+      achados.push({
+        linha: linhaDe(src, a.indice),
+        marca: `${a.esquerda.replace(/\s+/g, " ").trim()} =`,
+        escritaNaLinha: linhaDe(src, indice),
+      });
+    }
+    const corpo = src.slice(inicio, indice);
+    for (const marca of corpo.matchAll(/\bset[A-Z][\w$]*\s*\(/g)) {
+      achados.push({
+        linha: linhaDe(src, inicio + (marca.index ?? 0)),
+        marca: "set…(",
+        escritaNaLinha: linhaDe(src, indice),
+      });
+    }
+  }
+  return achados;
+}
+
+/** Os arquivos do perímetro que CHAMAM a porta — derivado, nunca listado. */
+export function arquivosQueChamamAPorta(): string[] {
+  return arquivosVarridos().filter((a) => {
+    if (a === ARQUIVO_DA_PORTA) return false;
+    const src = codigo(a);
+    for (const m of src.matchAll(/\bescrever\s*\(/g)) {
+      const antes = src.slice(Math.max(0, (m.index ?? 0) - 120), m.index ?? 0);
+      if (!/(function|:)\s*$/.test(antes)) return true;
+    }
+    return false;
+  });
+}
+
 export function marcasAntesDoVeredito(): MarcaAntesDoVeredito[] {
   const achados: MarcaAntesDoVeredito[] = [];
-  const marcadores: [RegExp, string][] = [
-    [/[A-Za-z_$][\w$]*\s*\.\s*current\s*=[^=]/g, ".current ="],
-    [/\bset[A-Z][\w$]*\s*\(/g, "set…("],
-  ];
   for (const arquivo of arquivosVarridos()) {
     if (arquivo === ARQUIVO_DA_PORTA) continue;
-    const src = codigo(arquivo);
-    for (const m of src.matchAll(/\bescrever\s*\(/g)) {
-      const indice = m.index ?? 0;
-      const antes = src.slice(Math.max(0, indice - 120), indice);
-      if (/(function|:)\s*$/.test(antes)) continue;
-      const inicio = inicioDaFuncao(src, indice);
-      const corpo = src.slice(inicio, indice);
-      for (const [re, rotulo] of marcadores) {
-        for (const marca of corpo.matchAll(re)) {
-          achados.push({
-            arquivo,
-            linha: linhaDe(src, inicio + (marca.index ?? 0)),
-            marca: rotulo,
-            escritaNaLinha: linhaDe(src, indice),
-          });
-        }
-      }
-    }
+    for (const marca of marcasNoTexto(codigo(arquivo))) achados.push({ arquivo, ...marca });
   }
   return achados;
 }
@@ -495,7 +630,12 @@ export function rotasDeFuga(): { arquivo: string; linha: number; trecho: string 
     [/<form[^>]*\saction=\{/g, "<form action={"],
     [/\bformAction=\{/g, "formAction={"],
   ];
-  for (const arquivo of arquivosVarridos()) {
+  // [rodada 14] O perímetro virou o FECHO da página, e nele entram módulos de
+  // servidor que falam com o Supabase por `fetch` — o que é o trabalho deles.
+  // A rota de fuga que importa é a do NAVEGADOR: um arquivo `"use client"` da
+  // página chamando o servidor por fora da porta. Derivado da diretiva, não de
+  // uma lista de arquivos.
+  for (const arquivo of arquivosDeCliente()) {
     const src = codigo(arquivo);
     for (const [re, rotulo] of padroes) {
       for (const m of src.matchAll(re)) {
@@ -504,6 +644,11 @@ export function rotasDeFuga(): { arquivo: string; linha: number; trecho: string 
     }
   }
   return achados;
+}
+
+/** Os arquivos do perímetro da página que rodam no NAVEGADOR (`"use client"`). */
+export function arquivosDeCliente(): string[] {
+  return arquivosVarridos().filter((a) => /^\s*["']use client["']/.test(fonte(a)));
 }
 
 /**
@@ -596,7 +741,10 @@ export function temExportAnonimo(arquivo: string): boolean {
  */
 export function tiposDeInput(): { arquivo: string; linha: number; tipo: string }[] {
   const achados: { arquivo: string; linha: number; tipo: string }[] = [];
-  for (const arquivo of arquivosVarridos()) {
+  // [CRÍTICO #2, rodada 14] `src/` INTEIRO: o `type="number"` proibido não tem
+  // por que ser proibido só em duas pastas, e um campo novo em `components/ui/`
+  // reusado pela página escapava da checagem.
+  for (const arquivo of arquivosDoSrc()) {
     const src = codigo(arquivo);
     for (const m of src.matchAll(/<input\b[^>]*?\btype=\{?["']([a-z]+)["']\}?/g)) {
       achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), tipo: m[1] ?? "" });
@@ -685,37 +833,72 @@ export const CHAMADAS_QUE_ESCREVEM_NO_DOM: readonly [RegExp, string][] = [
   [/\bcreateElement(?:NS)?\s*\(/g, "createElement("],
   [/\bdocument\s*\.\s*write\b/g, "document.write"],
 ];
-
 /**
- * As propriedades que estes arquivos PODEM escrever, com o motivo de cada uma.
- * Mesma disciplina de `PORTADORES`: a lista não isenta arquivo nenhum — ela é
- * a própria checagem, e um teste desta rodada recusa qualquer propriedade que
- * mude o contrato do campo (`type`, `inputMode`, `pattern`, `step`, `min`,
- * `max`, `checked`, `defaultValue`…).
+ * ═══════════════════════════════════════════════════════ CRÍTICO #1, rodada 14 ═
+ * UM PAR DE PARÊNTESES APAGAVA A TRAVA INTEIRA.
+ *
+ * A rodada 13 trocou "proibir três grafias" por "proibir a família" e escreveu,
+ * neste arquivo, que *"a pergunta certa não é «este texto aparece?», é «este
+ * arquivo escreve num nó de DOM?»"*. A implementação continuava respondendo a
+ * primeira: a regex exigia um IDENTIFICADOR NU na raiz —
+ *
+ *     /([A-Za-z_$][\w$]*)((?:\s*\??\.\s*[A-Za-z_$][\w$]*|…)+)\s*=(?!=|>)/g
+ *
+ * — e por isso `(el).type = "number"`, `(el as HTMLInputElement).type = …`,
+ * `(a ?? b).type = …` e `f().type = …` passavam. O crítico derrubou a rodada
+ * inteira com um par de parênteses dentro de `campo-numerico.tsx`, os quatro
+ * portões verdes e, no Chromium, a duração do operador apagada com a tela
+ * dizendo "Duração removida.".
+ *
+ * **Forma sintática também é grafia.** O que substitui a regex não é uma regex
+ * maior: é um leitor que ANDA PARA TRÁS a partir de cada `=` e reconstrói o
+ * lado esquerdo — identificadores, `.`, `?.`, `[…]`, `(…)`, `!` — e só pergunta
+ * duas coisas no fim: *a escrita termina numa propriedade (ou num índice
+ * calculado)?* e *qual propriedade?*. A raiz deixou de ser exigência: ela vira
+ * informação, e vem `null` quando o autor a escondeu atrás de parênteses.
+ *
+ * A rede principal desta peça passou a ser o navegador
+ * (`tests/navegador/guarda-p6.mjs`), que pergunta ao DOM e não ao texto. Esta
+ * varredura é a SEGUNDA rede: ela não depende de servidor de pé, roda em
+ * `npx vitest run` e nomeia o arquivo e a linha.
+ *
+ * E ela é incompleta POR CONSTRUÇÃO — isto está medido, não suposto. Na rodada
+ * 14 esta sabotagem passou pelos QUATRO portões de fonte (1480 testes verdes,
+ * `tsc` limpo, contraste limpo, `eslint` limpo):
+ *
+ *     ref={(el) => {
+ *       if (el !== null) {
+ *         const d = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "type");
+ *         d?.set?.call(el, "number");
+ *       }
+ *     }}
+ *
+ * Não há atribuição nenhuma ali: o setter da propriedade é CHAMADO. No Chromium
+ * a guarda reprovou em cinco medidas (A, B, C, F e G) e o campo voltou a apagar
+ * a duração do operador. A conclusão não é "acrescentar `getOwnPropertyDescriptor`
+ * à lista" — seria a nona variação do mesmo vício, e a décima já está escrita em
+ * algum lugar. A conclusão é que a completude desta peça mora no navegador, e o
+ * que está aqui é rede de segurança rápida, com nome e linha.
  */
-export const PROPRIEDADES_TOLERADAS: readonly {
-  prop: string;
-  motivo: string;
-  /** Quando existe, o caminho inteiro da atribuição tem de casar. */
-  exigeCaminho?: RegExp;
-}[] = [
-  {
-    prop: "current",
-    motivo:
-      "é a caixa de ref do React, um objeto comum — não um nó de DOM. Toda a página guarda estado de closure aqui.",
-  },
-  {
-    prop: "value",
-    exigeCaminho: /Ref\s*\??\.\s*current\s*\.\s*value$/,
-    motivo:
-      "o <select> nativo de mae-form.tsx já trocou de valor sozinho quando a porta recusa, e o React não re-renderiza porque o estado não mudou; devolver o valor visível é a única forma de a caixa não mentir. Só em arquivo SEM <input>: num campo de texto seria `value` justamente o que faria programa e caixa discordarem.",
-  },
-  {
-    prop: "returnValue",
-    motivo:
-      "é o contrato de `beforeunload` (usar-aviso-de-saida.ts): sem ele o navegador não pergunta antes de levar embora uma gravação em voo. Não toca em campo nenhum.",
-  },
-];
+
+/** Uma atribuição a propriedade, lida de trás para a frente. */
+export interface AtribuicaoAPropriedade {
+  /** Onde o `=` está, em caracteres. */
+  indice: number;
+  /** A raiz NUA (`el`), ou `null` quando a raiz é uma expressão (`(el)`, `f()`). */
+  raiz: string | null;
+  /** A propriedade escrita (`type`), ou `null` quando a escrita é calculada. */
+  prop: string | null;
+  /** O índice calculado (`[k]`), quando a escrita é calculada. */
+  calculado: string | null;
+  /** O lado esquerdo inteiro, como está escrito. */
+  esquerda: string;
+  /** Onde o lado esquerdo começa, em caracteres. */
+  inicio: number;
+}
+
+/** Operadores de atribuição composta: `+=`, `??=`, `||=`, `&&=`… */
+const OPERADORES_COMPOSTOS = new Set(["+", "-", "*", "/", "%", "&", "|", "^", "?"]);
 
 /** Palavras que abrem uma DECLARAÇÃO, não uma atribuição a propriedade. */
 const RAIZES_QUE_NAO_SAO_OBJETO = new Set([
@@ -732,7 +915,136 @@ const RAIZES_QUE_NAO_SAO_OBJETO = new Set([
   "case",
   "yield",
   "await",
+  "function",
+  "class",
+  "interface",
+  "type",
+  "export",
+  "default",
+  "void",
+  "delete",
 ]);
+
+/**
+ * Anda para trás a partir de `fim` e devolve o lado esquerdo da atribuição.
+ * `null` quando o que está ali não é escrita em propriedade (`const x =`,
+ * `onChange={…}`, `a === b`).
+ */
+export function ladoEsquerdo(
+  src: string,
+  fim: number,
+): Omit<AtribuicaoAPropriedade, "indice"> | null {
+  let p = fim - 1;
+  const pular = (): void => {
+    while (p >= 0 && /\s/.test(src[p] ?? "")) p--;
+  };
+  pular();
+  const ultimo = p;
+  let prop: string | null = null;
+  let calculado: string | null = null;
+  let achouMembro = false;
+  for (let voltas = 0; voltas < 400 && p >= 0; voltas++) {
+    const c = src[p] ?? "";
+    if (c === "]") {
+      let nivel = 0;
+      let q = p;
+      for (; q >= 0; q--) {
+        const d = src[q];
+        if (d === "]") nivel++;
+        else if (d === "[") {
+          nivel--;
+          if (nivel === 0) break;
+        }
+      }
+      if (q < 0) return null;
+      if (!achouMembro) {
+        calculado = src.slice(q, p + 1);
+        achouMembro = true;
+      }
+      p = q - 1;
+      pular();
+      continue;
+    }
+    if (c === ")") {
+      // `(el).type`, `(el as X).type`, `f().type` — a raiz é uma EXPRESSÃO.
+      if (!achouMembro) return null;
+      let nivel = 0;
+      let q = p;
+      for (; q >= 0; q--) {
+        const d = src[q];
+        if (d === ")") nivel++;
+        else if (d === "(") {
+          nivel--;
+          if (nivel === 0) break;
+        }
+      }
+      if (q < 0) return null;
+      p = q - 1;
+      pular();
+      continue;
+    }
+    if (/[\w$]/.test(c)) {
+      let q = p;
+      while (q >= 0 && /[\w$]/.test(src[q] ?? "")) q--;
+      const nome = src.slice(q + 1, p + 1);
+      let r = q;
+      while (r >= 0 && /\s/.test(src[r] ?? "")) r--;
+      if (src[r] === ".") {
+        if (!achouMembro) {
+          prop = nome;
+          achouMembro = true;
+        }
+        let s = r - 1;
+        while (s >= 0 && /\s/.test(src[s] ?? "")) s--;
+        p = src[s] === "?" ? s - 1 : r - 1;
+        pular();
+        continue;
+      }
+      if (!achouMembro) return null;
+      return { raiz: nome, prop, calculado, esquerda: src.slice(q + 1, ultimo + 1), inicio: q + 1 };
+    }
+    // `!` (non-null), `>` (genérico), `"` , `;`, `{`: acabou o lado esquerdo.
+    if (!achouMembro) return null;
+    return { raiz: null, prop, calculado, esquerda: src.slice(p + 1, ultimo + 1), inicio: p + 1 };
+  }
+  if (!achouMembro) return null;
+  return { raiz: null, prop, calculado, esquerda: src.slice(0, ultimo + 1), inicio: 0 };
+}
+
+/**
+ * TODA atribuição a propriedade do texto — sem exigir identificador nu na raiz.
+ * É a peça que fecha o CRÍTICO #1: a família não tem mais uma grafia preferida.
+ */
+export function atribuicoesAPropriedade(src: string): AtribuicaoAPropriedade[] {
+  const out: AtribuicaoAPropriedade[] = [];
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== "=") continue;
+    // `==`, `===`, `=>`, `!=`, `<=`, `>=` não são atribuição.
+    if (src[i + 1] === "=" || src[i + 1] === ">") continue;
+    const anterior = src[i - 1];
+    if (anterior === "=" || anterior === "!" || anterior === "<" || anterior === ">") continue;
+    let fim = i;
+    if (anterior !== undefined && OPERADORES_COMPOSTOS.has(anterior)) {
+      // `x.y += 1`, `x.y ??= 1`: a escrita continua sendo escrita.
+      fim = src[i - 2] === anterior ? i - 2 : i - 1;
+    }
+    const esquerda = ladoEsquerdo(src, fim);
+    if (esquerda === null) continue;
+    // `const [a, b] = …`: desestruturação, não escrita em propriedade.
+    const texto = esquerda.esquerda.trim();
+    if (esquerda.raiz === null && texto.startsWith("[") && texto.endsWith("]")) continue;
+    // `const x: Tipo["k"] = …`: anotação de tipo, não escrita. A régua olha o
+    // que vem ANTES do lado esquerdo — daí o `inicio` devolvido pelo leitor.
+    const antes = src.slice(Math.max(0, esquerda.inicio - 260), esquerda.inicio);
+    if (/(?:const|let|var|readonly|public|private|protected)\s+[A-Za-z_$][\w$]*!?\s*:\s*$/.test(antes))
+      continue;
+    if (esquerda.raiz !== null && RAIZES_QUE_NAO_SAO_OBJETO.has(esquerda.raiz)) continue;
+    // `Tipo[] = …` (colchete vazio) é anotação, não índice calculado.
+    if (esquerda.prop === null && /^\[\s*\]$/.test(esquerda.calculado ?? "")) continue;
+    out.push({ indice: i, ...esquerda });
+  }
+  return out;
+}
 
 /** As raízes declaradas como objeto literal no arquivo — dado, não nó. */
 function objetosLiteraisLocais(src: string): Set<string> {
@@ -745,10 +1057,211 @@ function objetosLiteraisLocais(src: string): Set<string> {
   return nomes;
 }
 
+/**
+ * ═══════════════════════════════════════════════ CRÍTICO #2, rodada 14 (cont.) ═
+ * AS EXCEÇÕES SÃO DECLARADAS — POR CAMINHO, POR PROPRIEDADE E COM MOTIVO.
+ *
+ * Com o perímetro em `src/` INTEIRO, aparecem escritas legítimas de peças que
+ * não são a página da tarefa (a folha da linha do tempo, o roteador de arestas
+ * do grafo, o middleware, os stores de fixture). Cada uma entra aqui com o
+ * caminho, a propriedade e o porquê — e três testes vigiam esta lista:
+ *
+ *  - nenhuma exceção cobre propriedade que muda o contrato de um campo
+ *    (`type`, `inputMode`, `step`, `value`, `checked`…): era disso que o
+ *    CRÍTICO das rodadas 10/11/13 era feito;
+ *  - nenhuma exceção com caminho aponta para arquivo que DESENHA um campo
+ *    (`<input>`, `<select>`, `<textarea>`) — derivado do fonte, não listado;
+ *  - toda exceção é USADA. Exceção que não casa com escrita nenhuma é lixo que
+ *    esconde a próxima, e o teste manda apagá-la.
+ */
+export interface EscritaTolerada {
+  /** O caminho EXATO, ou `null` para "em qualquer arquivo". */
+  arquivo: string | null;
+  /** A propriedade exata, ou `"[]"` para índice calculado. */
+  prop: string;
+  /** Quando existe, o lado esquerdo inteiro tem de casar. */
+  exigeCaminho?: RegExp;
+  /** Quando `true`, vale só em arquivo que NÃO desenha campo de TEXTO. */
+  soSemCampoDeTexto?: boolean;
+  motivo: string;
+}
+
+export const ESCRITAS_TOLERADAS: readonly EscritaTolerada[] = [
+  {
+    arquivo: null,
+    prop: "current",
+    motivo:
+      "é a caixa de ref do React, um objeto comum — não um nó de DOM. Toda a página guarda estado de closure aqui.",
+  },
+  {
+    arquivo: null,
+    prop: "value",
+    exigeCaminho: /Ref\s*\??\.\s*current\s*\.\s*value$/,
+    soSemCampoDeTexto: true,
+    motivo:
+      "o <select> nativo de mae-form.tsx já trocou de valor sozinho quando a porta recusa, e o React não re-renderiza porque o estado não mudou; devolver o valor visível é a única forma de a caixa não mentir. Só em arquivo SEM <input>: num campo de texto seria `value` justamente o que faria programa e caixa discordarem.",
+  },
+  {
+    arquivo: null,
+    prop: "returnValue",
+    motivo:
+      "é o contrato de `beforeunload` (usar-aviso-de-saida.ts): sem ele o navegador não pergunta antes de levar embora uma gravação em voo. Não toca em campo nenhum.",
+  },
+  {
+    arquivo: "core/prioritize/elos-de-precedencia.ts",
+    prop: "arestaId",
+    motivo:
+      "preenche o id da aresta num registro de agregação guardado num Map local da própria função — dado do cálculo de precedência, que roda no servidor e nunca vê um nó de DOM.",
+  },
+  {
+    arquivo: "core/prioritize/heranca.ts",
+    prop: "indice",
+    motivo:
+      "é o cursor da pilha explícita que substitui a recursão na descida da subárvore — um objeto de quadro criado ali mesmo, no cálculo de herança que roda no servidor.",
+  },
+  {
+    arquivo: "lib/supabase/live-client.ts",
+    prop: "code",
+    motivo:
+      "é o campo da classe RpcError sendo preenchido no construtor (`this.code`) — `this` dentro de uma classe declarada no arquivo, nunca um elemento da página.",
+  },
+  {
+    arquivo: "lib/supabase/live-client.ts",
+    prop: "lastIndex",
+    motivo:
+      "zera o cursor de uma expressão regular global antes de reusá-la (`/g` guarda posição entre chamadas). `lastIndex` é estado de RegExp; nenhum nó de DOM tem essa propriedade gravável.",
+  },
+  {
+    arquivo: "core/timeline/folha-inferior.ts",
+    prop: "maxHeight",
+    motivo:
+      "a folha inferior da LINHA DO TEMPO (peça P5) aplica a altura calculada por medida geométrica — é o remédio do achado S1 daquela peça, e não há campo nenhum nesse arquivo.",
+  },
+  {
+    arquivo: "core/timeline/folha-inferior.ts",
+    prop: "height",
+    motivo:
+      "mesma aplicação de altura da folha inferior da linha do tempo (peça P5): geometria de painel, medida no navegador pela guarda daquela peça.",
+  },
+  {
+    arquivo: "core/timeline/sincronizacao-painel.ts",
+    prop: "scrollLeft",
+    motivo:
+      "sincroniza a rolagem horizontal dos dois painéis da linha do tempo (peça P5) — posição de rolagem, não contrato de campo.",
+  },
+  {
+    arquivo: "core/timeline/sincronizacao-painel.ts",
+    prop: "transform",
+    motivo:
+      "desloca a camada da linha do tempo (peça P5) por `transform`, que é pintura; o arquivo não desenha campo nenhum.",
+  },
+  {
+    arquivo: "lib/frentes/compose.ts",
+    prop: "branch",
+    motivo:
+      "completa o nome da branch num grupo montado ali mesmo, ao unir PRs e sessões da página de frentes — dado puro, calculado no servidor.",
+  },
+  {
+    arquivo: "lib/frentes/repository.ts",
+    prop: "name",
+    motivo:
+      "é `this.name` no construtor de uma classe de erro declarada no arquivo — nomear o erro, não escrever em elemento.",
+  },
+  {
+    arquivo: "lib/layout-do-grafo.ts",
+    prop: "corredorV",
+    motivo:
+      "grava o corredor vertical escolhido num ponto do plano de roteamento do grafo (peça P4) — geometria em memória, antes de qualquer render.",
+  },
+  {
+    arquivo: "lib/layout-do-grafo.ts",
+    prop: "saida",
+    motivo:
+      "conta as saídas já ocupadas de um nó do grafo (peça P4), num registro criado pelo próprio roteador de arestas.",
+  },
+  {
+    arquivo: "lib/layout-do-grafo.ts",
+    prop: "entrada",
+    motivo:
+      "gêmeo do anterior, para as entradas do nó — mesma estrutura em memória do roteador de arestas do grafo.",
+  },
+  {
+    arquivo: "lib/layout-do-grafo.ts",
+    prop: "[]",
+    motivo:
+      "marca a faixa horizontal ocupada num vetor de ocupação indexado por faixa (peça P4) — vetor local do algoritmo, não um nó.",
+  },
+  {
+    arquivo: "lib/serializa-grafo-v3.ts",
+    prop: "[]",
+    motivo:
+      "preenche por id os dois mapas planos (janelas e scores) que o grafo recebe serializado — objetos literais declarados duas linhas acima, no mesmo arquivo.",
+  },
+  {
+    arquivo: "lib/repositories/tasks.fixture-store.ts",
+    prop: "__lifeboardFixtureStore",
+    motivo:
+      "instala o store de fixture no `globalThis` — é como o modo fixture sobrevive ao recarregamento de módulo do `next dev`. Roda no servidor, e a chave é privada deste arquivo.",
+  },
+  {
+    arquivo: "lib/repositories/tasks.fixture-store.ts",
+    prop: "contador",
+    motivo:
+      "incrementa o contador de ids do store de fixture, num objeto de estado criado pelo próprio módulo.",
+  },
+  {
+    arquivo: "lib/repositories/prompts-fila.fixture-store.ts",
+    prop: "__lifeboardFilaFixtureStore",
+    motivo:
+      "gêmeo do anterior para a fila de prompts: instala o store de fixture no `globalThis`, no servidor.",
+  },
+  {
+    arquivo: "lib/repositories/prompts-fila.fixture-store.ts",
+    prop: "contador",
+    motivo:
+      "incrementa o contador de ids do store de fixture da fila de prompts, num objeto de estado do próprio módulo.",
+  },
+  {
+    arquivo: "middleware.ts",
+    prop: "pathname",
+    motivo:
+      "monta a URL de redirecionamento do login (`new URL(...)`) antes de devolver a resposta. Middleware roda no Edge, onde não existe `document`.",
+  },
+  {
+    arquivo: "middleware.ts",
+    prop: "search",
+    motivo:
+      "gêmeo do anterior: a query da URL de redirecionamento do login, montada no Edge.",
+  },
+];
+
+/** A exceção que cobre esta escrita, quando existe. */
+export function toleracaoDe(
+  arquivo: string,
+  a: AtribuicaoAPropriedade,
+  desenhaCampoDeTexto: (arquivo: string) => boolean,
+): EscritaTolerada | null {
+  const alvo = a.prop ?? "[]";
+  for (const t of ESCRITAS_TOLERADAS) {
+    if (t.prop !== alvo) continue;
+    if (t.arquivo !== null && t.arquivo !== arquivo) continue;
+    if (t.exigeCaminho !== undefined && !t.exigeCaminho.test(a.esquerda.replace(/\s+/g, "")))
+      continue;
+    if (t.soSemCampoDeTexto === true && desenhaCampoDeTexto(arquivo)) continue;
+    return t;
+  }
+  return null;
+}
+
+/**
+ * Toda escrita em nó de DOM do `src/` INTEIRO que não tenha exceção declarada.
+ * Perímetro: `arquivosDoSrc()` — não mais duas pastas (CRÍTICO #2).
+ */
 export function escritasNoDom(): EscritaNoDom[] {
   const achados: EscritaNoDom[] = [];
-  const comInput = new Set(arquivosComInput());
-  for (const arquivo of arquivosVarridos()) {
+  const comTexto = new Set(arquivosComCampoDeTexto());
+  const desenhaCampoDeTexto = (a: string): boolean => comTexto.has(a);
+  for (const arquivo of arquivosDoSrc()) {
     const src = codigo(arquivo);
     for (const [re, rotulo] of CHAMADAS_QUE_ESCREVEM_NO_DOM) {
       for (const m of src.matchAll(re)) {
@@ -756,43 +1269,200 @@ export function escritasNoDom(): EscritaNoDom[] {
       }
     }
     const literais = objetosLiteraisLocais(src);
-    for (const m of src.matchAll(
-      /([A-Za-z_$][\w$]*)((?:\s*\??\.\s*[A-Za-z_$][\w$]*|\s*\[[^\]\n]*\])+)\s*=(?!=|>)/g,
-    )) {
-      const raiz = m[1] ?? "";
-      const caminho = (m[2] ?? "").replace(/\s+/g, "");
-      // `const [a, b] = …`, `readonly Tipo[] = …`: declaração ou anotação de
-      // tipo, não escrita em propriedade.
-      if (RAIZES_QUE_NAO_SAO_OBJETO.has(raiz)) continue;
-      if (/^(\[[^\]]*\])+$/.test(caminho) && !caminho.includes(".")) {
-        // Só colchetes: ou é `Tipo[] =` (vazio) ou é uma propriedade CALCULADA
-        // num identificador solto — esta última é exatamente a fuga que a
-        // lista de nomes não pega, e por isso continua sendo violação.
-        if (/\[\s*\]/.test(caminho)) continue;
-      }
-      const ultimo = /\.([A-Za-z_$][\w$]*)$/.exec(caminho)?.[1] ?? null;
-      const trecho = `${raiz}${caminho} =`;
-      const inteiro = `${raiz}${caminho}`;
-      if (ultimo !== null) {
-        const tolerada = PROPRIEDADES_TOLERADAS.find((t) => t.prop === ultimo);
-        if (tolerada !== undefined) {
-          const caminhoOk =
-            tolerada.exigeCaminho === undefined || tolerada.exigeCaminho.test(inteiro);
-          // `current` vale em qualquer arquivo (não é DOM); as demais, só onde
-          // não há campo de texto desenhado.
-          const arquivoOk = tolerada.prop === "current" || !comInput.has(arquivo);
-          if (caminhoOk && arquivoOk) continue;
-        }
-        // Montar um objeto literal local é dado, não DOM.
-        if (literais.has(raiz) && !caminho.includes("[")) continue;
-      }
-      achados.push({ arquivo, linha: linhaDe(src, m.index ?? 0), trecho });
+    for (const a of atribuicoesAPropriedade(src)) {
+      if (toleracaoDe(arquivo, a, desenhaCampoDeTexto) !== null) continue;
+      // Montar um objeto literal LOCAL é dado, não DOM — a raiz tem de estar
+      // declarada como literal no mesmo arquivo, e nunca escondida atrás de
+      // parênteses (foi assim que o CRÍTICO #1 passou).
+      if (a.raiz !== null && literais.has(a.raiz)) continue;
+      achados.push({
+        arquivo,
+        linha: linhaDe(src, a.indice),
+        trecho: `${a.esquerda.replace(/\s+/g, " ").trim()} =`,
+      });
     }
   }
   return achados;
 }
 
-/** Os arquivos da página da tarefa que declaram um `<input>` no JSX. */
+/** Os arquivos do perímetro da página que declaram um `<input>` no JSX. */
 export function arquivosComInput(): string[] {
   return arquivosVarridos().filter((a) => /<input\b/.test(codigo(a)));
+}
+
+/** Todo arquivo do `src/` que DESENHA um campo — derivado, nunca listado. */
+export function arquivosComCampo(): string[] {
+  return arquivosDoSrc().filter((a) => /<(?:input|select|textarea)\b/.test(codigo(a)));
+}
+
+/**
+ * Os arquivos do `src/` que desenham um campo de TEXTO (`<input>`/`<textarea>`).
+ * É a régua da exceção `value`: num `<select>` devolver o valor visível é a
+ * correção; num campo de texto seria justamente o que faz o programa e a caixa
+ * discordarem — o CRÍTICO das rodadas 10/11.
+ */
+export function arquivosComCampoDeTexto(): string[] {
+  return arquivosDoSrc().filter((a) => /<(?:input|textarea)\b/.test(codigo(a)));
+}
+
+// ═══════════════════════════════════════════════ MÉDIO #1, rodada 14 — rascunho ═
+/**
+ * OS CAMPOS DE TEXTO LIVRE DA PÁGINA, DERIVADOS DO JSX.
+ *
+ * `rascunho-nota.ts` nasceu de um achado do crítico ("escrever meia nota,
+ * clicar numa subtarefa e voltar apagava tudo") e era importado por UM arquivo.
+ * A "Nota da relação" nasceu na rodada 13 já sem a proteção; título e duração
+ * de subtarefa também não a tinham. A página é cheia de links para outras
+ * tarefas, e `useAvisoDeSaida` só arma com gravação em voo — navegar apagava.
+ *
+ * A guarda não pode ser lista de nomes (foi esse vício que deixou os gêmeos
+ * para trás). Ela deriva do JSX: todo `<textarea>`, todo `<input>` de texto e
+ * todo `<CampoNumerico>` do perímetro da página é um campo de texto livre, e
+ * cada um tem de ter um rascunho — a chave aparece no manipulador de mudança
+ * daquele campo, e o arquivo restaura no efeito.
+ */
+export interface CampoDeTextoLivre {
+  arquivo: string;
+  linha: number;
+  /** `textarea`, `input` ou `CampoNumerico`. */
+  tag: string;
+  /** A expressão do `value=`/`valor=` — o estado que a caixa mostra. */
+  valor: string;
+  /** O manipulador de mudança, como está escrito (`onChange={…}`/`aoMudar={…}`). */
+  manipulador: string;
+  /** O manipulador GRAVA rascunho? */
+  gravaRascunho: boolean;
+  /**
+   * A caixa nasce com dado do SERVIDOR (o `useState` não começa num literal)?
+   * Esses são os únicos que NÃO devem ter rascunho: um rascunho ali faria a
+   * tela mostrar um número que o banco não tem, sem dizer que não está salvo —
+   * a página mentindo sobre o que está gravado, que é a família dos CRÍTICOs
+   * das rodadas 10/11/13. Os campos que nascem vazios (formulários de criação)
+   * só têm a ganhar com o rascunho.
+   */
+  nasceDoServidor: boolean;
+}
+
+/** O elemento JSX que começa em `i`, até o `>` que o fecha (respeita `{}`). */
+function elementoJsx(src: string, i: number): string {
+  let chaves = 0;
+  for (let p = i; p < src.length; p++) {
+    const c = src[p];
+    if (c === "{") chaves++;
+    else if (c === "}") chaves--;
+    else if (c === ">" && chaves === 0) return src.slice(i, p + 1);
+  }
+  return src.slice(i);
+}
+
+/** O valor de um atributo JSX `nome={…}` ou `nome="…"`, do elemento inteiro. */
+function atributoJsx(elemento: string, nome: string): string | null {
+  const re = new RegExp(`\\b${nome}=`, "g");
+  const m = re.exec(elemento);
+  if (m === null) return null;
+  const inicio = m.index + m[0].length;
+  if (elemento[inicio] === '"' || elemento[inicio] === "'") {
+    const aspas = elemento[inicio];
+    const fim = elemento.indexOf(aspas ?? '"', inicio + 1);
+    return elemento.slice(inicio + 1, fim === -1 ? undefined : fim);
+  }
+  if (elemento[inicio] !== "{") return null;
+  let chaves = 0;
+  for (let p = inicio; p < elemento.length; p++) {
+    if (elemento[p] === "{") chaves++;
+    else if (elemento[p] === "}") {
+      chaves--;
+      if (chaves === 0) return elemento.slice(inicio + 1, p);
+    }
+  }
+  return elemento.slice(inicio + 1);
+}
+
+/**
+ * O corpo EFETIVO de um manipulador: o próprio texto, mais o corpo de cada
+ * função declarada no arquivo que ele chama. `onChange={(e) => aoDigitar(...)}`
+ * grava o rascunho DENTRO de `aoDigitar` — sem seguir a chamada, a guarda
+ * mediria o invólucro e passaria.
+ */
+function corpoEfetivo(arquivoInteiro: string, expressao: string, profundidade = 2): string {
+  let junto = expressao;
+  let camada = expressao;
+  for (let n = 0; n < profundidade; n++) {
+    let proxima = "";
+    for (const m of camada.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+      const i = arquivoInteiro.indexOf(`function ${m[1] ?? ""}(`);
+      if (i === -1) continue;
+      proxima += blocoDepois(arquivoInteiro, i);
+    }
+    if (proxima.length === 0) break;
+    junto += proxima;
+    camada = proxima;
+  }
+  return junto;
+}
+
+/** A marca de que um trecho grava rascunho de campo. */
+const GRAVA_RASCUNHO = /\bgravarRascunho\s*\(/;
+
+/**
+ * O `useState` deste estado começa num LITERAL (`""`, `"0.5"`, `0`)? Se sim, a
+ * caixa nasce vazia ou num padrão constante — formulário de criação. Se não, o
+ * valor inicial vem de fora (uma propriedade com dado do servidor).
+ */
+function comecaEmLiteral(arquivoInteiro: string, estado: string): boolean {
+  const re = new RegExp(
+    `\\[\\s*${estado}\\s*,\\s*set[\\w$]*\\s*\\]\\s*=\\s*useState\\s*(?:<[^>]*>)?\\s*\\(([^)]*)\\)`,
+  );
+  const inicial = (re.exec(arquivoInteiro)?.[1] ?? "").trim();
+  return /^(?:""|''|`[^`$]*`|"[^"]*"|'[^']*'|-?\d+(?:\.\d+)?|true|false|null)$/.test(inicial);
+}
+
+export function camposDeTextoLivre(): CampoDeTextoLivre[] {
+  const out: CampoDeTextoLivre[] = [];
+  for (const arquivo of arquivosVarridos()) {
+    // A variável não se chama `src` de propósito: casar uma regex contra a
+    // fonte inteira é a assinatura da regressão do buraco 1, e um teste desta
+    // suíte vigia essa forma. Aqui o arquivo inteiro É o alvo legítimo — a
+    // pergunta é sobre o ESTADO declarado nele, não sobre um sítio.
+    const arquivoInteiro = codigo(arquivo);
+    for (const m of arquivoInteiro.matchAll(/<(textarea|input|CampoNumerico)\b/g)) {
+      const elemento = elementoJsx(arquivoInteiro, m.index ?? 0);
+      const tag = m[1] ?? "";
+      // Caixa de marcar, botão de rádio e campo escondido não guardam texto.
+      const tipo = atributoJsx(elemento, "type");
+      if (tag === "input" && tipo !== null && tipo !== "text" && !tipo.startsWith("{")) continue;
+      const valor = (atributoJsx(elemento, tag === "CampoNumerico" ? "valor" : "value") ?? "").trim();
+      /*
+       * O campo só é DESTE arquivo quando o texto que ele mostra é estado
+       * declarado aqui (`const [valor, setValor] = useState(...)`). O `<input>`
+       * de `campo-numerico.tsx` recebe `value` por propriedade: quem guarda o
+       * texto — e quem precisa do rascunho — é o formulário que o usa. Sem esta
+       * régua, o rascunho seria cobrado do componente que não tem o estado.
+       */
+      if (
+        !new RegExp(`\\[\\s*${valor}\\s*,\\s*set[\\w$]*\\s*\\]\\s*=\\s*useState`).test(
+          arquivoInteiro,
+        )
+      )
+        continue;
+      const manipulador =
+        atributoJsx(elemento, tag === "CampoNumerico" ? "aoMudar" : "onChange") ?? "";
+      const corpo = corpoEfetivo(arquivoInteiro, manipulador);
+      out.push({
+        arquivo,
+        linha: linhaDe(arquivoInteiro, m.index ?? 0),
+        tag,
+        valor,
+        manipulador: manipulador.trim(),
+        gravaRascunho: GRAVA_RASCUNHO.test(corpo),
+        nasceDoServidor: !comecaEmLiteral(arquivoInteiro, valor),
+      });
+    }
+  }
+  return out;
+}
+
+/** Os arquivos do perímetro que RESTAURAM rascunho (o outro meio do mecanismo). */
+export function arquivosQueRestauramRascunho(): string[] {
+  return arquivosVarridos().filter((a) => /\blerRascunho\s*\(/.test(codigo(a)));
 }

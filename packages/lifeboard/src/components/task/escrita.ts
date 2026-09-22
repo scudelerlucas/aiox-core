@@ -63,6 +63,7 @@ export const ANUNCIO_DE_SUCESSO: Record<OperacaoDeEscrita, string> = {
   duracao: "Duração salva.",
   atomos_salvar: "Átomos salvos.",
   atomos_limpar: "Átomos limpos.",
+  atomos_desfazer_limpeza: "Átomos restaurados.",
 };
 
 /**

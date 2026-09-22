@@ -15,7 +15,12 @@ import {
   handlerDaConfirmacaoExecutada,
   importacoes,
   opDoBloco,
-  PASTAS_VARRIDAS,
+  blocoDepois,
+  arquivosDeCliente,
+  arquivosQueChamamAPorta,
+  atribuicoesAPropriedade,
+  marcasNoTexto,
+  RAIZES_DA_PAGINA,
   portasDeclaradas,
   PORTADORES,
   quantasPortas,
@@ -163,6 +168,13 @@ const OPERACOES: readonly CasoDeEscrita[] = [
     alvo: "o 1º botão do grupo Opcionalidade",
     alternativa: "o botão Salvar átomos",
   },
+  {
+    // [ALTO #2, rodada 14] o caminho de volta do "Limpar átomos".
+    op: "atomos_desfazer_limpeza",
+    arquivo: "components/task/atomos-form.tsx",
+    alvo: "o botão Salvar átomos",
+    alternativa: "o 1º botão do grupo Opcionalidade",
+  },
 ];
 
 /** Um elemento falso: `focavel: false` imita um nó que saiu da árvore. */
@@ -293,13 +305,46 @@ describe("ALTO #1 — a escrita só existe através da porta (arquitetura, não 
    * A trava que impede a volta é esta: `type="number"` não existe mais aqui.
    */
   it("PRONTO QUANDO: nenhum campo da página é `type=\"number\"`", () => {
-    const numericos = tiposDeInput()
+    const todos = tiposDeInput();
+    const numericos = todos
       .filter((i) => i.tipo === "number")
       .map((i) => `${i.arquivo}:${String(i.linha)}`);
     expect(
       numericos,
       `campo que esconde o que o operador digitou:\n${numericos.join("\n")}`,
     ).toEqual([]);
+    /*
+     * ═══════════════════════════════ VARREDURA DE GENERALIZAÇÃO, rodada 14 ═
+     * A LISTA VAZIA ERA UM VERDE — "aprova por ausência", a 2ª das quatro
+     * formas viciadas desta base.
+     *
+     * A asserção acima é `toEqual([])`. Se `tiposDeInput()` parar de achar
+     * QUALQUER coisa — regex quebrada, `<input>` que passou a nascer de um
+     * componente que a expressão não reconhece, arquivo renomeado — ela
+     * continua verde, e a checagem deixou de medir sem avisar. Medido nesta
+     * rodada: trocando `<input` por `<inputZZZ` na varredura, os 75 arquivos e
+     * 1488 testes seguiram VERDES.
+     *
+     * Duas travas, as mesmas duas que a P7 pôs no medidor de contraste: um
+     * PISO numérico escrito à mão e uma exigência NOMINAL. Encolher a régua
+     * passa a exigir baixar o número de propósito, e isso aparece no diff.
+     */
+    const PISO_DE_CAMPOS_VARRIDOS = 6;
+    expect(
+      todos.length,
+      "a varredura de tipos de <input> parou de achar campo — lista vazia não é aprovação, é cegueira",
+    ).toBeGreaterThanOrEqual(PISO_DE_CAMPOS_VARRIDOS);
+    // E o campo do CRÍTICO em pessoa: o único campo numérico da página tem de
+    // ser ACHADO pela varredura, e achado como `text`. É a exigência nominal —
+    // sem ela, o piso poderia ser cumprido por seis `checkbox` de outras telas
+    // enquanto justamente este ficava invisível.
+    const oCampoNumerico = todos.filter(
+      (i) => i.arquivo === "components/task/campo-numerico.tsx",
+    );
+    expect(
+      oCampoNumerico.map((i) => i.tipo),
+      "a varredura não vê mais o <input> do campo numérico — é exatamente o campo do CRÍTICO das rodadas 10/11/13",
+    ).toEqual(["text"]);
     // E o campo que os substitui declara o teclado decimal do celular.
     const campo = codigoDoArquivo("components/task/campo-numerico.tsx");
     expect(campo).toContain('type="text"');
@@ -348,7 +393,8 @@ describe("ALTO #1 — a segunda rede: quem toca a superfície de escrita (src/ i
     }
     console.log("Arquivos do src/ varridos:", String(arquivosDoSrc().length));
     console.log("Arquivos da página da tarefa:", String(arquivosVarridos().length));
-    console.log("Pastas da página:", PASTAS_VARRIDAS.join(", "));
+    console.log("Raízes da página:", RAIZES_DA_PAGINA.join(", "));
+    console.log("Arquivos de cliente da página:", String(arquivosDeCliente().length));
   });
 
   it("PRONTO QUANDO: nenhuma Server Action nova nasce fora dos dois arquivos conhecidos", () => {
@@ -371,7 +417,7 @@ describe("ALTO #1 — a segunda rede: quem toca a superfície de escrita (src/ i
       .filter((s) => s.receptor === "" || s.op === null)
       .map((s) => `${s.arquivo}:${String(s.linha)} — ${s.receptor || "(sem receptor)"}.escrever(…)`);
     expect(orfaos, `sítios sem porta:\n${orfaos.join("\n")}`).toEqual([]);
-    expect(sitios.length).toBeGreaterThanOrEqual(14);
+    expect(sitios.length).toBeGreaterThanOrEqual(15);
   });
 
   it("PRONTO QUANDO: toda porta declarada é usada, e declara alvo de foco", () => {
@@ -438,12 +484,12 @@ describe("ALTO #1 — a segunda rede: quem toca a superfície de escrita (src/ i
     const declaradas: string[] = [...OPERACOES_DE_ESCRITA].sort();
     expect(derivadas.filter((o) => !declaradas.includes(o))).toEqual([]);
     expect(declaradas.filter((o) => !derivadas.includes(o))).toEqual([]);
-    expect(derivadas).toHaveLength(14);
+    expect(derivadas).toHaveLength(15);
   });
 
   it("a lista humana deste arquivo bate com a derivada (documentação, não fonte)", () => {
     expect(OPERACOES.map((c) => c.op).sort()).toEqual([...OPERACOES_DE_ESCRITA].sort());
-    expect(OPERACOES).toHaveLength(14);
+    expect(OPERACOES).toHaveLength(15);
     // E cada operação é aberta no arquivo que a lista humana diz.
     for (const caso of OPERACOES) {
       const portas = portasDeclaradas(caso.arquivo);
@@ -627,7 +673,7 @@ describe("BAIXO #6 e #7 — o 'Desfazer' nunca fica sozinho, nem colado na confi
   });
 });
 
-describe("depois do sucesso, o foco NUNCA fica no <body> — as 14 operações", () => {
+describe("depois do sucesso, o foco NUNCA fica no <body> — as 15 operações", () => {
   for (const caso of OPERACOES) {
     it(`PRONTO QUANDO: ${caso.op} entrega o foco a ${caso.alvo}`, () => {
       const doc = { activeElement: BODY as unknown };
@@ -847,20 +893,117 @@ describe("o desfazer devolve a nota à DATA e à POSIÇÃO originais (MÉDIO #4,
   });
 
   /**
-   * A guarda acima só vale se ela CONSEGUE ver a violação. Aqui o fonte dos
-   * dois gêmeos é lido e a ordem é conferida diretamente: a atribuição ao ref
-   * da tentativa vem DEPOIS da chamada da porta, dentro de um `if` de veredito.
+   * ═══════════════════════════════════════════════════════ ALTO #1, rodada 14 ═
+   * O REFORÇO DEIXA DE SER LISTA DE NOMES — ELE É A PROVA, ARQUIVO POR ARQUIVO.
+   *
+   * O teste anterior lia o fonte de DOIS arquivos escritos à mão aqui
+   * (`duracao-form`, `atomos-form`) e conferia uma string. `status-form`,
+   * `mae-form` e `meta-form` ficavam só com a guarda derivada — e a guarda
+   * derivada não via `(tentativaRef).current = novo`. O crítico pôs exatamente
+   * isso em `status-form.tsx`, com os quatro portões verdes, e no Chromium a
+   * tela anunciou o desfecho do segundo clique enquanto o servidor gravava o do
+   * primeiro.
+   *
+   * Aqui a lista é DERIVADA (`arquivosQueChamamAPorta`) e a guarda é PROVADA:
+   * em cada arquivo que chama a porta, a sabotagem é injetada no texto — em
+   * cinco grafias diferentes, inclusive as que a regex antiga não via — e a
+   * guarda tem de acusar. Arquivo novo com porta nova entra sozinho.
    */
-  it("PRONTO QUANDO: duração e átomos só gravam o ref da tentativa depois do veredito", () => {
-    for (const [arquivo, ref] of [
-      ["components/task/duracao-form.tsx", "valorEnviadoRef"],
-      ["components/task/atomos-form.tsx", "trioRef"],
-    ] as const) {
+  it("PRONTO QUANDO: a guarda vê a marca antes do veredito em TODO arquivo que chama a porta, em 5 grafias", () => {
+    const arquivos = arquivosQueChamamAPorta();
+    // Alvo ausente é reprovação, nunca dispensa: se a derivação parar de achar
+    // arquivos, este teste cai em vez de passar no vazio.
+    expect(arquivos.length, "a derivação não achou arquivo que chame a porta").toBeGreaterThanOrEqual(5);
+    const grafias = [
+      "tentativaRef.current = 1;",
+      "(tentativaRef).current = 1;",
+      "(tentativaRef as { current: number }).current = 1;",
+      'tentativaRef["current"] = 1;',
+      "(a ?? tentativaRef).current = 1;",
+    ];
+    const cegueiras: string[] = [];
+    for (const arquivo of arquivos) {
       const src = codigoDoArquivo(arquivo);
-      expect(src, `${arquivo}: o ref da tentativa deve ser escrito sob o veredito`).toMatch(
-        new RegExp(`decisao === "gravar"\\)\\s*${ref}\\.current =`),
-      );
+      // Sem sabotagem: limpo. (Se não estiver, o próprio teste acima acusa.)
+      const alvo = src.indexOf("escrever(");
+      expect(alvo, `${arquivo}: não achei a chamada da porta`).toBeGreaterThan(0);
+      // O começo do comando que contém a chamada — é ali que a marca entra.
+      const inicioDoComando = src.lastIndexOf("\n", src.lastIndexOf("=", alvo)) + 1;
+      for (const grafia of grafias) {
+        const sabotado = `${src.slice(0, inicioDoComando)}    ${grafia}\n${src.slice(inicioDoComando)}`;
+        if (marcasNoTexto(sabotado).length === 0) cegueiras.push(`${arquivo} — ${grafia}`);
+      }
     }
+    expect(
+      cegueiras,
+      `a guarda NÃO vê a marca antes do veredito:\n${cegueiras.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  /**
+   * E os cinco formulários continuam escrevendo o ref DEPOIS do veredito — a
+   * lista dos refs sai do fonte (toda atribuição a `.current` no arquivo),
+   * nunca de dois nomes escolhidos à mão.
+   */
+  it("PRONTO QUANDO: todo ref de tentativa é escrito sob `decisao === \"gravar\"`", () => {
+    const fora: string[] = [];
+    for (const arquivo of arquivosQueChamamAPorta()) {
+      const src = codigoDoArquivo(arquivo);
+      for (const a of atribuicoesAPropriedade(src)) {
+        if (a.prop !== "current") continue;
+        // Só as marcas que estão DEPOIS de uma decisão, no mesmo comando: o
+        // que se cobra é o `if (decisao === "gravar")` em volta.
+        const antes = src.slice(Math.max(0, a.indice - 400), a.indice);
+        if (!/const\s+decisao\s*=/.test(antes)) continue;
+        if (!/decisao === "gravar"/.test(antes)) {
+          fora.push(`${arquivo}: ${a.esquerda.trim()} = fora do veredito`);
+        }
+      }
+    }
+    expect(fora, `ref de tentativa escrito sem veredito:\n${fora.join("\n")}`).toEqual([]);
+  });
+
+  /**
+   * ══════════════════════════════════════════════════════════ ALTO #2, rodada 14 ═
+   * TODA ESCRITA QUE APAGA DADO TEM CAMINHO DE VOLTA.
+   *
+   * "Limpar átomos" apagava os três números que alimentam o score de prioridade
+   * com UM clique, sem confirmação e sem desfazer, enquanto na MESMA página
+   * apagar uma relação ou uma nota custava dois cliques e abria 10 s de
+   * "Desfazer". A régua sai das OPERAÇÕES declaradas (`_excluir`/`_limpar`), não
+   * de uma lista de arquivos: operação destrutiva nova nasce cobrada.
+   */
+  it("PRONTO QUANDO: toda porta que APAGA dado tem porta de desfazer e janela na tela", () => {
+    const problemas: string[] = [];
+    let destrutivas = 0;
+    for (const arquivo of arquivosVarridos()) {
+      const portas = portasDeclaradas(arquivo);
+      const desfazem = portas.filter((p) => p.op !== null && /desfazer/.test(p.op));
+      const src = codigoDoArquivo(arquivo);
+      for (const p of portas) {
+        if (p.op === null || !/_(?:excluir|limpar)$/.test(p.op)) continue;
+        destrutivas += 1;
+        if (desfazem.length === 0) {
+          problemas.push(`${arquivo}: ${p.op} apaga e o arquivo não declara porta de desfazer`);
+        }
+        // O sucesso da escrita destrutiva não pode ir para a região geral: ele
+        // mora colado ao botão "Desfazer" (é o que abre a janela de 10 s).
+        const bloco = blocoDepois(src, p.indice);
+        if (!/anunciarSucesso/.test(bloco)) {
+          problemas.push(`${arquivo}: ${p.op} não abre janela de desfazer (sem anunciarSucesso)`);
+        }
+      }
+      if (
+        portas.some((p) => p.op !== null && /_(?:excluir|limpar)$/.test(p.op)) &&
+        !/>\s*Desfazer\s*</.test(src)
+      ) {
+        problemas.push(`${arquivo}: apaga dado e não tem botão "Desfazer" na tela`);
+      }
+    }
+    // Alvo ausente é reprovação: se a derivação parar de achar operação
+    // destrutiva, este teste cai em vez de passar no vazio.
+    expect(destrutivas, "a derivação não achou operação destrutiva").toBe(3);
+    expect(problemas, `escrita que apaga sem volta:\n${problemas.join("\n")}`).toEqual([]);
   });
 
   it("PRONTO QUANDO: os dois painéis mandam a data original junto do desfazer", () => {

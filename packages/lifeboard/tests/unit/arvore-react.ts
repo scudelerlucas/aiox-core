@@ -195,8 +195,12 @@ export function oQueATelaDiz(raiz: ReactNode): string {
  * renderizado diz".
  *
  * O que ele continua NÃO sendo: um navegador. Um `type` posto à mão num nó
- * do DOM por uma `ref` não aparece aqui — essa forma é vigiada pela segunda
- * rede, léxica (`escritasNoDom`), e medida no Chromium.
+ * do DOM por uma `ref` não aparece aqui — e a rodada 13 provou que a rede
+ * léxica (`escritasNoDom`) também tem limite: `(el).type = "number"` passou
+ * por ela, e o setter do protótipo (`Object.getOwnPropertyDescriptor(
+ * HTMLInputElement.prototype, "type").set.call(el, "number")`) passa pelos
+ * quatro portões até hoje. Essa família é medida onde ela existe: no Chromium,
+ * por `tests/navegador/guarda-p6.mjs`.
  */
 export function expandir(raiz: ReactNode, limite = 40): ReactNode {
   const passo = (n: ReactNode, profundidade: number): ReactNode => {

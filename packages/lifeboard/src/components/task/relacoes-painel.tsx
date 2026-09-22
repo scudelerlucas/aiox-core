@@ -22,6 +22,11 @@ import {
 import type { Focavel } from "@/components/task/foco";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita, type RegiaoViva } from "@/components/task/porta-de-escrita";
+import {
+  CAMPOS_COM_RASCUNHO,
+  gravarRascunho,
+  lerRascunho,
+} from "@/components/task/rascunho";
 import type { EdgeTipo, TaskEdge } from "@/types/canonical";
 
 const ROTULO_TIPO: Record<EdgeTipo, string> = {
@@ -576,6 +581,18 @@ function FormularioNovaAresta({
   const [nota, setNota] = useState("");
   const [criada, setCriada] = useState<JanelaDeDesfazerCriacao | null>(null);
   /**
+   * [MÉDIO #1, rodada 14] O RASCUNHO CHEGA AOS DOIS CAMPOS DESTE FORMULÁRIO.
+   * A "Nota da relação" nasceu na rodada 13 sem a proteção que a nota da tarefa
+   * tem desde a rodada 5 — e cada linha da lista acima é um link para outra
+   * tarefa. Restaurado no EFEITO: `sessionStorage` não existe no servidor.
+   */
+  useEffect(() => {
+    const n = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoNota);
+    if (n.length > 0) setNota(n);
+    const d = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoDesconto);
+    if (d.length > 0) setPeso(d);
+  }, [taskId]);
+  /**
    * [BAIXO #8, rodada 7] A verdade sobre "já existe um Desfazer pendente" no
    * instante em que o sucesso roda (depois do `await`) — o estado lido pela
    * closure seria o do render em que ela nasceu.
@@ -667,7 +684,11 @@ function FormularioNovaAresta({
       // enviada — trocar de destino durante a gravação não pode ser desfeito
       // pela resposta que chega depois.
       if (naCaixaRef.current === enviadoRef.current) setDestino("");
-      if (naNotaRef.current === notaEnviadaRef.current) setNota("");
+      if (naNotaRef.current === notaEnviadaRef.current) {
+        setNota("");
+        // O rascunho daquele campo sai junto — senão volta como fantasma.
+        gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoNota, "");
+      }
       idDoSucessoRef.current =
         typeof estado.id === "string" && estado.id.length > 0 ? estado.id : null;
     },
@@ -797,6 +818,7 @@ function FormularioNovaAresta({
           onChange={(e) => {
             setNota(e.target.value);
             porta.aoMudarCampo();
+            gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoNota, e.target.value);
           }}
           rows={2}
           placeholder="ex.: Documentação e motor andam juntos, sem ordem."
@@ -815,6 +837,7 @@ function FormularioNovaAresta({
             aoMudar={(texto) => {
               setPeso(texto);
               porta.aoMudarCampo();
+              gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoDesconto, texto);
             }}
             classeDoCampo="min-h-[44px] w-24 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
           />

@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
+import { anuncioComDesfazerPerdido } from "@/components/task/escrita";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita } from "@/components/task/porta-de-escrita";
 import type { MotivoSemScore } from "@/core/prioritize/assimetria-motivo";
@@ -15,6 +16,35 @@ const OPCOES_OPCIONALIDADE: readonly OpcaoSegmentada<number>[] = [
   { valor: 2, rotulo: "2" },
   { valor: 3, rotulo: "3 — livre" },
 ];
+/** 10 s — mesma janela do "Desfazer" da nota e da relação criada. */
+const JANELA_DESFAZER_MS = 10_000;
+
+/**
+ * ══════════════════════════════════════════════════════════ ALTO #2, rodada 14 ═
+ * "LIMPAR ÁTOMOS" ERA UM CLIQUE SEM VOLTA.
+ *
+ * Na mesma página, excluir uma relação custa dois cliques (confirmação) e abre
+ * 10 s de "Desfazer"; excluir uma nota, idem. "Limpar átomos" apagava os TRÊS
+ * números que o operador declarou — e que alimentam o score de prioridade da
+ * tarefa — com UM clique, sem confirmação, sem desfazer, e o `aoSucesso` ainda
+ * zerava os três controles na tela: nem pela memória visual dava para
+ * reconstruir. Medido pelo crítico: assimetria (A) = 18 (átomos 3/3/2) → 1
+ * clique, 0 diálogos, "Sem átomos declarados", 0 botões "Desfazer", e nada
+ * depois do F5.
+ *
+ * O remédio é o padrão que a PÁGINA já usa, e não um terceiro: janela de
+ * desfazer de 10 s, com o trio guardado e devolvido pela porta
+ * `atomos_desfazer_limpeza`. Janela é melhor que confirmação aqui pela mesma
+ * razão das outras duas exclusões: não cobra um segundo clique de quem já sabe
+ * o que quer, e dá volta a quem errou.
+ */
+interface JanelaDeDesfazerAtomos {
+  /** A frase que vai para a região viva, colada ao botão "Desfazer". */
+  texto: string;
+  /** Os três números apagados — é isto que o "Desfazer" devolve. */
+  trio: { opcionalidade: number; esforco: number; custo: number };
+}
+
 const OPCOES_ESFORCO_CUSTO: readonly OpcaoSegmentada<number>[] = [
   { valor: 1, rotulo: "1" },
   { valor: 2, rotulo: "2" },
@@ -125,6 +155,25 @@ export function AtomosForm({
    */
   const travaDeVooDosAtomos = useRef(false);
 
+  /** A janela de "Desfazer" da limpeza — um valor, não dois estados soltos. */
+  const [limpado, setLimpado] = useState<JanelaDeDesfazerAtomos | null>(null);
+  /** A verdade sobre a janela no instante do sucesso (depois do `await`). */
+  const janelaRef = useRef<JanelaDeDesfazerAtomos | null>(null);
+  janelaRef.current = limpado;
+  /** O trio que a limpeza EM VOO está apagando — escrito só após o veredito. */
+  const apagadoRef = useRef<JanelaDeDesfazerAtomos["trio"] | null>(null);
+  /** O trio que o desfazer EM VOO está devolvendo — mesma lei. */
+  const restauradoRef = useRef<JanelaDeDesfazerAtomos["trio"] | null>(null);
+  const botaoDesfazerRef = useRef<HTMLButtonElement | null>(null);
+  const desfazerTimeoutRef = useRef<number | null>(null);
+
+  function fecharRelogio(): void {
+    if (desfazerTimeoutRef.current !== null) window.clearTimeout(desfazerTimeoutRef.current);
+    desfazerTimeoutRef.current = null;
+  }
+
+  useEffect(() => fecharRelogio, []);
+
   const portaSalvar = usarPortaDeEscrita({
     op: "atomos_salvar",
     travaDeVoo: travaDeVooDosAtomos,
@@ -147,6 +196,38 @@ export function AtomosForm({
       mostrar: (t, o) => { portaSalvar.anunciar(t, o); },
       limpar: () => { portaSalvar.limparAnuncio(); },
     },
+    // Uma limpeza nova fecha a janela da anterior antes de gravar.
+    antesDeGravar: () => {
+      fecharRelogio();
+      setLimpado(null);
+    },
+    // [BAIXO #8, rodada 7] havia um "Desfazer" pendente? Ele acabou de ser
+    // substituído — a frase entra JUNTO, numa string só.
+    texto: () => anuncioComDesfazerPerdido("atomos_limpar", janelaRef.current !== null),
+    // [ALTO #2, rodada 14] o sucesso não vai para a região geral: ele mora
+    // colado ao botão "Desfazer", como nas outras duas exclusões da página.
+    anunciarSucesso: (t) => {
+      const trio = apagadoRef.current;
+      if (trio === null) {
+        // Sem trio guardado não há volta a oferecer (não deveria acontecer: o
+        // botão só existe com `assimetriaAtual`). Degrada dizendo o que houve.
+        portaSalvar.anunciar(t);
+        return;
+      }
+      setLimpado({ texto: t, trio });
+      desfazerTimeoutRef.current = window.setTimeout(() => {
+        setLimpado(null);
+        // Se o foco estava no "Desfazer" que acabou de sumir, devolve ao
+        // botão "Salvar átomos" — nunca ao `<body>`.
+        if (
+          typeof document !== "undefined" &&
+          botaoDesfazerRef.current !== null &&
+          document.activeElement === botaoDesfazerRef.current
+        ) {
+          botaoSalvarRef.current?.focus();
+        }
+      }, JANELA_DESFAZER_MS);
+    },
     aoSucesso: () => {
       // [MÉDIO #2] devolve os 3 grupos ao estado SEM seleção — sem isto, o
       // `useState` local (só lido no mount) continuava mostrando os últimos
@@ -158,11 +239,57 @@ export function AtomosForm({
     },
   });
 
-  const pendente = portaSalvar.pendente || portaLimpar.pendente;
+  /**
+   * [ALTO #2, rodada 14] O CAMINHO DE VOLTA. Porta própria, com `textoDeFalha`
+   * próprio: a chamada pode falhar (rede caída, RPC recusando) e a tela não
+   * pode seguir mostrando "Átomos limpos. Desfazer" como se nada tivesse
+   * acontecido. Mesma trava de voo das outras duas — as três escrevem o MESMO
+   * campo.
+   */
+  const portaDesfazerLimpeza = usarPortaDeEscrita({
+    op: "atomos_desfazer_limpeza",
+    travaDeVoo: travaDeVooDosAtomos,
+    // O "Desfazer" some agora: o foco vai para "Salvar átomos" (de onde a
+    // edição do trio recomeça) e, se ele não aceitar, para o 1º botão do
+    // grupo Opcionalidade.
+    alvo: () => botaoSalvarRef.current,
+    alternativa: () => grupoOpcionalidadeRef.current?.querySelector<HTMLButtonElement>("button"),
+    // Uma região viva a mais por porta seria o defeito que a rodada 9 fechou
+    // nos outros painéis: o desfazer fala na região de ANÚNCIOS do painel (a
+    // de `portaSalvar`), e o botão "Desfazer" mora na região própria dele.
+    regiao: {
+      mensagem: portaSalvar.mensagem,
+      mostrar: (t, o) => {
+        portaSalvar.anunciar(t, o);
+      },
+      limpar: () => {
+        portaSalvar.limparAnuncio();
+      },
+    },
+    aoSucesso: () => {
+      fecharRelogio();
+      setLimpado(null);
+      const trio = restauradoRef.current;
+      if (trio === null) return;
+      // Os três controles voltam ao que o servidor acabou de aceitar — o
+      // `router.refresh()` da porta traz o score junto.
+      setOpcionalidade(trio.opcionalidade);
+      setEsforco(trio.esforco);
+      setCusto(trio.custo);
+      confirmadoRef.current = chaveDoTrio(trio);
+    },
+    aoFalha: () => {
+      fecharRelogio(); // não esconde o botão: o operador ainda vai querer tentar.
+    },
+    textoDeFalha: () => "Não foi possível desfazer — os átomos continuam limpos.",
+  });
+
+  const pendente = portaSalvar.pendente || portaLimpar.pendente || portaDesfazerLimpeza.pendente;
 
   function aoMudarCampo(): void {
     portaSalvar.aoMudarCampo();
     portaLimpar.aoMudarCampo();
+    portaDesfazerLimpeza.aoMudarCampo();
   }
 
   function salvar(): void {
@@ -200,7 +327,38 @@ export function AtomosForm({
   function limpar(): void {
     // Mesma razão do `salvar`, na direção oposta.
     portaSalvar.aoMudarCampo();
-    portaLimpar.escrever({ task_id: taskId });
+    portaDesfazerLimpeza.aoMudarCampo();
+    // O trio que está indo embora — é ele que o "Desfazer" devolve. Lido do
+    // que o SERVIDOR confirmou, nunca do `useState` da tela.
+    const indo = assimetriaAtual;
+    const decisao = portaLimpar.escrever({ task_id: taskId });
+    // [CRÍTICO #1/#2, rodada 13] o ref só depois do veredito: uma recusa não
+    // pode passar por cima do trio que a limpeza EM VOO está apagando.
+    if (decisao === "gravar") {
+      apagadoRef.current =
+        indo === null
+          ? null
+          : {
+              opcionalidade: indo.opcionalidade,
+              esforco: indo.esforco,
+              custo: indo.custo,
+            };
+    }
+  }
+
+  function desfazerLimpeza(): void {
+    const janela = janelaRef.current;
+    portaSalvar.aoMudarCampo();
+    const decisao = portaDesfazerLimpeza.escrever(
+      {
+        task_id: taskId,
+        opcionalidade: String(janela?.trio.opcionalidade),
+        esforco: String(janela?.trio.esforco),
+        custo: String(janela?.trio.custo),
+      },
+      { valido: janela !== null },
+    );
+    if (decisao === "gravar") restauradoRef.current = janela?.trio ?? null;
   }
 
   return (
@@ -295,8 +453,45 @@ export function AtomosForm({
           Escolha os três para calcular o score.
         </p>
       ) : null}
-      <CampoErro mensagem={portaSalvar.erroDoCampo ?? portaLimpar.erroDoCampo} />
+      <CampoErro
+        mensagem={
+          portaSalvar.erroDoCampo ?? portaLimpar.erroDoCampo ?? portaDesfazerLimpeza.erroDoCampo
+        }
+      />
       <MensagemSucesso mensagem={portaSalvar.mensagem} />
+
+      {/* [ALTO #2, rodada 14] Região viva do DESFAZER da limpeza — texto e
+          botão no MESMO valor, como em notas-painel e relacoes-painel: era o
+          desencontro entre os dois que deixava um "Desfazer" sozinho, sem
+          dizer desfazer o quê. */}
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          limpado ? "text-xs font-medium text-state-done" : "m-0 min-h-0 text-xs text-state-done"
+        }
+      >
+        {limpado ? (
+          <>
+            {`${limpado.texto} `}
+            <button
+              ref={botaoDesfazerRef}
+              type="button"
+              onClick={desfazerLimpeza}
+              aria-busy={portaDesfazerLimpeza.pendente ? true : undefined}
+              aria-disabled={portaDesfazerLimpeza.pendente ? true : undefined}
+              className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center px-2 underline underline-offset-2 hover:text-gold-300 ${
+                portaDesfazerLimpeza.pendente ? "opacity-50" : ""
+              }`}
+            >
+              Desfazer
+            </button>
+          </>
+        ) : (
+          ""
+        )}
+      </p>
 
       <div className="rounded-lg border border-navy-700 bg-navy-850 px-3 py-2.5 text-sm">
         {score ? (
