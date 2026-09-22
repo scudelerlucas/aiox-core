@@ -153,9 +153,23 @@ describe("LinhaDoTempoView — render", () => {
       datas invertidas chegavam a um leitor de tela com a MESMA frase. Estado
       e período por extenso agora.
     */
+    /*
+      Rodada 12 (achado ALTO 3): este assunto do cenário cai ANTES da janela
+      desenhada — o canvas o desenha como um "◀" de 9px, `aria-hidden`. A
+      cláusula do lado da janela entra no rótulo, e o PERÍODO continua ali uma
+      única vez (a cláusula não o repete — repetir fazia o leitor de tela
+      dizer a mesma data duas vezes).
+    */
     expect(html).toContain(
-      'aria-label="Um assunto aberto — assunto em org/repo; aberto; 01/09/2026 → em aberto"',
+      'aria-label="Um assunto aberto — assunto em org/repo; aberto; 01/09/2026 → em aberto;'
+        + ' fora da janela do tempo (antes do início da janela desenhada)"',
     );
+    /* A data chega ao TOQUE: texto VISÍVEL na coluna, não só no `title`. */
+    expect(html).toContain('data-lb-fora-da-janela="antes"');
+    expect(html).toContain("◀ começa 01/09/2026");
+    /* E o período aparece uma vez só no rótulo (nunca duas). */
+    const rotulo = /aria-label="Um assunto aberto[^"]*"/.exec(html)?.[0] ?? "";
+    expect(rotulo.match(/01\/09\/2026/g)).toHaveLength(1);
     const painel = renderToStaticMarkup(
       <PainelDetalheAssunto linha={assunto()} onFechar={() => {}} />,
     );

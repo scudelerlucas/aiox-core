@@ -29,6 +29,13 @@ import {
   textoDoPeriodoDoAssunto,
 } from "@/core/timeline/assunto-em-palavras";
 import {
+  ancoraDaJanela,
+  clausulaForaDaJanela,
+  fraseForaDaJanela,
+  type LadoDaJanela,
+  textoVisivelForaDaJanela,
+} from "@/core/timeline/fora-da-janela-em-palavras";
+import {
   desenhaBarraDeDuracao,
   motivoForaDaGrade,
   textoDoPeriodo,
@@ -1437,6 +1444,17 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
                   <RotuloLinha
                     key={l.chave}
                     linha={l.linha}
+                    /*
+                      Rodada 12 (achado ALTO 3): a coluna de rótulos passa a
+                      saber que o canvas se recusou a posicionar esta linha.
+                      Sem isto, um terço do quadro a 390px é um "◀" de 9px,
+                      `aria-hidden`, com a data só no `title` — e o próprio
+                      repositório já mediu (rodada 7, achado MÉDIO #7) que
+                      `title` NÃO EXISTE no toque. Quem decide o lado é a
+                      MESMA dupla de predicados que o canvas usa, e a
+                      data-âncora sai da mesma função pura.
+                    */
+                    foraDaJanela={ladoForaDaJanelaDaLinha(l.linha, foraDaJanela, depoisDaJanela)}
                     ativo={ativaChave === l.chave}
                     destacadoPredecessora={l.linha.kind === "tarefa" && predecessorasAtivas.has(l.linha.id)}
                     destacadoSucessora={l.linha.kind === "tarefa" && sucessorasAtivas.has(l.linha.id)}
@@ -1642,8 +1660,86 @@ function listaDeNomes(ids: readonly string[], tituloPorId: ReadonlyMap<string, s
   return ids.map((id) => tituloPorId.get(id) ?? id).join(", ");
 }
 
+/**
+ * Rodada 12 (achado ALTO 3) — DE QUE LADO DA JANELA O CANVAS JOGOU ESTA LINHA.
+ *
+ * Os predicados entram por parâmetro porque são os MESMOS que as barras usam
+ * (`foraDaJanela`/`depoisDaJanela`, derivados de `minIso`/`fimDesenhado`): se
+ * o rótulo tivesse a própria conta, as duas superfícies poderiam discordar —
+ * que é a classe de defeito que esta peça existe para fechar. A data-âncora
+ * vem de `ancoraDaJanela` (pura, testada), e não de um `?:` escrito aqui.
+ */
+function ladoForaDaJanelaDaLinha(
+  linha: LinhaDoTempoRow,
+  foraDaJanela: (iso: string) => boolean,
+  depoisDaJanela: (iso: string) => boolean,
+): { lado: LadoDaJanela; visivel: string; frase: string; clausula: string } | null {
+  /*
+    Dado podre tem desenho próprio ("data inválida", "datas inconsistentes"),
+    que já é texto e já diz o que sabe — não é uma linha muda.
+  */
+  if (linha.kind === "assunto" && (linha.dataInvalida || linha.datasInconsistentes)) return null;
+  if (linha.kind === "tarefa" && linha.datasInconsistentes) return null;
+  const ancora = ancoraDaJanela({
+    semBarra: linha.kind === "tarefa" ? linha.semBarra : false,
+    pontoConcluidoEm: linha.kind === "tarefa" ? linha.pontoConcluidoEm : null,
+    /* Assunto sem dado podre sempre desenha; tarefa depende de ter as duas datas. */
+    desenhaBarra: linha.kind === "assunto" ? true : desenhaBarraDeDuracao(linha),
+    inicio: linha.inicio,
+  });
+  if (ancora === null) return null;
+  const antes = foraDaJanela(ancora.iso);
+  if (!antes && !depoisDaJanela(ancora.iso)) return null;
+  const lado: LadoDaJanela = antes ? "antes" : "depois";
+  const periodo =
+    linha.kind === "assunto"
+      ? textoDoPeriodoDoAssunto(linha, diaMesAnoCurto)
+      : textoDoPeriodo(linha, diaMesAnoCurto);
+  return {
+    lado,
+    visivel: textoVisivelForaDaJanela(lado, ancora.iso, ancora.concluida, diaMesAnoCurto),
+    /* Para quem não diz o período sozinho (o `title`/`aria-label` da tarefa). */
+    frase: fraseForaDaJanela(lado, periodo),
+    /* Para quem já diz (o `aria-label` do assunto) — nunca repetir a data. */
+    clausula: clausulaForaDaJanela(lado),
+  };
+}
+
+/**
+ * Rodada 12 (achado ALTO 3): a data-âncora POR ESCRITO E VISÍVEL na coluna de
+ * rótulos, para o item que o canvas se recusou a posicionar. É este elemento
+ * que fecha o canal do TOQUE — o `title` não existe lá (medido na rodada 7) e
+ * o `aria-label` só chega a quem usa leitor de tela.
+ *
+ * `whitespace-nowrap` de propósito: a data é um átomo, cortá-la ao meio com
+ * reticências seria o mesmo defeito de novo. Ela cabe em uma linha de 12px
+ * dentro dos 140px da coluna no celular — é por isso que o texto visível leva
+ * UMA data e o período inteiro fica no `aria-label`/`title`/gaveta.
+ *
+ * `bone-300` sobre `navy-850`: o mesmo par já na régua de contraste da casa
+ * (o badge `lb-tl-fora-da-grade`, na mesma coluna e no mesmo fundo).
+ */
+function RotuloForaDaJanela({
+  fora,
+}: {
+  fora: { lado: LadoDaJanela; visivel: string; frase: string; clausula: string } | null;
+}): JSX.Element | null {
+  if (!fora) return null;
+  return (
+    <span
+      /* A classe é a régua: a guarda do navegador amarra cada "◀"/"▶" do
+         canvas a um destes textos, e reprova quando um deles falta. */
+      className="lb-tl-fora-da-janela-rotulo whitespace-nowrap text-[12px] leading-4 text-bone-300"
+      data-lb-fora-da-janela={fora.lado}
+    >
+      {fora.visivel}
+    </span>
+  );
+}
+
 function RotuloLinha({
   linha,
+  foraDaJanela,
   ativo,
   destacadoPredecessora,
   destacadoSucessora,
@@ -1652,6 +1748,13 @@ function RotuloLinha({
   onAtivar,
 }: {
   linha: LinhaDoTempoRow;
+  /**
+   * Rodada 12 (achado ALTO 3): `null` quando o canvas desenha a linha no
+   * lugar que a data dela manda. Não-nulo = o canvas se recusou a posicionar
+   * (chevron "◀"/"▶" no clamp), e então O RÓTULO é quem diz a data — por
+   * escrito, visível, no `aria-label` e no `title`.
+   */
+  foraDaJanela: { lado: LadoDaJanela; visivel: string; frase: string; clausula: string } | null;
   ativo: boolean;
   destacadoPredecessora: boolean;
   destacadoSucessora: boolean;
@@ -1703,11 +1806,26 @@ function RotuloLinha({
           MESMA frase. Estado e período por extenso, da mesma função pura que
           alimenta a gaveta e o `title` da barra.
         */
-        aria-label={rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)}
+        /*
+          Rodada 12 (achado ALTO 3): quando o canvas se recusa a posicionar
+          (o item cai fora da janela desenhada), a frase do lado entra AQUI —
+          no único canal que chega a um leitor de tela, já que as barras são
+          todas `aria-hidden`.
+        */
+        aria-label={
+          foraDaJanela
+            ? `${rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)}; ${foraDaJanela.clausula}`
+            : rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)
+        }
         className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
-        title={rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)}
+        title={
+          foraDaJanela
+            ? `${rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)}; ${foraDaJanela.clausula}`
+            : rotuloAcessivelDoAssunto(linha, diaMesAnoCurto)
+        }
       >
         <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${cor.barra}`} />
+        <span className="flex min-w-0 flex-1 flex-col">
         {/*
           Achado MÉDIO #5 (rodada 4): a 390px, a coluna (108px) truncava 11 de
           22 nomes em ~10 caracteres. `line-clamp-2` (2 linhas antes de
@@ -1731,9 +1849,11 @@ function RotuloLinha({
             na lista escrita à mão. Agora ele deriva do código quais tokens são
             usados como TEXTO e exige que cada um esteja na régua.
           */
-          className={`line-clamp-2 break-words ${cor.riscado ? "text-bone-400 line-through" : ""}`}
+          className={`${foraDaJanela ? "line-clamp-1" : "line-clamp-2"} break-words ${cor.riscado ? "text-bone-400 line-through" : ""}`}
         >
           {linha.titulo}
+        </span>
+        <RotuloForaDaJanela fora={foraDaJanela} />
         </span>
       </button>
     );
@@ -1758,9 +1878,17 @@ function RotuloLinha({
   ]
     .filter(Boolean)
     .join(", ");
+  /*
+    Rodada 12 (achado ALTO 3): o caso mais mudo de todos era a tarefa
+    CONCLUÍDA fora da janela — `motivoForaDaGrade` devolve `null` (porque
+    `semBarra`), o `title` virava só o nome e o `aria-label` não dizia data
+    nenhuma. Nem toque, nem leitor de tela, nem hover chegavam à data de
+    conclusão. A frase do lado da janela entra nas três superfícies.
+  */
   const ariaLabel =
     `${linha.titulo} — predecessores: ${ariaPreds}; sucessores: ${ariaSucs}` +
-    (ariaExtra ? `; ${ariaExtra}` : "");
+    (ariaExtra ? `; ${ariaExtra}` : "") +
+    (foraDaJanela ? `; ${foraDaJanela.frase}` : "");
 
   return (
     <button
@@ -1778,10 +1906,21 @@ function RotuloLinha({
         `title` carrega a frase inteira do período; nas linhas com barra ele
         continua sendo só o nome, e quem fala do período é o `title` da barra.
       */
-      title={foraDaGrade ? `${linha.titulo} — ${textoDoPeriodo(linha, diaMesAnoCurto)}` : linha.titulo}
+      title={
+        foraDaGrade
+          ? `${linha.titulo} — ${textoDoPeriodo(linha, diaMesAnoCurto)}`
+          : foraDaJanela
+            ? `${linha.titulo} — ${foraDaJanela.frase}`
+            : linha.titulo
+      }
       className={`${classeBase} ${anelClasse} w-full text-left text-bone-200 hover:text-bone-50`}
     >
-      <span className="line-clamp-2 break-words">{linha.titulo}</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className={`${foraDaJanela ? "line-clamp-1" : "line-clamp-2"} break-words`}>
+          {linha.titulo}
+        </span>
+        <RotuloForaDaJanela fora={foraDaJanela} />
+      </span>
       {foraDaGrade ? (
         <span className="lb-tl-fora-da-grade shrink-0 rounded-full border border-navy-600 px-1 text-[12px] leading-4 text-bone-300">
           {foraDaGrade}
@@ -2108,6 +2247,28 @@ function BarraTarefa({
   const largura = Math.max(LARGURA_MINIMA_BARRA, xFor(row.fim) - x);
   const xFolga = xFor(row.fimComFolga);
   const larguraFolga = Math.max(0, xFolga - xFor(row.fim));
+  /**
+   * Rodada 12 (achado ALTO 1, encontrado no primeiro minuto em que a hachura
+   * de folga entrou numa régua). A hachura nascia em `left: largura` — a
+   * largura da BARRA, que tem piso de 12px (`LARGURA_MINIMA_BARRA`). Medido a
+   * 390×844, "Auto", 8,385 px/dia: a barra de 1 dia (8,38px) é esticada para
+   * os 12px do piso, e a hachura começava 3,6px depois do lugar onde a data
+   * `fim` cai — **0,43 dia de erro nas DUAS bordas dela**. Ou seja: o desenho
+   * que afirma "de `fim` até `fimComFolga`" não começava em `fim` nem acabava
+   * em `fimComFolga` sempre que o piso de largura morde.
+   *
+   * O piso é um compromisso DECLARADO da barra (uma duração sub-dia precisa
+   * ser vista). Ele não pode vazar para o vizinho: a hachura se ancora na
+   * DATA, como tudo mais neste eixo — "posição e comprimento são afirmações
+   * sobre datas", e as duas datas dela são as que ela declara em
+   * `data-lb-folga-de`/`data-lb-folga-ate`.
+   *
+   * O que muda na tela quando o piso morde: os últimos ~3,6px da barra ficam
+   * hachurados em vez de sólidos. A parte SÓLIDA volta a medir exatamente a
+   * duração real — o piso continua garantindo que a linha inteira (sólido +
+   * hachura) seja vista.
+   */
+  const esquerdaFolga = xFor(row.fim) - x;
 
   // Achado ALTO #4: aberta sem estimativa → contorno tracejado + "sem data"
   // (nunca a barra sólida fabricada). Achado ALTO #5 (rodada 2): atrasada NÃO
@@ -2260,7 +2421,25 @@ function BarraTarefa({
       ) : null}
       {rotuloLateral ? (
         <span
-          className="absolute top-0 ml-1 whitespace-nowrap text-[12px] leading-4 text-bone-300"
+          /*
+           * Rodada 12 (achado ALTO 2, encontrado no minuto em que a medida de
+           * contraste passou a abrir todas as gavetas nos TRÊS zooms). Este
+           * badge é `absolute` e `posicaoDoBadge` o PRENDE dentro do eixo —
+           * um clamp declarado, do achado BAIXO A6, que existe para o badge
+           * não esticar o `scrollWidth` do painel além do eixo. Quando ele
+           * morde, o badge entra POR CIMA DA PRÓPRIA BARRA. Medido a
+           * 1440×1000 e a 390×844, zoom "Trimestre": `left` clampado de 72px
+           * para 10px numa barra de 72px — `bone-300` sobre `state-open`
+           * (`rgb(127,184,255)`) mede **1,18:1**, contra a régua de 4,5:1.
+           *
+           * `bg-navy-950` opaco resolve o caso sem inventar um segundo
+           * tratamento: é a MESMA cor do canvas, então sobre o canvas (o caso
+           * comum) nada muda na tela; sobre a barra, o texto passa a ter o
+           * fundo escuro da casa atrás dele. Trocar a COR do texto não
+           * resolveria: o badge pode ficar meio dentro e meio fora da barra,
+           * e aí uma cor certa para um lado é errada para o outro.
+           */
+          className="absolute top-0 ml-1 whitespace-nowrap rounded-sm bg-navy-950 px-0.5 text-[12px] leading-4 text-bone-300"
           style={{ left: leftRotuloLateral }}
         >
           {rotuloLateral}
@@ -2294,8 +2473,18 @@ function BarraTarefa({
       {larguraFolga > 0 ? (
         <div
           aria-hidden="true"
+          /*
+            Rodada 12 (achado ALTO 1): a hachura AFIRMA duas datas — começa no
+            `fim` e acaba no `fimComFolga` — e não declarava nenhuma das duas.
+            Sem declaração nenhuma régua a alcança: ela não tem `title` (está
+            dentro da barra, que já tem o dela) e não tinha `data-lb-*`. Estes
+            dois atributos SÃO a régua dela, do mesmo jeito que `data-lb-hoje`
+            é a régua da faixa dourada — não são enfeite.
+          */
+          data-lb-folga-de={row.fim}
+          data-lb-folga-ate={row.fimComFolga}
           className="lb-tl-slack absolute top-0 h-full rounded-r-sm bg-folga-tracado/30 opacity-70 [background-image:repeating-linear-gradient(45deg,theme(colors.folga.tracado)_0_3px,transparent_3px_6px)]"
-          style={{ left: largura, width: larguraFolga, height: BAR_H }}
+          style={{ left: esquerdaFolga, width: larguraFolga, height: BAR_H }}
         />
       ) : null}
     </div>

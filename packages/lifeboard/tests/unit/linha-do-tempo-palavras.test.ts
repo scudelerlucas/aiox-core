@@ -6,7 +6,15 @@ import {
   textoDoPeriodoDoAssunto,
 } from "@/core/timeline/assunto-em-palavras";
 import {
+  ancoraDaJanela,
+  clausulaForaDaJanela,
+  fraseForaDaJanela,
+  glifoDoLado,
+  textoVisivelForaDaJanela,
+} from "@/core/timeline/fora-da-janela-em-palavras";
+import {
   desenhaBarraDeDuracao,
+  formatarDias,
   motivoForaDaGrade,
   type PeriodoDeTarefa,
 } from "@/core/timeline/periodo-da-tarefa";
@@ -125,5 +133,119 @@ describe("MÉDIO 4 · o assunto diz estado e período em palavras", () => {
     // cinco chegavam idênticas a um leitor de tela.
     expect(frases.size).toBe(5);
     for (const f of frases) expect(f.startsWith(`${base.titulo} — assunto em org/repo; `)).toBe(true);
+  });
+});
+
+
+/**
+ * Rodada 12 (achado BAIXO 1): `formatarDias` tratava todo número ≤ 1 como
+ * singular, e imprimia "0 dia" e "-3 dia". Em português o singular é de UM,
+ * não de "até um". Não há caminho de dado que chegue aqui com zero ou
+ * negativo hoje (o construtor de linhas só entrega estimativa > 0) — é
+ * defesa de contrato de uma função exportada, e é por isso que a régua é
+ * este teste e não a tela.
+ */
+describe("BAIXO 1 · formatarDias: singular só para UM dia", () => {
+  it.each([
+    [1, "1 dia"],
+    [0.5, "0,5 dia"],
+    [0.25, "0,25 dia"],
+  ])("%s → %s (singular: positivo e ≤ 1)", (entrada, esperado) => {
+    expect(formatarDias(entrada)).toBe(esperado);
+  });
+
+  it.each([
+    [0, "0 dias"],
+    [-3, "-3 dias"],
+    [-0.5, "-0,5 dias"],
+    [1.5, "1,5 dias"],
+    [3, "3 dias"],
+  ])("%s → %s (plural: zero, negativo e > 1)", (entrada, esperado) => {
+    expect(formatarDias(entrada)).toBe(esperado);
+  });
+
+  it("número não finito não vira texto com número nenhum", () => {
+    expect(formatarDias(Number.NaN)).toBe("duração inválida");
+    expect(formatarDias(Number.POSITIVE_INFINITY)).toBe("duração inválida");
+  });
+});
+
+/**
+ * Rodada 12 (achado ALTO 3): o item que o canvas se RECUSA a posicionar (cai
+ * fora da janela desenhada) recebia um "◀" de 9 px, `aria-hidden="true"`, e a
+ * data só no `title` — e o próprio repositório já mediu, na rodada 7, que
+ * `title` não existe no toque. Estas são as três frases que fecham os três
+ * canais (toque · leitor de tela · hover), cada uma com o seu próprio dever.
+ */
+describe("ALTO 3 · o item fora da janela nunca é uma linha muda", () => {
+  it("a âncora de uma tarefa com barra é o início", () => {
+    expect(
+      ancoraDaJanela({
+        semBarra: false,
+        pontoConcluidoEm: null,
+        desenhaBarra: true,
+        inicio: "2026-08-03",
+      }),
+    ).toEqual({ iso: "2026-08-03", concluida: false });
+  });
+
+  it("a âncora de uma tarefa CONCLUÍDA é o ponto de conclusão — o caso que não dizia data nenhuma", () => {
+    expect(
+      ancoraDaJanela({
+        semBarra: true,
+        pontoConcluidoEm: "2026-07-08",
+        desenhaBarra: false,
+        inicio: "2026-09-21",
+      }),
+    ).toEqual({ iso: "2026-07-08", concluida: true });
+  });
+
+  it("sem desenho posicionado no eixo não há âncora — esse caso tem outro dono (motivoForaDaGrade)", () => {
+    expect(
+      ancoraDaJanela({
+        semBarra: false,
+        pontoConcluidoEm: null,
+        desenhaBarra: false,
+        inicio: "2026-09-21",
+      }),
+    ).toBeNull();
+    /* Concluída sem data válida de conclusão: nada a ancorar, e nada a mentir. */
+    expect(
+      ancoraDaJanela({
+        semBarra: true,
+        pontoConcluidoEm: null,
+        desenhaBarra: false,
+        inicio: "2026-09-21",
+      }),
+    ).toBeNull();
+  });
+
+  it("o texto VISÍVEL leva o glifo, o verbo certo e a data COM ANO", () => {
+    expect(textoVisivelForaDaJanela("antes", "2026-08-03", false, br)).toBe("◀ começa 03/08/2026");
+    expect(textoVisivelForaDaJanela("depois", "2026-11-30", false, br)).toBe("▶ começa 30/11/2026");
+    /* Concluída troca o verbo: a âncora é a data de conclusão, não um começo. */
+    expect(textoVisivelForaDaJanela("antes", "2026-07-08", true, br)).toBe(
+      "◀ concluída 08/07/2026",
+    );
+  });
+
+  it("o glifo é o MESMO que o canvas desenha — um símbolo, um sentido", () => {
+    expect(glifoDoLado("antes")).toBe("◀");
+    expect(glifoDoLado("depois")).toBe("▶");
+  });
+
+  it("a cláusula não repete o período; a frase inteira o inclui uma vez", () => {
+    expect(clausulaForaDaJanela("antes")).toBe(
+      "fora da janela do tempo (antes do início da janela desenhada)",
+    );
+    expect(clausulaForaDaJanela("depois")).toBe(
+      "fora da janela do tempo (depois do fim da janela desenhada)",
+    );
+    const frase = fraseForaDaJanela("antes", "03/08/2026 → 08/08/2026");
+    expect(frase).toBe(
+      "03/08/2026 → 08/08/2026 — fora da janela do tempo (antes do início da janela desenhada)",
+    );
+    /* A data não pode sair daqui duas vezes (era o defeito da 1ª tentativa). */
+    expect(frase.match(/03\/08\/2026/g)).toHaveLength(1);
   });
 });

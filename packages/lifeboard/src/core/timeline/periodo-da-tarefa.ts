@@ -64,7 +64,15 @@ export function formatarDias(dias: number): string {
   if (!Number.isFinite(dias)) return "duração inválida";
   const arredondado = Math.round(dias * 100) / 100;
   const texto = String(arredondado).replace(".", ",");
-  return `${texto} ${arredondado <= 1 ? "dia" : "dias"}`;
+  /*
+   * Rodada 12 (achado BAIXO 1): `arredondado <= 1` dava "0 dia" e "-3 dia".
+   * O singular em português vale para UM, não para "até um": zero e negativo
+   * são plurais ("0 dias", "-3 dias"). Não há caminho de dado para cá hoje
+   * (o construtor de linhas só entrega estimativa > 0), então isto é defesa
+   * de contrato de uma função exportada — e a régua é o teste, não a tela.
+   */
+  const singular = arredondado > 0 && arredondado <= 1;
+  return `${texto} ${singular ? "dia" : "dias"}`;
 }
 
 /**
