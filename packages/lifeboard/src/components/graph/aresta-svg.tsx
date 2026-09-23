@@ -41,8 +41,15 @@ export const ARESTA_STROKE_CRITICO = "#FF7A6B"; // aresta.critico == state.error
 export const ARESTA_STROKE_DESTACADA = "#F7CE73"; // aresta.predecessor == gold-400
 
 /** Formas por camada (daltônico-safe: tracejado/sólido/triplo já diferem; isto soma glifo). */
-type Forma = "seta" | "circulo" | "losango" | "x";
-const FORMA_POR_CAMADA: Record<Exclude<CamadaGrafo, "critico">, Forma> = {
+export type Forma = "seta" | "circulo" | "losango" | "x";
+/**
+ * Exportado desde a rodada 15 (achado ALTO 2): a forma do glifo é a segunda
+ * afirmação de DIREÇÃO que a tela faz (a primeira é o verbo da lista
+ * acessível), e `src/lib/promessa-do-grafo.ts` cobra as duas contra o RÓTULO
+ * da camada. Sem exportar, a única coisa que conferia o nome da camada era a
+ * própria tabela de nomes.
+ */
+export const FORMA_POR_CAMADA: Record<Exclude<CamadaGrafo, "critico">, Forma> = {
   sucessao: "seta",
   correlacao: "circulo",
   sinergia: "losango",

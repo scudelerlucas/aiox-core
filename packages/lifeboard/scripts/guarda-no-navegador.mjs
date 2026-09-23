@@ -219,15 +219,61 @@
  * tempo, §19, §20 e §21 — o bloco com o desenho inteiro e o alcance de tempo
  * escrito por extenso está algumas centenas de linhas abaixo; procure por
  * "QUAL É O ALCANCE DE TEMPO DESTAS MEDIDAS".
+ *
+ * ═════════════════════════════════════════════════════════════════════════
+ * RODADA 16 — OS EIXOS DO PRODUTO DOS GESTOS ERAM ESCOLHIDOS À MÃO
+ * ═════════════════════════════════════════════════════════════════════════
+ *
+ * **ALTO — §22 cruzava camadas × seleção, e o zoom ficou de fora.** Uma
+ * linha em `v3-edge.tsx` apagava as ligações do cartão SELECIONADO acima de
+ * zoom 1,2 (2 destacadas a 0,849; 0 a 1,467), com os cinco portões verdes.
+ * **Forma 3** (universo por convenção), um eixo adiante do ALTO 3 da rodada
+ * 15. Cura: o inventário do estado que o operador controla sai do código
+ * (§0c, `derivarContrato`) e da tela (§22, `LEITURA_DOS_CONTROLES`); cada item
+ * é eixo ou está fora com motivo e lastro; os valores de cada eixo são
+ * derivados; e as combinações cobrem todo PAR de valores (cobertura em pares,
+ * `cobertura-em-pares.mjs`, recontada e testada) — procure por "§22 · O
+ * PRODUTO DOS GESTOS, COM OS EIXOS DERIVADOS".
+ *
+ * ═════════════════════════════════════════════════════════════════════════
+ * RODADA 17 — O OPERADOR PARA NO MEIO, E A PÁGINA QUE TRAVA NÃO É O PRODUTO
+ * ═════════════════════════════════════════════════════════════════════════
+ *
+ * **ALTO — o zoom que o operador usa não era nenhum dos três medidos.** Com
+ * `1,2 < zoom < 1,6` apagando o destaque, dois cliques em "Aumentar zoom"
+ * sumiam com as ligações do cartão selecionado e a guarda passava inteira em
+ * três larguras. Forma 3 de novo, agora nos VALORES de um eixo contínuo. Cura:
+ * os valores do zoom saem dos GESTOS (fatores lidos da lib instalada, partidas
+ * lidas na página, toda sequência de um gesto repetido até a ponta — 47 a 64
+ * valores por largura), e cada um é medido contra as camadas e a seleção
+ * (§22z); o pan e a largura da janela, os outros eixos contínuos, ganharam o
+ * seu passeio (§22p, §22L); cada eixo diz se é contínuo em
+ * `CONTINUIDADE_DOS_EIXOS` (§0c). Procure por "§22z / §22p / §22L".
+ *
+ * **MÉDIO — "Page crashed" por falta de memória da máquina virava ✗.** A
+ * página que trava é refeita num navegador novo; só é o produto quando trava
+ * de novo com a máquina sobrando memória. Procure por "A PÁGINA TRAVOU".
  */
 
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { gerarCoberturaEmPares, paresSemCobertura } from "./cobertura-em-pares.mjs";
+import {
+  NOTCH_DA_RODA_PX,
+  cortesDeLarguraDoCodigo,
+  gestosDoZoom,
+  julgarTravamento,
+  lerFatoresDoZoomDaLib,
+  maiorVao,
+  planoDoPasseioDoZoom,
+  trilhaDaLargura,
+  valoresDistintos,
+} from "./eixos-continuos.mjs";
 import {
   AJUDANTES_NA_PAGINA,
   amostraNoPonto,
@@ -250,8 +296,6 @@ const CHROMIUM = process.env.LIFEBOARD_CHROMIUM ?? "/opt/pw-browsers/chromium-11
 
 /** O teaser da faixa "Fontes + Hoje" — o mesmo número de `altura-do-canvas.ts`. */
 const TEASER_DA_FAIXA_DE_BAIXO_PX = 44;
-/** Teto de zoom do canvas — o mesmo de `dependency-graph.tsx`. */
-const ZOOM_MAXIMO_DO_CANVAS = 1.8;
 
 const TODAS_AS_LARGURAS = [
   { largura: 1024, altura: 800, desktop: true },
@@ -287,6 +331,58 @@ const LARGURAS = (() => {
 
 function lerFonte(relativo) {
   return readFileSync(join(RAIZ_DO_PACOTE, relativo), "utf8");
+}
+
+/*
+ * ── A MATEMÁTICA DA FAMÍLIA DE COR (rodada 15, ALTO 1) ─────────────────────
+ *
+ * Aritmética de HSL, e só isso: a PROMESSA (quais faixas são "vermelho",
+ * "verde", …) mora em `src/lib/promessa-do-grafo.ts` e é lida de lá. O
+ * espelho desta conta em TypeScript, que o teste de unidade usa, está no mesmo
+ * arquivo da promessa — duas contas iguais sobre a mesma promessa, nunca duas
+ * promessas.
+ */
+function hexParaHsl(hex) {
+  const limpo = String(hex ?? "").trim();
+  if (!/^#[0-9A-Fa-f]{6}$/.test(limpo)) return null;
+  const r = Number.parseInt(limpo.slice(1, 3), 16) / 255;
+  const g = Number.parseInt(limpo.slice(3, 5), 16) / 255;
+  const b = Number.parseInt(limpo.slice(5, 7), 16) / 255;
+  const maior = Math.max(r, g, b);
+  const menor = Math.min(r, g, b);
+  const l = (maior + menor) / 2;
+  const d = maior - menor;
+  if (d === 0) return { h: 0, s: 0, l };
+  const s = l > 0.5 ? d / (2 - maior - menor) : d / (maior + menor);
+  let h;
+  if (maior === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (maior === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: h * 60, s, l };
+}
+
+function matizNaFaixa(h, de, ate) {
+  const gr = ((h % 360) + 360) % 360;
+  return de <= ate ? gr >= de && gr <= ate : gr >= de || gr <= ate;
+}
+
+function corNaFamiliaDaPromessa(hex, familia) {
+  const hsl = hexParaHsl(hex);
+  if (hsl === null) return false;
+  if (hsl.s < familia.satMin || hsl.s > familia.satMax) return false;
+  if (hsl.l < familia.lumMin || hsl.l > familia.lumMax) return false;
+  if (familia.satMin === 0) return true;
+  return matizNaFaixa(hsl.h, familia.hueDe, familia.hueAte);
+}
+
+function familiasSeSobrepoem(a, b) {
+  if (a.satMin > b.satMax || b.satMin > a.satMax) return false;
+  if (a.lumMin > b.lumMax || b.lumMin > a.lumMax) return false;
+  if (a.satMin === 0 || b.satMin === 0) return true;
+  for (let h = 0; h < 360; h += 1) {
+    if (matizNaFaixa(h, a.hueDe, a.hueAte) && matizNaFaixa(h, b.hueDe, b.hueAte)) return true;
+  }
+  return false;
 }
 
 /**
@@ -378,6 +474,180 @@ function derivarContrato() {
   }
 
   /*
+   * ── ALTO 1 DA RODADA 15: CONCORDAR NÃO É PROMETER ──────────────────────
+   *
+   * O parágrafo acima exige que as duas tabelas de cor digam o MESMO hex. Isso
+   * fecha "uma das duas apodreceu" e não fecha "as duas foram trocadas no
+   * mesmo ato" — porque **as duas são do produto**. O crítico hostil provou
+   * com duas linhas (`ARESTA_STROKE_CRITICO` e o token `aresta.critico`, de
+   * `#FF7A6B` para `#5FE39A`): as duas tabelas continuaram concordando, os
+   * cinco portões ficaram verdes e `checar-contraste.mjs` imprimiu
+   * `ok 12,40:1` — porque ele mede o hex NOVO. Na tela, os pixels na cor do
+   * caminho crítico caíram de **1661 para 832** e o traço triplo ficou do
+   * mesmo verde das arestas de sucessão. **Nada, em lugar nenhum deste
+   * repositório, afirmava que o caminho crítico é vermelho.**
+   *
+   * A âncora é `src/lib/promessa-do-grafo.ts` — nem `aresta-svg.tsx` nem
+   * `tailwind.config.ts`. Ela não guarda hex: guarda a FAMÍLIA (faixa de
+   * matiz, saturação e luminância). Afinar o tom do vermelho não encosta
+   * nela; trocar vermelho por verde exige ir lá e escrever que o caminho
+   * crítico deixou de ser vermelho.
+   */
+  const promessaSrc = lerFonte("src/lib/promessa-do-grafo.ts");
+  const blocoDasFamilias = /export const FAMILIAS_DE_COR = \{([\s\S]*?)\n\} as const satisfies/.exec(promessaSrc);
+  if (!blocoDasFamilias) {
+    throw new Error(
+      "não achei FAMILIAS_DE_COR em src/lib/promessa-do-grafo.ts — sem a promessa escrita fora das duas tabelas, esta guarda voltaria a aprovar as duas trocadas no mesmo ato",
+    );
+  }
+  const familias = {};
+  for (const m of blocoDasFamilias[1].matchAll(
+    /(\w+):\s*\{\s*hueDe:\s*([\d.]+),\s*hueAte:\s*([\d.]+),\s*satMin:\s*([\d.]+),\s*satMax:\s*([\d.]+),\s*lumMin:\s*([\d.]+),\s*lumMax:\s*([\d.]+),\s*emPortugues:\s*"([^"]+)"/g,
+  )) {
+    familias[m[1]] = {
+      hueDe: Number(m[2]),
+      hueAte: Number(m[3]),
+      satMin: Number(m[4]),
+      satMax: Number(m[5]),
+      lumMin: Number(m[6]),
+      lumMax: Number(m[7]),
+      emPortugues: m[8],
+    };
+  }
+  if (Object.keys(familias).length === 0) {
+    throw new Error("FAMILIAS_DE_COR existe em promessa-do-grafo.ts e não deu para ler nenhuma família dela");
+  }
+  const blocoDaPromessaDeCor = /export const FAMILIA_EXIGIDA_POR_PAPEL = \{([\s\S]*?)\n\} as const satisfies/.exec(promessaSrc);
+  if (!blocoDaPromessaDeCor) throw new Error("não achei FAMILIA_EXIGIDA_POR_PAPEL em src/lib/promessa-do-grafo.ts");
+  const familiaDoPapel = {};
+  for (const m of blocoDaPromessaDeCor[1].matchAll(/(\w+):\s*"(\w+)"/g)) familiaDoPapel[m[1]] = m[2];
+
+  const foraDaFamilia = [];
+  const familiaJaUsada = new Map();
+  for (const papel of papeis) {
+    const nomeDaFamilia = familiaDoPapel[papel];
+    if (!nomeDaFamilia) {
+      foraDaFamilia.push(
+        `o papel "${papel}" não tem família de cor prometida em src/lib/promessa-do-grafo.ts — a cor dele poderia virar qualquer uma sem ninguém dizer nada`,
+      );
+      continue;
+    }
+    const familia = familias[nomeDaFamilia];
+    if (!familia) {
+      foraDaFamilia.push(`o papel "${papel}" promete a família "${nomeDaFamilia}", que não existe em FAMILIAS_DE_COR`);
+      continue;
+    }
+    const outro = familiaJaUsada.get(nomeDaFamilia);
+    if (outro) {
+      foraDaFamilia.push(
+        `os papéis "${outro}" e "${papel}" prometem a MESMA família ("${familia.emPortugues}") — dizer a cor de um deixaria de excluir o outro`,
+      );
+    }
+    familiaJaUsada.set(nomeDaFamilia, papel);
+    const hex = cores[papel];
+    if (!hex) continue;
+    if (!corNaFamiliaDaPromessa(hex, familia)) {
+      const hsl = hexParaHsl(hex);
+      foraDaFamilia.push(
+        `o papel "${papel}" é prometido ${familia.emPortugues} e as DUAS tabelas pintam ${hex} (matiz ${String(
+          Math.round(hsl?.h ?? -1),
+        )}°, saturação ${String((hsl?.s ?? 0).toFixed(2))}, luminância ${String((hsl?.l ?? 0).toFixed(2))})`,
+      );
+    }
+  }
+  const paresDeFamilia = Object.keys(familias);
+  for (let i = 0; i < paresDeFamilia.length; i += 1) {
+    for (let j = i + 1; j < paresDeFamilia.length; j += 1) {
+      const a = familias[paresDeFamilia[i]];
+      const b = familias[paresDeFamilia[j]];
+      if (familiasSeSobrepoem(a, b)) {
+        foraDaFamilia.push(
+          `as famílias "${paresDeFamilia[i]}" e "${paresDeFamilia[j]}" se sobrepõem — uma mesma cor caberia nas duas, e a promessa deixaria de distinguir`,
+        );
+      }
+    }
+  }
+  /*
+   * Promessa quebrada é PRODUTO REPROVADO (código 1), não "não consegui medir"
+   * (código 2): a guarda leu tudo o que precisava e o que ela leu contradiz o
+   * que a peça promete. Por isso não se lança daqui — junta-se e §0b cobra,
+   * pela mesma porta de todas as outras réguas de produto.
+   */
+  const promessaQuebrada = [...foraDaFamilia];
+
+  /*
+   * ── ALTO 2 DA RODADA 15: OS CINCO NOMES PODIAM ESTAR TODOS ERRADOS ─────
+   *
+   * `CAMADA_LABEL` alimenta o painel, a lista acessível e o `CONTRATO.rotulos`
+   * desta guarda; o único teste comparava o rótulo da lista com
+   * `CAMADA_LABEL`. Trocar "Sucessão" e "Correlação" de lugar passava em tudo,
+   * e quem opera por teclado passava a ler **"Correlação: habilita X"** (verbo
+   * com direção numa relação simétrica) e **"Sucessão: com Y"** (verbo
+   * simétrico na única camada que tem direção).
+   *
+   * A âncora, de novo, está fora da tabela: a promessa diz, por NOME, quais
+   * relações têm direção. Aqui isso é conferido contra as DUAS afirmações de
+   * direção que o código faz — o verbo da lista acessível e a forma do glifo.
+   * §10 confere a mesma coisa no texto que chega à tela.
+   */
+  const blocoDaDirecao = /export const DIRECAO_POR_ROTULO = \{([\s\S]*?)\n\} as const satisfies/.exec(promessaSrc);
+  if (!blocoDaDirecao) throw new Error("não achei DIRECAO_POR_ROTULO em src/lib/promessa-do-grafo.ts");
+  const direcaoPorRotulo = {};
+  for (const m of blocoDaDirecao[1].matchAll(/"([^"]+)":\s*"(direcional|simetrica)"/g)) direcaoPorRotulo[m[1]] = m[2];
+  const lerLista = (nome) => {
+    const bloco = new RegExp(`export const ${nome} = \\[([^\\]]*)\\]`).exec(promessaSrc);
+    if (!bloco) throw new Error(`não achei ${nome} em src/lib/promessa-do-grafo.ts`);
+    return [...bloco[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  };
+  const verbosDirecionais = lerLista("VERBOS_DIRECIONAIS");
+  const verbosSimetricos = lerLista("VERBOS_SIMETRICOS");
+  const formasDirecionais = lerLista("FORMAS_DIRECIONAIS");
+
+  const blocoDasFormas = /export const FORMA_POR_CAMADA:[\s\S]*?=\s*\{([\s\S]*?)\n\};/.exec(arestaSrc);
+  if (!blocoDasFormas) {
+    throw new Error("não achei FORMA_POR_CAMADA em src/components/graph/aresta-svg.tsx");
+  }
+  const formaDaCamada = {};
+  for (const m of blocoDasFormas[1].matchAll(/(\w+):\s*"(\w+)"/g)) formaDaCamada[m[1]] = m[2];
+
+  const nomesSemPromessa = [];
+  for (const camada of camadas) {
+    const rotulo = rotulos[camada];
+    const direcao = direcaoPorRotulo[rotulo];
+    if (!direcao) {
+      nomesSemPromessa.push(
+        `a camada "${camada}" se chama "${rotulo}" na tela e src/lib/promessa-do-grafo.ts não diz se uma relação com esse nome tem direção`,
+      );
+      continue;
+    }
+    if (camada === "critico") continue;
+    const forma = formaDaCamada[camada];
+    if (!forma) {
+      nomesSemPromessa.push(`a camada "${camada}" não tem forma de glifo declarada em FORMA_POR_CAMADA`);
+      continue;
+    }
+    const apontaNaTela = formasDirecionais.includes(forma);
+    if (direcao === "direcional" && !apontaNaTela) {
+      nomesSemPromessa.push(
+        `"${rotulo}" é uma relação COM direção e o glifo da camada "${camada}" é "${forma}", que não aponta`,
+      );
+    }
+    if (direcao === "simetrica" && apontaNaTela) {
+      nomesSemPromessa.push(
+        `"${rotulo}" é uma relação SEM direção e o glifo da camada "${camada}" é "${forma}", que aponta`,
+      );
+    }
+  }
+  const rotulosDaTela = camadas.map((c) => rotulos[c]).sort();
+  const rotulosPrometidos = Object.keys(direcaoPorRotulo).sort();
+  if (rotulosDaTela.join("|") !== rotulosPrometidos.join("|")) {
+    nomesSemPromessa.push(
+      `os nomes do painel são [${rotulosDaTela.join(", ")}] e a promessa conhece [${rotulosPrometidos.join(", ")}]`,
+    );
+  }
+  promessaQuebrada.push(...nomesSemPromessa);
+
+  /*
    * ── O PISO DE VISIBILIDADE VEM DE FORA (achado da rodada 12) ───────────
    *
    * A rodada 11 levou um ALTO por "a guarda conta a si mesma" (a cor saía do
@@ -421,6 +691,185 @@ function derivarContrato() {
     throw new Error(`SEPARACAO_DA_TRIPLA_MUNDO ilegível: "${separacao[1]}"`);
   }
 
+  /*
+   * ── O PISO DO EIXO DO ZOOM, LIDO DE QUEM O DECIDE (rodada 15, ALTO 5) ──
+   *
+   * `gestoDeZoom` clicava seis vezes em "Aumentar zoom" e **"Diminuir zoom"
+   * não aparecia uma única vez neste arquivo**: a metade de BAIXO do eixo
+   * (de 0,849 até o piso) nunca era exercida — justamente onde rodadas
+   * anteriores acharam glifo pequeno demais e tripla virando borrão. O
+   * crítico provou com uma linha em `v3-edge.tsx` (`if (zoomSeguro < 0.6)
+   * return null`): dois cliques em afastar e as 10 arestas viram 0, guarda
+   * verde.
+   *
+   * O piso sai de `tipografia-do-cartao.ts` (quem o calcula) e tem de estar
+   * LIGADO no canvas — escrever 0,5 aqui seria a guarda decidindo onde o
+   * eixo termina.
+   */
+  const tipografiaSrc = lerFonte("src/components/graph/tipografia-do-cartao.ts");
+  const baseDoMapa = /const BASE_MAPA_PX = ([\d.]+);/.exec(tipografiaSrc);
+  const escalaDoMapa = /const ESCALA_MAXIMA_DO_MAPA = ([\d.]+);/.exec(tipografiaSrc);
+  const formulaDoPiso =
+    /export const ZOOM_MINIMO = BASE_MAPA_PX \/ \(BASE_MAPA_PX \* ESCALA_MAXIMA_DO_MAPA\);/.test(tipografiaSrc);
+  if (!baseDoMapa || !escalaDoMapa || !formulaDoPiso) {
+    throw new Error(
+      "não consegui derivar ZOOM_MINIMO de src/components/graph/tipografia-do-cartao.ts (BASE_MAPA_PX, ESCALA_MAXIMA_DO_MAPA e a fórmula) — sem o piso, o eixo do zoom não tem onde terminar e esta guarda voltaria a só saber ampliar",
+    );
+  }
+  const zoomMinimo = Number(baseDoMapa[1]) / (Number(baseDoMapa[1]) * Number(escalaDoMapa[1]));
+  if (!Number.isFinite(zoomMinimo) || zoomMinimo <= 0 || zoomMinimo >= 1) {
+    throw new Error(`ZOOM_MINIMO derivado ficou ilegível: ${String(zoomMinimo)}`);
+  }
+  const grafoSrc = lerFonte("src/components/graph/dependency-graph.tsx");
+  if (!/minZoom=\{ZOOM_MINIMO\}/.test(grafoSrc)) {
+    throw new Error(
+      "o canvas não passa mais `minZoom={ZOOM_MINIMO}` — o piso do eixo do zoom desta guarda ficaria sem lastro no produto",
+    );
+  }
+
+  /*
+   * ── O TETO DO EIXO DO ZOOM, TAMBÉM LIDO DE QUEM O DECIDE (rodada 16) ────
+   *
+   * Até a rodada 15 o teto era um `1.8` escrito à mão aqui, "o mesmo de
+   * dependency-graph.tsx". O piso já saía do produto; o teto era convenção.
+   * Com o zoom virando EIXO do produto dos gestos (§22), a ponta de cima tem
+   * de ter o mesmo lastro que a de baixo.
+   */
+  const teto = /export const ZOOM_MAXIMO_DO_CANVAS = ([\d.]+);/.exec(grafoSrc);
+  if (!teto || !/maxZoom=\{ZOOM_MAXIMO_DO_CANVAS\}/.test(grafoSrc)) {
+    throw new Error(
+      "não consegui derivar o teto do zoom de src/components/graph/dependency-graph.tsx (`export const ZOOM_MAXIMO_DO_CANVAS` ligado em `maxZoom=`) — sem o teto, o eixo do zoom de §22 não tem onde terminar",
+    );
+  }
+  const zoomMaximo = Number(teto[1]);
+  if (!Number.isFinite(zoomMaximo) || zoomMaximo <= 1 || zoomMaximo <= zoomMinimo) {
+    throw new Error(`ZOOM_MAXIMO_DO_CANVAS derivado ficou ilegível: ${String(teto[1])}`);
+  }
+
+  /*
+   * ── O ESTADO QUE O OPERADOR CONTROLA, INVENTARIADO DO CÓDIGO (rodada 16) ─
+   *
+   * §22 cruzava dois eixos escolhidos à mão (camadas × seleção). O zoom ficou
+   * de fora e uma linha em `v3-edge.tsx` apagou as ligações do cartão
+   * selecionado ao aproximar (0,849 → 2 destacadas; 1,467 → 0), com os cinco
+   * portões verdes. É a **forma 3** — os eixos do produto eram convenção.
+   *
+   * Aqui o inventário sai do código: toda prop de `DependencyGraphProps` e
+   * todo `useState` dos arquivos do grafo. Cada item tem de estar classificado
+   * em `ESTADO_DO_GRAFO` (abaixo): ou é um EIXO do produto dos gestos, ou está
+   * FORA com o motivo escrito. Item novo sem classificação reprova (§0c) —
+   * nomeando o item. Classificação de item que o código não tem mais também
+   * reprova: tabela que descreve estado que não existe é a mesma mentira.
+   */
+  const inventarioDoEstado = [];
+  const interfaceDasProps = /export interface DependencyGraphProps \{([\s\S]*?)\n\}/.exec(grafoSrc);
+  if (!interfaceDasProps) {
+    throw new Error("não achei `export interface DependencyGraphProps` em dependency-graph.tsx — sem ela o inventário do estado do operador não tem de onde sair");
+  }
+  for (const m of interfaceDasProps[1].matchAll(/^\s{2}(\w+)\??:/gm)) {
+    inventarioDoEstado.push(`prop ${m[1]}`);
+  }
+  for (const arquivo of [
+    "src/components/graph/dependency-graph.tsx",
+    "src/components/graph/layer-toggle-panel.tsx",
+    "src/components/graph/task-node.tsx",
+    "src/components/graph/v3-edge.tsx",
+    "src/components/graph/aresta-svg.tsx",
+  ]) {
+    const fonte = lerFonte(arquivo);
+    const funcoes = [...fonte.matchAll(/function (\w+)\s*[(<]/g)].map((m) => ({ nome: m[1], em: m.index }));
+    for (const m of fonte.matchAll(/const \[(\w+),\s*set\w+\]\s*=\s*(?:React\.)?use(?:State|Reducer)\b/g)) {
+      const dona = funcoes.filter((f) => f.em < m.index).pop();
+      inventarioDoEstado.push(`${arquivo.split("/").pop()} ${dona ? dona.nome : "?"}.${m[1]}`);
+    }
+  }
+  /*
+   * O estado que a LIB guarda e o produto LÊ: `const { x, y, zoom } =
+   * useViewport()`. É por aqui que o pan entra no inventário — o chip de
+   * "fora da tela" lê `x`/`y`, e nenhum `useState` do produto guarda o pan.
+   */
+  for (const arquivo of [
+    "src/components/graph/dependency-graph.tsx",
+    "src/components/graph/task-node.tsx",
+    "src/components/graph/v3-edge.tsx",
+    "src/components/graph/aresta-svg.tsx",
+  ]) {
+    for (const m of lerFonte(arquivo).matchAll(/const \{([^}]*)\}\s*=\s*useViewport\(\)/g)) {
+      for (const campo of m[1].split(",").map((c) => c.trim().split(":")[0].trim()).filter(Boolean)) {
+        const item = `viewport ${campo}`;
+        if (!inventarioDoEstado.includes(item)) inventarioDoEstado.push(item);
+      }
+    }
+  }
+  /*
+   * E os GESTOS que a lib dá ao operador sem o produto pedir: toda prop do
+   * `<ReactFlow>` que nasce ligada (`= true` na assinatura do componente, ou
+   * `: true` no estado inicial da store) e toda tecla de ativação
+   * (`…KeyCode = '…'`), lidas do próprio pacote instalado — menos as que o
+   * produto desliga explicitamente (`prop={false}`/`prop={null}`). Um gesto
+   * que a lib liga e o produto esquece de desligar é um eixo que o operador
+   * tem, queira a peça ou não.
+   */
+  const requerDoPacote = createRequire(join(RAIZ_DO_PACOTE, "package.json"));
+  let fonteDaLib;
+  try {
+    const principal = createRequire(requerDoPacote.resolve("reactflow")).resolve("@reactflow/core");
+    const raizDaLib = principal.slice(0, principal.lastIndexOf("@reactflow/core") + "@reactflow/core".length);
+    fonteDaLib = readFileSync(join(raizDaLib, "dist", "esm", "index.mjs"), "utf8");
+  } catch (e) {
+    throw new Error(`não consegui ler o pacote @reactflow/core instalado — sem ele os gestos que a lib dá ao operador não entram no inventário: ${String(e?.message ?? e)}`);
+  }
+  const assinatura = /const ReactFlow = forwardRef\(\(\{([\s\S]*?)\}, ref\) =>/.exec(fonteDaLib);
+  const estadoInicial = /const initialState = \{([\s\S]*?)\n\};/.exec(fonteDaLib);
+  if (!assinatura || !estadoInicial) {
+    throw new Error("não achei a assinatura de `ReactFlow` nem o `initialState` da store em @reactflow/core — o inventário dos gestos da lib ficaria vazio");
+  }
+  const propsDaLib = new Set([...assinatura[1].matchAll(/(\w+)(?:\s*=[^,]*)?,/g)].map((m) => m[1]));
+  const ligadasNaLib = new Set([
+    ...[...assinatura[1].matchAll(/(\w+) = true\b/g)].map((m) => m[1]),
+    ...[...estadoInicial[1].matchAll(/(\w+): true\b/g)].map((m) => m[1]).filter((p) => propsDaLib.has(p)),
+    ...[...assinatura[1].matchAll(/(\w+KeyCode) = /g)].map((m) => m[1]),
+  ]);
+  const jsxDoCanvas = /<ReactFlow\b([\s\S]*?)<\/ReactFlow>/.exec(grafoSrc);
+  if (!jsxDoCanvas) throw new Error("não achei o `<ReactFlow` em dependency-graph.tsx");
+  for (const gesto of [...ligadasNaLib].sort()) {
+    const desligado = new RegExp(`\\b${gesto}=\\{(?:false|null)\\}`).test(jsxDoCanvas[1]);
+    if (!desligado) inventarioDoEstado.push(`gesto da lib ${gesto}`);
+  }
+  if (inventarioDoEstado.length < 5) {
+    throw new Error(`o inventário do estado do grafo saiu com ${String(inventarioDoEstado.length)} item(ns) — o leitor do código quebrou, e um inventário vazio aprovaria tudo`);
+  }
+
+  /*
+   * ── OS FATORES DE ZOOM DE CADA GESTO, LIDOS DA LIB INSTALADA (rodada 17) ─
+   *
+   * O eixo do zoom de §22 tinha três valores escritos por esta guarda (o do
+   * enquadramento, o piso e o teto) e o operador não para em nenhum deles:
+   * ele clica "Aumentar zoom" duas vezes. Os valores do eixo passam a sair dos
+   * GESTOS — e o fator de cada gesto sai do código da biblioteca que a página
+   * carrega (`eixos-continuos.mjs`, testado sem navegador). O produto tem de
+   * ligar os botões ao `zoomIn()`/`zoomOut()` da lib SEM passo próprio: se um
+   * dia ele passar um fator seu, o lastro cai aqui e o eixo não tem de onde
+   * sair.
+   */
+  let fatoresDoZoom;
+  try {
+    const principal = createRequire(requerDoPacote.resolve("reactflow")).resolve("@reactflow/core");
+    const raizDaLib = principal.slice(0, principal.lastIndexOf("@reactflow/core") + "@reactflow/core".length);
+    const d3 = createRequire(join(raizDaLib, "package.json")).resolve("d3-zoom");
+    fatoresDoZoom = lerFatoresDoZoomDaLib({
+      fonteDoCore: fonteDaLib,
+      fonteDoD3Zoom: readFileSync(join(dirname(d3), "zoom.js"), "utf8"),
+    });
+  } catch (e) {
+    throw new Error(`não consegui derivar os fatores de zoom da lib instalada — sem eles o eixo do zoom de §22z não tem valores: ${String(e?.message ?? e)}`);
+  }
+  if (!/aria-label="Diminuir zoom" onClick=\{\(\) => void zoomOut\(\)\}/.test(grafoSrc) || !/aria-label="Aumentar zoom" onClick=\{\(\) => void zoomIn\(\)\}/.test(grafoSrc)) {
+    throw new Error(
+      'os botões "Aumentar/Diminuir zoom" de dependency-graph.tsx não chamam mais `zoomIn()`/`zoomOut()` da lib sem argumento — o fator do clique deixou de ser o que a lib declara, e o eixo do zoom perdeu o lastro',
+    );
+  }
+
   const semCor = papeis.filter((p) => !cores[p]);
   if (semCor.length > 0) {
     throw new Error(
@@ -431,7 +880,26 @@ function derivarContrato() {
   if (camadasSemRotulo.length > 0) {
     throw new Error(`camada sem rótulo em CAMADA_LABEL: ${camadasSemRotulo.join(", ")}`);
   }
-  return { papeis, camadas, camadasDefault, rotulos, cores, pisoDeContraste, separacaoDaTripla };
+  return {
+    papeis,
+    camadas,
+    camadasDefault,
+    rotulos,
+    cores,
+    pisoDeContraste,
+    separacaoDaTripla,
+    familias,
+    familiaDoPapel,
+    direcaoPorRotulo,
+    verbosDirecionais,
+    verbosSimetricos,
+    formaDaCamada,
+    promessaQuebrada,
+    zoomMinimo,
+    zoomMaximo,
+    inventarioDoEstado,
+    fatoresDoZoom,
+  };
 }
 
 let CONTRATO;
@@ -684,7 +1152,7 @@ async function comTeto(promessa, ms, oQue) {
  *
  * Só o que a própria etapa registrar por `exigir` conta como falha de produto.
  */
-async function etapa(nome, fn) {
+async function etapa(nome, fn, opcoes = {}) {
   const restante = TETO_DA_CORRIDA_MS - (Date.now() - INICIO_DA_CORRIDA);
   if (restante <= 0) {
     naoConsegui(`${nome}: a corrida estourou o teto de ${String(Math.round(TETO_DA_CORRIDA_MS / 60000))} min antes desta etapa começar`);
@@ -692,18 +1160,190 @@ async function etapa(nome, fn) {
   }
   console.log("%s", `[${carimbo()}] → ${nome}`);
   const t0 = Date.now();
+  const inicioDasFalhas = falhas.length;
   try {
-    const saida = await comTeto(fn(), Math.min(TETO_POR_ETAPA_MS, restante), `a etapa "${nome}"`);
+    await garantirNavegador();
+    const saida = await comTeto(fn(browser), Math.min(TETO_POR_ETAPA_MS, restante), `a etapa "${nome}"`);
     console.log("%s", `[${carimbo()}] ← ${nome} — ${String(Math.round((Date.now() - t0) / 1000))}s`);
     return saida;
   } catch (erro) {
     const msg = erro instanceof Error ? erro.message.split("\n")[0] : String(erro);
+    /* A página TRAVOU (ou levou o navegador junto): produto ou máquina? A
+       etapa é refeita num navegador novo e o veredito sai da prova — nunca
+       do nome do erro (achado MÉDIO da rodada 17). */
+    const repetir = opcoes.repetir ?? (fn.length >= 1 ? fn : null);
+    if (!(erro instanceof EstourouOTeto) && repetir !== null && (ehTravamento(msg) || !navegadorVivo())) {
+      const { saida } = await julgarOTravamento({ nome, msg, t0, inicioDasFalhas, repetir, provaMede: opcoes.provaMede !== false, aoJulgar: opcoes.aoJulgar });
+      return saida;
+    }
     naoConsegui(
       `${nome}: ${erro instanceof EstourouOTeto ? "estourou o teto de tempo" : "a etapa morreu"} — ${msg}`,
     );
     return null;
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A PÁGINA TRAVOU: É O PRODUTO OU É O NAVEGADOR?  (achado MÉDIO da rodada 17)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * Na corrida do coordenador, a 1920 a página travou por falta de memória da
+ * MÁQUINA ("Page crashed" — seis guardas rodando juntas). §16 saiu certo como
+ * "não consegui medir", mas §19, §20 e §21 marcaram ✗ ("a sentinela nunca
+ * nasceu", "alcance de tempo ZERO") e a corrida saiu com código 1 — o balde
+ * de "o produto está errado" para um defeito que o produto não tinha. E o
+ * navegador morto levou junto as cinco etapas de 390 px.
+ *
+ * A régua agora é uma PROVA, não o nome do erro:
+ *
+ *   1. toda página abre com o heap de JavaScript limitado a
+ *      `TETO_DO_HEAP_DA_PAGINA_MB` (a página do LifeBoard usa ~70 MB): uma
+ *      página que vaza memória trava de forma rápida e determinística, sem
+ *      levar a máquina — e os outros — junto;
+ *   2. travou → a MESMA medida é refeita num navegador NOVO. Não travou de
+ *      novo → "navegador": a medida da prova é a que vale (ou, nas sentinelas,
+ *      cuja vida longa não se refaz, "não consegui medir" — código 2);
+ *   3. travou de novo, e a máquina tinha mais de `PISO_DE_MEMORIA_LIVRE_MB`
+ *      livres nas duas vezes (amostrada a cada meio segundo de
+ *      `/proc/meminfo`) → "produto": código 1, dizendo quanto havia livre;
+ *   4. travou de novo com a máquina abaixo do piso (ou sem como ler a
+ *      memória) → "máquina": código 2, com os números;
+ *   5. o navegador principal morto é relançado antes da etapa seguinte — uma
+ *      largura que trava não cala as outras.
+ *
+ * O veredito é uma função pura (`julgarTravamento`, em
+ * `eixos-continuos.mjs`), testada sem navegador nos quatro desfechos.
+ */
+const TETO_DO_HEAP_DA_PAGINA_MB = 1024;
+const PISO_DE_MEMORIA_LIVRE_MB = 512;
+/** Quanto a sentinela de PROVA vive antes de dizer "não travou". */
+const VIDA_DA_PROVA_DE_TRAVAMENTO_MS = 20000;
+
+const ARGUMENTOS_DO_NAVEGADOR = [
+  "--no-sandbox",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+  "--disable-background-timer-throttling",
+  `--js-flags=--max-old-space-size=${String(TETO_DO_HEAP_DA_PAGINA_MB)}`,
+];
+
+let browser = null;
+let pwParaLancar = null;
+async function lancarNavegador() {
+  return pwParaLancar.chromium.launch({ executablePath: CHROMIUM, args: ARGUMENTOS_DO_NAVEGADOR });
+}
+function navegadorVivo() {
+  return browser !== null && browser.isConnected();
+}
+/** Relança o navegador principal se ele morreu — a largura seguinte não herda o cadáver. */
+async function garantirNavegador() {
+  if (browser === null || navegadorVivo()) return;
+  console.log("%s", `[${carimbo()}] ! o navegador principal morreu — relançando para as etapas seguintes`);
+  browser = await lancarNavegador();
+}
+
+function ehTravamento(mensagem) {
+  const texto = String(mensagem ?? "");
+  return (
+    /Page crashed|Target crashed|crashed/i.test(texto) ||
+    texto.includes("browser has disconnected") ||
+    texto.includes("Browser closed") ||
+    texto.includes("browser has been closed")
+  );
+}
+
+/* O vigia da memória da MÁQUINA: uma amostra a cada meio segundo. */
+const AMOSTRAS_DE_MEMORIA = [];
+function memoriaLivreAgoraMb() {
+  try {
+    const m = /MemAvailable:\s+(\d+) kB/.exec(readFileSync("/proc/meminfo", "utf8"));
+    return m ? Number(m[1]) / 1024 : null;
+  } catch {
+    return null;
+  }
+}
+const VIGIA_DA_MEMORIA = setInterval(() => {
+  AMOSTRAS_DE_MEMORIA.push({ t: Date.now(), mb: memoriaLivreAgoraMb() });
+  if (AMOSTRAS_DE_MEMORIA.length > 20000) AMOSTRAS_DE_MEMORIA.shift();
+}, 500);
+VIGIA_DA_MEMORIA.unref();
+function memoriaMinimaDesde(t0) {
+  const valores = [...AMOSTRAS_DE_MEMORIA.filter((a) => a.t >= t0 - 500).map((a) => a.mb), memoriaLivreAgoraMb()];
+  if (valores.some((v) => v === null)) return null;
+  return Math.min(...valores);
+}
+const mb = (v) => (v === null ? "ilegível" : `${String(Math.round(v))} MB`);
+
+/** Os travamentos julgados na corrida — impressos no fim. */
+const TRAVAMENTOS = [];
+
+async function julgarOTravamento({ nome, msg, t0, inicioDasFalhas, repetir, provaMede, aoJulgar }) {
+  const memoriaDaPrimeira = memoriaMinimaDesde(t0);
+  console.log("%s", `[${carimbo()}] ! ${nome}: a página travou (${msg}) — refazendo num navegador NOVO para saber se é o produto`);
+  const falhasDaTentativa = inicioDasFalhas === undefined ? [] : falhas.splice(inicioDasFalhas);
+  try {
+    await garantirNavegador();
+  } catch (e) {
+    console.log("%s", `[${carimbo()}]   não consegui relançar o navegador principal: ${String(e?.message ?? e).split("\n")[0]}`);
+  }
+  const t1 = Date.now();
+  let prova = null;
+  let erroDaProva = null;
+  let saida = null;
+  try {
+    prova = await lancarNavegador();
+    saida = await comTeto(repetir(prova), TETO_POR_ETAPA_MS, `a prova do travamento de "${nome}"`);
+  } catch (e) {
+    erroDaProva = e instanceof Error ? e.message.split("\n")[0] : String(e);
+    if (e instanceof EstourouOTeto) erroDaProva = `estourou o teto de tempo — ${erroDaProva}`;
+  }
+  const provaMorreu = prova !== null && !prova.isConnected();
+  await prova?.close().catch(() => undefined);
+  const memoriaDaProva = memoriaMinimaDesde(t1);
+  const veredito = julgarTravamento({
+    primeiro: { memoriaMinimaMb: memoriaDaPrimeira },
+    prova: { erro: erroDaProva, memoriaMinimaMb: memoriaDaProva },
+    pisoMb: PISO_DE_MEMORIA_LIVRE_MB,
+    ehTravamento: (m) => ehTravamento(m) || provaMorreu,
+  });
+  const memoria = `memória livre da máquina: ${mb(memoriaDaPrimeira)} na 1ª vez, ${mb(memoriaDaProva)} na prova (piso ${String(PISO_DE_MEMORIA_LIVRE_MB)} MB)`;
+  TRAVAMENTOS.push(`${nome}: ${veredito} — ${msg}${erroDaProva ? ` / prova: ${erroDaProva}` : " / a prova não travou"} · ${memoria}`);
+  console.log("%s", `[${carimbo()}]   veredito do travamento: ${veredito} · ${memoria}`);
+  if (veredito === "navegador" && provaMede) {
+    if (falhasDaTentativa.length > 0) {
+      console.log("%s", `[${carimbo()}]   ${String(falhasDaTentativa.length)} reprovação(ões) da tentativa que travou ficam de fora: a prova refez a medida inteira`);
+    }
+    console.log("%s", `[${carimbo()}] ← ${nome} — medido na prova (a página travou uma vez e não de novo: navegador, não produto)`);
+  } else {
+    for (const f of falhasDaTentativa) falhas.push(f);
+    if (veredito === "produto") {
+      exigir(
+        false,
+        `${nome}: a página TRAVOU duas vezes, a 2ª num navegador novo, com a máquina sobrando memória (${memoria}) — quem trava a página é o produto (${msg}${erroDaProva ? ` / ${erroDaProva}` : ""})`,
+      );
+    } else if (veredito === "navegador") {
+      naoConsegui(`${nome}: a página travou (${msg}); uma prova num navegador novo viveu sem travar — travamento do navegador, não do produto (${memoria}). Esta medida NÃO foi feita`);
+    } else if (veredito === "maquina") {
+      naoConsegui(`${nome}: a página travou duas vezes e a máquina esteve abaixo do piso de memória livre, ou ela não pôde ser lida (${memoria}) — não dá para culpar o produto`);
+    } else {
+      naoConsegui(`${nome}: a página travou (${msg}) e a prova num navegador novo morreu de outro jeito (${String(erroDaProva)})`);
+    }
+  }
+  aoJulgar?.(veredito);
+  return { veredito, saida: veredito === "navegador" && provaMede ? saida : null };
+}
+
+/** A prova de uma SENTINELA que travou: nasce outra num navegador novo e vive `VIDA_DA_PROVA_DE_TRAVAMENTO_MS`. */
+async function provaDaSentinela(navegador, caso, comRelogioDeMentira) {
+  const s = await nascerSentinela(navegador, caso, comRelogioDeMentira);
+  await s.page.waitForTimeout(VIDA_DA_PROVA_DE_TRAVAMENTO_MS);
+  await s.page.evaluate(FOTOGRAFIA_DO_DESENHO);
+  await s.ctx.close();
+  return true;
+}
+
+/** Larguras cuja sentinela caiu com o navegador (não com o produto): §21 diz "não medi", não "zero". */
+const SENTINELA_PERDIDA_PARA_O_AMBIENTE = new Map();
 
 /**
  * Põe teto em TODO `page.evaluate` desta página. Página que não responde vira
@@ -923,6 +1563,115 @@ async function gestoDeZoom(page) {
 }
 
 /**
+ * ── §15b/§15c · A GUARDA SÓ SABIA DAR ZOOM PARA DENTRO (rodada 15, ALTO 5) ─
+ *
+ * `gestoDeZoom` clica seis vezes em "Aumentar zoom"; **"Diminuir zoom" não
+ * aparecia uma única vez neste arquivo**. A metade de baixo do eixo — de
+ * 0,849 até `ZOOM_MINIMO` — nunca era exercida, e é exatamente a faixa em que
+ * rodadas anteriores acharam glifo pequeno demais e traço triplo virando
+ * borrão. O crítico fechou o buraco com uma linha (`if (zoomSeguro < 0.6)
+ * return null` em `v3-edge.tsx`): dois cliques em afastar e as 10 arestas
+ * viravam 0, com a guarda verde.
+ *
+ * Esta função exerce o eixo NOS DOIS SENTIDOS, até a ponta derivada do
+ * produto (o piso `ZOOM_MINIMO` para fora, o teto `maxZoom` para dentro). O
+ * botão vira `disabled` na ponta, então o laço para quando o zoom deixa de
+ * andar — e a trilha inteira volta, para quem chama exigir que ela nunca ande
+ * ao contrário e que o fim seja a ponta.
+ *
+ * `gestoDeZoom` (seis cliques) continua existindo e continua sendo o gesto que
+ * §3 e §5 medem: seis cliques é o gesto do operador, e chegar ao teto em seis
+ * é a promessa daquela seção. Este aqui não tem número de cliques declarado —
+ * o que ele cobra é a PONTA, e seis cliques não saem do piso até o teto
+ * (0,5 × 1,2⁶ = 1,49).
+ */
+async function gestoDeZoomAteAPonta(page, sentido, alvo, assentarMs = 1200, passoMs = 150) {
+  const nome = sentido === "fora" ? "Diminuir zoom" : "Aumentar zoom";
+  const botao = page.locator(`button[aria-label="${nome}"]`).first();
+  if ((await botao.count()) === 0) {
+    return { trilha: [], achouBotao: false, alcancavel: false, fim: null, nome };
+  }
+  const trilha = [escalaDe(await transformDoCanvas(page))];
+  for (let i = 0; i < 20; i += 1) {
+    try {
+      await botao.click({ timeout: 10000 });
+    } catch {
+      /* Mesma fronteira de `gestoDeZoom` (achado MÉDIO 9): "inalcançável" se
+         mede no DOM, nunca se infere de um tempo esgotado. */
+      const cobertura = await botao.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const acima = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return {
+          livre: acima === el || el.contains(acima),
+          desabilitado: el.disabled === true,
+          quem: acima === null ? "nada" : `${acima.tagName.toLowerCase()}.${String(acima.className).slice(0, 40)}`,
+        };
+      });
+      if (cobertura.desabilitado) break;
+      if (cobertura.livre) {
+        naoConsegui(
+          `o clique em "${nome}" não voltou em 10 s e NADA está por cima do botão (${cobertura.quem}) — máquina carregada, não produto reprovado`,
+        );
+        return { trilha, achouBotao: true, alcancavel: true, fim: escalaDe(await transformDoCanvas(page)), semMedida: true, nome };
+      }
+      return { trilha, achouBotao: true, alcancavel: false, fim: null, nome };
+    }
+    await page.waitForTimeout(passoMs);
+    const agora = escalaDe(await transformDoCanvas(page));
+    trilha.push(agora);
+    if (agora === null) continue;
+    if (sentido === "fora" ? agora <= alvo + 1e-3 : agora >= alvo - 1e-3) break;
+  }
+  await page.waitForTimeout(assentarMs);
+  const fim = escalaDe(await transformDoCanvas(page));
+  trilha.push(fim);
+  return { trilha, achouBotao: true, alcancavel: true, fim, nome };
+}
+
+/**
+ * O DESENHO, remedido depois de um gesto qualquer: o canvas contra o universo
+ * derivado do dado bruto (§12) e a prova de que alguma aresta continua
+ * PINTANDO de verdade (§15). É o par que a rodada 15 passou a exigir também
+ * depois do zoom PARA FORA (ALTO 5) e depois de um redimensionamento DE
+ * VERDADE (ALTO 4) — os dois gestos em que o produto podia esvaziar o grafo
+ * com a guarda verde.
+ */
+async function remedirODesenhoDepoisDoGesto(page, chave, estado, camadasAtivas) {
+  const caixaDoCanvas = await page.evaluate(() => {
+    const el = document.querySelector(".react-flow");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+  });
+  const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+  const contrato = await lerContratoDoCanvas(page);
+  const dado = medirCanvasContraOUniverso(chave, estado, contrato, leitura.arestas, camadasAtivas);
+  const pintura = await medirPinturaLeve(
+    page,
+    chave,
+    estado,
+    leitura.arestas,
+    leitura.cartoes,
+    caixaDoCanvas,
+  );
+  return `${dado} · ${pintura}`;
+}
+
+/**
+ * ── §6b · A LARGURA DE "ARRASTAR A JANELA" (achado ALTO 4 da rodada 15) ────
+ *
+ * Fica na MESMA faixa de layout de quem chega (desktop continua desktop,
+ * celular continua celular) e muda 180 px — noventa vezes o ruído de 2 px que
+ * §5 mede, e acima de qualquer limiar razoável de ouvinte de `resize`. É o
+ * gesto do operador que arrasta a borda da janela, e é depois dele que o
+ * desenho passa a ser remedido.
+ */
+function larguraDeArrastarAJanela(caso) {
+  if (!caso.desktop) return caso.largura + 180;
+  return caso.largura - 180 >= 1024 ? caso.largura - 180 : caso.largura + 180;
+}
+
+/**
  * 2 px de ruído de tamanho não podem apagar o gesto. A largura de ruído nunca
  * atravessa o corte de 1024: atravessar troca o layout inteiro, e aí
  * reenquadrar é o certo — não é isto que se mede aqui.
@@ -1114,6 +1863,14 @@ function hexEmRgb(hex) {
   return `rgb(${String((n >> 16) & 255)}, ${String((n >> 8) & 255)}, ${String(n & 255)})`;
 }
 
+/** `rgb(r, g, b)` (o que `getComputedStyle` devolve) → `#RRGGBB`. `null` se não der. */
+function rgbEmHex(cor) {
+  const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(String(cor ?? ""));
+  if (!m) return null;
+  const parte = (x) => Math.max(0, Math.min(255, Math.round(Number(x)))).toString(16).padStart(2, "0");
+  return `#${parte(m[1])}${parte(m[2])}${parte(m[3])}`.toUpperCase();
+}
+
 /**
  * `papeisExigidos` é o piso do universo NESTE estado da tela. O papel
  * "destacada" (o amarelo do predecessor) só existe com um nó selecionado —
@@ -1159,6 +1916,34 @@ async function medirPinturaDasArestas(
     if (a.corComputada.replace(/\s/g, "") !== esperadaNoContrato.replace(/\s/g, "")) {
       problemas.push(
         `${a.id}: papel "${a.papel}" foi declarado em ${a.corComputada}, e o contrato (${CONTRATO.cores[a.papel]}) é ${esperadaNoContrato}`,
+      );
+    }
+
+    /*
+     * ── ALTO 1: E A COR QUE O NAVEGADOR COMPUTOU É DA FAMÍLIA PROMETIDA ───
+     *
+     * A linha acima confere o navegador contra o contrato, e o contrato sai
+     * das duas tabelas do produto — trocar as duas no mesmo ato move os três
+     * juntos. Esta confere o que o navegador computou contra a PROMESSA
+     * (`src/lib/promessa-do-grafo.ts`), que não é nenhuma das duas: o traço
+     * do caminho crítico, na tela, tem de ser VERMELHO. Medido pelo crítico
+     * com a sabotagem de 2 linhas: 1661 → 832 pixels na cor do crítico, com
+     * tudo verde.
+     */
+    const familiaPrometida = CONTRATO.familias[CONTRATO.familiaDoPapel[a.papel]];
+    const hexComputado = rgbEmHex(a.corComputada);
+    if (!familiaPrometida) {
+      problemas.push(
+        `${a.id}: o papel "${a.papel}" não tem família de cor prometida em src/lib/promessa-do-grafo.ts`,
+      );
+    } else if (hexComputado === null) {
+      problemas.push(`${a.id}: não consegui ler a cor computada "${String(a.corComputada)}" como RGB`);
+    } else if (!corNaFamiliaDaPromessa(hexComputado, familiaPrometida)) {
+      const hsl = hexParaHsl(hexComputado);
+      problemas.push(
+        `${a.id}: o papel "${a.papel}" é prometido ${familiaPrometida.emPortugues} em src/lib/promessa-do-grafo.ts e o navegador pintou ${hexComputado} (matiz ${String(
+          Math.round(hsl?.h ?? -1),
+        )}°, saturação ${String((hsl?.s ?? 0).toFixed(2))}, luminância ${String((hsl?.l ?? 0).toFixed(2))})`,
       );
     }
 
@@ -1465,11 +2250,18 @@ async function medirPinturaDasArestas(
     .filter((p) => papeisComProvaDeCor.includes(p))
     .filter((p) => (resumo[p]?.naCor ?? 0) === 0);
   /* `pintam/n` e, entre parênteses, quantas dessas têm a COR PINTADA certa
-     (ALTO 1) — as duas contas, nunca só a primeira. */
+     (ALTO 1) — as duas contas, nunca só a primeira.
+     Observação do crítico da rodada 15, sem sabotagem: `destacada=0/0(cor 0,
+     visív 0)` aparecia DENTRO de uma linha verde nos estados sem seleção. O
+     número estava certo e a leitura, não — zero sobre zero parece "medi e
+     estava tudo lá". Papel que não existe naquele estado passa a dizer isso
+     por extenso, e o piso de papéis (`papeisExigidos`) continua sendo quem
+     decide se a ausência é legítima. */
   const linha = CONTRATO.papeis
-    .map(
-      (p) =>
-        `${p}=${String(resumo[p]?.pintam ?? 0)}/${String(resumo[p]?.n ?? 0)}(cor ${String(resumo[p]?.corOk ?? 0)}, visív ${String(resumo[p]?.visivel ?? 0)})`,
+    .map((p) =>
+      (resumo[p]?.n ?? 0) === 0
+        ? `${p}=SEM ARESTA neste estado (nada medido)`
+        : `${p}=${String(resumo[p]?.pintam ?? 0)}/${String(resumo[p]?.n ?? 0)}(cor ${String(resumo[p]?.corOk ?? 0)}, visív ${String(resumo[p]?.visivel ?? 0)})`,
     )
     .join(" · ");
 
@@ -1841,8 +2633,20 @@ async function medirDesligarCamada(browser, caso) {
       /* O F5 apaga o `addStyleTag` de `abrirPagina` e o selo do `next dev`
          volta a cobrir a última caixa da folha a 390 px. */
       await esconderSeloDoNext(page);
-      await page.waitForTimeout(700);
-      const depoisDoF5 = await idsDesenhadosComCamada(page);
+      /*
+       * O canvas depois do F5 se mede ASSENTADO, não no primeiro quadro
+       * (achado da rodada 16): o ReactFlow mede os cartões antes de desenhar
+       * as arestas, e sob carga os 700 ms fixos daqui liam o intervalo entre
+       * as duas coisas — "0 arestas depois do F5" numa corrida honesta a
+       * 1920, com a persistência certa. Espera-se até a contagem pedida, com
+       * teto de 10 s; passado o teto, a medida continua reprovando.
+       */
+      let depoisDoF5 = [];
+      for (let espera = 0; espera < 20; espera += 1) {
+        await page.waitForTimeout(500);
+        depoisDoF5 = await idsDesenhadosComCamada(page);
+        if (depoisDoF5.length === depois.length) break;
+      }
       const contratoDepoisDoF5 = await lerContratoDoCanvas(page);
       const noContratoDepoisDoF5 = Array.isArray(contratoDepoisDoF5?.camadasAtivas)
         ? [...contratoDepoisDoF5.camadasAtivas].sort()
@@ -1960,6 +2764,1899 @@ async function medirEstadoDefault(browser, caso) {
     await ctx.close();
   }
   return linha;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §22 · O PRODUTO DOS GESTOS, COM OS EIXOS DERIVADOS — NÃO ESCOLHIDOS
+//       (ALTO 3 da rodada 15 + o ALTO do coordenador na rodada 16)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * **O que a rodada 15 fechou, e o que ela deixou aberto.** Cada gesto desta
+ * peça tinha a sua seção e cada seção media o seu gesto SOZINHO. A rodada 15
+ * trocou a lista pelo produto de dois eixos — camadas × seleção — e parou aí.
+ * Os dois eixos eram escritos à mão. O zoom ficou de fora ("tem eixo próprio
+ * em §15b/§15c"), e as pontas do zoom eram medidas SEM cartão selecionado.
+ *
+ * O coordenador provou com uma linha em `v3-edge.tsx`:
+ *
+ *     if (zoomSeguro > 1.2 && data.destacadaPeloSelecionado === true) return null;
+ *
+ * "Deploy de produção" selecionado: 2 ligações destacadas a 0,849 e **0** a
+ * 1,467 (três cliques em "Aumentar zoom"), com os cinco portões verdes. O
+ * operador aproxima para ver melhor e as ligações do cartão somem. É a
+ * **forma 3** do vício desta casa (universo por convenção): os eixos do
+ * produto eram os que alguém lembrou.
+ *
+ * **O conserto fecha a classe, não o caso.** Os eixos saem de duas fontes que
+ * esta guarda NÃO escreve:
+ *
+ *   1. **o código** — `CONTRATO.inventarioDoEstado` (em `derivarContrato`):
+ *      toda prop de `DependencyGraphProps`, todo `useState` dos arquivos do
+ *      grafo, todo campo que o produto lê de `useViewport()` e todo gesto que
+ *      o `<ReactFlow>` instalado liga sem o produto pedir. Cada item tem de
+ *      estar em `ESTADO_DO_GRAFO`: ou é um EIXO, ou está FORA com o motivo
+ *      escrito (e, quando o motivo depende do código, com o lastro conferido).
+ *      Item sem classificação reprova em §0c, nomeando o item;
+ *   2. **a tela** — todo controle da seção do grafo (`LEITURA_DOS_CONTROLES`)
+ *      tem de casar com uma regra de `CONTROLES_DO_GRAFO`. Controle novo na
+ *      barra sem regra reprova aqui, nomeando o controle.
+ *
+ * E os VALORES de cada eixo também são derivados: o piso e o teto do zoom
+ * saem de `tipografia-do-cartao.ts` e de `dependency-graph.tsx`; o inicial é
+ * o que o enquadramento do próprio produto dá; o cartão selecionado é o
+ * destino de uma sucessão que o canvas desenha; a fonte do filtro é a que
+ * esmaece a ligação desse cartão (derivada do rótulo do cartão e do dado
+ * bruto); os painéis e os enquadramentos são os botões que a barra põe na tela.
+ *
+ * **O custo, e o critério de redução — declarado.** O produto cartesiano é
+ * 7 camadas × 3 zooms × 3 painéis × 2 seleções × 2 filtros × 2 enquadramentos
+ * × 2 pans = 1.008 combinações por largura: inviável no robô. Esta seção
+ * cobre **todo PAR de valores de quaisquer dois eixos** (cobertura em pares),
+ * com as combinações GERADAS por `gerarCoberturaEmPares` — gulosa e
+ * determinística, nunca escolhidas a dedo — e a cobertura RECONTADA do zero
+ * por `paresSemCobertura`, que não confia no gerador. Com o dado do fixture:
+ * 179 pares, 22 combinações por largura.
+ *
+ * Um par só conta como coberto onde ele é OBSERVÁVEL: "com X selecionado ×
+ * zoom no teto" numa combinação em que a camada "Sucessão" está desligada não
+ * cobre nada — o destaque não tem como aparecer ali, e contar esse par seria
+ * aprovar por ausência (forma 2). A exceção é o próprio par (camadas ×
+ * seleção), que é justamente o que mede se o destaque se CALA quando deve.
+ *
+ * **O que fica fora, dito por extenso:** defeito que só apareça numa
+ * interação de TRÊS eixos ou mais e em nenhuma de dois (ex.: só com o
+ * painel "Legenda" aberto E zoom no piso E fundo arrastado ao mesmo tempo),
+ * a menos que a combinação gerada calhe de conter os três; duas camadas
+ * desligadas que não sejam o default; e os itens que `ESTADO_DO_GRAFO`
+ * declara fora, cada um com o seu motivo. Os valores INTERMEDIÁRIOS do zoom,
+ * do pan e da largura NÃO ficam mais fora (rodada 17): aqui o zoom tem os três
+ * valores representativos cruzados em pares com todos os eixos, e §22z
+ * percorre TODO valor que os gestos alcançam — ver "§22z / §22p / §22L".
+ *
+ * Em cada combinação, a medida é o §12 (o canvas × o dado bruto derivado do
+ * CPM) **e** o destaque: se o universo daquela combinação tem sucessão
+ * chegando no cartão selecionado, as arestas destacadas têm de ser
+ * EXATAMENTE essas (conjunto igual, não "pelo menos uma"), com o `<path>`
+ * pintando a cor do contrato com largura e opacidade de verdade (em toda
+ * combinação), e no PIXEL com cobertura de UM fator nos eixos que mudam onde
+ * o traço chega à tela — trazendo a aresta à vista pelo pan quando o zoom a
+ * jogou para fora. Esse corte do pixel é o segundo critério de redução
+ * declarado desta seção: com pixel em toda combinação a corrida media
+ * 1.913 s num núcleo.
+ */
+
+/** Os eixos que esta guarda sabe exercer. Eixo classificado sem aplicador aqui reprova (§0c). */
+const EIXOS_EXERCIDOS = ["camadas", "zoom", "popover", "selecao", "fontes", "enquadramento", "pan"];
+
+/**
+ * A classificação de TODO item de `CONTRATO.inventarioDoEstado`. A chave é o
+ * que o inventário imprime; `eixo` diz em qual eixo do produto ele entra;
+ * `fora` diz por que não entra; `lastro` (quando há) é a prova no código de
+ * que o motivo continua verdadeiro — `{ arquivo, tem }` exige que o código
+ * tenha o trecho, `{ arquivo, naoTem }` exige que não tenha.
+ */
+const DADO_DO_SERVIDOR = "dado do servidor (a página o calcula e o entrega pronto) — o operador não o muda com gesto nenhum nesta tela";
+const DERIVADO = "estado DERIVADO de outros eixos (enquadramento × largura × zoom), recalculado pelo próprio componente — o operador não o escreve";
+const LARGURA =
+  "é a LARGURA da janela — o laço de FORA desta guarda: cada combinação deste produto roda em cada uma das 5 larguras (produto completo com todo o resto), e redimensionar com a tela aberta é §6b";
+const ESTADO_DO_GRAFO = {
+  "prop tasks": { fora: DADO_DO_SERVIDOR },
+  "prop sources": { fora: DADO_DO_SERVIDOR },
+  "prop cycleTaskIds": { fora: DADO_DO_SERVIDOR },
+  "prop todayTaskIds": { fora: DADO_DO_SERVIDOR },
+  "prop grafoV3": { fora: DADO_DO_SERVIDOR },
+  "prop activeSourceKinds": { eixo: "fontes" },
+  "prop selectedTaskId": { eixo: "selecao" },
+  "prop onSelectTask": { eixo: "selecao" },
+  "prop accessibleFallback": {
+    fora:
+      'troca a SUPERFÍCIE inteira ("ver como lista"): sem canvas não existe zoom, pan, enquadramento nem traço para destacar — os outros eixos não têm valor nela. A lista é medida contra o universo em §10 e contra o painel de camadas em §16',
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: 'data-lb-modo="lista"' },
+  },
+  "dependency-graph.tsx GraphLegend.expandido": { eixo: "popover" },
+  "dependency-graph.tsx ChipForaDaTela.conta": { fora: DERIVADO },
+  "dependency-graph.tsx DependencyGraph.pane": { fora: LARGURA },
+  "dependency-graph.tsx DependencyGraph.zoomAtual": { eixo: "zoom" },
+  "dependency-graph.tsx DependencyGraph.alvoDoEnquadramento": { eixo: "enquadramento" },
+  "dependency-graph.tsx DependencyGraph.cabeInteiro": { fora: DERIVADO },
+  "dependency-graph.tsx DependencyGraph.ultimoEnquadramento": { fora: DERIVADO },
+  "dependency-graph.tsx DependencyGraph.fecharPaineisSinal": { eixo: "popover" },
+  "dependency-graph.tsx DependencyGraph.alturaMedida": { fora: DERIVADO },
+  "layer-toggle-panel.tsx useCamadasDoGrafo.ativas": { eixo: "camadas" },
+  "layer-toggle-panel.tsx useEhMobile.mobile": { fora: LARGURA },
+  "layer-toggle-panel.tsx LayerTogglePanel.expandido": { eixo: "popover" },
+  "viewport zoom": { eixo: "zoom" },
+  "viewport x": { eixo: "pan" },
+  "viewport y": { eixo: "pan" },
+  "gesto da lib panOnDrag": { eixo: "pan" },
+  "gesto da lib panActivationKeyCode": { eixo: "pan" },
+  "gesto da lib zoomOnScroll": { eixo: "zoom" },
+  "gesto da lib zoomOnPinch": { eixo: "zoom" },
+  "gesto da lib zoomOnDoubleClick": { eixo: "zoom" },
+  "gesto da lib zoomActivationKeyCode": { eixo: "zoom" },
+  "gesto da lib elementsSelectable": { eixo: "selecao" },
+  "gesto da lib selectionKeyCode": {
+    fora:
+      "seleção por caixa (Shift + arrasto) marca o cartão pela seleção INTERNA da lib; as arestas destacadas saem só de `selectedTaskId`, que só `onNodeClick`/`onPaneClick` escrevem — a peça P4 não promete destaque para seleção múltipla",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "onNodeClick={(_, node) => handleSelect(node.id)}" },
+  },
+  "gesto da lib multiSelectionKeyCode": {
+    fora: "idem à seleção por caixa: Ctrl + clique acumula seleção INTERNA da lib, sem promessa de destaque na peça P4",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "onNodeClick={(_, node) => handleSelect(node.id)}" },
+  },
+  "gesto da lib deleteKeyCode": {
+    fora: "Backspace só apaga elemento de canvas NÃO controlado; aqui os nós e as arestas vêm por prop e o produto não passa `onNodesChange`/`onEdgesChange` — a tecla não muda estado nenhum",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", naoTem: "onNodesChange" },
+  },
+  "gesto da lib selectNodesOnDrag": {
+    fora: "só age sobre nó arrastável, e o produto desliga o arrasto do cartão (§15 prova que ele não anda)",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "nodesDraggable={false}" },
+  },
+  "gesto da lib autoPanOnNodeDrag": {
+    fora: "só age arrastando nó, e o produto desliga o arrasto do cartão",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "nodesDraggable={false}" },
+  },
+  "gesto da lib connectOnClick": {
+    fora: "ligar dois nós exige alça conectável, e o produto desliga a conexão",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "nodesConnectable={false}" },
+  },
+  "gesto da lib autoPanOnConnect": {
+    fora: "só age ligando dois nós, e o produto desliga a conexão",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "nodesConnectable={false}" },
+  },
+  "gesto da lib edgesUpdatable": {
+    fora: "religar a ponta de uma aresta exige `onEdgeUpdate`/`onReconnect`, que o produto não passa",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", naoTem: "onEdgeUpdate" },
+  },
+  "gesto da lib edgesFocusable": {
+    fora: "cada aresta nasce com `focusable: false` — o foco de teclado nunca chega a ela, e quem a lê sem mouse é a lista de §10",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: "focusable: false," },
+  },
+  "gesto da lib elevateNodesOnSelect": {
+    fora: "é a ordem de empilhamento do cartão clicado, consequência da seleção (que é eixo) — não um estado que o operador escreva à parte",
+  },
+  "gesto da lib preventScrolling": {
+    fora: "não guarda estado: só impede a PÁGINA de rolar enquanto a roda age no canvas (a roda em si é a porta `zoomOnScroll` do eixo do zoom)",
+  },
+};
+
+/** Conferência de §0c: o inventário inteiro classificado, sem fantasma e com lastro. */
+function conferirClassificacaoDoEstado() {
+  const problemas = [];
+  const inventario = CONTRATO.inventarioDoEstado;
+  const semClasse = inventario.filter((i) => !Object.hasOwn(ESTADO_DO_GRAFO, i));
+  if (semClasse.length > 0) {
+    problemas.push(
+      `o produto guarda ${semClasse.map((i) => `"${i}"`).join(", ")} e o produto dos gestos (§22) não o cruza nem o declara fora — eixo de estado que o operador controla e nenhuma medida atravessa`,
+    );
+  }
+  const fantasmas = Object.keys(ESTADO_DO_GRAFO).filter((k) => !inventario.includes(k));
+  if (fantasmas.length > 0) {
+    problemas.push(
+      `a classificação descreve ${fantasmas.map((i) => `"${i}"`).join(", ")}, que o código não tem mais — tabela que classifica estado inexistente é a mesma convenção que esta seção existe para matar`,
+    );
+  }
+  const eixosDaTabela = new Set();
+  for (const [item, c] of Object.entries(ESTADO_DO_GRAFO)) {
+    if (c.eixo !== undefined) {
+      eixosDaTabela.add(c.eixo);
+      if (!EIXOS_EXERCIDOS.includes(c.eixo)) problemas.push(`"${item}" está no eixo "${c.eixo}", que §22 não sabe exercer`);
+      continue;
+    }
+    if (typeof c.fora !== "string" || c.fora.length < 40) {
+      problemas.push(`"${item}" está declarado fora sem motivo escrito — eixo fora precisa dizer por quê`);
+    }
+    if (c.lastro) {
+      const fonte = lerFonte(c.lastro.arquivo);
+      if (c.lastro.tem !== undefined && !fonte.includes(c.lastro.tem)) {
+        problemas.push(`"${item}" está fora porque ${c.lastro.arquivo} tem \`${c.lastro.tem}\` — e não tem mais: o motivo caiu, o eixo voltou`);
+      }
+      if (c.lastro.naoTem !== undefined && fonte.includes(c.lastro.naoTem)) {
+        problemas.push(`"${item}" está fora porque ${c.lastro.arquivo} não tem \`${c.lastro.naoTem}\` — e agora tem: o motivo caiu, o eixo voltou`);
+      }
+    }
+  }
+  const semEstado = EIXOS_EXERCIDOS.filter((e) => !eixosDaTabela.has(e));
+  if (semEstado.length > 0) {
+    problemas.push(`§22 exerce ${semEstado.join(", ")} e nenhum item do código está nesse(s) eixo(s) — um eixo sem estado no produto é convenção desta guarda`);
+  }
+  return problemas;
+}
+
+/**
+ * Os controles que a SEÇÃO do grafo põe na tela (fora dos cartões, fora dos
+ * painéis abertos). É a outra metade da derivação: um botão novo na barra
+ * aparece aqui antes de alguém lembrar de medi-lo.
+ */
+const LEITURA_DOS_CONTROLES = `(() => {
+  const secao = document.querySelector('section[aria-label="Grafo de dependências"]');
+  if (!secao) return null;
+  const saida = [];
+  const seletor = 'button, input, select, textarea, a[href], [role="button"], [role="checkbox"], [role="switch"], [role="slider"], [role="tab"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+  for (const el of secao.querySelectorAll(seletor)) {
+    if (el.closest(".react-flow__node") || el.closest('[role="dialog"]')) continue;
+    saida.push({
+      rotulo: el.getAttribute("aria-label"),
+      texto: (el.textContent || "").replace(/\\s+/g, " ").trim(),
+      acao: el.getAttribute("data-acao"),
+      popup: el.getAttribute("aria-haspopup"),
+      pressionado: el.getAttribute("aria-pressed"),
+      tag: el.tagName.toLowerCase(),
+    });
+  }
+  return saida;
+})()`;
+
+/**
+ * A PINTURA COMPUTADA de cada traço destacado, no `<path>` e não só no `<g>`:
+ * cor, largura, opacidade do traço e opacidade acumulada até a raiz. É o que
+ * roda em TODA combinação (barato, sem foto) — o pixel vem por cima, com a
+ * cobertura declarada em §22.
+ */
+const LEITURA_DO_TRACO_DESTACADO = `(() => {
+  const saida = {};
+  for (const g of document.querySelectorAll(".react-flow g.lb-edge-destacada")) {
+    const tracos = [];
+    for (const path of g.querySelectorAll("path.lb-edge-path")) {
+      const c = getComputedStyle(path);
+      let acumulada = Number(c.opacity) * Number(c.strokeOpacity);
+      let visivel = c.visibility === "visible" && c.display !== "none";
+      for (let n = path.parentElement; n && n.nodeType === 1; n = n.parentElement) {
+        const cn = getComputedStyle(n);
+        acumulada *= Number(cn.opacity);
+        if (cn.display === "none" || cn.visibility === "hidden") visivel = false;
+      }
+      tracos.push({ stroke: c.stroke, largura: parseFloat(c.strokeWidth), acumulada, visivel, tamanho: path.getTotalLength() });
+    }
+    saida[g.getAttribute("data-aresta-id")] = tracos;
+  }
+  return saida;
+})()`;
+
+/** Cada controle da barra casa com UMA regra: ou um eixo, ou fora com motivo. */
+const CONTROLES_DO_GRAFO = [
+  { regra: "zoom", casa: (c) => c.rotulo === "Diminuir zoom" || c.rotulo === "Aumentar zoom", eixo: "zoom" },
+  { regra: "enquadramento", casa: (c) => typeof c.acao === "string" && c.acao.length > 0, eixo: "enquadramento" },
+  { regra: "painel", casa: (c) => c.popup === "dialog", eixo: "popover" },
+  {
+    regra: "chip de fora da tela",
+    casa: (c) => c.rotulo === null && / fora da tela · /.test(c.texto),
+    eixo: "enquadramento",
+    lastro: { arquivo: "src/components/graph/dependency-graph.tsx", tem: 'onClick={() => enquadrar("tudo")}' },
+  },
+  {
+    regra: "ver como lista",
+    casa: (c) => c.pressionado !== null && /^ver (como lista|grafo)$/.test(c.texto),
+    fora: "é a prop `accessibleFallback` — declarada fora em ESTADO_DO_GRAFO (troca a superfície inteira)",
+  },
+];
+
+async function aplicarCamadas(page, indiceDaCamada, ativas) {
+  const alvo = new Set(ativas);
+  for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+    const dialogo = page.locator('[role="dialog"][aria-label="Camadas do grafo"]');
+    if ((await dialogo.count()) === 0) await abrirPainelDeCamadas(page);
+    const caixas = page.locator('[role="dialog"][aria-label="Camadas do grafo"] input[type="checkbox"]');
+    try {
+      for (const camada of CONTRATO.camadas) {
+        const caixa = caixas.nth(indiceDaCamada.get(camada));
+        const querMarcada = alvo.has(camada);
+        if ((await caixa.isChecked()) === querMarcada) continue;
+        if (querMarcada) await caixa.check({ timeout: 15000 });
+        else await caixa.uncheck({ timeout: 15000 });
+        await page.waitForTimeout(80);
+      }
+      await fecharPainelDeCamadas(page);
+      await page.waitForTimeout(150);
+      return true;
+    } catch (erro) {
+      if (tentativa === 1) throw erro;
+      await fecharPainelDeCamadas(page).catch(() => undefined);
+      await page.waitForTimeout(400);
+    }
+  }
+  return false;
+}
+
+/** Seleciona o cartão de id `taskId`, ou LIMPA a seleção quando `taskId` é `null`. */
+async function aplicarSelecao(page, taskId) {
+  if (taskId === null) {
+    await page.evaluate(() => {
+      const pane = document.querySelector(".react-flow__pane");
+      pane?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    await page.waitForTimeout(200);
+    return true;
+  }
+  const clicou = await page.evaluate((id) => {
+    const no = [...document.querySelectorAll(".react-flow__node")].find(
+      (n) => n.getAttribute("data-id") === id,
+    );
+    const botao = no?.querySelector('[role="button"]');
+    if (!botao) return false;
+    botao.click();
+    return true;
+  }, taskId);
+  await page.waitForTimeout(250);
+  return clicou;
+}
+
+/** Marca só a fonte `so` (ou todas, com `null`) no filtro de fontes — pelo filtro do produto. */
+async function aplicarFontes(page, caso, so) {
+  const precisa = await page.evaluate((alvo) => {
+    const caixas = [...document.querySelectorAll('fieldset input[type="checkbox"]')];
+    return caixas
+      .map((cx, i) => {
+        const nome = cx.closest("label")?.querySelector("span[title]")?.getAttribute("title") ?? "";
+        const quer = alvo === null ? true : nome === alvo;
+        return { i, quer, esta: cx.checked };
+      })
+      .filter((c) => c.quer !== c.esta);
+  }, so);
+  if (precisa.length === 0) return true;
+  await irParaAba(page, caso, "Fontes");
+  const caixas = page.locator('fieldset input[type="checkbox"]');
+  /* Primeiro MARCA o que tem de ficar marcado, depois desmarca: nunca passa
+     por "nenhuma marcada", que o filtro normaliza para "todas". */
+  for (const c of precisa.filter((x) => x.quer)) await caixas.nth(c.i).check({ timeout: 15000 });
+  for (const c of precisa.filter((x) => !x.quer)) await caixas.nth(c.i).uncheck({ timeout: 15000 });
+  await page.waitForTimeout(400);
+  await irParaAba(page, caso, "Grafo");
+  await page.waitForSelector(".react-flow__viewport", { timeout: 20000 });
+  await page.waitForTimeout(500);
+  return true;
+}
+
+/** Arrasta o FUNDO do canvas (o pan do operador), a partir de um ponto que é fundo de verdade. */
+async function arrastarOFundo(page) {
+  const antes = await transformDoCanvas(page);
+  const ponto = await page.evaluate(() => {
+    const pane = document.querySelector(".react-flow__pane");
+    if (!pane) return null;
+    const r = pane.getBoundingClientRect();
+    for (const fx of [0.5, 0.15, 0.85, 0.3, 0.7, 0.05, 0.95]) {
+      for (const fy of [0.5, 0.12, 0.88, 0.3, 0.7]) {
+        const x = r.x + r.width * fx;
+        const y = r.y + r.height * fy;
+        if (document.elementFromPoint(x, y) === pane) return { x, y };
+      }
+    }
+    return null;
+  });
+  if (ponto === null) return { ok: false, motivo: "não achei um ponto do FUNDO do canvas livre de cartão para arrastar" };
+  await page.mouse.move(ponto.x, ponto.y);
+  await page.mouse.down();
+  await page.mouse.move(ponto.x - 70, ponto.y - 50, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const depois = await transformDoCanvas(page);
+  if (depois === null || depois === antes) return { ok: false, motivo: `arrastar o fundo não moveu nada (transform ${String(antes)})` };
+  return { ok: true, antes, depois };
+}
+
+async function abrirPainelPeloBotao(page, rotulo) {
+  const pill = page.locator(`button[aria-label="${rotulo}"][aria-haspopup="dialog"]`).first();
+  if ((await pill.count()) === 0) return false;
+  if ((await pill.getAttribute("aria-expanded")) !== "true") await pill.click({ timeout: 10000 });
+  await page.waitForTimeout(200);
+  return (await pill.getAttribute("aria-expanded")) === "true";
+}
+
+async function fecharPaineisAbertos(page) {
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+    const aberto = await page.evaluate(() =>
+      [...document.querySelectorAll('button[aria-haspopup="dialog"][aria-expanded="true"]')].map((b) => b.getAttribute("aria-label")),
+    );
+    if (aberto.length === 0) return true;
+    const fechar = page.locator('[role="dialog"] button[aria-label="Fechar"]');
+    if (await fechar.count()) await fechar.first().click().catch(() => undefined);
+    else await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+  }
+  return false;
+}
+
+/** As caixas dos painéis abertos: pixel embaixo delas não vota (o painel está por cima, e isso é certo). */
+async function caixasDosPaineisAbertos(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('[role="dialog"]')].map((d) => {
+      const r = d.getBoundingClientRect();
+      return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+    }),
+  );
+}
+
+/**
+ * O DESTAQUE NA TELA, EM PIXEL: a aresta destacada que tem ponto dentro da
+ * janela, dentro do canvas, fora de todo cartão e fora de todo painel aberto
+ * TEM de mudar pixel ao ser escondida, e o que ela pinta tem de ser a mistura
+ * do AMARELO do contrato com o fundo daquele pixel (mesmo modelo de §7).
+ * Devolve `null` quando nada dela cai em lugar medível — quem chama conta.
+ */
+async function medirDestaqueEmPixel(page, a, grupo, cartoes, pane, paineis) {
+  const vista = page.viewportSize();
+  const fora = (p, caixas, folga) =>
+    !caixas.some(
+      (c) => p.x >= c.x - folga && p.x <= c.x + c.largura + folga && p.y >= c.y - folga && p.y <= c.y + c.altura + folga,
+    );
+  const livres = (a.pontos ?? []).filter(
+    (p) =>
+      p.x >= 0 &&
+      p.y >= 0 &&
+      p.x < vista.width &&
+      p.y < vista.height &&
+      (pane === null || (p.x >= pane.x && p.x <= pane.x + pane.largura && p.y >= pane.y && p.y <= pane.y + pane.altura)) &&
+      fora(p, Object.values(cartoes ?? {}), 2) &&
+      fora(p, paineis, RAIO_DA_AMOSTRA + 2),
+  );
+  if (livres.length === 0) return null;
+  const janela = janelaDosPontos(livres, RAIO_DA_AMOSTRA + 3, vista);
+  if (janela === null) return null;
+  const fotos = await fotosComESem(page, grupo, janela);
+  if (fotos.erro) return { erro: fotos.erro };
+  const corDoContrato = hexEmRgb(CONTRATO.cores.destacada);
+  let mudaram = 0;
+  let peso = 0;
+  let pesoVezesResiduo = 0;
+  for (const ponto of livres) {
+    const amostra = amostraNoPonto(fotos, ponto, a.corEsperada, RAIO_DA_AMOSTRA, corDoContrato, CONTRATO.pisoDeContraste);
+    if (!amostra.dentro) continue;
+    mudaram += amostra.mudaram;
+    peso += amostra.peso;
+    pesoVezesResiduo += amostra.pesoVezesResiduo;
+  }
+  const residuo = peso > 0 ? pesoVezesResiduo / peso : null;
+  return { pontos: livres.length, mudaram, residuo };
+}
+
+/**
+ * Traz a aresta `id` para o meio do canvas ARRASTANDO O FUNDO — o gesto do
+ * operador que quer ver o que o zoom jogou para fora. Só muda o pan (o zoom
+ * é conferido igual antes e depois por quem chama). Devolve `true` quando o
+ * meio da aresta chegou perto do centro do canvas.
+ *
+ * Rodada 17 (achado da corrida honesta a 1024 e 1280): a 1,698 depois de um
+ * duplo clique a aresta ficava 910 px abaixo de um canvas de 507 px de altura.
+ * O arrasto partia do primeiro ponto livre do fundo — às vezes perto da borda
+ * para onde o arrasto ia, andando 56 px — e seis arrastos acabavam a 143 px do
+ * centro: a aresta já estava NA TELA, e a função dizia que não. Agora o ponto
+ * de partida é o ponto livre que deixa o arrasto MAIS LONGO na direção
+ * pedida, são até doze arrastos, e a conferência final vale depois do último.
+ */
+async function trazerArestaAVista(page, id) {
+  for (let passo = 0; passo <= 12; passo += 1) {
+    const alvo = await page.evaluate((idDaAresta) => {
+      const pane = document.querySelector(".react-flow__pane");
+      const g = [...document.querySelectorAll(".react-flow g[data-camada]")].find(
+        (x) => x.getAttribute("data-aresta-id") === idDaAresta,
+      );
+      const path = g?.querySelector("path.lb-edge-path");
+      if (!pane || !path) return null;
+      const r = pane.getBoundingClientRect();
+      const comprimento = path.getTotalLength();
+      const meio = path.getPointAtLength(comprimento / 2);
+      const ctm = path.getScreenCTM();
+      if (!ctm) return null;
+      const p = path.ownerSVGElement.createSVGPoint();
+      p.x = meio.x;
+      p.y = meio.y;
+      const t = p.matrixTransform(ctm);
+      const cx = r.x + r.width / 2;
+      const cy = r.y + r.height / 2;
+      const dx = cx - t.x;
+      const dy = cy - t.y;
+      /* O ponto livre do fundo que deixa o arrasto mais longo na direção pedida. */
+      let fundo = null;
+      let melhor = -1;
+      for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95]) {
+        for (const fy of [0.5, 0.3, 0.7, 0.12, 0.88]) {
+          const x = r.x + r.width * fx;
+          const y = r.y + r.height * fy;
+          if (document.elementFromPoint(x, y) !== pane) continue;
+          const fimX = Math.max(r.x + 4, Math.min(r.x + r.width - 4, x + dx));
+          const fimY = Math.max(r.y + 4, Math.min(r.y + r.height - 4, y + dy));
+          const anda = Math.hypot(fimX - x, fimY - y);
+          if (anda > melhor) {
+            melhor = anda;
+            fundo = { x, y };
+          }
+        }
+      }
+      return { dx, dy, fundo, larg: r.width, alt: r.height, r: { x: r.x, y: r.y } };
+    }, id);
+    if (alvo === null) return false;
+    if (Math.abs(alvo.dx) < alvo.larg * 0.2 && Math.abs(alvo.dy) < alvo.alt * 0.2) return true;
+    if (alvo.fundo === null || passo === 12) return false;
+    /* Cada arrasto fica DENTRO do canvas: o fim do gesto não sai do retângulo. */
+    const limite = (v, de, ate) => Math.max(de, Math.min(ate, v));
+    const fimX = limite(alvo.fundo.x + alvo.dx, alvo.r.x + 4, alvo.r.x + alvo.larg - 4);
+    const fimY = limite(alvo.fundo.y + alvo.dy, alvo.r.y + 4, alvo.r.y + alvo.alt - 4);
+    await page.mouse.move(alvo.fundo.x, alvo.fundo.y);
+    await page.mouse.down();
+    await page.mouse.move(fimX, fimY, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(250);
+  }
+  return false;
+}
+
+async function medirProdutoDosGestos(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page, errosDePagina, semCanvas } = await abrirPagina(browser, caso);
+  const linhas = [];
+  try {
+    if (semCanvas) return linhas;
+
+    // ── (1) OS CONTROLES DA TELA, CLASSIFICADOS ─────────────────────────────
+    const controles = await page.evaluate(LEITURA_DOS_CONTROLES);
+    if (controles === null) {
+      exigir(false, `${chave}: §22 não achei a seção "Grafo de dependências" — o produto dos gestos não tem onde ser exercido`);
+      return linhas;
+    }
+    const controlesPorEixo = new Map();
+    const semRegra = [];
+    for (const c of controles) {
+      const regra = CONTROLES_DO_GRAFO.find((r) => r.casa(c));
+      if (!regra) {
+        semRegra.push(c.rotulo ?? (c.texto || `<${c.tag}>`));
+        continue;
+      }
+      if (regra.lastro && !lerFonte(regra.lastro.arquivo).includes(regra.lastro.tem)) {
+        exigir(false, `${chave}: §22 o controle "${c.rotulo ?? c.texto}" foi posto no eixo "${String(regra.eixo)}" porque ${regra.lastro.arquivo} tem \`${regra.lastro.tem}\` — e não tem mais`);
+      }
+      if (regra.eixo) controlesPorEixo.set(regra.eixo, [...(controlesPorEixo.get(regra.eixo) ?? []), c]);
+    }
+    exigir(
+      semRegra.length === 0,
+      `${chave}: §22 a barra do grafo oferece ${semRegra.map((r) => `"${r}"`).join(", ")} e o produto dos gestos não cruza esse controle nem o declara fora — é um eixo que o operador tem e nenhuma medida atravessa`,
+    );
+
+    await ligarTodasAsCamadas(page);
+    await page.waitForTimeout(400);
+    const painel = await abrirPainelDeCamadas(page);
+    if (painel === null) {
+      exigir(false, `${chave}: §22 não achei o controle "Camadas" — o eixo das camadas não tem por onde ser exercido`);
+      return linhas;
+    }
+    const porRotulo = new Map(CONTRATO.camadas.map((c) => [CONTRATO.rotulos[c], c]));
+    const indiceDaCamada = new Map();
+    painel.rotulos.forEach((r, i) => {
+      const camada = porRotulo.get(r.texto);
+      if (camada) indiceDaCamada.set(camada, i);
+    });
+    const semCaixa = CONTRATO.camadas.filter((c) => !indiceDaCamada.has(c));
+    await fecharPainelDeCamadas(page);
+    if (semCaixa.length > 0) {
+      exigir(false, `${chave}: §22 camada sem caixa no painel: ${semCaixa.join(", ")}`);
+      return linhas;
+    }
+
+    // ── (2) OS VALORES DE CADA EIXO, DERIVADOS ──────────────────────────────
+    const alvoDaSelecao = await page.evaluate(() => {
+      for (const g of document.querySelectorAll('.react-flow g[data-camada="sucessao"]')) {
+        if (g.getAttribute("data-critica") !== "true") return g.getAttribute("data-destino");
+      }
+      const q = document.querySelector('.react-flow g[data-camada="sucessao"]');
+      return q ? q.getAttribute("data-destino") : null;
+    });
+    if (alvoDaSelecao === null) {
+      exigir(false, `${chave}: §22 nenhuma aresta de sucessão no canvas — o eixo da seleção não tem alvo derivável`);
+      return linhas;
+    }
+    /* A fonte do filtro: a que ESMAECE a ligação do cartão selecionado — nem a
+       fonte dele, nem a de nenhum predecessor dele (o dado bruto diz quem são;
+       o rótulo do cartão diz a fonte de cada um). É o caso difícil: destaque
+       em cima de aresta apagada. */
+    const predecessores = UNIVERSO.filter((e) => e.camada === "sucessao" && e.destino === alvoDaSelecao).map((e) => e.origem);
+    const fontesNaTela = await page.evaluate((ids) => {
+      const deCartao = {};
+      for (const no of document.querySelectorAll(".react-flow__node")) {
+        const id = no.getAttribute("data-id");
+        if (!ids.includes(id)) continue;
+        const rotulo = no.querySelector('[role="button"]')?.getAttribute("aria-label") ?? "";
+        const m = /, fonte ([^,]+)(?:,|$)/.exec(rotulo);
+        deCartao[id] = m ? m[1].trim() : null;
+      }
+      const noFiltro = [...document.querySelectorAll('fieldset input[type="checkbox"]')].map(
+        (cx) => cx.closest("label")?.querySelector("span[title]")?.getAttribute("title") ?? "",
+      );
+      return { deCartao, noFiltro };
+    }, [alvoDaSelecao, ...predecessores]);
+    if (fontesNaTela.noFiltro.length < 2) {
+      exigir(false, `${chave}: §22 o filtro de fontes tem ${String(fontesNaTela.noFiltro.length)} caixa(s) — o eixo das fontes não tem dois valores`);
+      return linhas;
+    }
+    const fontesDoDestaque = new Set(Object.values(fontesNaTela.deCartao).filter((f) => f !== null));
+    const fonteQueEsmaece = fontesNaTela.noFiltro.find((f) => f && !fontesDoDestaque.has(f)) ?? fontesNaTela.noFiltro[0];
+    const botoesDePainel = (controlesPorEixo.get("popover") ?? []).map((c) => c.rotulo).filter(Boolean);
+    const acoes = [...new Set((controlesPorEixo.get("enquadramento") ?? []).map((c) => c.acao).filter(Boolean))];
+
+    const eixos = [
+      {
+        nome: "camadas",
+        valores: [
+          { nome: "todas as camadas", ativas: [...CONTRATO.camadas] },
+          { nome: "camadas do default", ativas: [...CONTRATO.camadasDefault] },
+          ...CONTRATO.camadas.map((c) => ({
+            nome: `sem "${CONTRATO.rotulos[c]}"`,
+            ativas: CONTRATO.camadas.filter((x) => x !== c),
+          })),
+        ],
+      },
+      {
+        nome: "zoom",
+        valores: [
+          { nome: "zoom do enquadramento", ponta: null },
+          { nome: `zoom no piso ${String(CONTRATO.zoomMinimo)}`, ponta: "fora", alvo: CONTRATO.zoomMinimo },
+          { nome: `zoom no teto ${String(CONTRATO.zoomMaximo)}`, ponta: "dentro", alvo: CONTRATO.zoomMaximo },
+        ],
+      },
+      {
+        nome: "popover",
+        valores: [{ nome: "nenhum painel aberto", botao: null }, ...botoesDePainel.map((b) => ({ nome: `"${b}" aberto`, botao: b }))],
+      },
+      {
+        nome: "selecao",
+        valores: [
+          { nome: "sem seleção", id: null },
+          { nome: `"${alvoDaSelecao}" selecionado`, id: alvoDaSelecao },
+        ],
+      },
+      {
+        nome: "fontes",
+        valores: [
+          { nome: "todas as fontes", so: null },
+          { nome: `só a fonte "${fonteQueEsmaece}"`, so: fonteQueEsmaece },
+        ],
+      },
+      { nome: "enquadramento", valores: acoes.map((a) => ({ nome: `enquadrado em "${a}"`, acao: a })) },
+      {
+        nome: "pan",
+        valores: [
+          { nome: "sem arrasto", arrasta: false },
+          { nome: "fundo arrastado", arrasta: true },
+        ],
+      },
+    ];
+    const nomesDosEixos = eixos.map((e) => e.nome);
+    const eixosDoCodigo = [...new Set(Object.values(ESTADO_DO_GRAFO).map((c) => c.eixo).filter(Boolean))];
+    const naoCruzados = eixosDoCodigo.filter((e) => !nomesDosEixos.includes(e));
+    exigir(
+      naoCruzados.length === 0,
+      `${chave}: §22 o código tem estado no(s) eixo(s) ${naoCruzados.join(", ")} e o produto dos gestos não o(s) cruza`,
+    );
+    const degenerados = eixos.filter((e) => e.valores.length < 2).map((e) => `${e.nome} (${String(e.valores.length)})`);
+    if (degenerados.length > 0) {
+      exigir(
+        false,
+        `${chave}: §22 eixo(s) com menos de dois valores: ${degenerados.join(", ")} — um produto com eixo degenerado mede um estado e diz que mediu a classe`,
+      );
+      return linhas;
+    }
+
+    // ── (3) AS COMBINAÇÕES: COBERTURA EM PARES, GERADA E RECONTADA ──────────
+    const iCam = nomesDosEixos.indexOf("camadas");
+    const iSel = nomesDosEixos.indexOf("selecao");
+    const pedeDestaque = (ativas, id) =>
+      id !== null && universoNasCamadas(UNIVERSO, ativas).some((e) => e.camada === "sucessao" && e.destino === id);
+    const credita = (combo, i, j) => {
+      const tocaSelecao = (i === iSel || j === iSel) && eixos[iSel].valores[combo[iSel]].id !== null;
+      if (!tocaSelecao) return true;
+      if ((i === iCam && j === iSel) || (i === iSel && j === iCam)) return true;
+      if (combo[iCam] === null) return false;
+      return pedeDestaque(eixos[iCam].valores[combo[iCam]].ativas, eixos[iSel].valores[combo[iSel]].id);
+    };
+    let geracao;
+    try {
+      geracao = gerarCoberturaEmPares(eixos, credita);
+    } catch (e) {
+      exigir(false, `${chave}: §22 a cobertura em pares não fecha: ${String(e?.message ?? e)}`);
+      return linhas;
+    }
+    const iFontes = nomesDosEixos.indexOf("fontes");
+    /* Ordem de execução: agrupadas pelo filtro de fontes (trocar o filtro, no
+       celular, é ir à aba "Fontes" e voltar). A ordem não muda a cobertura. */
+    const combos = [...geracao.combos].sort((x, y) => x[iFontes] - y[iFontes]);
+    const faltam = paresSemCobertura(eixos, combos, credita);
+    exigir(
+      faltam.length === 0,
+      `${chave}: §22 ${String(faltam.length)} par(es) de valores sem combinação que os cubra de forma observável: ${faltam.slice(0, 4).join(" ; ")}`,
+    );
+    linhas.push(
+      `eixos derivados: ${eixos.map((e) => `${e.nome} ${String(e.valores.length)}`).join(" × ")} = ${String(
+        eixos.reduce((p, e) => p * e.valores.length, 1),
+      )} no produto completo · ${String(geracao.total)} pares cobertos por ${String(combos.length)} combinações (cobertura em pares)`,
+    );
+
+    // ── (4) CADA COMBINAÇÃO, APLICADA PELOS GESTOS DO PRODUTO, E MEDIDA ─────
+    let camadasAplicadas = [...CONTRATO.camadas];
+    let destaquesEmPixel = 0;
+    let combinacoesQuePedemDestaque = 0;
+    /* O piso do pixel é POR VALOR DO ZOOM: um destaque que só se mede em
+       pixel no piso deixaria o teto — onde o coordenador achou o defeito —
+       aprovado por ausência (forma 2). */
+    const destaquePorZoom = new Map();
+    const pixelPorZoom = new Map();
+    /* E o pixel do destaque tem cobertura de UM fator (declarada): cada valor
+       dos eixos que mudam ONDE e COMO o traço chega à tela (zoom, painel,
+       fontes, enquadramento, pan), entre as combinações que pedem destaque, é
+       medido em pixel ao menos uma vez. O conjunto das destacadas, a cor e a
+       pintura computada do traço (largura, opacidade acumulada) continuam
+       medidos em TODA combinação. Reduzido na rodada 16: oito medidas em
+       pixel por largura (com o "trazer à vista") punham a corrida em 1.913 s
+       num núcleo, acima do teto de ~1.800 s do robô. */
+    const valorComPixel = new Set();
+    const valorPedeDestaque = new Set();
+    const valorSoSobFolha = new Set();
+    const chaveDoValor = (e, i) => `${e.nome}=${e.valores[i].nome}`;
+    /* Camadas e seleção decidem QUAIS arestas são destacadas — isso o
+       conjunto do DOM e a pintura computada do traço medem em TODA
+       combinação. Os outros eixos decidem ONDE e COMO o traço chega à tela
+       (escala, deslocamento, painel por cima, esmaecimento): é neles que o
+       pixel tem o que dizer que o DOM não diz. */
+    const eixosDoPixel = eixos.filter((e) => e.nome !== "camadas" && e.nome !== "selecao");
+    const corDoDestaque = String(CONTRATO.cores.destacada).toUpperCase();
+    for (const combo of combos) {
+      const v = Object.fromEntries(eixos.map((e, i) => [e.nome, e.valores[combo[i]]]));
+      const estado = ` (${eixos.map((e, i) => e.valores[combo[i]].nome).join(" × ")})`;
+
+      await aplicarFontes(page, caso, v.fontes.so);
+      await page.locator(`button[data-acao="${v.enquadramento.acao}"]`).first().click({ timeout: 10000 });
+      await page.waitForTimeout(250);
+      const zoomDoEnquadramento = escalaDe(await transformDoCanvas(page));
+      const ativas = v.camadas.ativas;
+      const mesmas = ativas.length === camadasAplicadas.length && ativas.every((c) => camadasAplicadas.includes(c));
+      if (!mesmas) {
+        await aplicarCamadas(page, indiceDaCamada, ativas);
+        camadasAplicadas = [...ativas];
+      }
+      let zoomEsperado = zoomDoEnquadramento;
+      if (v.zoom.ponta !== null) {
+        const gesto = await gestoDeZoomAteAPonta(page, v.zoom.ponta, v.zoom.alvo, 200, 60);
+        if (!gesto.achouBotao || !gesto.alcancavel) {
+          exigir(false, `${chave}: §22${estado} o botão "${String(gesto.nome)}" não estava alcançável — o zoom não pôde ser posto na ponta`);
+          continue;
+        }
+        if (gesto.semMedida) continue;
+        zoomEsperado = v.zoom.alvo;
+      }
+      if (v.pan.arrasta) {
+        const arrasto = await arrastarOFundo(page);
+        if (!arrasto.ok) {
+          exigir(false, `${chave}: §22${estado} ${arrasto.motivo} — o pan não pôde ser exercido nesta combinação`);
+          continue;
+        }
+      }
+      const aplicou = await aplicarSelecao(page, v.selecao.id);
+      if (v.popover.botao !== null) {
+        const abriu = await abrirPainelPeloBotao(page, v.popover.botao);
+        exigir(abriu, `${chave}: §22${estado} o painel "${v.popover.botao}" não abriu`);
+      }
+
+      /* O ESTADO É O QUE A COMBINAÇÃO DIZ? — conferido no instante da medida.
+         Um gesto que "foi aplicado" e não pegou mediria outra combinação. */
+      const zoomAgora = escalaDe(await transformDoCanvas(page));
+      exigir(
+        zoomAgora !== null && zoomEsperado !== null && Math.abs(zoomAgora - zoomEsperado) < 1e-3,
+        `${chave}: §22${estado} o zoom deveria estar em ${String(zoomEsperado)} e está em ${String(zoomAgora)} — um gesto desfez o outro`,
+      );
+      const pressionados = await page.evaluate(() =>
+        [...document.querySelectorAll('.react-flow__node [role="button"][aria-pressed="true"]')].map((b) =>
+          b.closest(".react-flow__node")?.getAttribute("data-id"),
+        ),
+      );
+      exigir(
+        aplicou && (v.selecao.id === null ? pressionados.length === 0 : pressionados.includes(v.selecao.id)),
+        `${chave}: §22${estado} a seleção não é a da combinação: cartões marcados [${pressionados.join(", ")}]`,
+      );
+
+      const leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+      const contrato = await lerContratoDoCanvas(page);
+      const contraODado = medirCanvasContraOUniverso(chave, estado, contrato, leitura.arestas, ativas);
+
+      const esmaecidas = leitura.arestas.filter((a) => a.esmaecida).length;
+      exigir(
+        v.fontes.so === null ? esmaecidas === 0 : esmaecidas > 0,
+        v.fontes.so === null
+          ? `${chave}: §22${estado} ${String(esmaecidas)} aresta(s) se dizem esmaecidas sem filtro de fonte nenhum`
+          : `${chave}: §22${estado} com só "${v.fontes.so}" marcada nenhuma aresta esmaeceu — o valor do eixo das fontes não fez nada`,
+      );
+
+      /* O DESTAQUE, como CONJUNTO: exatamente as sucessões que o dado bruto
+         faz chegar no cartão selecionado, nas camadas marcadas. */
+      const esperadas = pedeDestaque(ativas, v.selecao.id)
+        ? universoNasCamadas(UNIVERSO, ativas)
+            .filter((e) => e.camada === "sucessao" && e.destino === v.selecao.id)
+            .map((e) => e.id)
+        : [];
+      if (esperadas.length > 0) {
+        combinacoesQuePedemDestaque += 1;
+        destaquePorZoom.set(v.zoom.nome, (destaquePorZoom.get(v.zoom.nome) ?? 0) + 1);
+      }
+      const naTela = leitura.arestas.filter((a) => a.papel === "destacada");
+      const idsNaTela = naTela.map((a) => a.id);
+      const faltaDestaque = esperadas.filter((id) => !idsNaTela.includes(id));
+      const sobraDestaque = idsNaTela.filter((id) => !esperadas.includes(id));
+      exigir(
+        faltaDestaque.length === 0,
+        `${chave}: §22${estado} o dado bruto tem ${faltaDestaque.join(", ")} chegando no cartão selecionado e o canvas NÃO a destaca (${String(naTela.length)} destacada(s) na tela, ${String(esperadas.length)} pedida(s)) — o amarelo do predecessor some quando estes gestos se cruzam`,
+      );
+      exigir(
+        sobraDestaque.length === 0,
+        `${chave}: §22${estado} ${sobraDestaque.join(", ")} se diz(em) destacada(s) e o dado bruto não tem essa sucessão chegando num cartão selecionado nesta combinação`,
+      );
+      const problemasDoDestaque = [];
+      const tracosDestacados = esperadas.length > 0 ? await page.evaluate(LEITURA_DO_TRACO_DESTACADO) : {};
+      for (const a of naTela.filter((x) => esperadas.includes(x.id))) {
+        const pisoDoTraco = a.esmaecida ? 0.1 : 0.9;
+        const tracos = tracosDestacados[a.id] ?? [];
+        const pinta = tracos.some(
+          (t) =>
+            rgbEmHex(t.stroke) === corDoDestaque && t.largura >= 1 && t.acumulada >= pisoDoTraco && t.visivel && t.tamanho > 0,
+        );
+        if (!pinta) {
+          problemasDoDestaque.push(
+            `${a.id}: nenhum traço do grupo pinta o amarelo de verdade — ${tracos
+              .map((t) => `${String(rgbEmHex(t.stroke))} largura ${String(t.largura)} opacidade ${t.acumulada.toFixed(2)}${t.visivel ? "" : " escondido"}`)
+              .join(", ") || "sem traço"} (piso de opacidade ${String(pisoDoTraco)})`,
+          );
+        }
+        const cor = rgbEmHex(a.corComputada);
+        const piso = a.esmaecida ? 0.1 : 0.9;
+        if (a.semPath) problemasDoDestaque.push(`${a.id}: sem traço`);
+        else if (cor !== corDoDestaque) problemasDoDestaque.push(`${a.id}: pinta ${String(cor)} e o contrato do destaque é ${corDoDestaque}`);
+        else if (!a.retrato?.visivelHerdado || (a.retrato?.opacidadeAcumulada ?? 0) < piso) {
+          problemasDoDestaque.push(
+            `${a.id}: escondida (visível ${String(a.retrato?.visivelHerdado)}, opacidade ${String(a.retrato?.opacidadeAcumulada)} contra o piso ${String(piso)})`,
+          );
+        }
+      }
+      let pixel = "sem destaque pedido";
+      const valoresDaCombinacao = eixos
+        .map((e, i) => (eixosDoPixel.includes(e) ? chaveDoValor(e, combo[i]) : null))
+        .filter((k) => k !== null);
+      if (esperadas.length > 0) for (const k of valoresDaCombinacao) valorPedeDestaque.add(k);
+      const pixelTrazNovidade = valoresDaCombinacao.some((k) => !valorComPixel.has(k));
+      if (esperadas.length > 0 && problemasDoDestaque.length === 0 && !pixelTrazNovidade) {
+        pixel = "pixel dispensado: todo valor desta combinação já foi medido em pixel (cobertura de 1 fator)";
+      } else if (esperadas.length > 0 && problemasDoDestaque.length === 0) {
+        const folha = await canvasCobertoPorFolhaModal(page);
+        if (folha.coberto) {
+          pixel = "pixel não medido: folha modal por cima do canvas";
+          if (v.popover.botao !== null) valorSoSobFolha.add(chaveDoValor(eixos[nomesDosEixos.indexOf("popover")], combo[nomesDosEixos.indexOf("popover")]));
+        } else {
+          const pane = await page.evaluate(() => {
+            const el = document.querySelector(".react-flow");
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+          });
+          const paineis = await caixasDosPaineisAbertos(page);
+          const grupos = await page.$$(SELETOR_DA_ARESTA);
+          const partes = [];
+          for (const a of naTela.filter((x) => esperadas.includes(x.id))) {
+            const g = grupos[leitura.arestas.indexOf(a)];
+            if (!g) continue;
+            let m = await medirDestaqueEmPixel(page, a, g, leitura.cartoes, pane, paineis);
+            if (m === null) {
+              /* O zoom jogou o traço para fora da janela (ou para trás de um
+                 cartão). "Fora da janela" não é medida: o operador arrasta o
+                 fundo para ver — a guarda também, e o zoom tem de continuar
+                 o mesmo depois. */
+              const zoomAntes = escalaDe(await transformDoCanvas(page));
+              const veio = await trazerArestaAVista(page, a.id);
+              const zoomDepois = escalaDe(await transformDoCanvas(page));
+              exigir(
+                zoomAntes !== null && zoomDepois !== null && Math.abs(zoomAntes - zoomDepois) < 1e-6,
+                `${chave}: §22${estado} arrastar o fundo para ver o destaque mexeu no ZOOM (${String(zoomAntes)} → ${String(zoomDepois)})`,
+              );
+              if (veio) {
+                const releitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+                const indice = releitura.arestas.findIndex((x) => x.id === a.id);
+                const nova = releitura.arestas[indice];
+                const gNovo = (await page.$$(SELETOR_DA_ARESTA))[indice];
+                const cartoesNovos = releitura.cartoes;
+                if (nova && gNovo) {
+                  exigir(
+                    nova.papel === "destacada",
+                    `${chave}: §22${estado} ${a.id} deixou de ser destacada depois de arrastar o fundo para vê-la`,
+                  );
+                  m = await medirDestaqueEmPixel(page, nova, gNovo, cartoesNovos, pane, await caixasDosPaineisAbertos(page));
+                }
+              }
+              if (m === null) {
+                partes.push(`${a.id.split("->")[0]}… fora da janela mesmo depois de arrastar o fundo`);
+                continue;
+              }
+              if (!m.erro) partes.push("trazida à vista arrastando o fundo");
+            }
+            if (m.erro) {
+              if (ehErroDeAmbiente(m.erro)) naoConsegui(`${chave}${estado} · ${a.id}: ${m.erro}`);
+              else problemasDoDestaque.push(`${a.id}: ${m.erro}`);
+              continue;
+            }
+            destaquesEmPixel += 1;
+            pixelPorZoom.set(v.zoom.nome, (pixelPorZoom.get(v.zoom.nome) ?? 0) + 1);
+            for (const k of valoresDaCombinacao) valorComPixel.add(k);
+            if (m.mudaram < 12) {
+              problemasDoDestaque.push(`${a.id}: tem ${String(m.pontos)} ponto(s) livres na tela e só ${String(m.mudaram)} pixel(s) mudam ao escondê-la — o amarelo não está na tela`);
+            } else if (m.residuo === null || m.residuo > TOLERANCIA_DE_MISTURA) {
+              problemasDoDestaque.push(
+                `${a.id}: pinta, mas o que pinta não é o amarelo do contrato (${corDoDestaque}) misturado ao fundo — resíduo ${m.residuo === null ? "?" : m.residuo.toFixed(1)} contra o teto ${String(TOLERANCIA_DE_MISTURA)}`,
+              );
+            } else partes.push(`${String(m.mudaram)}px amarelos (resíduo ${m.residuo.toFixed(1)})`);
+          }
+          pixel = partes.join(", ") || "nenhuma destacada com ponto livre";
+        }
+      }
+      exigir(
+        problemasDoDestaque.length === 0,
+        `${chave}: §22${estado} o destaque do cartão selecionado — ${problemasDoDestaque.slice(0, 3).join(" ; ")}`,
+      );
+      linhas.push(
+        `${eixos.map((e, i) => e.valores[combo[i]].nome).join(" × ")}: zoom ${String(zoomAgora)} · ${contraODado} · esmaecidas ${String(esmaecidas)} · destacadas ${String(naTela.length)}/${String(esperadas.length)} · ${pixel}`,
+      );
+      if (v.popover.botao !== null) {
+        const fechou = await fecharPaineisAbertos(page);
+        exigir(fechou, `${chave}: §22${estado} o painel "${v.popover.botao}" não fechou — a próxima combinação herdaria um painel aberto`);
+      }
+    }
+    exigir(
+      combinacoesQuePedemDestaque === 0 || destaquesEmPixel > 0,
+      `${chave}: §22 ${String(combinacoesQuePedemDestaque)} combinação(ões) pediam destaque e NENHUMA aresta destacada caiu em lugar medível em pixel — não medir é reprovar`,
+    );
+    /* O piso é POR VALOR DE EIXO: um destaque medido em pixel só no piso do
+       zoom deixaria o teto — onde o coordenador achou o defeito — aprovado por
+       ausência (forma 2). A única dispensa é o painel que, nesta largura, é
+       uma folha MODAL por cima do canvas inteiro: ali não há pixel do canvas
+       para medir, e o DOM continua medido. */
+    const valoresSemPixel = [...valorPedeDestaque].filter((k) => !valorComPixel.has(k) && !valorSoSobFolha.has(k));
+    exigir(
+      valoresSemPixel.length === 0,
+      `${chave}: §22 ${valoresSemPixel.join(", ")}: houve combinação pedindo destaque com esse valor e o amarelo nunca foi medido em pixel nele — o destaque desse valor seria aprovado por ausência`,
+    );
+    linhas.push(
+      `destaque medido em pixel em ${String(destaquesEmPixel)} aresta(s), ao longo de ${String(combinacoesQuePedemDestaque)} combinação(ões) que o pedem · por zoom: ${[...destaquePorZoom.keys()]
+        .map((z) => `${z} ${String(pixelPorZoom.get(z) ?? 0)}/${String(destaquePorZoom.get(z))}`)
+        .join(" · ")}`,
+    );
+    await fecharPaineisAbertos(page);
+    exigir(
+      errosDePagina.length === 0,
+      `${chave}: §22 a página lançou ${String(errosDePagina.length)} erro(s) durante o produto dos gestos: ${errosDePagina[0] ?? ""}`,
+    );
+  } finally {
+    await ctx.close();
+  }
+  return linhas;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §22z / §22p / §22L · OS EIXOS CONTÍNUOS — O OPERADOR PARA NO MEIO
+//       (ALTO da rodada 17)
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * **O que a rodada 16 deixou aberto.** O eixo do zoom de §22 tinha três
+ * valores: o do enquadramento, o piso e o teto. O operador não usa nenhum
+ * deles em particular — ele clica "Aumentar zoom" uma, duas, três vezes, ou
+ * gira a roda. O coordenador provou com uma linha em `v3-edge.tsx`:
+ *
+ *     if (zoomSeguro > 1.2 && zoomSeguro < 1.6 && data.destacadaPeloSelecionado === true) return null;
+ *
+ * "Deploy de produção" selecionado a 1440: 2 ligações destacadas a 0,849,
+ * 1,019 e 1,76, e **0** a 1,223 e 1,467 — dois cliques em "Aumentar zoom" —,
+ * com a guarda verde em 1024, 1280 e 1440, §22 incluído.
+ *
+ * **O conserto é a classe.** Nenhum número de zoom é escrito aqui:
+ *
+ *   1. os FATORES saem da lib instalada (`CONTRATO.fatoresDoZoom`, lidos de
+ *      `@reactflow/core` e `d3-zoom` por `eixos-continuos.mjs`): botão ×1,2,
+ *      roda 2^(0,002 × notch), duplo clique ×2 (Shift: ×0,5);
+ *   2. as PARTIDAS saem da página: o zoom que cada botão de enquadramento dá
+ *      naquela largura e naquele estado, o piso e o teto (onde o operador bate
+ *      de tanto repetir o gesto e de onde ele volta);
+ *   3. o eixo é TODA sequência de um gesto repetido a partir de uma partida,
+ *      até a ponta — o conjunto finito que os cliques e a roda alcançam
+ *      (47 a 64 valores por largura com o dado do fixture);
+ *   4. antes do passeio, os três gestos são feitos DE VERDADE (clique do
+ *      Playwright, giro de roda, duplo clique do mouse) e o zoom que eles dão
+ *      tem de ser o que a derivação prevê — é o que autoriza o passeio a
+ *      repetir o gesto pelo mesmo manipulador (evento no botão e no fundo), e
+ *      TODO passo do passeio confere o zoom lido contra o previsto.
+ *
+ * **Contra o quê cada valor é medido.** Em cada valor: o conjunto das arestas
+ * no canvas contra o dado bruto nas camadas marcadas (§12, por id), o
+ * conjunto EXATO das destacadas contra o dado, e cada destacada pintando o
+ * amarelo do contrato de verdade (cor, largura, opacidade acumulada, visível,
+ * comprimento e caixa na tela maiores que zero). O passeio inteiro é refeito
+ * para CADA valor do eixo das camadas (sete) com o cartão selecionado, e uma
+ * vez sem seleção: todo par (zoom × camadas) e (zoom × seleção). Os painéis,
+ * o filtro de fontes e o pan são distribuídos entre os passeios em que o
+ * destaque aparece, de modo que todo valor de cada um deles cruza todo valor
+ * do zoom onde isso é observável; o enquadramento é cruzado dentro de cada
+ * passeio (as sequências partem de cada botão).
+ *
+ * **Os outros eixos contínuos** estão em `CONTINUIDADE_DOS_EIXOS`, conferida
+ * em §0c: o pan (§22p, passos de fundo arrastado até o desenho sair do
+ * canvas, nas quatro direções) e a largura da janela (§22L, a trilha de
+ * arrastar a borda da janela da menor à maior largura da tabela, com os dois
+ * lados de cada corte que o produto declara).
+ *
+ * **O que fica fora, dito por extenso:** o contínuo ENTRE os valores medidos
+ * — pinça, trackpad, roda de notch diferente e gestos misturados levam o zoom
+ * a qualquer número entre o piso e o teto; o maior vão entre dois valores
+ * medidos sai impresso por largura, e uma faixa de defeito mais estreita que
+ * ele pode escapar. O pixel do amarelo nos valores do meio: o passeio mede
+ * DOM, pintura computada e caixa na tela em todo valor; o pixel continua nos
+ * três valores de §22 (o custo de uma foto por valor seria ~50 fotos por
+ * largura). Pan e largura cruzados com o zoom (cada um é medido no zoom que o
+ * produto dá naquele ponto, não na sequência inteira).
+ */
+
+/**
+ * CADA EIXO DE §22 É CONTÍNUO OU DISCRETO — e o contínuo tem um passeio que o
+ * percorre. Conferida em §0c: eixo exercido sem classificação reprova.
+ */
+const CONTINUIDADE_DOS_EIXOS = {
+  camadas: {
+    discreto:
+      "cinco caixas, cada uma marcada ou não — não há valor entre as duas. §22 mede todas, o default e cada camada sozinha desligada; duas ou mais desligadas ficam fora (declarado em §22)",
+  },
+  popover: { discreto: "cada painel está aberto ou fechado — não há meio-aberto que o operador escolha" },
+  selecao: {
+    discreto:
+      "um cartão está selecionado ou não; o alvo é derivado do dado bruto (o destino de sucessão com mais predecessores nos passeios, o primeiro destino não crítico em §22)",
+  },
+  fontes: { discreto: "cada fonte está marcada no filtro ou não" },
+  enquadramento: { discreto: "cada botão de enquadramento dá UM zoom e UM pan naquela largura e naquele estado" },
+  zoom: { continuo: "§22z o passeio do zoom", porQue: "o operador repete o clique e gira a roda: para em qualquer valor da sequência" },
+  pan: { continuo: "§22p o passeio do pan", porQue: "arrastar o fundo leva o canvas a qualquer deslocamento, px a px" },
+  largura: { continuo: "§22L a trilha da largura", porQue: "arrastar a borda da janela passa por toda largura entre as cinco da tabela" },
+};
+
+/** Conferência de §0c para a tabela acima. */
+function conferirContinuidadeDosEixos() {
+  const problemas = [];
+  for (const eixo of [...EIXOS_EXERCIDOS, "largura"]) {
+    const c = CONTINUIDADE_DOS_EIXOS[eixo];
+    if (!c) {
+      problemas.push(`o eixo "${eixo}" não diz se é contínuo ou discreto — um eixo contínuo sem passeio mede três valores e diz que mediu a classe`);
+      continue;
+    }
+    if (c.continuo === undefined && (typeof c.discreto !== "string" || c.discreto.length < 30)) {
+      problemas.push(`o eixo "${eixo}" está declarado discreto sem motivo escrito`);
+    }
+  }
+  for (const eixo of Object.keys(CONTINUIDADE_DOS_EIXOS)) {
+    if (eixo !== "largura" && !EIXOS_EXERCIDOS.includes(eixo)) problemas.push(`CONTINUIDADE_DOS_EIXOS descreve "${eixo}", que §22 não exerce`);
+  }
+  return problemas;
+}
+
+/**
+ * OS PISOS, À MÃO, contados sobre o que a PÁGINA mostrou — nunca sobre o
+ * plano que gerou os passos (a medida não pode contar a si mesma).
+ *
+ *   - zoom: menor contagem medida na árvore honesta foi 47 valores distintos
+ *     por passeio (390 px); o piso é 40;
+ *   - pan: passos de 40 px (a resolução declarada), e ao menos 40 leituras
+ *     somando as quatro direções;
+ *   - largura: passos de 32 px da menor à maior largura da tabela, mais os
+ *     cortes; ao menos 45 larguras lidas.
+ */
+const PISO_DE_VALORES_DE_ZOOM = 40;
+const PASSO_DO_PAN_PX = 40;
+const PISO_DE_LEITURAS_DO_PAN = 40;
+const TETO_DE_PASSOS_DO_PAN_POR_DIRECAO = 80;
+const PASSO_DA_TRILHA_DE_LARGURA_PX = 32;
+const PISO_DE_LARGURAS_DA_TRILHA = 45;
+
+/** Os passeios que rodaram, por largura — §0c confere no fim que todo eixo contínuo teve o seu. */
+const PASSEIOS_FEITOS = new Map();
+function anotarPasseio(nome, chave) {
+  PASSEIOS_FEITOS.set(nome, new Set([...(PASSEIOS_FEITOS.get(nome) ?? []), chave]));
+}
+
+/** O cartão cujo destaque os passeios acompanham: o destino de sucessão com mais predecessores no dado bruto. */
+function alvoDosPasseios() {
+  const conta = new Map();
+  for (const e of UNIVERSO) if (e.camada === "sucessao") conta.set(e.destino, (conta.get(e.destino) ?? 0) + 1);
+  const ordem = [...conta.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
+  return ordem[0]?.[0] ?? null;
+}
+
+/**
+ * O ajudante que roda NA PÁGINA: lê o estado do grafo e repete os gestos pelo
+ * mesmo manipulador que o operador aciona (o `onClick` do botão, o ouvinte de
+ * roda e de duplo clique do fundo, o arrasto do fundo). Instalado uma vez por
+ * página.
+ */
+function instalarPasseioNaPagina(notch) {
+  if (window.__lbPasseio) return true;
+  const quadro = () => new Promise((r) => window.requestAnimationFrame(() => r()));
+  const matriz = () => {
+    const v = document.querySelector(".react-flow__viewport");
+    return v ? new window.DOMMatrix(getComputedStyle(v).transform) : null;
+  };
+  const ler = () => {
+    const arestas = [];
+    const destacadas = [];
+    for (const g of document.querySelectorAll(".react-flow g[data-camada]")) {
+      const path = g.querySelector("path.lb-edge-path");
+      if (!path) continue;
+      const id = g.getAttribute("data-aresta-id");
+      const esmaecida = g.getAttribute("data-esmaecida") === "true";
+      arestas.push({ id, camada: g.getAttribute("data-camada"), critica: g.getAttribute("data-critica") === "true", esmaecida });
+      if (!g.classList.contains("lb-edge-destacada")) continue;
+      const tracos = [];
+      for (const p of g.querySelectorAll("path.lb-edge-path")) {
+        const c = getComputedStyle(p);
+        let acumulada = Number(c.opacity) * Number(c.strokeOpacity);
+        let visivel = c.visibility === "visible" && c.display !== "none";
+        for (let n = p.parentElement; n && n.nodeType === 1; n = n.parentElement) {
+          const cn = getComputedStyle(n);
+          acumulada *= Number(cn.opacity);
+          if (cn.display === "none" || cn.visibility === "hidden") visivel = false;
+        }
+        const r = p.getBoundingClientRect();
+        tracos.push({ stroke: c.stroke, largura: parseFloat(c.strokeWidth), acumulada, visivel, tamanho: p.getTotalLength(), caixa: r.width + r.height });
+      }
+      destacadas.push({ id, esmaecida, tracos });
+    }
+    const m = matriz();
+    const pane = document.querySelector(".react-flow__pane")?.getBoundingClientRect() ?? null;
+    let cartoesNoCanvas = 0;
+    for (const no of document.querySelectorAll(".react-flow__node")) {
+      const r = no.getBoundingClientRect();
+      if (pane && r.right > pane.left && r.left < pane.right && r.bottom > pane.top && r.top < pane.bottom) cartoesNoCanvas += 1;
+    }
+    return {
+      z: m ? m.a : null,
+      x: m ? m.e : null,
+      y: m ? m.f : null,
+      arestas,
+      destacadas,
+      pressionados: [...document.querySelectorAll('.react-flow__node [role="button"][aria-pressed="true"]')].map((b) =>
+        b.closest(".react-flow__node")?.getAttribute("data-id"),
+      ),
+      paineis: [...document.querySelectorAll('button[aria-haspopup="dialog"][aria-expanded="true"]')].map((b) => b.getAttribute("aria-label")),
+      largura: window.innerWidth,
+      altura: window.innerHeight,
+      canvas: m !== null,
+      cartoesNoCanvas,
+    };
+  };
+  /* O DESENHO ASSENTADO: o mesmo número de traços e de destacadas por três
+     quadros seguidos. Medido na árvore honesta: ao cruzar o zoom 0,85 (o
+     cartão troca de modo e é medido de novo) as arestas somem por UM quadro
+     e voltam — a leitura é do que fica na tela, não do quadro de passagem. */
+  const assinatura = () =>
+    `${String(document.querySelectorAll(".react-flow g[data-camada] path.lb-edge-path").length)}/${String(document.querySelectorAll(".react-flow g.lb-edge-destacada").length)}`;
+  const desenhoAssentado = async (maxMs) => {
+    const t0 = window.performance.now();
+    let ultima = assinatura();
+    let iguais = 0;
+    while (iguais < 3 && window.performance.now() - t0 < maxMs) {
+      await quadro();
+      const agora = assinatura();
+      iguais = agora === ultima ? iguais + 1 : 0;
+      ultima = agora;
+    }
+  };
+  /* Assenta: espera o zoom chegar ao previsto (ou, sem previsto, ficar parado seis quadros) e o desenho assentar. */
+  const assentar = async (alvo, maxMs) => {
+    await assentarZoom(alvo, maxMs);
+    await desenhoAssentado(1500);
+  };
+  const assentarZoom = async (alvo, maxMs) => {
+    const t0 = window.performance.now();
+    let ultimo = null;
+    let iguais = 0;
+    for (;;) {
+      await quadro();
+      const z = matriz()?.a ?? null;
+      if (alvo !== null && z !== null && Math.abs(z - alvo) <= 1e-4 * Math.max(1, alvo)) {
+        await quadro();
+        return;
+      }
+      if (alvo === null) {
+        if (z !== null && z === ultimo) {
+          iguais += 1;
+          if (iguais >= 6) return;
+        } else iguais = 0;
+        ultimo = z;
+      }
+      if (window.performance.now() - t0 > maxMs) return;
+    }
+  };
+  const centroDoFundo = () => {
+    const pane = document.querySelector(".react-flow__pane");
+    if (!pane) return null;
+    const r = pane.getBoundingClientRect();
+    return { pane, x: r.x + r.width / 2, y: r.y + r.height / 2, r };
+  };
+  const gesto = async (nome, sentido, alvo) => {
+    if (nome === "botão") {
+      const b = document.querySelector(`button[aria-label="${sentido === "dentro" ? "Aumentar zoom" : "Diminuir zoom"}"]`);
+      if (!b) return `não achei o botão de zoom (${sentido})`;
+      b.click();
+      await assentar(alvo, 800);
+      return null;
+    }
+    const c = centroDoFundo();
+    if (!c) return "não achei o fundo do canvas";
+    if (nome === "roda") {
+      c.pane.dispatchEvent(
+        new window.WheelEvent("wheel", { bubbles: true, cancelable: true, view: window, clientX: c.x, clientY: c.y, deltaMode: 0, deltaY: sentido === "dentro" ? -notch : notch }),
+      );
+      await assentar(alvo, 800);
+      return null;
+    }
+    if (nome === "duplo clique") {
+      c.pane.dispatchEvent(
+        new window.MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window, clientX: c.x, clientY: c.y, shiftKey: sentido === "fora" }),
+      );
+      await assentar(alvo, 2000);
+      return null;
+    }
+    return `gesto desconhecido: ${nome}`;
+  };
+  const arrastar = async (dx, dy) => {
+    const c = centroDoFundo();
+    if (!c) return false;
+    let ponto = null;
+    for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85, 0.05, 0.95]) {
+      for (const fy of [0.5, 0.3, 0.7, 0.12, 0.88]) {
+        const x = c.r.x + c.r.width * fx;
+        const y = c.r.y + c.r.height * fy;
+        if (!ponto && document.elementFromPoint(x, y) === c.pane) ponto = { x, y };
+      }
+    }
+    if (!ponto) ponto = { x: c.x, y: c.y };
+    const ev = (tipo, x, y, alvo) =>
+      alvo.dispatchEvent(new window.MouseEvent(tipo, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, button: 0, buttons: tipo === "mouseup" ? 0 : 1 }));
+    ev("mousedown", ponto.x, ponto.y, c.pane);
+    for (let i = 1; i <= 4; i += 1) ev("mousemove", ponto.x + (dx * i) / 4, ponto.y + (dy * i) / 4, window);
+    ev("mouseup", ponto.x + dx, ponto.y + dy, window);
+    await quadro();
+    await quadro();
+    return true;
+  };
+  window.__lbPasseio = {
+    ler,
+    async enquadrar(acao, arrasto) {
+      const b = document.querySelector(`button[data-acao="${acao}"]`);
+      if (!b) return { erro: `não achei o botão de enquadramento "${acao}"` };
+      b.click();
+      await assentar(null, 3000);
+      if (arrasto) {
+        await arrastar(arrasto.dx, arrasto.dy);
+        await assentar(null, 1000);
+      }
+      return { leitura: ler() };
+    },
+    async trecho(passos) {
+      const saida = [];
+      for (const p of passos) {
+        const erro = await gesto(p.gesto, p.sentido, p.alvo);
+        saida.push({ erro, leitura: ler() });
+      }
+      return saida;
+    },
+    async arrastarEmPassos(dx, dy, maximo) {
+      const saida = [];
+      for (let i = 0; i < maximo; i += 1) {
+        if (!(await arrastar(dx, dy))) return { erro: "não achei o fundo do canvas para arrastar", saida };
+        const l = ler();
+        saida.push(l);
+        if (l.cartoesNoCanvas === 0) break;
+      }
+      return { saida };
+    },
+  };
+  return true;
+}
+
+/**
+ * O que cada leitura de passeio TEM de mostrar, contra o dado bruto. Devolve
+ * a lista de problemas (vazia = a leitura se sustenta).
+ */
+function conferirLeituraDoPasseio(l, esperado) {
+  const problemas = [];
+  if (!l.canvas) return ["o canvas do grafo sumiu"];
+  if (esperado.z !== null && (l.z === null || Math.abs(l.z - esperado.z) > 1e-3 * Math.max(1, esperado.z))) {
+    problemas.push(`o zoom lido é ${String(l.z)} e o gesto, pela lib, leva a ${esperado.z.toFixed(4)}`);
+  }
+  const noDado = universoNasCamadas(UNIVERSO, esperado.ativas);
+  const idsNoDado = new Set(noDado.map((e) => e.id));
+  const idsNaTela = new Set(l.arestas.map((a) => a.id));
+  const faltam = [...idsNoDado].filter((id) => !idsNaTela.has(id));
+  const sobram = [...idsNaTela].filter((id) => !idsNoDado.has(id));
+  if (faltam.length > 0) problemas.push(`${String(faltam.length)} aresta(s) do dado bruto fora do canvas: ${faltam.slice(0, 2).join(", ")}`);
+  if (sobram.length > 0) problemas.push(`${String(sobram.length)} aresta(s) no canvas que o dado não pede nestas camadas: ${sobram.slice(0, 2).join(", ")}`);
+  const pedidas =
+    esperado.selecao === null
+      ? []
+      : noDado.filter((e) => e.camada === "sucessao" && e.destino === esperado.selecao).map((e) => e.id);
+  const destacadasNaTela = l.destacadas.map((d) => d.id);
+  const faltaDestaque = pedidas.filter((id) => !destacadasNaTela.includes(id));
+  const sobraDestaque = destacadasNaTela.filter((id) => !pedidas.includes(id));
+  if (faltaDestaque.length > 0) {
+    problemas.push(`o dado tem ${faltaDestaque.join(", ")} chegando no cartão selecionado e o canvas NÃO a destaca (${String(destacadasNaTela.length)}/${String(pedidas.length)})`);
+  }
+  if (sobraDestaque.length > 0) problemas.push(`${sobraDestaque.join(", ")} se diz(em) destacada(s) sem sucessão chegando num cartão selecionado`);
+  const corDoDestaque = String(CONTRATO.cores.destacada).toUpperCase();
+  for (const d of l.destacadas.filter((x) => pedidas.includes(x.id))) {
+    const piso = d.esmaecida ? 0.1 : 0.9;
+    const pinta = d.tracos.some(
+      (t) => rgbEmHex(t.stroke) === corDoDestaque && t.largura >= 1 && t.acumulada >= piso && t.visivel && t.tamanho > 0 && t.caixa >= 2,
+    );
+    if (!pinta) {
+      problemas.push(
+        `${d.id} destacada não pinta o amarelo de verdade — ${d.tracos
+          .map((t) => `${String(rgbEmHex(t.stroke))} largura ${String(t.largura)} opacidade ${t.acumulada.toFixed(2)} caixa ${t.caixa.toFixed(1)}px${t.visivel ? "" : " escondido"}`)
+          .join(", ") || "sem traço"}`,
+      );
+    }
+  }
+  const quer = esperado.selecao === null ? [] : [esperado.selecao];
+  if (l.pressionados.length !== quer.length || !quer.every((id) => l.pressionados.includes(id))) {
+    problemas.push(`a seleção deveria ser [${quer.join(", ")}] e os cartões marcados são [${l.pressionados.join(", ")}]`);
+  }
+  if (esperado.painel !== undefined) {
+    const quero = esperado.painel === null ? [] : [esperado.painel];
+    if (l.paineis.length !== quero.length || !quero.every((p) => l.paineis.includes(p))) {
+      problemas.push(`o painel aberto deveria ser [${quero.join(", ")}] e é [${l.paineis.join(", ")}]`);
+    }
+  }
+  if (esperado.fonte !== undefined) {
+    const esmaecidas = l.arestas.filter((a) => a.esmaecida).length;
+    if (esperado.fonte === null ? esmaecidas > 0 : esmaecidas === 0) {
+      problemas.push(esperado.fonte === null ? `${String(esmaecidas)} aresta(s) esmaecidas sem filtro de fonte` : `com só "${esperado.fonte}" marcada nenhuma aresta esmaeceu`);
+    }
+  }
+  return problemas;
+}
+
+/**
+ * Os controles da seção do grafo e as caixas do painel "Camadas" — a mesma
+ * leitura de §22, para os passeios.
+ */
+async function lerControlesParaOsPasseios(page, chave, secao) {
+  const controles = await page.evaluate(LEITURA_DOS_CONTROLES);
+  if (controles === null) {
+    exigir(false, `${chave}: ${secao} não achei a seção "Grafo de dependências"`);
+    return null;
+  }
+  const controlesPorEixo = new Map();
+  for (const c of controles) {
+    const regra = CONTROLES_DO_GRAFO.find((r) => r.casa(c));
+    if (regra?.eixo) controlesPorEixo.set(regra.eixo, [...(controlesPorEixo.get(regra.eixo) ?? []), c]);
+  }
+  await ligarTodasAsCamadas(page);
+  await page.waitForTimeout(300);
+  const painel = await abrirPainelDeCamadas(page);
+  if (painel === null) {
+    exigir(false, `${chave}: ${secao} não achei o controle "Camadas"`);
+    return null;
+  }
+  const porRotulo = new Map(CONTRATO.camadas.map((c) => [CONTRATO.rotulos[c], c]));
+  const indiceDaCamada = new Map();
+  painel.rotulos.forEach((r, i) => {
+    const camada = porRotulo.get(r.texto);
+    if (camada) indiceDaCamada.set(camada, i);
+  });
+  await fecharPainelDeCamadas(page);
+  const semCaixa = CONTRATO.camadas.filter((c) => !indiceDaCamada.has(c));
+  if (semCaixa.length > 0) {
+    exigir(false, `${chave}: ${secao} camada sem caixa no painel: ${semCaixa.join(", ")}`);
+    return null;
+  }
+  return { controlesPorEixo, indiceDaCamada };
+}
+
+/**
+ * Os três gestos, DE VERDADE (Playwright: clique no botão, giro de roda,
+ * duplo clique do mouse no fundo), contra o fator que a lib declara. É o que
+ * autoriza o passeio a repetir o gesto pelo mesmo manipulador sem o robô
+ * mover o mouse a cada passo.
+ */
+async function conferirGestosDeVerdade(page, chave, gestos, acao) {
+  const problemas = [];
+  const ler = async () => escalaDe(await transformDoCanvas(page));
+  const pontoDoFundo = async () =>
+    page.evaluate(() => {
+      const pane = document.querySelector(".react-flow__pane");
+      if (!pane) return null;
+      const r = pane.getBoundingClientRect();
+      for (const fx of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+        for (const fy of [0.5, 0.3, 0.7, 0.12, 0.88]) {
+          const x = r.x + r.width * fx;
+          const y = r.y + r.height * fy;
+          if (document.elementFromPoint(x, y) === pane) return { x, y };
+        }
+      }
+      return null;
+    });
+  const feitos = [];
+  for (const g of gestos) {
+    await page.locator(`button[data-acao="${acao}"]`).first().click({ timeout: 10000 });
+    await page.waitForTimeout(700);
+    const antes = await ler();
+    if (g.nome === "botão") {
+      await page.locator('button[aria-label="Aumentar zoom"]').first().click({ timeout: 10000 });
+      await page.waitForTimeout(300);
+    } else {
+      const p = await pontoDoFundo();
+      if (p === null) {
+        problemas.push(`não achei um ponto livre do fundo para o gesto "${g.nome}" de verdade`);
+        continue;
+      }
+      await page.mouse.move(p.x, p.y);
+      if (g.nome === "roda") await page.mouse.wheel(0, -NOTCH_DA_RODA_PX);
+      else await page.mouse.dblclick(p.x, p.y);
+      await page.waitForTimeout(g.nome === "roda" ? 400 : 900);
+    }
+    const depois = await ler();
+    const previsto = Math.max(CONTRATO.zoomMinimo, Math.min(CONTRATO.zoomMaximo, (antes ?? 0) * g.dentro));
+    if (antes === null || depois === null || Math.abs(depois - previsto) > 1e-3 * Math.max(1, previsto)) {
+      problemas.push(`${g.nome} de verdade levou ${String(antes)} a ${String(depois)} e a lib prevê ${previsto.toFixed(4)}`);
+    } else feitos.push(`${g.nome} ×${g.dentro.toFixed(4)}`);
+  }
+  exigir(
+    problemas.length === 0,
+    `${chave}: §22z o gesto de verdade não dá o fator que a lib declara — ${problemas.join(" ; ")}. O passeio (que repete o gesto pelo mesmo manipulador) não mediria o que o operador alcança`,
+  );
+  return feitos;
+}
+
+/**
+ * O amarelo do destaque NA TELA, em pixel, no estado em que o passeio está —
+ * o mesmo modelo de §22 (esconde o traço, compara as fotos, confere a mistura
+ * do amarelo do contrato com o fundo), trazendo a aresta à vista arrastando o
+ * fundo quando o zoom a jogou para fora. Só o pan muda; o zoom é conferido.
+ */
+async function medirPixelDoDestaqueNoPasseio(page, esperadas) {
+  const problemas = [];
+  const partes = [];
+  let medidas = 0;
+  if (esperadas.length === 0) return { problemas, medidas, linha: "sem destaque pedido" };
+  const folha = await canvasCobertoPorFolhaModal(page);
+  if (folha.coberto) return { problemas, medidas, linha: "folha modal por cima" };
+  const pane = await page.evaluate(() => {
+    const el = document.querySelector(".react-flow");
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, largura: r.width, altura: r.height };
+  });
+  for (const id of esperadas) {
+    let leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+    let indice = leitura.arestas.findIndex((x) => x.id === id);
+    if (indice < 0) {
+      problemas.push(`${id} não está no canvas para a foto`);
+      continue;
+    }
+    let m = await medirDestaqueEmPixel(page, leitura.arestas[indice], (await page.$$(SELETOR_DA_ARESTA))[indice], leitura.cartoes, pane, await caixasDosPaineisAbertos(page));
+    if (m === null) {
+      const zoomAntes = escalaDe(await transformDoCanvas(page));
+      const veio = await trazerArestaAVista(page, id);
+      const zoomDepois = escalaDe(await transformDoCanvas(page));
+      if (zoomAntes === null || zoomDepois === null || Math.abs(zoomAntes - zoomDepois) > 1e-6) {
+        problemas.push(`arrastar o fundo para ver ${id} mexeu no zoom (${String(zoomAntes)} → ${String(zoomDepois)})`);
+      }
+      /* Mede de novo mesmo sem o meio no centro: basta um pedaço da aresta na tela. */
+      {
+        leitura = await page.evaluate(LEITURA_DAS_ARESTAS);
+        indice = leitura.arestas.findIndex((x) => x.id === id);
+        if (indice >= 0) {
+          if (leitura.arestas[indice].papel !== "destacada") problemas.push(`${id} deixou de ser destacada depois de arrastar o fundo para vê-la`);
+          m = await medirDestaqueEmPixel(page, leitura.arestas[indice], (await page.$$(SELETOR_DA_ARESTA))[indice], leitura.cartoes, pane, await caixasDosPaineisAbertos(page));
+        }
+      }
+      if (m === null) {
+        problemas.push(`${id} fora da janela mesmo depois de arrastar o fundo (o meio ${veio ? "chegou" : "não chegou"} ao centro do canvas) — o amarelo não pôde ser visto`);
+        continue;
+      }
+    }
+    if (m.erro) {
+      if (ehErroDeAmbiente(m.erro)) naoConsegui(`§22z · ${id}: ${m.erro}`);
+      else problemas.push(`${id}: ${m.erro}`);
+      continue;
+    }
+    medidas += 1;
+    if (m.mudaram < 12) problemas.push(`${id}: ${String(m.pontos)} ponto(s) livres e só ${String(m.mudaram)} pixel(s) mudam ao escondê-la — o amarelo não está na tela`);
+    else if (m.residuo === null || m.residuo > TOLERANCIA_DE_MISTURA) problemas.push(`${id}: o que pinta não é o amarelo do contrato misturado ao fundo (resíduo ${m.residuo === null ? "?" : m.residuo.toFixed(1)})`);
+    else partes.push(`${String(m.mudaram)}px`);
+  }
+  return { problemas, medidas, linha: partes.join("+") || "sem medida" };
+}
+
+async function medirPasseioDoZoom(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page, errosDePagina, semCanvas } = await abrirPagina(browser, caso);
+  const linhas = [];
+  try {
+    if (semCanvas) return linhas;
+    const base = await lerControlesParaOsPasseios(page, chave, "§22z");
+    if (base === null) return linhas;
+    const { controlesPorEixo, indiceDaCamada } = base;
+    const alvo = alvoDosPasseios();
+    if (alvo === null) {
+      exigir(false, `${chave}: §22z o dado bruto não tem sucessão nenhuma — o destaque não tem alvo`);
+      return linhas;
+    }
+    const acoes = [...new Set((controlesPorEixo.get("enquadramento") ?? []).map((c) => c.acao).filter(Boolean))];
+    const botoesDePainel = (controlesPorEixo.get("popover") ?? []).map((c) => c.rotulo).filter(Boolean);
+    const inventario = CONTRATO.inventarioDoEstado;
+    const gestos = gestosDoZoom(CONTRATO.fatoresDoZoom, {
+      botoes: (controlesPorEixo.get("zoom") ?? []).length >= 2,
+      roda: inventario.includes("gesto da lib zoomOnScroll"),
+      duploClique: inventario.includes("gesto da lib zoomOnDoubleClick"),
+    });
+    if (acoes.length === 0 || gestos.length === 0) {
+      exigir(false, `${chave}: §22z sem botão de enquadramento (${String(acoes.length)}) ou sem gesto de zoom (${String(gestos.length)}) — o passeio não tem de onde partir`);
+      return linhas;
+    }
+    const verdade = await conferirGestosDeVerdade(page, chave, gestos, acoes[0]);
+
+    /* A fonte que esmaece a ligação do alvo — mesma derivação de §22. */
+    const predecessores = UNIVERSO.filter((e) => e.camada === "sucessao" && e.destino === alvo).map((e) => e.origem);
+    const fontesNaTela = await page.evaluate((ids) => {
+      const deCartao = {};
+      for (const no of document.querySelectorAll(".react-flow__node")) {
+        const id = no.getAttribute("data-id");
+        if (!ids.includes(id)) continue;
+        const rotulo = no.querySelector('[role="button"]')?.getAttribute("aria-label") ?? "";
+        const m = /, fonte ([^,]+)(?:,|$)/.exec(rotulo);
+        deCartao[id] = m ? m[1].trim() : null;
+      }
+      const noFiltro = [...document.querySelectorAll('fieldset input[type="checkbox"]')].map(
+        (cx) => cx.closest("label")?.querySelector("span[title]")?.getAttribute("title") ?? "",
+      );
+      return { deCartao, noFiltro };
+    }, [alvo, ...predecessores]);
+    const fontesDoDestaque = new Set(Object.values(fontesNaTela.deCartao).filter((f) => f !== null));
+    const fonteQueEsmaece = fontesNaTela.noFiltro.find((f) => f && !fontesDoDestaque.has(f)) ?? fontesNaTela.noFiltro[0] ?? null;
+
+    /* OS PASSEIOS: um por valor do eixo das camadas, com o alvo selecionado,
+       e um sem seleção. Painel, fontes e pan distribuídos entre os passeios
+       em que o destaque aparece. */
+    const valoresDeCamadas = [
+      { nome: "todas as camadas", ativas: [...CONTRATO.camadas] },
+      { nome: "camadas do default", ativas: [...CONTRATO.camadasDefault] },
+      ...CONTRATO.camadas.map((c) => ({ nome: `sem "${CONTRATO.rotulos[c]}"`, ativas: CONTRATO.camadas.filter((x) => x !== c) })),
+    ];
+    const passeios = valoresDeCamadas.map((c) => ({ camadas: c, selecao: alvo, painel: null, fonte: null, arrasta: false }));
+    /* O passeio SEM seleção é o das camadas em que o destaque não aparece
+       (sem "Sucessão"): cobre o par (zoom × sem seleção) e o par (zoom × sem
+       "Sucessão") na mesma volta — o destaque "calado com o cartão
+       selecionado e a Sucessão desligada" fica nos três valores de §22. */
+    for (const p of passeios) {
+      if (!universoNasCamadas(UNIVERSO, p.camadas.ativas).some((e) => e.camada === "sucessao" && e.destino === alvo)) p.selecao = null;
+    }
+    if (!passeios.some((p) => p.selecao === null)) passeios.push({ camadas: valoresDeCamadas[0], selecao: null, painel: null, fonte: null, arrasta: false });
+    const observaveis = passeios.filter((p) =>
+      p.selecao !== null && universoNasCamadas(UNIVERSO, p.camadas.ativas).some((e) => e.camada === "sucessao" && e.destino === p.selecao),
+    );
+    const paineis = [null, ...botoesDePainel];
+    const fontes = fonteQueEsmaece === null ? [null] : [null, fonteQueEsmaece];
+    observaveis.forEach((p, i) => {
+      p.painel = paineis[i % paineis.length];
+      p.fonte = fontes[i % fontes.length];
+      p.arrasta = Math.floor(i / 2) % 2 === 1;
+    });
+    const faltaValor = [
+      ...paineis.filter((v) => !observaveis.some((p) => p.painel === v)).map((v) => `painel ${String(v)}`),
+      ...fontes.filter((v) => !observaveis.some((p) => p.fonte === v)).map((v) => `fonte ${String(v)}`),
+      ...[false, true].filter((v) => !observaveis.some((p) => p.arrasta === v)).map((v) => `pan ${String(v)}`),
+    ];
+    exigir(faltaValor.length === 0, `${chave}: §22z valor(es) de eixo que não cruzam o zoom em passeio observável nenhum: ${faltaValor.join(", ")}`);
+
+    await page.evaluate(instalarPasseioNaPagina, NOTCH_DA_RODA_PX);
+    let camadasAplicadas = [...CONTRATO.camadas];
+    const pixelNoPasseio = [];
+    const valoresComPixel = new Set();
+    const valoresQuePedemPixel = new Set();
+    let menorContagem = Infinity;
+    let maiorVaoVisto = { vao: 0, entre: null };
+    let passos = 0;
+    const t0 = Date.now();
+    for (const p of passeios) {
+      const estado = ` (passeio: ${p.camadas.nome} × ${p.selecao === null ? "sem seleção" : `"${p.selecao}" selecionado`} × ${p.painel === null ? "nenhum painel" : `"${p.painel}" aberto`} × ${p.fonte === null ? "todas as fontes" : `só "${p.fonte}"`} × ${p.arrasta ? "fundo arrastado" : "sem arrasto"})`;
+      await fecharPaineisAbertos(page);
+      await aplicarFontes(page, caso, p.fonte);
+      await page.evaluate(instalarPasseioNaPagina, NOTCH_DA_RODA_PX);
+      const mesmas = p.camadas.ativas.length === camadasAplicadas.length && p.camadas.ativas.every((c) => camadasAplicadas.includes(c));
+      if (!mesmas) {
+        await aplicarCamadas(page, indiceDaCamada, p.camadas.ativas);
+        camadasAplicadas = [...p.camadas.ativas];
+      }
+      await aplicarSelecao(page, p.selecao);
+      /* As partidas: o zoom que cada botão de enquadramento dá NESTE estado. */
+      const partidas = [];
+      for (const acao of acoes) {
+        const r = await page.evaluate((a) => window.__lbPasseio.enquadrar(a, null), acao);
+        if (r.erro || r.leitura.z === null) {
+          exigir(false, `${chave}: §22z${estado} ${r.erro ?? "o enquadramento não deu zoom legível"}`);
+          continue;
+        }
+        partidas.push({ acao, z: r.leitura.z });
+      }
+      if (partidas.length === 0) continue;
+      let plano;
+      try {
+        plano = planoDoPasseioDoZoom({ partidas, piso: CONTRATO.zoomMinimo, teto: CONTRATO.zoomMaximo, gestos });
+      } catch (e) {
+        exigir(false, `${chave}: §22z${estado} o plano do passeio não fecha: ${String(e?.message ?? e)}`);
+        continue;
+      }
+      if (p.painel !== null) {
+        const abriu = await abrirPainelPeloBotao(page, p.painel);
+        exigir(abriu, `${chave}: §22z${estado} o painel "${p.painel}" não abriu`);
+      }
+      const tDoPasseio = Date.now();
+      const esperadoBase = { ativas: p.camadas.ativas, selecao: p.selecao, painel: p.painel, fonte: p.fonte };
+      const arrasto = p.arrasta ? { dx: -70, dy: -50 } : null;
+      const problemas = [];
+      const vistos = [];
+      for (const t of plano.trechos) {
+        if (t.tipo === "enquadrar") {
+          const r = await page.evaluate(({ a, arr }) => window.__lbPasseio.enquadrar(a, arr), { a: t.acao, arr: arrasto });
+          if (r.erro) {
+            problemas.push(r.erro);
+            continue;
+          }
+          passos += 1;
+          vistos.push(r.leitura.z);
+          for (const pr of conferirLeituraDoPasseio(r.leitura, { ...esperadoBase, z: t.previsto })) problemas.push(`enquadrado em "${t.acao}": ${pr}`);
+          continue;
+        }
+        const pedido = t.previstos.map((alvoZ) => ({ gesto: t.gesto, sentido: t.sentido, alvo: alvoZ }));
+        /* O PIXEL, nas sequências que partem do enquadramento (os cliques e
+           as notches do operador a partir da tela como ela abre), no primeiro
+           passeio em que o destaque aparece: passo a passo, com a foto. */
+        const comPixel = p === observaveis[0] && t.partida.startsWith("enquadramento");
+        const saida = [];
+        if (comPixel) {
+          for (const passo of pedido) {
+            const [um] = await page.evaluate((ps) => window.__lbPasseio.trecho(ps), [passo]);
+            saida.push(um);
+            if (um.erro) continue;
+            const r = await medirPixelDoDestaqueNoPasseio(page, universoNasCamadas(UNIVERSO, p.camadas.ativas).filter((e) => e.camada === "sucessao" && e.destino === p.selecao).map((e) => e.id));
+            pixelNoPasseio.push(`${passo.alvo.toFixed(3)} ${r.linha}`);
+            for (const pr of r.problemas) problemas.push(`${t.gesto} a partir do ${t.partida}, zoom ${passo.alvo.toFixed(3)}: ${pr}`);
+            if (r.medidas > 0) valoresComPixel.add(passo.alvo.toFixed(4));
+            valoresQuePedemPixel.add(passo.alvo.toFixed(4));
+          }
+        } else saida.push(...(await page.evaluate((ps) => window.__lbPasseio.trecho(ps), pedido)));
+        saida.forEach((s, i) => {
+          passos += 1;
+          const onde = `${t.gesto} ${t.sentido === "dentro" ? "para dentro" : "para fora"} a partir do ${t.partida}, ${String(i + 1)}º passo`;
+          if (s.erro) {
+            problemas.push(`${onde}: ${s.erro}`);
+            return;
+          }
+          vistos.push(s.leitura.z);
+          for (const pr of conferirLeituraDoPasseio(s.leitura, { ...esperadoBase, z: t.previstos[i] })) problemas.push(`${onde} (zoom ${t.previstos[i].toFixed(3)}): ${pr}`);
+        });
+      }
+      /* A CONTAGEM É DO QUE A PÁGINA MOSTROU: zoom lido, valor distinto, que
+         bate com um valor derivado. Valor derivado que nenhuma leitura mostrou
+         é valor que o passeio pulou. */
+      const lidos = valoresDistintos(vistos.filter((z) => z !== null));
+      const batem = plano.valores.filter((v) => lidos.some((z) => Math.abs(z - v) <= 1e-3 * Math.max(1, v)));
+      const pulados = plano.valores.filter((v) => !batem.includes(v));
+      if (pulados.length > 0) problemas.push(`${String(pulados.length)} valor(es) derivado(s) do zoom nunca apareceram na página: ${pulados.slice(0, 4).map((v) => v.toFixed(3)).join(", ")}`);
+      menorContagem = Math.min(menorContagem, lidos.length);
+      const vao = maiorVao(lidos);
+      if (vao.vao > maiorVaoVisto.vao) maiorVaoVisto = vao;
+      exigir(
+        problemas.length === 0,
+        `${chave}: §22z${estado} — ${problemas.slice(0, 3).join(" ; ")}${problemas.length > 3 ? ` (+${String(problemas.length - 3)})` : ""}`,
+      );
+      linhas.push(
+        `${p.camadas.nome} × ${p.selecao === null ? "sem seleção" : "selecionado"} × ${p.painel ?? "nenhum painel"} × ${p.fonte ?? "todas as fontes"} × ${p.arrasta ? "arrastado" : "sem arrasto"}: partidas ${partidas.map((x) => `${x.acao} ${x.z.toFixed(3)}`).join(", ")} · ${String(plano.valores.length)} valores derivados, ${String(lidos.length)} lidos na página em ${String(Math.round((Date.now() - tDoPasseio) / 1000))}s · ${problemas.length === 0 ? "todos se sustentam" : `${String(problemas.length)} problema(s)`}`,
+      );
+    }
+    await fecharPaineisAbertos(page);
+    const semPixel = [...valoresQuePedemPixel].filter((v) => !valoresComPixel.has(v));
+    exigir(
+      valoresQuePedemPixel.size > 0 && semPixel.length === 0,
+      `${chave}: §22z o amarelo nunca foi medido em pixel no(s) zoom(s) ${semPixel.join(", ") || "(nenhum pedido)"} das sequências que partem do enquadramento — aprovar esse valor pelo DOM seria aprovar por ausência`,
+    );
+    linhas.push(`pixel do destaque nas sequências do enquadramento (${String(valoresComPixel.size)} valores): ${pixelNoPasseio.join(" · ")}`);
+    exigir(
+      menorContagem >= PISO_DE_VALORES_DE_ZOOM,
+      `${chave}: §22z o passeio mais pobre leu ${String(menorContagem)} valor(es) distinto(s) de zoom na página e o piso escrito à mão é ${String(PISO_DE_VALORES_DE_ZOOM)} — o eixo encolheu`,
+    );
+    exigir(errosDePagina.length === 0, `${chave}: §22z a página lançou ${String(errosDePagina.length)} erro(s): ${errosDePagina[0] ?? ""}`);
+    linhas.unshift(
+      `gestos de verdade conferidos contra a lib: ${verdade.join(", ") || "nenhum"} · ${String(passeios.length)} passeios, ${String(passos)} leituras em ${String(Math.round((Date.now() - t0) / 1000))}s · menor passeio: ${String(menorContagem)} valores distintos (piso ${String(PISO_DE_VALORES_DE_ZOOM)}) · maior vão entre dois valores medidos: ${maiorVaoVisto.vao.toFixed(3)}${maiorVaoVisto.entre ? ` (entre ${maiorVaoVisto.entre[0].toFixed(3)} e ${maiorVaoVisto.entre[1].toFixed(3)})` : ""} — faixa de defeito mais estreita que isso, alcançável só por pinça/trackpad, escapa`,
+    );
+    anotarPasseio("§22z o passeio do zoom", chave);
+  } finally {
+    await ctx.close();
+  }
+  return linhas;
+}
+
+/**
+ * §22p · O PASSEIO DO PAN. O fundo é arrastado em passos de `PASSO_DO_PAN_PX`,
+ * nas quatro direções, a partir do enquadramento, até o desenho inteiro sair
+ * do canvas (nenhum cartão dentro dele — o fim do que há para ver, lido na
+ * página). O cartão selecionado, todas as camadas. Em cada passo: o canvas
+ * contra o dado, o destaque exato e pintando, e o zoom intacto (arrastar não
+ * pode mexer no zoom).
+ */
+async function medirPasseioDoPan(browser, caso) {
+  const chave = `${caso.largura}x${caso.altura}`;
+  const { ctx, page, errosDePagina, semCanvas } = await abrirPagina(browser, caso);
+  const linhas = [];
+  try {
+    if (semCanvas) return linhas;
+    const base = await lerControlesParaOsPasseios(page, chave, "§22p");
+    if (base === null) return linhas;
+    const alvo = alvoDosPasseios();
+    const acao = [...new Set((base.controlesPorEixo.get("enquadramento") ?? []).map((c) => c.acao).filter(Boolean))][0];
+    if (alvo === null || !acao) {
+      exigir(false, `${chave}: §22p sem alvo (${String(alvo)}) ou sem botão de enquadramento`);
+      return linhas;
+    }
+    await aplicarSelecao(page, alvo);
+    await page.evaluate(instalarPasseioNaPagina, NOTCH_DA_RODA_PX);
+    const esperado = { ativas: [...CONTRATO.camadas], selecao: alvo, painel: null, fonte: null };
+    let leituras = 0;
+    const problemas = [];
+    const alcance = [];
+    for (const [dx, dy, nome] of [
+      [PASSO_DO_PAN_PX, 0, "direita"],
+      [-PASSO_DO_PAN_PX, 0, "esquerda"],
+      [0, PASSO_DO_PAN_PX, "baixo"],
+      [0, -PASSO_DO_PAN_PX, "cima"],
+    ]) {
+      const r = await page.evaluate((a) => window.__lbPasseio.enquadrar(a, null), acao);
+      if (r.erro) {
+        problemas.push(r.erro);
+        continue;
+      }
+      const z0 = r.leitura.z;
+      const x0 = r.leitura.x;
+      const y0 = r.leitura.y;
+      const { erro, saida } = await page.evaluate(
+        ({ a, b, m }) => window.__lbPasseio.arrastarEmPassos(a, b, m),
+        { a: dx, b: dy, m: TETO_DE_PASSOS_DO_PAN_POR_DIRECAO },
+      );
+      if (erro) problemas.push(`${nome}: ${erro}`);
+      saida.forEach((l, i) => {
+        leituras += 1;
+        const deslocado = Math.round(Math.hypot((l.x ?? 0) - x0, (l.y ?? 0) - y0));
+        const esperadoPx = PASSO_DO_PAN_PX * (i + 1);
+        const ps = conferirLeituraDoPasseio(l, { ...esperado, z: z0 });
+        if (Math.abs(deslocado - esperadoPx) > 2) ps.push(`o fundo andou ${String(deslocado)} px e o gesto pediu ${String(esperadoPx)}`);
+        for (const pr of ps) problemas.push(`arrastado ${String(esperadoPx)} px para ${nome}: ${pr}`);
+      });
+      const ultimo = saida.at(-1);
+      if (ultimo && ultimo.cartoesNoCanvas > 0) {
+        problemas.push(`${nome}: ${String(saida.length)} passos e o desenho ainda não saiu do canvas (${String(ultimo.cartoesNoCanvas)} cartão(ões) dentro) — o passeio parou antes do fim do que há para ver`);
+      }
+      alcance.push(`${nome} ${String(saida.length * PASSO_DO_PAN_PX)} px`);
+    }
+    exigir(problemas.length === 0, `${chave}: §22p o passeio do pan — ${problemas.slice(0, 3).join(" ; ")}${problemas.length > 3 ? ` (+${String(problemas.length - 3)})` : ""}`);
+    exigir(
+      leituras >= PISO_DE_LEITURAS_DO_PAN,
+      `${chave}: §22p o passeio do pan leu ${String(leituras)} deslocamento(s) e o piso escrito à mão é ${String(PISO_DE_LEITURAS_DO_PAN)}`,
+    );
+    exigir(errosDePagina.length === 0, `${chave}: §22p a página lançou ${String(errosDePagina.length)} erro(s): ${errosDePagina[0] ?? ""}`);
+    linhas.push(
+      `"${alvo}" selecionado, todas as camadas, passos de ${String(PASSO_DO_PAN_PX)} px até o desenho sair do canvas: ${alcance.join(", ")} · ${String(leituras)} leituras (piso ${String(PISO_DE_LEITURAS_DO_PAN)}) — faixa de defeito mais estreita que ${String(PASSO_DO_PAN_PX)} px, ou só na diagonal, escapa`,
+    );
+    anotarPasseio("§22p o passeio do pan", chave);
+  } finally {
+    await ctx.close();
+  }
+  return linhas;
+}
+
+/**
+ * §22L · A TRILHA DA LARGURA. Uma página só, com o cartão selecionado e todas
+ * as camadas, redimensionada da menor à maior largura da tabela em passos de
+ * `PASSO_DA_TRILHA_DE_LARGURA_PX`, mais os dois lados de cada corte que o
+ * produto declara no código (consultas de mídia, `larguraCorte`,
+ * `LARGURA_…_PX`, pontos de quebra do Tailwind). A altura anda junto,
+ * interpolada entre as larguras vizinhas da tabela.
+ */
+async function medirTrilhaDaLargura(browser) {
+  const casos = TODAS_AS_LARGURAS;
+  const fontes = {};
+  const listar = (dir) => {
+    for (const nome of readdirSync(join(RAIZ_DO_PACOTE, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${nome.name}`;
+      if (nome.isDirectory()) listar(rel);
+      else if (/\.(tsx?|css)$/.test(nome.name)) fontes[rel] = lerFonte(rel);
+    }
+  };
+  listar("src");
+  const tailwindDoProduto = lerFonte("tailwind.config.ts");
+  if (/\bscreens\s*:/.test(tailwindDoProduto)) {
+    exigir(false, "§22L tailwind.config.ts passou a declarar `screens` — os cortes do Tailwind desta trilha saem do tema padrão e deixaram de ser os do produto");
+  }
+  let telas = {};
+  try {
+    telas = createRequire(join(RAIZ_DO_PACOTE, "package.json"))("tailwindcss/defaultTheme").screens ?? {};
+  } catch (e) {
+    exigir(false, `§22L não consegui ler os pontos de quebra do Tailwind instalado: ${String(e?.message ?? e)}`);
+  }
+  const cortes = cortesDeLarguraDoCodigo(fontes, telas);
+  const trilha = trilhaDaLargura(casos, cortes, PASSO_DA_TRILHA_DE_LARGURA_PX);
+  const primeiro = { ...casos.find((c) => c.largura === trilha[0].largura) ?? { desktop: trilha[0].largura >= 1024 }, largura: trilha[0].largura, altura: trilha[0].altura };
+  const { ctx, page, errosDePagina, semCanvas } = await abrirPagina(browser, primeiro);
+  const linhas = [];
+  try {
+    if (semCanvas) return linhas;
+    const base = await lerControlesParaOsPasseios(page, `${String(primeiro.largura)}x${String(primeiro.altura)}`, "§22L");
+    if (base === null) return linhas;
+    const alvo = alvoDosPasseios();
+    await aplicarSelecao(page, alvo);
+    await page.evaluate(instalarPasseioNaPagina, NOTCH_DA_RODA_PX);
+    const esperado = { ativas: [...CONTRATO.camadas], selecao: alvo, painel: null, fonte: null, z: null };
+    const problemas = [];
+    const lidas = new Set();
+    for (const passo of trilha) {
+      await page.setViewportSize({ width: passo.largura, height: passo.altura });
+      await page.waitForTimeout(120);
+      const l = await page.evaluate(async () => {
+        const quadro = () => new Promise((r) => window.requestAnimationFrame(() => r()));
+        let ultimo = null;
+        for (let i = 0; i < 90; i += 1) {
+          await quadro();
+          const v = document.querySelector(".react-flow__viewport");
+          const t = v ? getComputedStyle(v).transform : null;
+          if (t !== null && t === ultimo && i >= 6) break;
+          ultimo = t;
+        }
+        return window.__lbPasseio.ler();
+      });
+      if (l.largura !== passo.largura) {
+        problemas.push(`pedi ${String(passo.largura)} px e a janela tem ${String(l.largura)}`);
+        continue;
+      }
+      lidas.add(l.largura);
+      for (const pr of conferirLeituraDoPasseio(l, esperado)) problemas.push(`a ${String(passo.largura)}×${String(passo.altura)}: ${pr}`);
+    }
+    exigir(problemas.length === 0, `§22L a trilha da largura — ${problemas.slice(0, 3).join(" ; ")}${problemas.length > 3 ? ` (+${String(problemas.length - 3)})` : ""}`);
+    exigir(
+      lidas.size >= PISO_DE_LARGURAS_DA_TRILHA,
+      `§22L a trilha leu ${String(lidas.size)} largura(s) distinta(s) e o piso escrito à mão é ${String(PISO_DE_LARGURAS_DA_TRILHA)}`,
+    );
+    exigir(errosDePagina.length === 0, `§22L a página lançou ${String(errosDePagina.length)} erro(s): ${errosDePagina[0] ?? ""}`);
+    linhas.push(
+      `de ${String(trilha[0].largura)} a ${String(trilha[trilha.length - 1].largura)} px em passos de ${String(PASSO_DA_TRILHA_DE_LARGURA_PX)} px, mais os cortes do código (${cortes.map((c) => String(c.px)).join(", ")}): ${String(lidas.size)} larguras lidas (piso ${String(PISO_DE_LARGURAS_DA_TRILHA)}), "${String(alvo)}" selecionado e todas as camadas — faixa de defeito mais estreita que ${String(PASSO_DA_TRILHA_DE_LARGURA_PX)} px entre dois cortes escapa; alturas fora da trilha interpolada ficam fora`,
+    );
+    anotarPasseio("§22L a trilha da largura", "todas");
+  } finally {
+    await ctx.close();
+  }
+  return linhas;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2481,6 +5178,21 @@ function relacoesEsperadasPorTarefa(esperadas, titulos) {
   return porTarefa;
 }
 
+/**
+ * ── ALTO 2 DA RODADA 15: O NOME, O VERBO E A SETA DIZEM A MESMA COISA ──────
+ *
+ * A direção que o ITEM afirma, pelo verbo com que ele abre. A promessa
+ * (`src/lib/promessa-do-grafo.ts`) diz, por NOME de camada, se aquela relação
+ * tem direção; aqui se lê o que a tela escreveu e se compara com a promessa —
+ * nunca com `CAMADA_LABEL`, que é a tabela auditada.
+ */
+function direcaoDoVerboNaGuarda(item) {
+  const texto = String(item ?? "").trim();
+  for (const v of CONTRATO.verbosDirecionais) if (texto.startsWith(`${v} `)) return "direcional";
+  for (const v of CONTRATO.verbosSimetricos) if (texto.startsWith(`${v} `)) return "simetrica";
+  return null;
+}
+
 /** Os itens de um span da lista: `"Rótulo: a, b"` → `["a", "b"]`. */
 function itensDoSpan(texto, rotulo) {
   const corpo = texto.startsWith(`${rotulo}:`) ? texto.slice(rotulo.length + 1) : texto;
@@ -2640,6 +5352,32 @@ async function medirAlcanceSemMouse(page, chave, estado, arestas, contrato, cama
         continue;
       }
       const naLista = itensDoSpan(textoDoSpan, rotulo).sort();
+      /*
+       * ALTO 2: o NOME que a tela escreve e o VERBO que ela usa embaixo dele
+       * têm de dizer a mesma coisa sobre direção. Trocar dois rótulos de
+       * lugar em `CAMADA_LABEL` passava em tudo — e fazia a lista anunciar
+       * "Correlação: habilita X" (verbo com direção numa relação simétrica) e
+       * "Sucessão: com Y" (verbo simétrico na única camada com direção).
+       */
+      const direcaoPrometida = CONTRATO.direcaoPorRotulo[rotulo];
+      if (direcaoPrometida === undefined) {
+        problemas.push(
+          `a lista anuncia a camada "${camada}" sob o nome "${rotulo}", e src/lib/promessa-do-grafo.ts não diz se uma relação com esse nome tem direção`,
+        );
+      } else {
+        for (const item of naLista) {
+          const doVerbo = direcaoDoVerboNaGuarda(item);
+          if (doVerbo === null) {
+            problemas.push(
+              `a lista escreve "${rotulo}: ${item}" e esse item abre com um verbo que a promessa da peça não conhece`,
+            );
+          } else if (doVerbo !== direcaoPrometida) {
+            problemas.push(
+              `"${rotulo}" é uma relação ${direcaoPrometida === "direcional" ? "COM" : "SEM"} direção na promessa da peça, e a lista escreve "${item}", que fala como ${doVerbo} — quem lê por leitor de tela recebe a dependência ao contrário`,
+            );
+          }
+        }
+      }
       const aMenos = esperados.filter((x) => !naLista.includes(x));
       const aMais = naLista.filter((x) => !esperados.includes(x));
       if (aMenos.length > 0) {
@@ -4072,7 +6810,9 @@ async function nascerAsSentinelasDe(browser, caso) {
       );
     } catch (erro) {
       const motivo = erro instanceof Error ? erro.message.split("\n")[0] : String(erro);
-      nascidas.push({ nome, chave, caso, comRelogioDeMentira, ok: false, motivo });
+      /* Travou ao nascer? Quem decide se foi o produto é a prova de §19/§20. */
+      const travou = !(erro instanceof EstourouOTeto) && (ehTravamento(motivo) || !browser.isConnected());
+      nascidas.push({ nome, chave, caso, comRelogioDeMentira, ok: false, motivo, travou, t0 });
       console.log("%s", `[${carimbo()}] ← sentinela ${nome} NÃO nasceu — ${motivo}`);
     }
   }
@@ -4270,8 +7010,8 @@ async function medirUmaLargura(browser, caso) {
       );
     }
     exigir(
-      gesto.fim !== null && Math.abs(gesto.fim - ZOOM_MAXIMO_DO_CANVAS) < 1e-3,
-      `${chave}: seis cliques deveriam chegar ao teto ${ZOOM_MAXIMO_DO_CANVAS}, chegaram a ${gesto.fim}`,
+      gesto.fim !== null && Math.abs(gesto.fim - CONTRATO.zoomMaximo) < 1e-3,
+      `${chave}: seis cliques deveriam chegar ao teto ${CONTRATO.zoomMaximo}, chegaram a ${gesto.fim}`,
     );
   }
 
@@ -4279,6 +7019,67 @@ async function medirUmaLargura(browser, caso) {
   const depoisDoGesto = gesto.alcancavel
     ? await medirDepoisDoGesto(page2, chave, CONTRATO.camadas)
     : ["n/d (o botão de zoom ficou inalcançável nesta largura)"];
+
+  /*
+   * ── 15b/15c. O EIXO INTEIRO DO ZOOM (achado ALTO 5 da rodada 15) ────────
+   *
+   * Até aqui a guarda só sabia AMPLIAR: "Diminuir zoom" não aparecia uma vez
+   * neste arquivo, e a metade de baixo do eixo — de 0,849 até o piso derivado
+   * do produto — nunca era exercida. Uma linha em `v3-edge.tsx`
+   * (`if (zoomSeguro < 0.6) return null`) apagava as 10 arestas com dois
+   * cliques em afastar, e a guarda ficava verde.
+   *
+   * Agora: afasta até o PISO e remede o desenho lá; aproxima de volta até o
+   * TETO e remede o desenho lá também. As duas pontas, não uma.
+   */
+  if (gesto.alcancavel && !gesto.semMedida) {
+    const paraFora = await gestoDeZoomAteAPonta(page2, "fora", CONTRATO.zoomMinimo);
+    exigir(
+      paraFora.achouBotao,
+      `${chave}: não achei o botão "Diminuir zoom" — a metade de baixo do eixo do zoom não tem por onde ser exercida`,
+    );
+    if (paraFora.achouBotao && paraFora.alcancavel && !paraFora.semMedida) {
+      for (let i = 1; i < paraFora.trilha.length; i += 1) {
+        exigir(
+          paraFora.trilha[i] <= paraFora.trilha[i - 1] + 1e-9,
+          `${chave}: afastando o zoom, a escala SUBIU de ${String(paraFora.trilha[i - 1])} para ${String(paraFora.trilha[i])} — o gesto do operador foi desfeito`,
+        );
+      }
+      exigir(
+        paraFora.fim !== null && Math.abs(paraFora.fim - CONTRATO.zoomMinimo) < 1e-3,
+        `${chave}: afastar até o fim deveria chegar ao piso ${String(CONTRATO.zoomMinimo)} (derivado de tipografia-do-cartao.ts) e chegou a ${String(paraFora.fim)}`,
+      );
+      depoisDoGesto.push(
+        `zoom no PISO ${String(paraFora.fim)} (${String(paraFora.trilha.length - 1)} cliques em "Diminuir zoom"): ${await remedirODesenhoDepoisDoGesto(
+          page2,
+          chave,
+          ` (no piso do zoom, ${String(paraFora.fim)})`,
+          CONTRATO.camadas,
+        )}`,
+      );
+      const deVolta = await gestoDeZoomAteAPonta(page2, "dentro", CONTRATO.zoomMaximo);
+      if (!deVolta.semMedida && deVolta.alcancavel) {
+        for (let i = 1; i < deVolta.trilha.length; i += 1) {
+          exigir(
+            deVolta.trilha[i] >= deVolta.trilha[i - 1] - 1e-9,
+            `${chave}: voltando do piso, a escala CAIU de ${String(deVolta.trilha[i - 1])} para ${String(deVolta.trilha[i])}`,
+          );
+        }
+        exigir(
+          deVolta.fim !== null && Math.abs(deVolta.fim - CONTRATO.zoomMaximo) < 1e-3,
+          `${chave}: voltar do piso ao teto deveria chegar a ${String(CONTRATO.zoomMaximo)} e chegou a ${String(deVolta.fim)} — o eixo do zoom não é reversível`,
+        );
+        depoisDoGesto.push(
+          `zoom de volta ao TETO ${String(deVolta.fim)}: ${await remedirODesenhoDepoisDoGesto(
+            page2,
+            chave,
+            ` (de volta ao teto do zoom, ${String(deVolta.fim)})`,
+            CONTRATO.camadas,
+          )}`,
+        );
+      }
+    }
+  }
 
   // ── 4. O modo CARTÃO existe de verdade (altura do nó no DOM) ────────────
   const alturaDoNo = await page2.evaluate(() => {
@@ -4307,6 +7108,67 @@ async function medirUmaLargura(browser, caso) {
     `${chave}: um resize de ${caso.largura}→${larguraDeVerdade} NÃO reenquadrou (zoom ficou em ${zDepoisDeVerdade})`,
   );
 
+  /*
+   * ── 6b/6c. DEPOIS DO RESIZE, O DESENHO AINDA É OLHADO (ALTO 4) ──────────
+   *
+   * Achado ALTO 4 da rodada 15: a guarda redimensionava em três lugares — dois
+   * eram o ruído de 2 px e o terceiro (§6, logo acima) media **só o zoom** e
+   * fechava a página. *Depois de um redimensionamento de verdade, o desenho
+   * nunca mais era olhado.* O crítico provou com um ouvinte de `resize` de
+   * limiar 50 px (para o ruído de 2 px passar intacto) que esvaziava as
+   * arestas: **4 arestas → 0** ao arrastar a janela, voltando só com F5, e a
+   * guarda ficava verde.
+   *
+   * São duas medidas, porque são dois redimensionamentos diferentes:
+   *
+   * • §6c — o resize de §6, que ATRAVESSA a faixa de layout. A 640 px o painel
+   *   do grafo vive numa aba, e é preciso ir até ela; o que não pode existir é
+   *   o canvas sem arestas. Só a conferência contra o dado bruto, sem pixel:
+   *   depois da troca de faixa o enquadramento é outro, e o que se cobra aqui
+   *   é que o grafo continue lá inteiro.
+   *
+   * • §6b — "arrastar a janela", DENTRO da faixa nova (desktop segue desktop,
+   *   celular segue celular): muito mais que o ruído de 2 px e sem trocar de
+   *   tela. Aqui o desenho é remedido inteiro — canvas × dado bruto E pintura
+   *   de pixel. É o gesto exato da sabotagem.
+   *
+   * A ordem importa e está escolhida: §6 primeiro, com o MESMO ponto de
+   * partida que sempre teve (o zoom do gesto). Medir §6 depois de um outro
+   * resize já reenquadrado o deixaria comparar dois reenquadramentos que caem
+   * no mesmo piso — medido a 390×800: 570→1280 devolveu 0,849 nas duas pontas,
+   * e §6 reprovou um produto que estava certo.
+   */
+  const bandaNovaEhDesktop = larguraDeVerdade >= 1024;
+  await irParaAba(page2, { desktop: bandaNovaEhDesktop }, "Grafo");
+  await page2.waitForSelector(".react-flow__viewport", { timeout: 20000 }).catch(() => undefined);
+  await esconderSeloDoNext(page2);
+  await page2.waitForTimeout(700);
+  const leituraNaFaixaNova = await page2.evaluate(LEITURA_DAS_ARESTAS);
+  const contratoNaFaixaNova = await lerContratoDoCanvas(page2);
+  const desenhoNaFaixaNova = medirCanvasContraOUniverso(
+    chave,
+    ` (depois de atravessar para ${String(larguraDeVerdade)}px)`,
+    contratoNaFaixaNova,
+    leituraNaFaixaNova.arestas,
+    CONTRATO.camadas,
+  );
+
+  const larguraArrastada = larguraDeArrastarAJanela({
+    largura: larguraDeVerdade,
+    desktop: bandaNovaEhDesktop,
+  });
+  await page2.setViewportSize({ width: larguraArrastada, height: caso.altura });
+  await page2.waitForTimeout(1600);
+  await irParaAba(page2, { desktop: larguraArrastada >= 1024 }, "Grafo");
+  await page2.waitForSelector(".react-flow__viewport", { timeout: 20000 }).catch(() => undefined);
+  await page2.waitForTimeout(500);
+  const desenhoDepoisDoArraste = await remedirODesenhoDepoisDoGesto(
+    page2,
+    chave,
+    ` (janela arrastada de ${String(larguraDeVerdade)} para ${String(larguraArrastada)}×${String(caso.altura)})`,
+    CONTRATO.camadas,
+  );
+
   exigir(
     errosDaSegunda.length === 0,
     `${chave}: a página do gesto lançou ${errosDaSegunda.length} erro(s): ${errosDaSegunda[0] ?? ""}`,
@@ -4319,6 +7181,9 @@ async function medirUmaLargura(browser, caso) {
     zAntesDoResize,
     zDepoisDoResize,
     zDepoisDeVerdade,
+    larguraArrastada,
+    desenhoDepoisDoArraste,
+    desenhoNaFaixaNova,
     alturaDoNo,
   };
   await segunda.ctx.close();
@@ -4571,6 +7436,62 @@ console.log(
   `contrato derivado do código: ${CONTRATO.papeis.length} papéis de aresta (${CONTRATO.papeis.join(", ")}), ${CONTRATO.camadas.length} camadas`,
 );
 
+/*
+ * ── §0b · A PROMESSA DA PEÇA, COBRADA COMO PRODUTO (rodada 15) ─────────────
+ *
+ * ALTO 1 e ALTO 2 do crítico hostil são o mesmo defeito em dois assuntos: a
+ * régua saía da coisa medida. A cor do caminho crítico era conferida contra
+ * as DUAS tabelas do produto (trocar as duas no mesmo ato trocava a régua
+ * junto: 1661 → 832 pixels vermelhos na tela, cinco portões verdes); e os
+ * nomes das camadas eram conferidos contra a tabela de nomes (trocar
+ * "Sucessão" e "Correlação" passava em tudo, e a lista para leitor de tela
+ * passava a anunciar a dependência ao contrário).
+ *
+ * `src/lib/promessa-do-grafo.ts` é a âncora: diz, em palavras e uma vez só,
+ * que o caminho crítico é VERMELHO e quais relações têm DIREÇÃO. Aqui isso é
+ * cobrado como promessa de produto — código 1, não 2.
+ */
+exigir(
+  CONTRATO.promessaQuebrada.length === 0,
+  `§0b a promessa da peça (src/lib/promessa-do-grafo.ts) não se sustenta: ${CONTRATO.promessaQuebrada.join(" ; ")}`,
+);
+console.log(
+  "%s",
+  `[${carimbo()}] §0b promessa da peça: ${CONTRATO.papeis
+    .map((p) => `${p} ${String(CONTRATO.familias[CONTRATO.familiaDoPapel[p]]?.emPortugues ?? "?")}`)
+    .join(" · ")} | ${Object.entries(CONTRATO.direcaoPorRotulo)
+    .map(([r, d]) => `${r} ${d}`)
+    .join(" · ")}`,
+);
+
+/*
+ * ── §0c · TODO ESTADO QUE O OPERADOR CONTROLA TEM EIXO — OU MOTIVO (rodada 16)
+ *
+ * O inventário sai do código (`derivarContrato`); a classificação está em
+ * `ESTADO_DO_GRAFO`, junto de §22. Item do código sem classificação, item
+ * classificado que o código não tem mais, eixo fora sem motivo, motivo cujo
+ * lastro no código caiu: tudo reprova aqui, antes de abrir o navegador —
+ * código 1, porque é o produto oferecendo um eixo que nenhuma medida cruza.
+ */
+{
+  const problemasDoInventario = [...conferirClassificacaoDoEstado(), ...conferirContinuidadeDosEixos()];
+  exigir(
+    problemasDoInventario.length === 0,
+    `§0c o estado do grafo que o operador controla: ${problemasDoInventario.join(" ; ")}`,
+  );
+  const eixos = {};
+  for (const [item, c] of Object.entries(ESTADO_DO_GRAFO)) {
+    const k = c.eixo ?? "fora";
+    (eixos[k] ??= []).push(item);
+  }
+  console.log(
+    "%s",
+    `[${carimbo()}] §0c inventário do estado: ${String(CONTRATO.inventarioDoEstado.length)} itens do código → ${EIXOS_EXERCIDOS.map(
+      (e) => `${e} ${String(eixos[e]?.length ?? 0)}`,
+    ).join(" · ")} · fora ${String(eixos.fora?.length ?? 0)} (com motivo)`,
+  );
+}
+
 medicoes.universo = medirEspessuraDoUniverso(UNIVERSO, BRUTO);
 console.log("%s", `[${carimbo()}] §0 universo do dado: ${medicoes.universo}`);
 
@@ -4580,41 +7501,59 @@ console.log("%s", `[${carimbo()}] §0 universo do dado: ${medicoes.universo}`);
  * um `page.evaluate` não volta nunca — e nenhum tempo limite do Playwright o
  * interrompe. Sai na linha de comando do navegador, não num comentário.
  */
-const browser = await pw.chromium.launch({
-  executablePath: CHROMIUM,
-  args: [
-    "--no-sandbox",
-    "--disable-backgrounding-occluded-windows",
-    "--disable-renderer-backgrounding",
-    "--disable-background-timer-throttling",
-  ],
-});
+/*
+ * O navegador que não ABRE é carga, não produto (achado da rodada 16: sob
+ * load 230 da máquina, `chromium.launch` estourou 180 s e a guarda saía com
+ * rastro de pilha e código 1 — o balde de "o produto está errado"). Nada foi
+ * medido: código 2, com o motivo.
+ */
+pwParaLancar = pw;
+try {
+  browser = await lancarNavegador();
+} catch (e) {
+  console.error(
+    "%s",
+    `guarda-no-navegador: o navegador não abriu (${String(e?.message ?? e).split("\n")[0]}) — nada foi medido; máquina carregada, não produto reprovado`,
+  );
+  encerrarServidor();
+  process.exit(2);
+}
 try {
 
   for (const caso of LARGURAS) {
     const chave = `${caso.largura}x${caso.altura}`;
     /* As sentinelas desta largura nascem ANTES da primeira medida dela. */
+    try {
+      await garantirNavegador();
+    } catch (e) {
+      naoConsegui(`${chave}: o navegador principal morreu e não relançou — ${String(e?.message ?? e).split("\n")[0]}`);
+      continue;
+    }
     const sentinelasDaLargura = await nascerAsSentinelasDe(browser, caso);
-    await etapa(`${chave} · §1–§10/§12/§15 e o nó selecionado`, () => medirUmaLargura(browser, caso));
-    await etapa(`${chave} · §11 estados derivados`, () => medirEstadosDerivados(browser, caso));
-    const desligar = await etapa(`${chave} · §13/§18 desligar camada e o F5`, () =>
-      medirDesligarCamada(browser, caso),
+    /* Cada etapa recebe o navegador como argumento: é isso que deixa a prova
+       de travamento refazê-la num navegador NOVO. */
+    await etapa(`${chave} · §1–§10/§12/§15 e o nó selecionado`, (b) => medirUmaLargura(b, caso));
+    await etapa(`${chave} · §11 estados derivados`, (b) => medirEstadosDerivados(b, caso));
+    const desligar = await etapa(`${chave} · §13/§18 desligar camada e o F5`, (b) => medirDesligarCamada(b, caso));
+    const defaultDaTela = await etapa(`${chave} · §14 o estado em que a tela nasce`, (b) => medirEstadoDefault(b, caso));
+    const listaPorCamada = await etapa(`${chave} · §16 a lista acessível × o painel`, (b) => medirListaObedeceAsCamadas(b, caso));
+    const esmaecimento = await etapa(`${chave} · §17 esmaecimento por fonte`, (b) => medirEsmaecimentoPorFonte(b, caso));
+    const produtoDosGestos = await etapa(`${chave} · §22 o produto dos gestos (eixos derivados, cobertura em pares)`, (b) =>
+      medirProdutoDosGestos(b, caso),
     );
-    const defaultDaTela = await etapa(`${chave} · §14 o estado em que a tela nasce`, () =>
-      medirEstadoDefault(browser, caso),
+    const passeioDoZoom = await etapa(`${chave} · §22z o passeio do zoom (todo valor que os gestos alcançam)`, (b) =>
+      medirPasseioDoZoom(b, caso),
     );
-    const listaPorCamada = await etapa(`${chave} · §16 a lista acessível × o painel`, () =>
-      medirListaObedeceAsCamadas(browser, caso),
-    );
-    const esmaecimento = await etapa(`${chave} · §17 esmaecimento por fonte`, () =>
-      medirEsmaecimentoPorFonte(browser, caso),
-    );
+    const passeioDoPan = await etapa(`${chave} · §22p o passeio do pan`, (b) => medirPasseioDoPan(b, caso));
     medicoes[chave] = {
       ...(medicoes[chave] ?? {}),
       desligar,
       defaultDaTela,
       listaPorCamada,
       esmaecimento,
+      produtoDosGestos,
+      passeioDoZoom,
+      passeioDoPan,
     };
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -4627,8 +7566,22 @@ try {
     // alcance, e sai impresso.
     // ═════════════════════════════════════════════════════════════════════════
     for (const sentinela of sentinelasDaLargura.filter((s) => !s.comRelogioDeMentira)) {
+      const perdida = (veredito) => {
+        if (veredito !== "produto") SENTINELA_PERDIDA_PARA_O_AMBIENTE.set(sentinela.chave, veredito);
+      };
       await etapa(`§19 sentinela de tempo real ${sentinela.nome}`, async () => {
         if (!sentinela.ok) {
+          if (sentinela.travou) {
+            await julgarOTravamento({
+              nome: `§19 ${sentinela.nome}: a sentinela não nasceu`,
+              msg: sentinela.motivo,
+              t0: sentinela.t0,
+              repetir: (b) => provaDaSentinela(b, caso, false),
+              provaMede: false,
+              aoJulgar: perdida,
+            });
+            return;
+          }
           exigir(false, `§19 ${sentinela.nome}: a sentinela nunca nasceu — ${sentinela.motivo}`);
           return;
         }
@@ -4668,7 +7621,7 @@ try {
           sentinelaTempoReal: problemas.length === 0 ? linha : problemas.join(" · "),
         };
         await sentinela.ctx.close();
-      });
+      }, { repetir: (b) => provaDaSentinela(b, caso, false), provaMede: false, aoJulgar: perdida });
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -4681,8 +7634,22 @@ try {
     // e o relógio anda outra meia hora. Só então o desenho é refeito.
     // ═════════════════════════════════════════════════════════════════════════
     for (const sentinela of sentinelasDaLargura.filter((s) => s.comRelogioDeMentira)) {
+      const perdida = (veredito) => {
+        if (veredito !== "produto") SENTINELA_PERDIDA_PARA_O_AMBIENTE.set(sentinela.chave, veredito);
+      };
       await etapa(`§20 sentinela do relógio ${sentinela.nome}`, async () => {
         if (!sentinela.ok) {
+          if (sentinela.travou) {
+            await julgarOTravamento({
+              nome: `§20 ${sentinela.nome}: a sentinela não nasceu`,
+              msg: sentinela.motivo,
+              t0: sentinela.t0,
+              repetir: (b) => provaDaSentinela(b, caso, true),
+              provaMede: false,
+              aoJulgar: perdida,
+            });
+            return;
+          }
           exigir(false, `§20 ${sentinela.nome}: a sentinela nunca nasceu — ${sentinela.motivo}`);
           return;
         }
@@ -4716,9 +7683,21 @@ try {
           sentinelaRelogio: problemas.length === 0 ? linha : problemas.join(" · "),
         };
         await sentinela.ctx.close();
-      });
+      }, { repetir: (b) => provaDaSentinela(b, caso, true), provaMede: false, aoJulgar: perdida });
     }
 
+  }
+
+  medicoes.trilhaDaLargura = await etapa("§22L a trilha da largura (arrastar a borda da janela)", (b) => medirTrilhaDaLargura(b));
+
+  /* Todo eixo CONTÍNUO de §22 teve o seu passeio? (O que morreu no caminho
+     já é "não consegui medir"; aqui pega o passeio que ninguém chamou.) */
+  for (const [eixo, c] of Object.entries(CONTINUIDADE_DOS_EIXOS)) {
+    if (c.continuo === undefined) continue;
+    const feitas = PASSEIOS_FEITOS.get(c.continuo) ?? new Set();
+    const precisa = eixo === "largura" ? ["todas"] : LARGURAS.map((x) => `${x.largura}x${x.altura}`);
+    const faltam = precisa.filter((k) => !feitas.has(k) && !impedimentos.some((i) => i.includes(k) && i.includes(c.continuo.split(" ")[0])));
+    exigir(faltam.length === 0, `§0c o eixo contínuo "${eixo}" declara o passeio "${c.continuo}" e ele não rodou em ${faltam.join(", ")}`);
   }
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -4741,7 +7720,11 @@ try {
       const minhas = SENTINELAS_DO_DESENHO.filter((s) => s.chave === chave);
       const deTempoReal = minhas.filter((s) => !s.comRelogioDeMentira && s.ok).length;
       const deRelogio = minhas.filter((s) => s.comRelogioDeMentira && s.ok).length;
-      if (deTempoReal < 1 || deRelogio < 1) {
+      if ((deTempoReal < 1 || deRelogio < 1) && SENTINELA_PERDIDA_PARA_O_AMBIENTE.has(chave)) {
+        naoConsegui(
+          `§21 ${chave}: o alcance de tempo desta largura NÃO foi medido — a sentinela travou e a prova disse "${String(SENTINELA_PERDIDA_PARA_O_AMBIENTE.get(chave))}", não "produto"`,
+        );
+      } else if (deTempoReal < 1 || deRelogio < 1) {
         problemas.push(
           `${chave}: ${String(deTempoReal)} sentinela(s) de tempo real e ${String(deRelogio)} de relógio (precisa de 1 de cada) — alcance de tempo ZERO nesta largura`,
         );
@@ -4780,7 +7763,7 @@ try {
   });
 
 } finally {
-  await browser.close();
+  await browser?.close().catch(() => undefined);
   encerrarServidor();
 }
 
@@ -4790,7 +7773,7 @@ if (process.env.LIFEBOARD_GUARDA_JSON) writeFileSync(process.env.LIFEBOARD_GUARD
 console.log("── guarda no navegador ────────────────────────────────");
 console.log(`§0 universo do dado bruto: ${String(medicoes.universo ?? "?")}`);
 for (const [chave, m] of Object.entries(medicoes)) {
-  if (chave === "universo" || chave === "alcanceDeTempo") continue;
+  if (chave === "universo" || chave === "alcanceDeTempo" || chave === "trilhaDaLargura") continue;
   console.log(
     [
       chave.padEnd(10),
@@ -4811,13 +7794,22 @@ for (const [chave, m] of Object.entries(medicoes)) {
   console.log(`             default  ${m.defaultDaTela ?? "?"}`);
   console.log(`             esmaece  ${m.esmaecimento ?? "?"}`);
   for (const linha of m.depoisDoGesto ?? []) console.log(`             gesto    ${linha}`);
+  if (m.desenhoDepoisDoArraste) {
+    console.log(`             §6b resize ${String(m.larguraArrastada)}px: ${m.desenhoDepoisDoArraste}`);
+  }
+  if (m.desenhoNaFaixaNova) console.log(`             §6c faixa  ${m.desenhoNaFaixaNova}`);
   for (const linha of m.desligar ?? []) console.log(`             desliga  ${linha}`);
   for (const linha of m.listaPorCamada ?? []) console.log(`             lista×   ${linha}`);
   for (const linha of m.estados ?? []) console.log(`             estado   ${linha}`);
+  for (const linha of m.produtoDosGestos ?? []) console.log(`             §22 combo ${linha}`);
+  for (const linha of m.passeioDoZoom ?? []) console.log(`             §22z zoom ${linha}`);
+  for (const linha of m.passeioDoPan ?? []) console.log(`             §22p pan  ${linha}`);
   if (m.sentinelaTempoReal) console.log(`             §19 real ${m.sentinelaTempoReal}`);
   if (m.sentinelaRelogio) console.log(`             §20 relóg ${m.sentinelaRelogio}`);
 }
+for (const linha of medicoes.trilhaDaLargura ?? []) console.log(`§22L largura: ${linha}`);
 console.log(`§21 alcance de tempo: ${String(medicoes.alcanceDeTempo ?? "?")}`);
+for (const t of TRAVAMENTOS) console.log(`travamento julgado: ${t}`);
 console.log(`\ncorrida de ${carimbo()} (mm:ss)`);
 /*
  * ── O VEREDITO EM DOIS CÓDIGOS (achado MÉDIO 9) ───────────────────────────

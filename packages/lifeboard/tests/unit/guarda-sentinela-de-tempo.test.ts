@@ -37,15 +37,20 @@ describe("a guarda de navegador tem sentinela de tempo, e o alcance dela é o de
     /* Os pontos de CHAMADA dentro do laço de larguras, não as definições:
        comparar definições passaria com o nascimento no fim da corrida. */
     const nascimento = guarda.indexOf("await nascerAsSentinelasDe(browser, caso);");
-    const primeiraMedida = guarda.indexOf("() => medirUmaLargura(browser, caso))");
+    /* Rodada 17: cada etapa recebe o navegador como argumento (`(b) => …`) —
+       é o que deixa a prova de travamento refazê-la num navegador novo. */
+    const primeiraMedida = guarda.indexOf("(b) => medirUmaLargura(b, caso))");
     expect(nascimento).toBeGreaterThan(-1);
     expect(primeiraMedida).toBeGreaterThan(-1);
     expect(nascimento).toBeLessThan(primeiraMedida);
   });
 
   it("lê a sentinela DEPOIS da última medida daquela largura", () => {
-    const ultimaMedida = guarda.indexOf("      medirEsmaecimentoPorFonte(browser, caso),");
+    /* A última medida da largura é o passeio do pan (rodada 17). Sem achar a
+       chamada, o teste passaria por ausência — por isso ela é exigida. */
+    const ultimaMedida = guarda.indexOf("(b) => medirPasseioDoPan(b, caso))");
     const leitura = guarda.indexOf("§19 sentinela de tempo real");
+    expect(ultimaMedida).toBeGreaterThan(-1);
     expect(leitura).toBeGreaterThan(-1);
     expect(leitura).toBeGreaterThan(ultimaMedida);
   });
