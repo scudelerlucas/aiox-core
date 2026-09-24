@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { escolherConta } from "@/core/prompts/roteador";
 import type { Complexidade, ConsumoConta } from "@/core/prompts/tipos";
-import { CONTAS, custoEstimadoParaComplexidade } from "@/core/prompts/tipos";
+import { CONTAS, custoEstimadoParaComplexidade, fraseDoEnfileiramento } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — MÉDIO 1 (rodada 9): A PARIDADE DO CHOOSER É PROVADA,
@@ -138,6 +138,25 @@ describe("MÉDIO 1 — o chooser do TS e o do SQL escolhem a mesma conta", () =>
       }
     });
   }
+
+  it("P2 do Codex (PR #42): com conta cheia pulada, a frase diz 'entre as contas com vaga'", () => {
+    const caso = casos.find((c) => c.nome.startsWith("LIMITE DE VOO: a mais folgada"));
+    expect(caso, "a tabela precisa ter o caso da conta cheia pulada").toBeDefined();
+    const escolha = escolherConta(
+      (caso as CasoDeParidade).contas.map(paraConsumo),
+      (caso as CasoDeParidade).complexidade,
+      Date.now(),
+    );
+    expect(escolha.puladasSemVaga).toBe(1);
+    expect(escolha.motivo).toContain("entre as contas com vaga de sessão");
+    expect(escolha.motivo).toContain("ficaram de fora");
+    expect(
+      fraseDoEnfileiramento("auto_maior_espaco_com_vaga", {
+        conta: "lsgpandora@gmail.com", complexidade: "alta", headroomUsd: 200,
+        espacoLivreUsd: 200, custoEstimadoUsd: 50, naFilaUsd: 0, itensNaFrente: 0,
+      }),
+    ).toContain("maior espaço livre hoje entre as que têm vaga de sessão");
+  });
 
   it("o caso 'todas recusadas' produz a frase que diz por que ninguém foi convidado", () => {
     const caso = casos.find((c) => c.esperado.todas_recusadas);

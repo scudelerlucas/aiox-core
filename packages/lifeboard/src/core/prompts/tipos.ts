@@ -833,6 +833,11 @@ export const MOTIVOS_ENFILEIRAR = [
   // — a mais folgada tem US$ 500,00". O problema ali não é espaço; é medição
   // parada. Mesmo remédio de `manual_medicao_velha`, do lado automático.
   "auto_medicao_velha",
+  // P2 do Codex (PR #42, 6ª rodada): a escolha automática PULOU conta que
+  // está no limite de sessões em voo. "A conta com maior espaço livre" deixava
+  // de ser verdade — a mais folgada pode ser justamente a que ficou de fora.
+  "auto_maior_espaco_com_vaga",
+  "auto_nao_cabe_hoje_com_vaga",
 ] as const;
 export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
 
@@ -883,6 +888,20 @@ export function fraseDoEnfileiramento(
         `Enfileirado para ${conta}: é a conta com maior espaço livre hoje contando a fila ` +
         `parada (${formatarUsd(espaco)} para uma tarefa ${complexidade} de ` +
         `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}.`
+      );
+    case "auto_maior_espaco_com_vaga":
+      return (
+        `Enfileirado para ${conta}: é a conta com maior espaço livre hoje entre as que têm vaga de ` +
+        `sessão, contando a fila parada (${formatarUsd(espaco)} para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. As contas no limite de sessões em voo ` +
+        `ficaram de fora.`
+      );
+    case "auto_nao_cabe_hoje_com_vaga":
+      return (
+        `Enfileirado para ${conta}: nenhuma conta com vaga de sessão tem ${formatarUsd(n.custoEstimadoUsd)} ` +
+        `livres para uma tarefa ${complexidade} contando a fila parada — a mais folgada entre elas tem ` +
+        `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. As contas no limite ` +
+        `de sessões em voo ficaram de fora. Entra na fila e roda quando houver espaço.`
       );
     case "manual_cabe":
       return (

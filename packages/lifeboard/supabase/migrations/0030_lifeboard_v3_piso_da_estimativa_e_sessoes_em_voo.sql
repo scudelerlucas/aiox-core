@@ -127,65 +127,13 @@ comment on function public.painel_custo_minimo_por_item() is
   'CRÍTICO (rodada 15): PISO de valor por item (US$ 5,00) — irmã de painel_custo_maximo_por_item(). É 1% do teto que o esquema declara como default de painel_teto_diario.teto_usd (500 ÷ painel_fila_itens_simultaneos_maximos_por_valor()). Abaixo de 1% a reserva de um item é indistinguível de reserva nenhuma: medido pelo coordenador, estimativa de US$ 0,0001 despachou 40 sessões em voo com US$ 1,00 de espaço no dia e reserva total de US$ 0,0040 — e US$ 1 admitiria dez mil. Não é o custo mínimo de uma chamada de LLM; é o piso abaixo do qual o freio de valor não frea. Igual à complexidade mais barata do painel (baixa = 5), então nada que a casa declara hoje é recusado.';
 revoke all on function public.painel_custo_minimo_por_item() from public, anon, authenticated;
 
--- (1c) O TETO DE SESSÕES EM VOO por conta — a parede que corresponde ao DANO.
--- QUATRO. É exatamente o que um teto de US$ 500 paga na complexidade mais cara
--- que a casa declara (`maxima` = US$ 120): `floor(500/120) = 4`. Ou seja: esta
--- parede não tira NADA que a parede de valor já permitia a preço cheio — ela
--- tira só a possibilidade de comprar concorrência declarando a estimativa
--- barata, que é o dano inteiro deste achado.
---
--- É REGRA NOVA DE PRODUTO, e é declarada como tal: o número não se deriva de
--- mais nada, mora aqui e só aqui. A guarda que o protege não é "ele nunca
--- muda" — o operador pode mudá-lo — é "ele nunca fica decorativo": §5 aborta a
--- migration se K itens no PISO já não couberem no menor teto declarado,
--- porque aí a parede de valor morderia primeiro e esta seria enfeite.
-create or replace function public.painel_fila_maximo_em_voo_por_conta()
-returns integer
-language sql
-immutable
-set search_path = public, pg_temp
-as $$
-  select 4;
-$$;
-comment on function public.painel_fila_maximo_em_voo_por_conta() is
-  'CRÍTICO (rodada 15): quantas sessões a MESMA conta pode ter em voo ao mesmo tempo — QUATRO. O dano do achado é de CONTAGEM, não de soma: a US$ 0,0001 por item, US$ 1 de espaço admite dez mil sessões simultâneas, e uma sessão real da casa custa da ordem de US$ 200 (12/09/2026: US$ 2.513,29 em 12 sessões). Quatro é o que um teto de US$ 500 paga na complexidade mais cara declarada (maxima = 120), então esta parede não tira nada que a de valor já permitia a preço cheio: tira só a compra de concorrência por estimativa barata. Regra de produto, número declarado; §5 da 0030 aborta se ele ficar decorativo diante do piso.';
-revoke all on function public.painel_fila_maximo_em_voo_por_conta() from public, anon, authenticated;
-
--- (1d) A JANELA DE "EM VOO", que já existia escrita à mão em três lugares
--- (o laço de expiração do pull, `painel_fila_reservado` e agora a contagem).
--- Mesma disciplina do ALTO 6 da rodada 14: a lista estava em cinco lugares e
--- tirar a 4ª conta de UM deles passou pelos cinco portões. Aqui a janela passa
--- a sair de uma fonte só ANTES de ganhar o quarto consumidor.
-create or replace function public.painel_fila_janela_em_voo()
-returns interval
-language sql
-immutable
-set search_path = public, pg_temp
-as $$
-  select interval '45 minutes';
-$$;
-comment on function public.painel_fila_janela_em_voo() is
-  'D3 + BAIXO 6 (rodada 8), agora com fonte única (rodada 15): a janela em que um item pego ainda conta como EM EXECUÇÃO — 45 minutos de heartbeat. Estava escrita à mão no laço de expiração do pull, em painel_fila_reservado e ia ganhar uma terceira cópia na contagem de sessões em voo; é a mesma classe de defeito do ALTO 6 (a lista de contas em cinco lugares).';
-revoke all on function public.painel_fila_janela_em_voo() from public, anon, authenticated;
-
--- (1e) A CONTAGEM de sessões em voo — uma definição só, a MESMA de
--- `painel_fila_reservado` (item `pega` com heartbeat vivo). O pull a usa para
--- decidir e o painel a usa para contar a verdade ao lado do headroom.
-create or replace function public.painel_fila_em_voo(p_conta text)
-returns integer
-language sql
-stable
-set search_path = public, pg_temp
-as $$
-  select count(*)::integer
-  from public.painel_fila_prompts f
-  where f.conta = p_conta
-    and f.estado = 'pega'
-    and coalesce(f.heartbeat_em, f.pego_em) >= now() - public.painel_fila_janela_em_voo();
-$$;
-comment on function public.painel_fila_em_voo(text) is
-  'CRÍTICO (rodada 15): quantas sessões desta conta estão EM VOO agora — mesma definição de painel_fila_reservado (estado pega com heartbeat dentro de painel_fila_janela_em_voo), para que o número que o pull usa para decidir e o número que o painel mostra sejam o mesmo. O headroom anunciado sem esta contagem ao lado era a mentira do painel: US$ 1,00 livres com 40 sessões gastando dinheiro naquele instante.';
-revoke all on function public.painel_fila_em_voo(text) from public, anon, authenticated;
+-- (1c)–(1e) O TETO DE SESSÕES EM VOO, A JANELA e A CONTAGEM foram para a 0029
+-- (P1 do Codex no PR #42, 6ª rodada): a 0029 passou a chamá-los dentro de
+-- `fila_prompts_enfileirar` e `fila_prompts_listar`, e o runner aplica cada
+-- migration num `psql` próprio, em autocommit. Definidos aqui, uma aplicação
+-- interrompida entre a 0029 e a 0030 — ou uma 0030 abortada por uma das
+-- guardas de dado legado abaixo — deixava as duas RPCs no ar chamando função
+-- que não existe. Definição única, agora antes do primeiro uso.
 
 -- ── 2 · PRIMEIRA PAREDE · o piso na tabela de estimativas ──────────────────
 -- A migration ABORTA se o banco já tiver estimativa abaixo do piso: ajustar o
@@ -1073,12 +1021,13 @@ declare
   v_limite_voo      integer;
   v_sem_vaga        boolean;
   v_com_vaga        integer := 0;
+  v_na_disputa      integer := 0;
   v_so_com_vaga     boolean;
 begin
   if p_consumos is null or jsonb_typeof(p_consumos) <> 'array' or jsonb_array_length(p_consumos) = 0 then
     return jsonb_build_object(
       'conta', null, 'cabe_hoje', false, 'espaco_livre_usd', 0, 'headroom_usd', 0,
-      'todas_recusadas', false, 'todas_sem_vaga', false, 'empatados', 0,
+      'todas_recusadas', false, 'todas_sem_vaga', false, 'puladas_sem_vaga', 0, 'empatados', 0,
       'nunca_cabe', false, 'maior_teto_usd', null);
   end if;
 
@@ -1100,7 +1049,7 @@ begin
   if v_candidatas = 0 then
     return jsonb_build_object(
       'conta', null, 'cabe_hoje', false, 'espaco_livre_usd', 0, 'headroom_usd', 0,
-      'todas_recusadas', false, 'todas_sem_vaga', false, 'empatados', 0,
+      'todas_recusadas', false, 'todas_sem_vaga', false, 'puladas_sem_vaga', 0, 'empatados', 0,
       'nunca_cabe', true, 'maior_teto_usd', round(v_maior_teto, 2));
   end if;
 
@@ -1118,6 +1067,7 @@ begin
     v_limite_voo := nullif(rec->>'limite_em_voo', '')::integer;
     v_sem_vaga := v_limite_voo is not null and v_limite_voo > 0
                   and coalesce(nullif(rec->>'em_voo', '')::integer, 0) >= v_limite_voo;
+    v_na_disputa := v_na_disputa + 1;
     if not v_sem_vaga then v_com_vaga := v_com_vaga + 1; end if;
   end loop;
   v_so_com_vaga := v_com_vaga > 0;
@@ -1159,6 +1109,10 @@ begin
     'headroom_usd', round(v_melhor_headroom, 2),
     'todas_recusadas', v_todas_recusadas,
     'todas_sem_vaga', not v_so_com_vaga,
+    -- P2 do Codex (PR #42, 6ª rodada): quantas contas da disputa ficaram de
+    -- fora por estarem no limite — a frase precisa dizer "entre as que têm
+    -- vaga", ou chama de "a mais folgada" uma conta que não é.
+    'puladas_sem_vaga', case when v_so_com_vaga then v_na_disputa - v_com_vaga else 0 end,
     'empatados', v_empatados,
     'nunca_cabe', false,
     'maior_teto_usd', round(v_maior_teto, 2));

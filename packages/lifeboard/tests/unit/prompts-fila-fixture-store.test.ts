@@ -896,6 +896,31 @@ describe("P2 do Codex (PR #42, 3ª rodada) — o ajuste do fixture confere a ses
   });
 });
 
+describe("P2 do Codex (PR #42, 6ª rodada) — republicar zero não apaga a medição no fixture", () => {
+  it("sessão publicou 100 e depois zero/nulo: o livro ainda tem o 100 (posto 40) e o ajuste é recusado", () => {
+    resetarFilaFixtureStore();
+    definirExigirMedicaoFixture(ALMA, false);
+    ajustarTetoFixture(ALMA, 800);
+    const novo = enfileirarFixture({ prompt: "sessão que zera", complexidade: "alta", conta: ALMA, agora: AGORA });
+    const id = (novo as { id: string }).id;
+    const worker = pegarAte(ALMA, id, AGORA);
+    heartbeatFixture(id, ALMA, worker, "session_PUBLICA_E_ZERA", AGORA);
+    publicarSessaoFixture(ALMA, "session_PUBLICA_E_ZERA", 100);
+    const consumoAntes = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd;
+    publicarSessaoFixture(ALMA, "session_PUBLICA_E_ZERA", 0);
+    publicarSessaoFixture(ALMA, "session_PUBLICA_E_ZERA", null);
+    expect(listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd).toBe(consumoAntes);
+
+    expect(cancelarFixture(id, AGORA)).toMatchObject({ ok: true, custoLancadoUsd: 0 });
+    const linha = listarFilaFixture(200).find((i) => i.id === id);
+    expect(linha?.livroPrecedencia).toBe(40);
+    expect(linha?.livroLiquidoUsd).toBe(100);
+    expect(ajustarCustoFixture(id, 3, null, AGORA)).toEqual({
+      erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.",
+    });
+  });
+});
+
 describe("D24 — o dia que RESERVOU paga (pego 23h50, fechado 00h10)", () => {
   it("o item conta no dia em que foi pego, nunca no dia em que fechou", () => {
     resetarFilaFixtureStore();

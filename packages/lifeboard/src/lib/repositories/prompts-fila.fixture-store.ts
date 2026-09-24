@@ -511,6 +511,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
    */
   let autoCabeHoje = false;
   let autoTodasRecusadas = false;
+  let autoPuladasSemVaga = 0;
 
   if (input.conta) {
     if (!contaValida(input.conta)) {
@@ -541,6 +542,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     manual = false;
     autoCabeHoje = escolha.cabeHoje;
     autoTodasRecusadas = escolha.todasRecusadas;
+    autoPuladasSemVaga = escolha.puladasSemVaga;
   }
 
   const c = consumos.find((x) => x.conta === conta) as ConsumoConta;
@@ -574,13 +576,17 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
         ? "manual_medicao_velha"
         : "manual_nao_cabe_hoje"
     : autoCabeHoje
-      ? "auto_maior_espaco"
+      ? autoPuladasSemVaga > 0
+        ? "auto_maior_espaco_com_vaga"
+        : "auto_maior_espaco"
       : // A4 (rodada 11): quando NENHUMA conta autoriza gasto, o problema não é
         // dinheiro — e `auto_nao_cabe_hoje` só sabe falar de dinheiro. Mesmo
         // remédio que `manual_medicao_velha` recebeu do outro lado.
         autoTodasRecusadas
         ? "auto_medicao_velha"
-        : "auto_nao_cabe_hoje";
+        : autoPuladasSemVaga > 0
+          ? "auto_nao_cabe_hoje_com_vaga"
+          : "auto_nao_cabe_hoje";
 
   const id = novoId();
   estado.fila.set(id, {
@@ -776,6 +782,16 @@ export function publicarSessaoFixture(
   // testes chamam esta função e todos reusam a mesma conta, então o alcance é
   // o setup de fixture — mas o espelho tem de espelhar.
   if (jaPublicada !== undefined && jaPublicada.conta !== conta) return;
+  // P2 do Codex (PR #42, 6ª rodada): republicar com custo nulo ou zero NÃO
+  // apaga a medição anterior. No banco, o gatilho `painel_frentes_sessoes_lancar`
+  // trata zero/nulo como AUSÊNCIA de medição (D40) e não toca no livro — o
+  // último número diferente de zero continua sendo o lançamento de posto 40.
+  // O fixture sobrescrevia o mapa, esquecia o 40 e deixava cancelar/ajustar
+  // passarem onde o banco recusa.
+  const semMedicao = custoUsd === null || custoUsd === 0;
+  if (semMedicao && jaPublicada !== undefined && jaPublicada.custoUsd !== null && jaPublicada.custoUsd !== 0) {
+    return;
+  }
   estado.sessoesPublicadas.set(sessionId, { conta, custoUsd });
   const base = estado.base.get(conta);
   if (!base) return;

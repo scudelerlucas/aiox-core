@@ -244,3 +244,49 @@ describe("P1 — migration nenhuma edita o livro-razão fora do desvio da trava"
     expect(soltos, "escrita no livro sem o desvio da trava — aborta em produção").toEqual([]);
   });
 });
+
+/**
+ * P1 do Codex (PR #42, 6ª rodada): a 0029 passou a chamar
+ * `painel_fila_em_voo()` e `painel_fila_maximo_em_voo_por_conta()`, que só
+ * nasciam na 0030. Corpo plpgsql só resolve nome na hora da chamada, então a
+ * 0029 aplicava limpo — e o runner aplica cada arquivo num `psql` próprio,
+ * em autocommit: parar entre a 0029 e a 0030 deixava duas RPCs no ar
+ * chamando função que não existe. Nenhuma migration chama função `public.`
+ * cuja primeira definição esteja numa migration posterior.
+ */
+describe("P1 — migration nenhuma chama função que só nasce depois dela", () => {
+  it("toda chamada a public.<função>( vem de arquivo igual ou posterior ao que a cria", () => {
+    const pasta = join(PACOTE, "supabase", "migrations");
+    const arquivos = readdirSync(pasta)
+      .filter((n) => /^\d{4}_.*\.sql$/.test(n) && !n.endsWith(".test.sql"))
+      .sort();
+    const semComentario = (sql: string): string =>
+      sql
+        .split("\n")
+        .map((linha) => linha.replace(/--.*$/, ""))
+        .join("\n");
+    const textos = arquivos.map((n) => semComentario(readFileSync(join(pasta, n), "utf8")));
+
+    const nascimento = new Map<string, number>();
+    textos.forEach((sql, i) => {
+      const def = /create\s+(?:or\s+replace\s+)?function\s+public\.([a-z_0-9]+)\s*\(/gi;
+      for (let m = def.exec(sql); m !== null; m = def.exec(sql)) {
+        const nome = (m[1] as string).toLowerCase();
+        if (!nascimento.has(nome)) nascimento.set(nome, i);
+      }
+    });
+
+    const adiantadas: string[] = [];
+    textos.forEach((sql, i) => {
+      const chamada = /public\.([a-z_0-9]+)\s*\(/gi;
+      for (let m = chamada.exec(sql); m !== null; m = chamada.exec(sql)) {
+        const nome = (m[1] as string).toLowerCase();
+        const nasce = nascimento.get(nome);
+        if (nasce !== undefined && nasce > i) {
+          adiantadas.push(`${arquivos[i]} chama ${nome}(), que nasce em ${arquivos[nasce]}`);
+        }
+      }
+    });
+    expect([...new Set(adiantadas)], "chamada a função que ainda não existe quando a migration termina").toEqual([]);
+  });
+});

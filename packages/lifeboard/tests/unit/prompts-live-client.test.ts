@@ -55,6 +55,36 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
     vi.unstubAllGlobals();
   });
 
+  it("P2 do Codex (PR #42): conta cheia pulada troca o código para a frase 'entre as que têm vaga'", async () => {
+    for (const [codigoSql, esperado] of [
+      ["auto_maior_espaco", "auto_maior_espaco_com_vaga"],
+      ["auto_nao_cabe_hoje", "auto_nao_cabe_hoje_com_vaga"],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce(
+        respostaOk({
+          ok: true, id: "abc", conta: "lsgpandora@gmail.com", complexidade: "alta",
+          modelo_sugerido: "Opus", motivo_codigo: codigoSql, cabe_hoje: codigoSql === "auto_maior_espaco",
+          headroom_usd: 100, espaco_livre_usd: 100, custo_estimado_usd: 50, na_fila_usd: 0,
+          itens_na_frente: 0, puladas_sem_vaga: 1,
+        }),
+      );
+      const r = await enfileirarPrompt({ prompt: "oi", complexidade: "alta" });
+      expect(r).toMatchObject({ ok: true, motivoCodigo: esperado });
+    }
+    // sem conta pulada, o código fica o de sempre
+    fetchMock.mockResolvedValueOnce(
+      respostaOk({
+        ok: true, id: "abc", conta: "lsgpandora@gmail.com", complexidade: "alta",
+        modelo_sugerido: "Opus", motivo_codigo: "auto_maior_espaco", cabe_hoje: true,
+        headroom_usd: 100, espaco_livre_usd: 100, custo_estimado_usd: 50, na_fila_usd: 0,
+        itens_na_frente: 0, puladas_sem_vaga: 0,
+      }),
+    );
+    expect(await enfileirarPrompt({ prompt: "oi", complexidade: "alta" })).toMatchObject({
+      motivoCodigo: "auto_maior_espaco",
+    });
+  });
+
   it("enfileirarPrompt POSTa em .../rpc/fila_prompts_enfileirar com p_secret e p_payload", async () => {
     // D14 (rodada 4): a RPC devolve CÓDIGO + NÚMEROS, nunca uma frase.
     fetchMock.mockResolvedValueOnce(

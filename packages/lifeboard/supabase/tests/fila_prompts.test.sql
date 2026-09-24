@@ -5725,9 +5725,12 @@ begin
   if public.painel_fila_em_voo(v_cheia) = public.painel_fila_maximo_em_voo_por_conta()
      and v_r->>'conta' is not null
      and v_r->>'conta' <> v_cheia
-     and v_r->>'conta' = v_contas[2] then
-    raise exception 'RESULTADO: ok — T96 a conta no limite (% em voo) é pulada; o item foi para %',
-      public.painel_fila_em_voo(v_cheia), v_r->>'conta';
+     and v_r->>'conta' = v_contas[2]
+     -- 6ª rodada: a resposta diz que houve conta pulada, para a frase não
+     -- chamar de "a mais folgada" uma conta que não é.
+     and (v_r->>'puladas_sem_vaga')::int = 1 then
+    raise exception 'RESULTADO: ok — T96 a conta no limite (% em voo) é pulada; o item foi para % (puladas_sem_vaga=%)',
+      public.painel_fila_em_voo(v_cheia), v_r->>'conta', v_r->>'puladas_sem_vaga';
   end if;
   raise exception 'FALHA: T96 esperado o item fora de % (no limite) e em % — obteve %',
     v_cheia, v_contas[2], v_r;

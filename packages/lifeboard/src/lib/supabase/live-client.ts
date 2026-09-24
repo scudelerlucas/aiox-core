@@ -422,6 +422,7 @@ export async function enfileirarPrompt(payload: {
       na_fila_usd?: number;
       itens_na_frente?: number;
       todas_recusadas?: boolean;
+      puladas_sem_vaga?: number;
     };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
@@ -437,10 +438,17 @@ export async function enfileirarPrompt(payload: {
      * US$ 500,00"*, uma frase que se desmente no meio. O caso tem código e
      * frase próprios agora, como `manual_medicao_velha` já tinha do outro lado.
      */
+    // P2 do Codex (PR #42, 6ª rodada): a escolha pulou conta no limite de
+    // sessões em voo — a frase diz "entre as que têm vaga".
+    const pulouSemVaga = numeroOu(body.puladas_sem_vaga, 0) > 0;
     const codigo =
       body.motivo_codigo === "auto_nao_cabe_hoje" && body.todas_recusadas === true
         ? "auto_medicao_velha"
-        : body.motivo_codigo;
+        : pulouSemVaga && body.motivo_codigo === "auto_maior_espaco"
+          ? "auto_maior_espaco_com_vaga"
+          : pulouSemVaga && body.motivo_codigo === "auto_nao_cabe_hoje"
+            ? "auto_nao_cabe_hoje_com_vaga"
+            : body.motivo_codigo;
     return {
       ok: true,
       id: body.id,

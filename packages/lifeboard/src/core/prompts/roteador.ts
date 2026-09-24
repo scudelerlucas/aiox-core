@@ -108,6 +108,11 @@ export interface EscolhaDeConta {
    * dinheiro (vaga libera em minutos). Espelho de `todas_sem_vaga` (0030).
    */
   todasSemVaga: boolean;
+  /**
+   * P2 do Codex (PR #42, 6ª rodada): quantas contas da disputa ficaram de fora
+   * por estarem no limite de sessões em voo. Espelho de `puladas_sem_vaga`.
+   */
+  puladasSemVaga: number;
 }
 
 
@@ -139,6 +144,7 @@ export function escolherConta(
       headroomUsd: 0,
       todasRecusadas: false,
       todasSemVaga: false,
+      puladasSemVaga: 0,
     };
   }
 
@@ -164,6 +170,7 @@ export function escolherConta(
       headroomUsd: 0,
       todasRecusadas: false,
       todasSemVaga: false,
+      puladasSemVaga: 0,
     };
   }
 
@@ -187,6 +194,10 @@ export function escolherConta(
   const comVaga = disputaPorAutorizacao.filter((c) => !semVagaEmVoo(c));
   const todasSemVaga = comVaga.length === 0;
   const disputa = todasSemVaga ? disputaPorAutorizacao : comVaga;
+  const puladasSemVaga = todasSemVaga ? 0 : disputaPorAutorizacao.length - comVaga.length;
+  const entreComVaga = puladasSemVaga > 0 ? " entre as contas com vaga de sessão" : "";
+  const foraSemVaga =
+    puladasSemVaga > 0 ? " As contas no limite de sessões em voo ficaram de fora." : "";
 
   let melhor = disputa[0] as ConsumoConta;
   let melhorEspaco = espacoLivreUsd(melhor);
@@ -225,6 +236,7 @@ export function escolherConta(
       headroomUsd: headroom,
       todasRecusadas: true,
       todasSemVaga,
+      puladasSemVaga,
     };
   }
 
@@ -262,14 +274,14 @@ export function escolherConta(
   // as mesmas palavras — e o operador não tinha como saber qual dos dois lia.
   const selo = ` — ${seloDaMedicao(melhor, agora)}`;
   const motivo = cabeHoje
-    ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje contando a fila parada: ` +
-      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}${semVaga}`
-    : `Nenhuma conta tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
+    ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje${entreComVaga} contando a fila parada: ` +
+      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}${semVaga}${foraSemVaga}`
+    : `Nenhuma conta${puladasSemVaga > 0 ? " com vaga de sessão" : ""} tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
       `${ROTULO_COMPLEXIDADE[complexidade]} contando a fila parada. A mais folgada ` +
       // Arranhão da rodada 7: saía "A mais folgada (Pandora) tem US$ 30,00" —
       // sem dizer de quê. Toda metade da frase agora termina em "livres".
       `(${ROTULO_CONTA[melhor.conta]}) tem ${melhorEspaco > 0 ? `${formatarUsd(melhorEspaco)} livres` : "0 livres"}` +
-      `${detalhe}${selo}${revelacao}.${empate}${semVaga}`;
+      `${detalhe}${selo}${revelacao}.${empate}${semVaga}${foraSemVaga}`;
 
   return {
     conta: melhor.conta,
@@ -280,6 +292,7 @@ export function escolherConta(
     headroomUsd: headroom,
     todasRecusadas,
     todasSemVaga,
+    puladasSemVaga,
   };
 }
 
