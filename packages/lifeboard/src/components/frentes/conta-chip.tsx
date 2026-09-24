@@ -3,7 +3,7 @@ import type { CorConta } from "@/lib/frentes/types";
 /**
  * PAINEL DE ASSUNTOS — etiqueta do cartão.
  *
- * Com conversa, mostra a conta (Lucas · Pandora · Alma Petra · Arbor). Sem conversa,
+ * Com conversa, mostra a conta (Lucas · Pandora · Alma Petra). Sem conversa,
  * mostra o repositório em cinza — dizer "conta não identificada" não informava
  * nada e aparecia em 295 dos cartões reais.
  *
@@ -15,7 +15,6 @@ const CORES: Record<CorConta, string> = {
   lucas: "border-gold-500/70 text-gold-300",
   pandora: "border-state-success/70 text-state-success-fg",
   almapetra: "border-state-warning/70 text-state-warning",
-  arbor: "border-state-open/70 text-state-open",
   neutra: "border-state-neutral/60 text-bone-300",
 };
 

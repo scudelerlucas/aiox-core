@@ -107,12 +107,7 @@ export interface DadosFrentes {
 export type ColunaId = "esperando" | "andando" | "parado" | "fechado";
 
 /** Chave de cor da etiqueta — 3 contas conhecidas + cinza (repositório). */
-export type CorConta =
-  | "lucas"
-  | "pandora"
-  | "almapetra"
-  | "arbor"
-  | "neutra";
+export type CorConta = "lucas" | "pandora" | "almapetra" | "neutra";
 
 /** Um link do cartão, já com o texto que a pessoa lê. */
 export interface LinkAssunto {

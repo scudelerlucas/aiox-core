@@ -1,5 +1,5 @@
 /**
- * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as contas da casa).
+ * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as 3 contas).
  *
  * Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`
  * (linhas R1/R2/R6, transferências T1/T2) + o contrato exato de
@@ -15,10 +15,6 @@ export const CONTAS = [
   "lucasscudeler@gmail.com",
   "lsgpandora@gmail.com",
   "almapetra.ltda@gmail.com",
-  // 4ª conta, 2026-09-21. O banco já a aceitava em `painel_teto_diario` e passou
-  // a aceitá-la na fila pela migration 0026 — sem esta linha ela existe no banco
-  // e some da tela, que é pior que não existir.
-  "arborcactus@gmail.com",
 ] as const;
 
 export type Conta = (typeof CONTAS)[number];
@@ -28,7 +24,6 @@ export const ROTULO_CONTA: Record<Conta, string> = {
   "lucasscudeler@gmail.com": "Lucas",
   "lsgpandora@gmail.com": "Pandora",
   "almapetra.ltda@gmail.com": "Alma Petra",
-  "arborcactus@gmail.com": "Arbor",
 };
 
 export function contaValida(valor: string): valor is Conta {
