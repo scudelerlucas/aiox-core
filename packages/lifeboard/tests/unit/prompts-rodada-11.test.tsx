@@ -538,7 +538,7 @@ describe("23ª rodada — medição velha não apaga os outros bloqueios do enfi
     const frase = fraseDoEnfileiramento("auto_medicao_velha", {
       ...numeros,
       espacoLivreUsd: 20,
-      todasSemVaga: true,
+      esperaVaga: true,
     });
     expect(frase).not.toContain("Não é falta de espaço");
     expect(frase).toContain("o dia também não tem espaço — só US$ 20,00 livres");
@@ -569,6 +569,78 @@ describe("23ª rodada — medição velha não apaga os outros bloqueios do enfi
     const r = await enfileirarPrompt({ prompt: "x", complexidade: "alta" });
     vi.unstubAllGlobals();
     expect("motivoCodigo" in r ? r.motivoCodigo : "").toBe("auto_medicao_velha");
-    expect("todasSemVaga" in r ? r.todasSemVaga : undefined).toBe(true);
+    expect("esperaVaga" in r ? r.esperaVaga : undefined).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════ P2 do Codex (PR #42, 24ª rodada) ═══
+describe("24ª rodada — a conta escolhida à mão com medição velha também espera vaga", () => {
+  it("frase manual: medição + vaga pede as duas coisas e fala DESTA conta", () => {
+    const frase = fraseDoEnfileiramento("manual_medicao_velha", {
+      conta: PANDORA,
+      complexidade: "alta",
+      headroomUsd: 500,
+      espacoLivreUsd: 500,
+      custoEstimadoUsd: 50,
+      naFilaUsd: 0,
+      itensNaFrente: 0,
+      esperaVaga: true,
+    });
+    expect(frase).not.toContain("não é falta de espaço");
+    expect(frase).toContain("esta conta está no limite de sessões em voo");
+    expect(frase).toContain("Entra na fila e roda quando a medição voltar e uma sessão fechar.");
+  });
+
+  it("frase manual só com medição: a de antes", () => {
+    const frase = fraseDoEnfileiramento("manual_medicao_velha", {
+      conta: PANDORA,
+      complexidade: "alta",
+      headroomUsd: 500,
+      espacoLivreUsd: 500,
+      custoEstimadoUsd: 50,
+      naFilaUsd: 0,
+      itensNaFrente: 0,
+    });
+    expect(frase).toContain("Não é falta de espaço");
+    expect(frase).toContain("Entra na fila e roda quando a medição voltar.");
+  });
+
+  it("live: `manual_medicao_velha` com `sem_vaga` chega à frase", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      respostaOk({
+        ok: true,
+        id: "abc",
+        conta: PANDORA,
+        complexidade: "alta",
+        motivo_codigo: "manual_medicao_velha",
+        cabe_hoje: false,
+        headroom_usd: 500,
+        espaco_livre_usd: 500,
+        custo_estimado_usd: 50,
+        na_fila_usd: 0,
+        itens_na_frente: 0,
+        sem_vaga: true,
+        todas_sem_vaga: false,
+      }),
+    );
+    const r = await enfileirarPrompt({ prompt: "x", complexidade: "alta", conta: PANDORA });
+    vi.unstubAllGlobals();
+    expect("motivoCodigo" in r ? r.motivoCodigo : "").toBe("manual_medicao_velha");
+    expect("esperaVaga" in r ? r.esperaVaga : undefined).toBe(true);
+  });
+
+  it("fixture: conta à mão com medição velha E quatro sessões em voo devolve esperaVaga", () => {
+    ajustarTetoFixture(ALMA, 800);
+    definirExigirMedicaoFixture(ALMA, false);
+    for (let i = 0; i < 4; i++) {
+      enfileirado(enfileirarFixture({ prompt: `voo ${i}`, complexidade: "baixa", conta: ALMA, agora: AGORA }));
+      expect(pegarFixture(ALMA, `W-voo-${i}`, AGORA).item).not.toBeNull();
+    }
+    definirExigirMedicaoFixture(ALMA, true);
+    const r = enfileirado(enfileirarFixture({ prompt: "x", complexidade: "baixa", conta: ALMA, agora: AGORA }));
+    expect(r.motivoCodigo).toBe("manual_medicao_velha");
+    expect(r.esperaVaga).toBe(true);
   });
 });

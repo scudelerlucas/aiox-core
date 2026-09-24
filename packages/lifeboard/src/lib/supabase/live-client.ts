@@ -385,8 +385,12 @@ export type MutateFilaResult =
       custoEstimadoUsd?: number;
       naFilaUsd?: number;
       itensNaFrente?: number;
-      /** P2 do Codex (PR #42, 23ª rodada): todas as contas no limite de voo. */
-      todasSemVaga?: boolean;
+      /**
+       * P2 do Codex (PR #42, 23ª e 24ª rodadas): o item também espera vaga de
+       * sessão em voo — a conta escolhida à mão (`sem_vaga`) ou todas as contas
+       * no automático (`todas_sem_vaga`).
+       */
+      esperaVaga?: boolean;
       /** #11: código do cancelamento (nunca pego × devolvido × em execução). */
       motivoCancelamento?: string;
       custoLancadoUsd?: number;
@@ -475,9 +479,12 @@ export async function enfileirarPrompt(payload: {
       custoEstimadoUsd: numeroOu(body.custo_estimado_usd, 0),
       naFilaUsd: numeroOu(body.na_fila_usd, 0),
       itensNaFrente: numeroOu(body.itens_na_frente, 0),
-      // P2 do Codex (PR #42, 23ª rodada): `auto_medicao_velha` pode vir com
-      // todas as contas no limite de voo — a frase precisa saber para dizer.
-      todasSemVaga: body.todas_sem_vaga === true,
+      // P2 do Codex (PR #42, 23ª e 24ª rodadas): a medição velha pode vir
+      // junto do limite de voo — `sem_vaga` na escolha manual, `todas_sem_vaga`
+      // no automático. A frase precisa saber para dizer.
+      esperaVaga: body.motivo_codigo?.startsWith("manual_")
+        ? body.sem_vaga === true
+        : body.todas_sem_vaga === true,
     };
   } catch (error) {
     return { erro: traduzirErroFila(error) };

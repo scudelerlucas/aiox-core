@@ -234,7 +234,7 @@ describe("P2 Codex (PR #42, 11ª rodada) — item que espera vaga de voo não ap
       ...base,
       motivoCodigo: "auto_medicao_velha",
       cabeHoje: false,
-      todasSemVaga: true,
+      esperaVaga: true,
     } as never);
     const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
     expect(r.mensagem).toContain("todas as contas estão no limite de sessões em voo");

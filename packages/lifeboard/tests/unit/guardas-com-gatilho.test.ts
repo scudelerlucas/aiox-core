@@ -393,3 +393,37 @@ describe("22ª rodada — a publicação trava o item que vai receber o custo", 
     expect(corpo).toMatch(/where f\.session_id = new\.sessao_id\s+limit 1\s+for update;/);
   });
 });
+
+/**
+ * P1 do Codex (PR #42, 24ª rodada): a guarda da 21ª rodada olhava só
+ * DROP/CREATE de FUNÇÃO. O gatilho que leva a publicação da sessão ao livro
+ * (`painel_frentes_sessoes_lancar_caixa`) era derrubado e recriado em dois
+ * comandos soltos — com `psql` em autocommit, um deploy interrompido no meio
+ * deixava as publicações sem chegar ao livro. A mesma regra vale para gatilho.
+ */
+describe("24ª rodada — DROP e CREATE de gatilho numa transação só", () => {
+  const MIGRACOES = join(PACOTE, "supabase", "migrations");
+  const arquivos = readdirSync(MIGRACOES)
+    .filter((n) => /^00(2[7-9]|3\d)_.*\.sql$/.test(n) && !n.endsWith(".test.sql"))
+    .sort();
+
+  it("todo DROP TRIGGER seguido de CREATE TRIGGER do mesmo nome está dentro de begin/commit", () => {
+    const soltos: string[] = [];
+    let vistos = 0;
+    for (const nome of arquivos) {
+      const texto = readFileSync(join(MIGRACOES, nome), "utf8");
+      const re = /^drop trigger if exists (\w+) on /gm;
+      for (let m = re.exec(texto); m !== null; m = re.exec(texto)) {
+        const gatilho = m[1] as string;
+        if (!new RegExp(`^create trigger ${gatilho}\\b`, "m").test(texto.slice(m.index))) continue;
+        vistos += 1;
+        const antes = texto.slice(0, m.index);
+        const ultimoBegin = antes.lastIndexOf("\nbegin;");
+        const ultimoCommit = antes.lastIndexOf("\ncommit;");
+        if (ultimoBegin === -1 || ultimoBegin < ultimoCommit) soltos.push(`${nome}: ${gatilho}`);
+      }
+    }
+    expect(vistos, "a guarda não achou par nenhum — o padrão de busca quebrou").toBeGreaterThan(0);
+    expect(soltos, "drop+create de gatilho fora de transação: um deploy interrompido deixa a tabela sem ele").toEqual([]);
+  });
+});

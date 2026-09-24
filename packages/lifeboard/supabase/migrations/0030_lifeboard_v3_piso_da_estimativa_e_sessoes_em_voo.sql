@@ -239,10 +239,15 @@ $$;
 comment on function public.painel_fila_marca_parada_pendente() is
   'P2 do Codex (PR #42, 10ª rodada): no pega → cancelada, guarda o último sinal de vida em parada_pendente_desde para a vaga continuar ocupada até o dono fechar o item depois de interromper a filha (ou a janela vencer). Blocos T100/T101.';
 revoke all on function public.painel_fila_marca_parada_pendente() from public, anon, authenticated;
+-- P1 do Codex (PR #42, 24ª rodada): DROP e CREATE do gatilho numa transação só.
+-- O runner e o DEPLOY.md aplicam com `psql` em autocommit; um deploy
+-- interrompido entre os dois deixava a tabela SEM o gatilho.
+begin;
 drop trigger if exists painel_fila_prompts_parada_pendente on public.painel_fila_prompts;
 create trigger painel_fila_prompts_parada_pendente
   before update of estado on public.painel_fila_prompts
   for each row execute function public.painel_fila_marca_parada_pendente();
+commit;
 
 -- ── 1e'' (antes numerada §11) · fila_prompts_fechar_interno — o dono que
 --       fecha o cancelado libera a vaga
@@ -595,10 +600,15 @@ comment on function public.painel_teto_diario_piso_sustenta() is
   'CRÍTICO (rodada 15): a guarda de CIRCUNVENÇÃO do piso. O caminho mais barato para desfazer painel_custo_minimo_por_item() não é mexer nele — é subir o teto e deixá-lo onde está, porque o piso vale 1/painel_fila_itens_simultaneos_maximos_por_valor() do teto. Ela recusa SUBIR o teto além do que o piso sustenta, nunca baixa teto nenhum, e nomeia o conserto (subir o piso na mesma migration).';
 revoke all on function public.painel_teto_diario_piso_sustenta() from public, anon, authenticated;
 
+-- P1 do Codex (PR #42, 24ª rodada): DROP e CREATE do gatilho numa transação só.
+-- O runner e o DEPLOY.md aplicam com `psql` em autocommit; um deploy
+-- interrompido entre os dois deixava a tabela SEM o gatilho.
+begin;
 drop trigger if exists painel_teto_diario_piso_sustenta on public.painel_teto_diario;
 create trigger painel_teto_diario_piso_sustenta
   before insert or update of teto_usd on public.painel_teto_diario
   for each row execute function public.painel_teto_diario_piso_sustenta();
+commit;
 
 -- ── 5 · GUARDA DE CIRCUNVENÇÃO · nenhum dos dois números fica decorativo ───
 -- Dois invariantes, medidos contra o que o BANCO declara, não contra números

@@ -1443,10 +1443,15 @@ comment on function public.painel_frentes_sessoes_lancar() is
 -- migrations anteriores a esta.
 revoke all on function public.painel_frentes_sessoes_lancar() from public, anon, authenticated;
 
+-- P1 do Codex (PR #42, 24ª rodada): DROP e CREATE do gatilho numa transação só.
+-- O runner e o DEPLOY.md aplicam com `psql` em autocommit; um deploy
+-- interrompido entre os dois deixava a tabela SEM o gatilho.
+begin;
 drop trigger if exists painel_frentes_sessoes_lancar_caixa on public.painel_frentes_sessoes;
 create trigger painel_frentes_sessoes_lancar_caixa
   after insert or update of custo_usd, conta, atualizado_em on public.painel_frentes_sessoes
   for each row execute function public.painel_frentes_sessoes_lancar();
+commit;
 
 -- ── 8 · MÉDIO 3 · a QUARTA conta entra na fila ─────────────────────────────
 -- Medido em produção em 21/09/2026: `painel_teto_diario` tem QUATRO contas —

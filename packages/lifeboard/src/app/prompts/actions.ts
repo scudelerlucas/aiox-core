@@ -129,7 +129,7 @@ type ResultadoMutar =
       custoEstimadoUsd?: number;
       naFilaUsd?: number;
       itensNaFrente?: number;
-      todasSemVaga?: boolean;
+      esperaVaga?: boolean;
       motivoCancelamento?: string;
       custoLancadoUsd?: number;
       tentativas?: number;
@@ -206,7 +206,7 @@ function frasePraTela(r: Extract<ResultadoMutar, { ok: true }>): string | undefi
       custoEstimadoUsd: r.custoEstimadoUsd ?? 0,
       naFilaUsd: r.naFilaUsd ?? 0,
       itensNaFrente: r.itensNaFrente ?? 0,
-      todasSemVaga: r.todasSemVaga === true,
+      esperaVaga: r.esperaVaga === true,
     });
   }
   const cancelamento = r.motivoCancelamento;

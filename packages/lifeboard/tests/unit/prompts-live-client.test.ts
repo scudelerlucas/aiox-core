@@ -162,7 +162,7 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
       naFilaUsd: 5,
       itensNaFrente: 1,
       // P2 do Codex (PR #42, 23ª rodada): a RPC não mandou `todas_sem_vaga`.
-      todasSemVaga: false,
+      esperaVaga: false,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
