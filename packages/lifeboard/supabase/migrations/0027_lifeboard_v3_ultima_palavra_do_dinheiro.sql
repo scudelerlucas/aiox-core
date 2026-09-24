@@ -93,11 +93,15 @@ revoke all on function public.painel_custo_maximo_por_item() from public, anon, 
 -- `update` seguinte estouraria a check — a recusa só mudaria de lugar. O
 -- limite passa a sair da MESMA função das portas: um lugar só, e o banco
 -- recusa `drop function` enquanto a constraint depender dela.
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_custo_usd_check;
 alter table public.painel_fila_prompts
   add constraint painel_fila_prompts_custo_usd_check
   check (custo_usd is null
          or (custo_usd >= 0 and custo_usd <= public.painel_custo_maximo_por_item()));
+commit;
 comment on column public.painel_fila_prompts.custo_usd is
   'ALTO 2 (rodada 13): 0..painel_custo_maximo_por_item() — faixa de SANIDADE, não o teto do dia. Era 0..500 desde a 0009, quando o teto diário era 150; em 14/09 o teto virou 500 e os dois números se confundiram, fazendo a porta de fechamento RECUSAR a medição real de uma sessão cara (o item morria valendo a estimativa e o dia abria teto falso). O freio do orçamento é o pull, que não despacha com o dia estourado; negativo continua proibido, que era o achado CRÍTICO #3 da 0009.';
 
@@ -635,13 +639,21 @@ drop function if exists public.painel_fila_motivo_do_pull(
 -- Produção já as ampliou (migration irmã de 21/09); aqui a mesma ampliação
 -- entra no repositório, para que um banco novo nasça igual ao vivo. Sem isto,
 -- `arborcactus@gmail.com` não entra nem na tabela do teto nem na fila.
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_teto_diario drop constraint if exists painel_teto_diario_conta_check;
 alter table public.painel_teto_diario add constraint painel_teto_diario_conta_check
   check (conta in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com'));
+commit;
 
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_conta_check;
 alter table public.painel_fila_prompts add constraint painel_fila_prompts_conta_check
   check (conta in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com'));
+commit;
 
 alter table public.painel_teto_diario alter column teto_usd set default 500;
 
@@ -1410,8 +1422,16 @@ begin
   -- de esperar: se o item já não aponta para A, ele sai do resultado e A
   -- publica por conta própria, no ramo de baixo. Travado aqui, o vínculo não
   -- muda até o fim desta transação. Guarda: `guardas-com-gatilho.test.ts`.
+  --
+  -- P2 do Codex (PR #42, 25ª rodada): e a MESMA CONTA. O worker pode vincular
+  -- uma sessão que ainda não publicou (`painel_sessao_dona` devolve null e o
+  -- heartbeat deixa passar); se ela depois publica por OUTRA conta, casar só
+  -- pelo `session_id` mandava o custo para o livro da conta do item — a conta
+  -- que gastou ficava com teto falso e a outra pagava. Conta diferente publica
+  -- como sessão independente, na conta dela (ramo de baixo). T113.
   select f.id into v_item from public.painel_fila_prompts f
     where f.session_id = new.sessao_id
+      and f.conta = new.conta
     limit 1
     for update;
 

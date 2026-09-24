@@ -84,13 +84,21 @@ comment on function public.painel_contas_da_casa() is
 revoke all on function public.painel_contas_da_casa() from public, anon, authenticated;
 
 -- ── 2 · as duas constraints de coluna passam a ler a fonte única ───────────
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_teto_diario drop constraint if exists painel_teto_diario_conta_check;
 alter table public.painel_teto_diario add constraint painel_teto_diario_conta_check
   check (conta = any (public.painel_contas_da_casa()));
+commit;
 
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_conta_check;
 alter table public.painel_fila_prompts add constraint painel_fila_prompts_conta_check
   check (conta = any (public.painel_contas_da_casa()));
+commit;
 
 -- ── 3 · CRÍTICO 5 · primeira parede: estimativa ZERO não é estimativa ──────
 -- A migration ABORTA se o banco já tiver estimativa ≤ 0: ajustar o número em
@@ -107,9 +115,13 @@ begin
   end if;
 end $$;
 
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_custo_estimado drop constraint if exists painel_custo_estimado_usd_check;
 alter table public.painel_custo_estimado add constraint painel_custo_estimado_usd_check
   check (usd > 0);
+commit;
 comment on column public.painel_custo_estimado.usd is
   'CRÍTICO 5 (rodada 14): ESTRITAMENTE maior que zero. Era `>= 0` desde a 0009. Zero é o número que um operador escreve para "este modelo é de graça", e com ele o teto da conta deixa de existir para aquela complexidade: o item é sempre elegível (0 <= qualquer headroom), painel_fila_reservado soma zero (despachar não consome espaço) e o gatilho de admissão não recusa (0 > teto é falso). Medido: 6 sessões em voo na mesma conta, reserva US$ 0, headroom anunciando US$ 499.';
 
@@ -125,9 +137,13 @@ begin
   end if;
 end $$;
 
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_custo_estimado_check;
 alter table public.painel_fila_prompts add constraint painel_fila_prompts_custo_estimado_check
   check (custo_estimado_usd > 0);
+commit;
 comment on column public.painel_fila_prompts.custo_estimado_usd is
   'CRÍTICO 5 (rodada 14): ESTRITAMENTE maior que zero (era `>= 0`, 0009). Calculado SEMPRE pelo gatilho a partir da complexidade, lendo painel_custo_estimado — esta check é a parede de baixo, para que um `update` direto na coluna não refaça o buraco por baixo da tabela de estimativas. A reserva de teto (painel_fila_reservado) soma esta coluna: estimativa zero = despacho que não consome headroom nenhum.';
 

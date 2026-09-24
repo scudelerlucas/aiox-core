@@ -390,7 +390,7 @@ describe("22ª rodada — a publicação trava o item que vai receber o custo", 
     const texto = ultima as string;
     const inicio = texto.lastIndexOf("create or replace function public.painel_frentes_sessoes_lancar()");
     const corpo = texto.slice(inicio, texto.indexOf("$$;", inicio));
-    expect(corpo).toMatch(/where f\.session_id = new\.sessao_id\s+limit 1\s+for update;/);
+    expect(corpo).toMatch(/where f\.session_id = new\.sessao_id\s+and f\.conta = new\.conta\s+limit 1\s+for update;/);
   });
 });
 
@@ -425,5 +425,38 @@ describe("24ª rodada — DROP e CREATE de gatilho numa transação só", () => 
     }
     expect(vistos, "a guarda não achou par nenhum — o padrão de busca quebrou").toBeGreaterThan(0);
     expect(soltos, "drop+create de gatilho fora de transação: um deploy interrompido deixa a tabela sem ele").toEqual([]);
+  });
+});
+
+/**
+ * P2 do Codex (PR #42, 25ª rodada): o mesmo buraco da 21ª (função) e da 24ª
+ * (gatilho), agora nas CHECK constraints. `drop constraint` e `add constraint`
+ * em comandos soltos deixavam a tabela sem a regra se o deploy parasse entre
+ * os dois — ou se uma escrita concorrente fizesse o ADD falhar na validação.
+ */
+describe("25ª rodada — DROP e ADD de constraint numa transação só", () => {
+  const MIGRACOES = join(PACOTE, "supabase", "migrations");
+  const arquivos = readdirSync(MIGRACOES)
+    .filter((n) => /^00(2[7-9]|3\d)_.*\.sql$/.test(n) && !n.endsWith(".test.sql"))
+    .sort();
+
+  it("todo DROP CONSTRAINT seguido de ADD da mesma constraint está dentro de begin/commit", () => {
+    const soltos: string[] = [];
+    let vistos = 0;
+    for (const nome of arquivos) {
+      const texto = readFileSync(join(MIGRACOES, nome), "utf8");
+      const re = /^alter table \S+ drop constraint if exists (\w+);/gm;
+      for (let m = re.exec(texto); m !== null; m = re.exec(texto)) {
+        const regra = m[1] as string;
+        if (!new RegExp(`add constraint ${regra}\\b`).test(texto.slice(m.index))) continue;
+        vistos += 1;
+        const antes = texto.slice(0, m.index);
+        const ultimoBegin = antes.lastIndexOf("\nbegin;");
+        const ultimoCommit = antes.lastIndexOf("\ncommit;");
+        if (ultimoBegin === -1 || ultimoBegin < ultimoCommit) soltos.push(`${nome}: ${regra}`);
+      }
+    }
+    expect(vistos, "a guarda não achou par nenhum — o padrão de busca quebrou").toBeGreaterThan(0);
+    expect(soltos, "drop+add de constraint fora de transação: um deploy interrompido deixa a tabela sem a regra").toEqual([]);
   });
 });

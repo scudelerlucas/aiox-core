@@ -539,9 +539,13 @@ begin
   end if;
 end $$;
 
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_custo_estimado drop constraint if exists painel_custo_estimado_usd_check;
 alter table public.painel_custo_estimado add constraint painel_custo_estimado_usd_check
   check (usd >= public.painel_custo_minimo_por_item());
+commit;
 comment on column public.painel_custo_estimado.usd is
   'CRÍTICO (rodada 15): pelo menos painel_custo_minimo_por_item() (US$ 5,00 = 1% do teto). Era `>= 0` na 0009 e `> 0` na 0029 — e `> 0` fecha o NÚMERO zero deixando a CLASSE aberta: com 0,0001 o coordenador despachou 40 sessões em voo contra US$ 1,00 de espaço, reserva total de US$ 0,0040, e US$ 1,00 admitiria dez mil. A pergunta da parede deixou de ser "é diferente de zero?" e passou a ser "é grande o bastante para reservar algo?".';
 
@@ -558,9 +562,13 @@ begin
   end if;
 end $$;
 
+-- P2 do Codex (PR #42, 25ª rodada): DROP e ADD da constraint numa transação só
+-- (`psql` em autocommit deixaria a tabela sem a regra entre os dois).
+begin;
 alter table public.painel_fila_prompts drop constraint if exists painel_fila_prompts_custo_estimado_check;
 alter table public.painel_fila_prompts add constraint painel_fila_prompts_custo_estimado_check
   check (custo_estimado_usd >= public.painel_custo_minimo_por_item());
+commit;
 comment on column public.painel_fila_prompts.custo_estimado_usd is
   'CRÍTICO (rodada 15): pelo menos painel_custo_minimo_por_item(). Calculado SEMPRE pelo gatilho a partir da complexidade (painel_custo_estimado) — esta check é a parede de baixo, para que um `update` direto na coluna não refaça o buraco por baixo da tabela de estimativas. A reserva de teto (painel_fila_reservado) soma esta coluna: estimativa de centavo = despacho que quase não consome headroom, e foi assim que 40 sessões couberam em US$ 1,00.';
 

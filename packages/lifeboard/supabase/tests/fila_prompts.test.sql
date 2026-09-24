@@ -6603,3 +6603,48 @@ begin
   raise exception 'FALHA: T112 esperado linha do teto de pé e conta fora da escolha e da tela — obteve linha=% escolha=% tela=%',
     v_linha_ficou, v_na_escolha, v_na_tela;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T113 · P2 do Codex (PR #42, 25ª rodada) — SESSÃO VINCULADA QUE PUBLICA POR
+-- OUTRA CONTA NÃO É COBRADA DO ITEM
+-- O worker vincula ao item uma sessão que ainda não publicou nada (o
+-- heartbeat e o fechamento deixam passar: `painel_sessao_dona` devolve null).
+-- Depois a sessão publica por OUTRA conta. A busca do item casava só pelo
+-- `session_id`, e o custo ia para o livro da conta do ITEM — a conta que
+-- gastou ficava com teto falso e a outra pagava. Agora a busca exige a mesma
+-- conta; conta diferente publica como sessão independente, na conta dela.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar `and f.conta = new.conta` da
+-- busca travada em `painel_frentes_sessoes_lancar` (0027 §7b).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_dono text := 'lucasscudeler@gmail.com';
+  v_outra text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_dono_hoje numeric; v_outra_hoje numeric; v_item_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where sessao_id = 'sess-T113';
+  delete from public.painel_caixa_lancamentos where entidade_id = 'sess-T113';
+  delete from public.painel_fila_prompts where conta in (v_dono, v_outra);
+  delete from public.painel_caixa_lancamentos where conta in (v_dono, v_outra);
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (v_dono, 'T113 item', 'baixa', 'Haiku', 'sess-T113') returning id into v_id;
+
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T113', v_outra, 'publicou por outra conta', 'idle', 25, now());
+
+  select coalesce(sum(valor_usd), 0) into v_dono_hoje
+    from public.painel_caixa_lancamentos where conta = v_dono and dia = public.painel_dia_operador();
+  select coalesce(sum(valor_usd), 0) into v_outra_hoje
+    from public.painel_caixa_lancamentos where conta = v_outra and dia = public.painel_dia_operador();
+  select coalesce(sum(contribuicao), 0) into v_item_hoje
+    from public.painel_fila_itens_do_dia(v_dono, public.painel_dia_operador()) where id = v_id;
+
+  if v_dono_hoje = 0 and v_outra_hoje = 25 and v_item_hoje = 0 then
+    raise exception 'RESULTADO: ok — T113 a publicação por outra conta ficou na conta dela (US$ %), o item e a conta dele seguiram em zero',
+      v_outra_hoje;
+  end if;
+  raise exception 'FALHA: T113 esperado dono 0, outra 25 e item 0 — obteve dono=% outra=% item=%',
+    v_dono_hoje, v_outra_hoje, v_item_hoje;
+end $$;
