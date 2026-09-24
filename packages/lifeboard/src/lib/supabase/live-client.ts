@@ -385,6 +385,8 @@ export type MutateFilaResult =
       custoEstimadoUsd?: number;
       naFilaUsd?: number;
       itensNaFrente?: number;
+      /** P2 do Codex (PR #42, 23ª rodada): todas as contas no limite de voo. */
+      todasSemVaga?: boolean;
       /** #11: código do cancelamento (nunca pego × devolvido × em execução). */
       motivoCancelamento?: string;
       custoLancadoUsd?: number;
@@ -473,6 +475,9 @@ export async function enfileirarPrompt(payload: {
       custoEstimadoUsd: numeroOu(body.custo_estimado_usd, 0),
       naFilaUsd: numeroOu(body.na_fila_usd, 0),
       itensNaFrente: numeroOu(body.itens_na_frente, 0),
+      // P2 do Codex (PR #42, 23ª rodada): `auto_medicao_velha` pode vir com
+      // todas as contas no limite de voo — a frase precisa saber para dizer.
+      todasSemVaga: body.todas_sem_vaga === true,
     };
   } catch (error) {
     return { erro: traduzirErroFila(error) };

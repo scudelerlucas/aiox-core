@@ -870,6 +870,12 @@ export interface NumerosDoEnfileiramento {
   custoEstimadoUsd: number;
   naFilaUsd: number;
   itensNaFrente: number;
+  /**
+   * P2 do Codex (PR #42, 23ª rodada): TODAS as contas estão no limite de
+   * sessões em voo. Hoje só a frase de medição velha lê isto — os outros
+   * códigos já nascem com a vaga dentro deles (`auto_sem_vaga`, `_com_vaga`).
+   */
+  todasSemVaga?: boolean;
 }
 
 /**
@@ -948,13 +954,47 @@ export function fraseDoEnfileiramento(
         `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. ` +
         `Entra na fila e roda quando houver espaço.`
       );
-    case "auto_medicao_velha":
-      return (
+    case "auto_medicao_velha": {
+      /*
+        P2 do Codex (PR #42, 23ª rodada): a medição parada NÃO é sempre o único
+        bloqueio. A resposta da fila pode trazer, junto de `todas_recusadas`,
+        falta de dinheiro e todas as contas no limite de sessões em voo — e esta
+        frase dizia "não é falta de espaço" e prometia rodar "quando a medição
+        voltar". Agora ela só nega o espaço quando o espaço existe, e a condição
+        de saída lista TUDO que precisa acontecer.
+      */
+      const inicio =
         `Enfileirado para ${conta}: nenhuma conta autoriza gasto agora — elas exigem medição de ` +
-        `menos de ${LIMITE_DEFASAGEM_HORAS} h e a medição está parada. Não é falta de espaço ` +
-        `(há ${formatarUsd(espaco)} livres para uma tarefa ${complexidade} de ` +
-        `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. Entra na fila e roda quando a medição voltar.`
+        `menos de ${LIMITE_DEFASAGEM_HORAS} h e a medição está parada.`;
+      const faltaEspaco = espaco < n.custoEstimadoUsd;
+      const semVaga = n.todasSemVaga === true;
+      if (!faltaEspaco && !semVaga) {
+        return (
+          `${inicio} Não é falta de espaço (há ${formatarUsd(espaco)} livres para uma tarefa ` +
+          `${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. Entra na fila e roda ` +
+          `quando a medição voltar.`
+        );
+      }
+      const alem: string[] = [];
+      const condicoes = ["a medição voltar"];
+      if (faltaEspaco) {
+        alem.push(
+          `o dia também não tem espaço — ${espaco > 0 ? `só ${formatarUsd(espaco)} livres` : "nenhum espaço livre"} ` +
+            `para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)}${detalheDaFila}`,
+        );
+        condicoes.push("houver espaço");
+      }
+      if (semVaga) {
+        alem.push("todas as contas estão no limite de sessões em voo");
+        condicoes.push("uma sessão fechar");
+      }
+      const juntar = (partes: string[]): string =>
+        partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}`;
+      return (
+        `${inicio} E não é só a medição: ${juntar(alem)}. Entra na fila e roda quando ` +
+        `${juntar(condicoes)}.`
       );
+    }
     case "manual_medicao_velha":
       return (
         `Enfileirado para ${conta} (escolha manual): esta conta está com a medição parada há mais de ` +

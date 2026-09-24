@@ -227,6 +227,20 @@ describe("P2 Codex (PR #42, 11ª rodada) — item que espera vaga de voo não ap
     });
   }
 
+  // P2 do Codex (PR #42, 23ª rodada): o sinal de "todas no limite de voo"
+  // atravessa a action até a frase de medição velha.
+  it("auto_medicao_velha com todas no limite de voo: a frase pede também uma sessão fechar", async () => {
+    vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+      ...base,
+      motivoCodigo: "auto_medicao_velha",
+      cabeHoje: false,
+      todasSemVaga: true,
+    } as never);
+    const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+    expect(r.mensagem).toContain("todas as contas estão no limite de sessões em voo");
+    expect(r.mensagem).not.toContain("Não é falta de espaço");
+  });
+
   it("auto_maior_espaco com dinheiro: continua pronto (cabeHoje=true)", async () => {
     vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
       ...base,

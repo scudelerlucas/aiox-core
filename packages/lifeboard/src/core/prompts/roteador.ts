@@ -359,3 +359,19 @@ export function prontidaoDoEnvio(
         : undefined,
   };
 }
+
+/**
+ * P2 do Codex (PR #42, 23ª rodada): as contas que a casa tem AGORA são as que
+ * o banco devolveu em `consumo` — `painel_fila_consumo_para_tela` filtra por
+ * `painel_contas_da_casa()` desde a 22ª rodada. O seletor manual lia a lista
+ * fixa `CONTAS` e oferecia uma conta já removida, e o envio batia na recusa do
+ * banco. A ordem continua a de `CONTAS` (a de desempate).
+ */
+export function contasAtivas(consumo: readonly ConsumoConta[]): Conta[] {
+  return CONTAS.filter((c) => consumo.some((item) => item.conta === c));
+}
+
+/** A escolha manual que deixou de existir volta a ser "automático" (""). */
+export function contaOverrideAtiva(escolhida: string, consumo: readonly ConsumoConta[]): string {
+  return (contasAtivas(consumo) as readonly string[]).includes(escolhida) ? escolhida : "";
+}

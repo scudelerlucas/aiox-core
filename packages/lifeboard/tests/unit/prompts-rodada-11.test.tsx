@@ -515,3 +515,60 @@ describe("as 9 mutações que sobreviveram à rodada 10", () => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+// ═══════════════════════════════════════ P2 do Codex (PR #42, 23ª rodada) ═══
+describe("23ª rodada — medição velha não apaga os outros bloqueios do enfileiramento", () => {
+  const numeros = {
+    conta: PANDORA,
+    complexidade: "alta" as const,
+    headroomUsd: 500,
+    espacoLivreUsd: 500,
+    custoEstimadoUsd: 50,
+    naFilaUsd: 0,
+    itensNaFrente: 0,
+  };
+
+  it("só a medição: a frase de antes, que nega a falta de espaço", () => {
+    const frase = fraseDoEnfileiramento("auto_medicao_velha", numeros);
+    expect(frase).toContain("Não é falta de espaço");
+    expect(frase).toContain("Entra na fila e roda quando a medição voltar.");
+  });
+
+  it("medição + dinheiro + vaga: não nega o espaço e pede as três coisas", () => {
+    const frase = fraseDoEnfileiramento("auto_medicao_velha", {
+      ...numeros,
+      espacoLivreUsd: 20,
+      todasSemVaga: true,
+    });
+    expect(frase).not.toContain("Não é falta de espaço");
+    expect(frase).toContain("o dia também não tem espaço — só US$ 20,00 livres");
+    expect(frase).toContain("todas as contas estão no limite de sessões em voo");
+    expect(frase).toContain("Entra na fila e roda quando a medição voltar, houver espaço e uma sessão fechar.");
+  });
+
+  it("live: `todas_sem_vaga` chega à frase", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      respostaOk({
+        ok: true,
+        id: "abc",
+        conta: PANDORA,
+        complexidade: "alta",
+        motivo_codigo: "auto_nao_cabe_hoje",
+        cabe_hoje: false,
+        headroom_usd: 500,
+        espaco_livre_usd: 500,
+        custo_estimado_usd: 50,
+        na_fila_usd: 0,
+        itens_na_frente: 0,
+        todas_recusadas: true,
+        todas_sem_vaga: true,
+      }),
+    );
+    const r = await enfileirarPrompt({ prompt: "x", complexidade: "alta" });
+    vi.unstubAllGlobals();
+    expect("motivoCodigo" in r ? r.motivoCodigo : "").toBe("auto_medicao_velha");
+    expect("todasSemVaga" in r ? r.todasSemVaga : undefined).toBe(true);
+  });
+});

@@ -124,6 +124,8 @@ export interface ResultadoEnfileirarFixture {
   custoEstimadoUsd: number;
   naFilaUsd: number;
   itensNaFrente: number;
+  /** P2 do Codex (PR #42, 23ª rodada): espelho de `todas_sem_vaga` da RPC. */
+  todasSemVaga: boolean;
 }
 
 export interface ResultadoCancelarFixture {
@@ -660,6 +662,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     custoEstimadoUsd: custoEstimado,
     naFilaUsd: c.naFilaUsd,
     itensNaFrente,
+    todasSemVaga: !manual && autoTodasSemVaga,
   };
 }
 

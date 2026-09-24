@@ -7,7 +7,7 @@ import { CampoErro } from "@/components/task/campo-erro";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import { MensagemDaFila } from "@/components/prompts/mensagem-da-fila";
 import { useAcaoPrompt } from "@/components/prompts/usar-acao-prompt";
-import type { Complexidade } from "@/core/prompts/tipos";
+import type { Complexidade, Conta } from "@/core/prompts/tipos";
 import { CONTAS, ROTULO_CONTA, ROTULO_COMPLEXIDADE } from "@/core/prompts/tipos";
 
 const OPCOES_COMPLEXIDADE: readonly OpcaoSegmentada<Complexidade>[] = [
@@ -27,6 +27,11 @@ export interface NovoPromptFormProps {
   aoMudarComplexidade: (v: Complexidade) => void;
   contaOverride: string;
   aoMudarContaOverride: (v: string) => void;
+  /**
+   * P2 do Codex (PR #42, 23ª rodada): as contas que o seletor oferece — as que
+   * o banco devolveu, não a lista fixa. Sem a prop, vale `CONTAS`.
+   */
+  contasDisponiveis?: readonly Conta[];
   modeloImplicado: string;
   motivoAuto: string;
   contaAuto: string | null;
@@ -61,6 +66,7 @@ export function NovoPromptForm({
   aoMudarComplexidade,
   contaOverride,
   aoMudarContaOverride,
+  contasDisponiveis = CONTAS,
   modeloImplicado,
   motivoAuto,
   contaAuto,
@@ -130,7 +136,7 @@ export function NovoPromptForm({
             className="min-h-[44px] rounded-md border border-navy-700 bg-navy-900 px-2 text-sm text-bone-100 focus:border-gold-500 focus:outline-none disabled:opacity-50"
           >
             <option value="">automático (maior espaço livre hoje)</option>
-            {CONTAS.map((c) => (
+            {contasDisponiveis.map((c) => (
               <option key={c} value={c}>
                 {ROTULO_CONTA[c]}
               </option>
