@@ -1,3 +1,7 @@
+> **SUPERADO em 24/09/2026** — a `main` resolveu a 4ª conta com a 0029 (fonte única da lista de
+> contas). E a leitura de "correções desfeitas" nas duas emendas abaixo foi corrigida: nada se
+> perdeu em produção; o que existe é a 0025 nunca aplicada. Ver `README.md` desta pasta.
+
 # A 4ª conta não cabe numa migration só — e o teste-guarda é quem decide
 
 **Medido em 21/09/2026.** Aparece ao tentar ligar `arborcactus@gmail.com` na fila do Lifeboard.
