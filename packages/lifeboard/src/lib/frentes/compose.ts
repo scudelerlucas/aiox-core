@@ -82,10 +82,11 @@ const CONTAS: Record<string, { rotulo: string; cor: CorConta }> = {
   "lucasscudeler@gmail.com": { rotulo: "Lucas", cor: "lucas" },
   "lsgpandora@gmail.com": { rotulo: "Pandora", cor: "pandora" },
   "almapetra.ltda@gmail.com": { rotulo: "Alma Petra", cor: "almapetra" },
+  "arborcactus@gmail.com": { rotulo: "Arbor", cor: "arbor" },
 };
 
-/** As três contas da casa, na ordem em que aparecem nos filtros. */
-export const CONTAS_CONHECIDAS = ["Lucas", "Pandora", "Alma Petra"];
+/** As contas da casa, na ordem em que aparecem nos filtros. */
+export const CONTAS_CONHECIDAS = ["Lucas", "Pandora", "Alma Petra", "Arbor"];
 
 /** Rótulo curto da conta; e-mail desconhecido vira a parte antes do "@". */
 export function rotuloDaConta(email: string | null | undefined): {

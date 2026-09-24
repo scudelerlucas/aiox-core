@@ -1,25 +1,34 @@
 -- =============================================================================
 -- OS-LIFEBOARD · Migration 0026 — a fila PULL passa a aceitar a 4ª conta.
 -- =============================================================================
--- APLICADA EM PRODUÇÃO em 2026-09-21 (projeto hciiilopyivjaekaxfqp), sob ordem
--- explícita do operador ("aprovar todas execuções e permissões de SQL").
--- Este arquivo existe para que o repositório não fique atrás do banco.
+-- ⚠ PROPOSTA — NÃO APLICADA EM PRODUÇÃO. Precisa da decisão descrita em
+--   `ACHADO-quarta-conta-esta-em-4-funcoes-2026-09-21.md`, nesta mesma pasta.
 --
--- POR QUÊ
---   Medido em 21/09: `painel_teto_diario` já listava 4 contas (a 4ª,
---   `arborcactus@gmail.com`, entrou depois da 0007) e `painel_fila_prompts`
---   ainda travava em 3, pelo check da 0007. Teto e fila discordando = conta com
---   orçamento e sem fila: item escrito para ela seria RECUSADO pelo banco, e o
---   trabalho nunca andaria. É a mesma classe de falha silenciosa que a 0007 já
---   descrevia em R6 (recusa no banco, nunca em hook).
+-- HISTÓRICO HONESTO: em 21/09 esta migration FOI aplicada em produção e
+--   REVERTIDA no mesmo dia, pela sessão que a escreveu. O motivo está no
+--   ACHADO: ampliar só o CHECK deixa a 4ª conta aceita pela TABELA e recusada
+--   pelas FUNÇÕES, que guardam a lista das contas por dentro. Meio-caminho não
+--   serve, e produção não deve andar à frente da revisão.
+--
+-- POR QUÊ A MUDANÇA EXISTE
+--   `painel_teto_diario` já lista 4 contas (a 4ª, `arborcactus@gmail.com`,
+--   entrou depois da 0007) e `painel_fila_prompts` trava em 3. Teto e fila
+--   discordando = conta com orçamento e sem fila: item escrito para ela é
+--   recusado pelo banco e o trabalho nunca anda.
 --
 -- ADITIVO: só amplia o conjunto aceito. Nenhuma linha muda, nada é apagado.
--- DESFAZER: recriar o check com as 3 contas da 0007. Em 21/09 não existia
---   nenhuma linha com a 4ª conta (a tabela estava vazia), então a volta é limpa.
+-- DESFAZER: recriar o check com as 3 contas da 0007 (feito em 21/09; a tabela
+--   está vazia, então a volta é limpa).
 --
--- AINDA FALTA (código, não banco): `src/core/prompts/tipos.ts` e
---   `src/lib/frentes/compose.ts` têm a lista das 3 contas no TypeScript. Sem
---   editá-los, a 4ª conta é aceita pelo banco e não aparece na tela.
+-- NÃO BASTA SOZINHA. Falta, no mesmo commit:
+--   1. as 4 funções que guardam a lista: `fila_prompts_enfileirar`,
+--      `fila_prompts_listar`, `fila_prompts_pegar_interno`,
+--      `fila_prompts_fechar_interno` — nas guardas `not in (…)` e na ordem de
+--      desempate `case t.conta … then N`;
+--   2. o TypeScript (`src/core/prompts/tipos.ts`, `src/lib/frentes/compose.ts`,
+--      `src/lib/frentes/types.ts`, `src/components/frentes/conta-chip.tsx`) —
+--      já feito nesta branch, `tsc --noEmit` limpo;
+--   3. a decisão sobre o teste-guarda `tests/unit/prompts-espelho-sql.test.ts`.
 -- =============================================================================
 
 alter table public.painel_fila_prompts
@@ -35,4 +44,4 @@ alter table public.painel_fila_prompts
   ]::text[]));
 
 comment on constraint painel_fila_prompts_conta_check on public.painel_fila_prompts is
-  'As contas que podem receber item da fila PULL. Ampliado de 3 para 4 em 2026-09-21 para casar com public.painel_teto_diario, que já tinha arborcactus@gmail.com.';
+  'As contas que podem receber item da fila PULL. Ampliado de 3 para 4 para casar com public.painel_teto_diario.';
