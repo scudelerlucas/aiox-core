@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { ContaCard } from "@/components/prompts/conta-card";
 import { NovoPromptForm, type TarefaParaLink } from "@/components/prompts/novo-prompt-form";
-import { contaTemEspacoPara, escolherConta } from "@/core/prompts/roteador";
+import { contaOverrideAtiva, contasAtivas, escolherConta, prontidaoDoEnvio } from "@/core/prompts/roteador";
 import type { Complexidade, ConsumoConta } from "@/core/prompts/tipos";
 import { CONTAS, modeloParaComplexidade } from "@/core/prompts/tipos";
 
@@ -29,7 +29,17 @@ export function PromptsClient({
   agora?: number;
 }): JSX.Element {
   const [complexidade, setComplexidade] = useState<Complexidade>("baixa");
-  const [contaOverride, setContaOverride] = useState<string>("");
+  const [contaEscolhida, setContaOverride] = useState<string>("");
+
+  /*
+    P2 do Codex (PR #42, 23ª rodada): as contas que a casa tem AGORA são as que
+    o banco devolveu em `consumo` (filtrado por `painel_contas_da_casa()` desde
+    a 22ª rodada) — não a lista fixa `CONTAS` do TypeScript. O seletor manual
+    oferecia uma conta já removida, e o envio batia na recusa do banco. E uma
+    escolha que deixou de existir volta a ser "automático", sem resto.
+  */
+  const ativas = contasAtivas(consumo);
+  const contaOverride = contaOverrideAtiva(contaEscolhida, consumo);
 
   // D36 (rodada 8): o instante entra no roteamento. Sem ele, `escolherConta` e
   // `contaTemEspacoPara` não conseguem perguntar "o banco recusaria agora?" —
@@ -44,17 +54,23 @@ export function PromptsClient({
 
   const contaOverrideItem =
     contaOverride === "" ? undefined : consumo.find((c) => c.conta === contaOverride);
-  const overrideSemEspaco =
-    contaOverrideItem !== undefined &&
-    !contaTemEspacoPara(contaOverrideItem, complexidade, instante);
-
-  // "Não cabe hoje" é um AVISO; "impossível" (conta null) é o único bloqueio.
-  const naoCabeHoje = contaOverride === "" ? !escolha.cabeHoje : overrideSemEspaco;
+  const { overrideSemEspaco, naoCabeHoje, avisoEspera } = prontidaoDoEnvio(
+    contaOverrideItem,
+    escolha,
+    complexidade,
+    instante,
+  );
   const impossivel = escolha.conta === null;
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      {/*
+        MÉDIO 3 (rodada 12): são QUATRO contas agora. Com `sm:grid-cols-3` a
+        quarta caía sozinha numa segunda linha, larga como as outras três
+        juntas. Duas colunas no tablet, quatro no desktop — e uma só no
+        telefone, como antes.
+      */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {CONTAS.map((conta) => {
           const item = consumo.find((c) => c.conta === conta);
           if (!item) return null;
@@ -83,13 +99,16 @@ export function PromptsClient({
         aoMudarComplexidade={setComplexidade}
         contaOverride={contaOverride}
         aoMudarContaOverride={setContaOverride}
+        contasDisponiveis={ativas}
         modeloImplicado={modeloImplicado}
         motivoAuto={escolha.motivo}
         contaAuto={escolha.conta}
         tarefas={tarefas}
         naoCabeHoje={naoCabeHoje}
+        avisoEspera={avisoEspera}
         impossivel={impossivel}
       />
     </div>
   );
 }
+

@@ -10,7 +10,8 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "contraste": "node scripts/checar-contraste.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

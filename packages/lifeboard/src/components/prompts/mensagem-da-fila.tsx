@@ -99,7 +99,15 @@ export function MensagemDaFila({
         className={
           temTexto
             ? `mt-2 text-xs font-medium focus:outline-none ${atencao ? "text-state-progress" : "text-state-done"}`
-            : "sr-only"
+            : // M2 (rodada 11): `sr-only` é `position:absolute` sem
+              // deslocamento, e um absoluto de deslocamento automático fica na
+              // "posição estática" — que aqui, no uso de `fila-tabela.tsx`, é
+              // dentro da tabela de 880 px. O `overflow-x-auto` da tabela não
+              // recortava esse caso e a PÁGINA rolava 74 px de lado em
+              // 820×1180 (medido: `scrollWidth` 894 contra 820 de viewport).
+              // Ancorado em `left-0 top-0` ele volta a ser recortado, e segue
+              // 1×1 px, invisível e anunciável pelo `role="status"`.
+              "sr-only left-0 top-0"
         }
       >
         {temTexto ? mensagem : ""}

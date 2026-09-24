@@ -9,11 +9,17 @@ import {
   frasePeLancamento,
 } from "@/components/prompts/mensagem-da-fila";
 import { alvoAposExclusaoDeNota, focarComAlternativa } from "@/components/task/foco";
-import { ContaCard } from "@/components/prompts/conta-card";
+import { ContaCard, textoDoRodape } from "@/components/prompts/conta-card";
 import {
+  POSTO_ESTIMATIVA,
+  custoAoCancelarUsd,
+  custoNaTela,
   estadoDaMedicao,
   fraseDoCancelamento,
+  headroomUsd,
   horasDeDefasagem,
+  livroAceita,
+  textoSemAjuste,
   textoTetoVsRealidade,
 } from "@/core/prompts/tipos";
 
@@ -29,7 +35,9 @@ vi.mock("@/lib/supabase/live-client", () => ({
   ajustarCustoPrompt: vi.fn(),
 }));
 
-const { FilaTabela, podeAjustarCusto } = await import("@/components/prompts/fila-tabela");
+const { FilaTabela, podeAjustarCusto, estadoInicialDoAjuste, aplicarMudancaNoAjuste } = await import(
+  "@/components/prompts/fila-tabela"
+);
 const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
 
 /**
@@ -97,6 +105,25 @@ describe("MÉDIO 4 — a frase que LANÇA dinheiro nunca sai em verde de sucesso
     expect(html).toContain("text-state-progress");
   });
 
+  /*
+   * P2 do Codex (PR #42): item que já rodou mas cujo custo já estava no livro
+   * (a sessão vinculada publicou, a estimativa foi recusada pelo posto) volta
+   * com `custo_lancado_usd = 0`. A frase dizia "US$ 0,00 entram no gasto de
+   * hoje" e mandava ajustar na linha — o ajuste que a tela já não oferece.
+   */
+  it("cancelamento de item que já rodou sem lançar nada não promete dinheiro nem ajuste", () => {
+    for (const [codigo, tentativas] of [
+      ["cancelado_em_execucao", 1],
+      ["cancelado_apos_devolucao", 2],
+    ] as const) {
+      const frase = fraseDoCancelamento(codigo, 0, tentativas);
+      expect(frase).not.toContain("US$ 0,00");
+      expect(frase).not.toContain("ajuste na linha");
+      expect(frase).toContain("não soma nada ao gasto de hoje");
+      expect(frasePeLancamento(frase)).toBe(false);
+    }
+  });
+
   it("cancelamento que NÃO custou nada continua em verde", () => {
     const frase = fraseDoCancelamento("cancelado_nunca_pego", 0, 0);
     expect(frasePeLancamento(frase)).toBe(false);
@@ -137,6 +164,43 @@ describe("MÉDIO 3 — o botão 'ajustar custo' só aparece em item fechado HOJE
 
   it("item com custo MEDIDO não oferece o ajuste, nem fechado hoje", () => {
     expect(render({ custoEEstimativa: false })).not.toContain("ajustar custo");
+  });
+
+  /*
+   * CRÍTICO 2 (rodada 12): o campo "sessão" do ajuste nascia VAZIO mesmo
+   * quando o item já tinha uma sessão vinculada. Campo de digitação livre que
+   * nasce vazio convida a digitar outra coisa, e trocar a sessão fazia o mesmo
+   * trabalho aparecer em duas entidades: o crítico mediu um item de US$ 30
+   * custando US$ 80 no dia, com a tela dizendo "o gasto de hoje já considera o
+   * número real". A trava de verdade é do banco (0027 §7); esta é a tela
+   * deixando de propor a troca.
+   */
+  it("o ajuste nasce com a SESSÃO que o item já tem, não em branco", () => {
+    expect(estadoInicialDoAjuste(item({ sessionId: "sess-ja-vinculada" })).sessao).toBe(
+      "sess-ja-vinculada",
+    );
+    expect(estadoInicialDoAjuste(item({ sessionId: null })).sessao).toBe("");
+    // e o valor continua partindo do custo atual do item
+    expect(estadoInicialDoAjuste(item({ custoUsd: 120 })).valor).toBe("120.00");
+  });
+
+  /*
+   * P2 do Codex (PR #42): o estado inicial só valia ATÉ a primeira mexida. O
+   * clique em "ajustar custo" grava `{ aberto: true }`, e o ponto de partida
+   * dessa gravação era o estado vazio — o formulário abria sem a sessão e sem
+   * o custo. MUTAÇÃO QUE DEIXA ESTE TESTE VERMELHO: voltar o `??` de
+   * `aplicarMudancaNoAjuste` para `AJUSTE_VAZIO`.
+   */
+  it("abrir o ajuste pela primeira vez mantém a sessão e o custo do item", () => {
+    const alvo: Parameters<typeof estadoInicialDoAjuste>[0] = item({
+      sessionId: "sess-ja-vinculada",
+      custoUsd: 120,
+    });
+    const depois = aplicarMudancaNoAjuste({}, alvo, { aberto: true });
+    expect(depois[alvo.id]).toEqual({ aberto: true, valor: "120.00", sessao: "sess-ja-vinculada" });
+    // e o que o operador já digitou não é trocado pelo inicial na mexida seguinte
+    const digitado = aplicarMudancaNoAjuste(depois, alvo, { valor: "3" });
+    expect(digitado[alvo.id]).toEqual({ aberto: true, valor: "3", sessao: "sess-ja-vinculada" });
   });
 
   it("o campo OPCIONAL de sessão existe no painel de ajuste (D26)", () => {
@@ -339,6 +403,38 @@ function consumoDeProva(patch: Record<string, unknown>): never {
   } as never;
 }
 
+describe("P2 do Codex (PR #42) — conta no limite de sessões em voo não é convidada", () => {
+  it("o cartão diz 'sessões no limite' e não leva 'escolhida agora', mesmo sendo a escolhida", () => {
+    const cheia = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+      defasagemHoras: 0.5,
+      emVoo: 4,
+      limiteEmVoo: 4,
+    });
+    const html = renderToStaticMarkup(<ContaCard consumo={cheia} agora={AGORA} seriaEscolhida proximoModelo="Opus" />);
+    expect(html).toContain("sessões no limite");
+    expect(html).not.toContain("escolhida agora");
+    // P2 do Codex (PR #42, 5ª rodada): nem a borda dourada nem a sugestão de
+    // modelo — o cartão inteiro fica no estado de bloqueio.
+    expect(html).not.toContain("shadow-heroi");
+    expect(html).not.toContain("próximo modelo sugerido");
+    expect(html).toContain("border-state-blocked/70");
+    expect(html).toContain("o próximo item desta conta sai quando uma delas fechar");
+
+    const comVaga = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+      defasagemHoras: 0.5,
+      emVoo: 3,
+      limiteEmVoo: 4,
+    });
+    const htmlVaga = renderToStaticMarkup(<ContaCard consumo={comVaga} agora={AGORA} seriaEscolhida proximoModelo="Opus" />);
+    expect(htmlVaga).not.toContain("sessões no limite");
+    expect(htmlVaga).toContain("escolhida agora");
+    expect(htmlVaga).toContain("shadow-heroi");
+    expect(htmlVaga).toContain("próximo modelo sugerido");
+  });
+});
+
 describe("D32a — três estados de medição, três frases (eram um só)", () => {
   it("conta que NUNCA mediu: 'sem medição nenhuma' — e nada de 'US$ 150,00 livres'", () => {
     const html = renderToStaticMarkup(<ContaCard consumo={consumoDeProva({})} agora={AGORA} />);
@@ -370,6 +466,46 @@ describe("D32a — três estados de medição, três frases (eram um só)", () =
     expect(renderToStaticMarkup(<ContaCard consumo={consumo} agora={AGORA} />)).toContain(
       "medido até",
     );
+  });
+
+  /*
+   * MÉDIO 2 (rodada 12): o card ESCONDIA o consumo que governa o teto sempre
+   * que `medidoAteEm` era nulo — e "nulo" não quer dizer "zero". O estado é
+   * alcançável no banco vivo (item que morre sem fechar lança a estimativa da
+   * casa sem medição de sessão nenhuma) e era o retrato de 2 das 3 contas
+   * reais. Medido pelo crítico a 1280 px com consumo 98,50 / reservado 15 /
+   * teto 500: o texto dizia "nada medido ainda + US$ 15,00 em execução de
+   * US$ 500,00", o `aria-label` repetia isso e a barra marcava
+   * `aria-valuenow=23` — a barra desenhava 23% do teto enquanto o texto
+   * explicava 3%.
+   */
+  it("consumo lançado SEM medição de sessão: o número aparece, e a barra bate com o texto", () => {
+    const consumo = consumoDeProva({
+      tetoUsd: 500,
+      consumoHojeUsd: 98.5,
+      reservadoUsd: 15,
+      estimativaUsd: 50,
+      estimativaItens: 1,
+    });
+    const html = renderToStaticMarkup(<ContaCard consumo={consumo} agora={AGORA} />);
+    // (98,50 + 15) / 500 = 22,7% → 23
+    expect(html).toContain('aria-valuenow="23"');
+    expect(html, "o número que governa o teto não pode ficar fora da linha").toContain(
+      "US$ 98,50",
+    );
+    expect(html, "a linha do dinheiro não pode trocar o número por 'nada medido ainda'")
+      .not.toContain("nada medido ainda");
+    expect(html, "o espaço livre sumia junto com o número").toContain("livres");
+    // a proveniência continua dita, na linha de baixo
+    expect(html).toContain("sem medição nenhuma");
+  });
+
+  it("nada medido E nada consumido continua sendo 'nada medido ainda' (D32a intacta)", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={consumoDeProva({ tetoUsd: 500 })} agora={AGORA} />,
+    );
+    expect(html).toContain("nada medido ainda");
+    expect(html).not.toContain("US$ 500,00 livres");
   });
 
   it("sem `defasagemHoras` (banco antigo, sem 0016) a tela calcula e degrada sem quebrar", () => {
@@ -648,8 +784,21 @@ describe("MÉDIO 6 (rodada 9) — a confirmação diz o DINHEIRO antes, não dep
   it("a LINHA calcula pela mesma régua do banco (D12), e passa o número ao botão", () => {
     const fonte = FONTE("fila-tabela.tsx");
     expect(fonte).toContain("function custoAoCancelar(item: ItemFilaPrompt): number");
-    expect(fonte).toContain('item.estado === "pega" || item.tentativas > 0');
     expect(fonte).toContain("custoAoCancelarUsd={custoAoCancelar(item)}");
+    // MÉDIO 3 (rodada 13): A REGRA MUDOU DE CASA, e este espelho vai atrás
+    // dela. Ela vive em `tipos.ts`, com a leitura do livro ao lado — era a
+    // metade que faltava aqui (a estimativa da casa tem posto 10 e o livro a
+    // recusa quando a entidade já guarda medição). A linha delega; o teste
+    // confere as duas pontas, para a regra não voltar a existir em dois
+    // lugares com dois comportamentos.
+    expect(fonte).toContain("return custoAoCancelarUsd(item);");
+    expect(fonte).toContain("jaMedidoPelaSessao={!livroAceita(item, POSTO_ESTIMATIVA)}");
+    const tipos = readFileSync(
+      join(__dirname, "..", "..", "src", "core", "prompts", "tipos.ts"),
+      "utf8",
+    );
+    expect(tipos).toContain('item.estado === "pega" || item.tentativas > 0');
+    expect(tipos).toContain("if (!livroAceita(item, POSTO_ESTIMATIVA)) return 0;");
   });
 });
 
@@ -781,5 +930,223 @@ describe("BAIXO 3 (rodada 8) — a AÇÃO PRIMÁRIA era o menor alvo da tela", (
     expect(fonte).not.toContain("min-h-[40px]");
     expect(fonte).not.toContain("min-h-[36px]");
     expect(fonte.split("min-h-[44px]").length - 1).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("MÉDIO 3 (rodada 13) — a tela sabe o que o BANCO sabe", () => {
+  /*
+    O ESTADO MEDIDO PELO CRÍTICO, por porta real: item em execução cuja sessão
+    já publicou US$ 300; o operador cancela. A LINHA fica
+    `estado=cancelada custo_usd=50 custo_origem=estimativa`, e sobre ela o
+    banco respondia `custo_lancado_usd=0.00` e
+    `ERRO(Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.)`.
+
+    A tela, lendo só a COLUNA do item, oferecia o botão que a RPC recusa,
+    prometia "US$ 50,00 entram no gasto de hoje … dá para ajustar na linha
+    depois" (entram US$ 0,00 e não dá) e imprimia "US$ 50,00 · estimativa da
+    casa" para um item que pesa 300 no dia.
+
+    A CAUSA é uma só, e a cura é uma só: `fila_prompts_listar` passou a mandar
+    o lançamento VIVO da entidade (`livroOrigem`, `livroPrecedencia`,
+    `livroLiquidoUsd`, migration 0028 §2) e tudo o que a tela decide sobre
+    dinheiro deriva dele.
+  */
+  const sessaoPublicou = {
+    estado: "cancelada",
+    custoUsd: 50,
+    custoEstimadoUsd: 50,
+    custoEEstimativa: true,
+    custoOrigem: "estimativa",
+    sessionId: "sess-medida",
+    tentativas: 1,
+    livroOrigem: "medido",
+    livroPrecedencia: 40,
+    livroLiquidoUsd: 300,
+  };
+
+  it("o botão de ajuste NÃO aparece para o que o banco vai recusar", () => {
+    expect(podeAjustarCusto(item(sessaoPublicou), AGORA)).toBe(false);
+    const saida = renderToStaticMarkup(
+      <FilaTabela itens={[item(sessaoPublicou)]} agora={AGORA} />,
+    );
+    expect(saida).not.toContain("ajustar custo");
+    expect(textoSemAjuste(item(sessaoPublicou))).toContain("a sessão já publicou o número");
+  });
+
+  it("a pergunta destrutiva não promete dinheiro que não entra", () => {
+    const emExecucao = {
+      ...sessaoPublicou,
+      estado: "pega",
+      custoUsd: null,
+      workerId: "w-1",
+      concluidoEm: null,
+    };
+    expect(custoAoCancelarUsd(item(emExecucao))).toBe(0);
+    const saida = renderToStaticMarkup(
+      <CancelarBotao
+        id="i-1"
+        emExecucao
+        confirmando
+        custoAoCancelarUsd={custoAoCancelarUsd(item(emExecucao))}
+        jaMedidoPelaSessao={!livroAceita(item(emExecucao), POSTO_ESTIMATIVA)}
+        aoMudarConfirmando={() => {}}
+      />,
+    );
+    expect(saida).not.toContain("entram no gasto de hoje");
+    expect(saida).not.toContain("dá para ajustar na linha depois");
+    expect(saida).toContain("a sessão já publicou o número real deste item");
+  });
+
+  it("a célula imprime o número que o DIA cobra, não o do item", () => {
+    const naTela = custoNaTela(item(sessaoPublicou));
+    expect(naTela.valorUsd).toBe(300);
+    expect(naTela.nota).toContain("medido pela sessão");
+    expect(naTela.nota).toContain("a casa estimava US$ 50,00");
+    const saida = renderToStaticMarkup(
+      <FilaTabela itens={[item(sessaoPublicou)]} agora={AGORA} />,
+    );
+    expect(saida).toContain("US$ 300,00");
+    expect(saida).not.toContain("US$ 50,00 ·");
+  });
+
+  /*
+   * P2 do Codex (PR #42, 2ª rodada): a sessão publicou EXATAMENTE o valor que
+   * a casa estimava. A condição antiga exigia valores diferentes para o livro
+   * falar, e a célula ficava "estimativa da casa" em cor de atenção ao lado
+   * de "a sessão já publicou o número deste item".
+   */
+  it("sessão que publica o mesmo valor da estimativa: a célula diz medido, sem atenção", () => {
+    const mesmoValor = {
+      custoUsd: 50,
+      custoOrigem: "estimativa",
+      custoEEstimativa: true,
+      livroOrigem: "medido",
+      livroPrecedencia: 40,
+      livroLiquidoUsd: 50,
+    };
+    const naTela = custoNaTela(item(mesmoValor));
+    expect(naTela.valorUsd).toBe(50);
+    expect(naTela.nota).toBe("medido pela sessão");
+    expect(naTela.atencao).toBe(false);
+  });
+
+  it("sem lançamento vivo no livro, nada muda — a tela degrada para a coluna", () => {
+    // Banco anterior à 0028 (os três campos vêm `undefined`) e item que nunca
+    // custou nada: a régua antiga continua valendo, inteira.
+    expect(podeAjustarCusto(item({ custoUsd: 120, custoOrigem: "estimativa" }), AGORA)).toBe(true);
+    expect(custoNaTela(item({ custoUsd: 120, custoOrigem: "estimativa" })).valorUsd).toBe(120);
+    expect(
+      custoAoCancelarUsd(item({ estado: "pega", custoUsd: null, custoEstimadoUsd: 120, tentativas: 0 })),
+    ).toBe(120);
+  });
+
+  it("o livro de posto BAIXO não trava nada — só o posto acima do operador trava", () => {
+    // A casa lançou a estimativa (posto 10) e ninguém mediu: o operador
+    // continua dono do número, como sempre foi.
+    const soEstimativa = {
+      custoUsd: 120,
+      custoOrigem: "estimativa",
+      livroOrigem: "estimativa",
+      livroPrecedencia: 10,
+      livroLiquidoUsd: 120,
+    };
+    expect(podeAjustarCusto(item(soEstimativa), AGORA)).toBe(true);
+    expect(textoSemAjuste(item(soEstimativa))).toBeNull();
+  });
+});
+
+describe("CRÍTICO 1 (rodada 13) — crédito de um dia fechado não vira teto NA TELA", () => {
+  /*
+    O defeito nasce e morre no banco (o estorno limitado ao que hoje tem,
+    migration 0027 §6; o piso do número que governa o teto, 0028 §1). Este
+    bloco guarda a TERCEIRA parede, a única dentro da tela — porque a promessa
+    do DEPLOY.md D13 ("a tela nunca mostra número negativo") era guardada só na
+    saída (`textoEspacoLivre` clampa) e nunca na ENTRADA.
+
+    Medido no Chromium com `consumoHojeUsd = -358,50` e teto 500, ANTES:
+      · cartão: "US$ -358,50 + US$ 15,00 em execução de US$ 500,00 · US$ 843,50 livres"
+      · barra:  aria-valuenow="-69", style="width:-69%", 220 de 220 px — o CSS
+                é inválido, o navegador cai no `w-full` da classe e desenha a
+                barra CHEIA, em verde, sobre uma conta estourada.
+    DEPOIS: aria-valuenow="3", style="width:3%", 7 de 220 px, e nenhum número
+    negativo na tela.
+  */
+  const diaNegativo = consumoDeProva({
+    tetoUsd: 500,
+    consumoHojeUsd: -358.5,
+    reservadoUsd: 15,
+    medidoAteEm: new Date(AGORA - 3_600_000).toISOString(),
+    defasagemHoras: 1,
+  });
+
+  it("o espaço livre não cresce com o crédito — é a mesma régua do pull", () => {
+    // 500 − max(0, −358,50) − 15 = 485. Com o defeito: 500 + 358,50 − 15 = 843,50.
+    expect(headroomUsd(diaNegativo)).toBe(485);
+  });
+
+  it("a barra é CSS válido e ARIA válida, com qualquer número que chegue", () => {
+    const html = renderToStaticMarkup(<ContaCard consumo={diaNegativo} agora={AGORA} />);
+    expect(html).not.toContain("width:-");
+    expect(html).not.toContain('aria-valuenow="-');
+    const valor = /aria-valuenow="(-?\d+)"/.exec(html)?.[1];
+    expect(Number(valor)).toBeGreaterThanOrEqual(0);
+    expect(Number(valor)).toBeLessThanOrEqual(100);
+  });
+
+  it("nenhum número negativo chega ao olho do operador", () => {
+    const html = renderToStaticMarkup(<ContaCard consumo={diaNegativo} agora={AGORA} />);
+    expect(html).not.toContain("US$ -358,50");
+    expect(html).not.toContain("US$ 843,50 livres");
+    expect(html).toContain("US$ 485,00 livres");
+  });
+});
+
+/**
+ * P2 do Codex (PR #42, 22ª rodada) — o rodapé junta todos os bloqueios.
+ * Conta no limite de sessões E sem espaço para o prompt lia "o próximo item
+ * desta conta sai quando uma delas fechar" — fechar uma sessão não cria o
+ * dinheiro que falta. E "teto atingido — próximo espaço amanhã" aparecia sobre
+ * uma conta que amanhã continua com as quatro sessões ocupadas.
+ */
+describe("P2 do Codex (PR #42, 22ª rodada) — o rodapé nomeia todos os bloqueios", () => {
+  const cheia = {
+    medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+    defasagemHoras: 0.5,
+    emVoo: 4,
+    limiteEmVoo: 4,
+  };
+
+  it("sessões no limite E sem espaço: a frase pede as duas coisas, não só uma sessão fechar", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={consumoDeProva({ ...cheia, tetoUsd: 500, consumoHojeUsd: 10 })} agora={AGORA} semEspacoHoje />,
+    );
+    expect(html).not.toContain("sessões no limite — o próximo item desta conta sai quando uma delas fechar");
+    expect(html).toContain(
+      "não cabe hoje e sessões no limite — o próximo item só sai quando houver espaço no teto para este prompt e uma das sessões em voo fechar; resolver um só não basta",
+    );
+  });
+
+  it("teto atingido E sessões no limite: amanhã não basta sozinho", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={consumoDeProva({ ...cheia, tetoUsd: 150, consumoHojeUsd: 150 })} agora={AGORA} />,
+    );
+    expect(html).not.toContain("teto atingido — próximo espaço amanhã");
+    expect(html).toContain(
+      "teto atingido e sessões no limite — o próximo item só sai quando o teto zerar amanhã e uma das sessões em voo fechar; resolver um só não basta",
+    );
+  });
+
+  it("um bloqueio só e o par teto + autorização mantêm as frases de antes", () => {
+    const f = (e: Partial<Parameters<typeof textoDoRodape>[0]>) =>
+      textoDoRodape({ atingiu: false, travada: false, esperaHoje: false, semVaga: false, ...e });
+    expect(f({})).toBeNull();
+    expect(f({ atingiu: true })).toBe("teto atingido — próximo espaço amanhã");
+    expect(f({ semVaga: true })).toBe("sessões no limite — o próximo item desta conta sai quando uma delas fechar");
+    expect(f({ atingiu: true, travada: true })).toBe(
+      "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada",
+    );
+    expect(f({ atingiu: true, travada: true, semVaga: true })).toBe(
+      "teto atingido, sem autorização e sessões no limite — o próximo item só sai quando o teto zerar amanhã, a medição desta conta for atualizada e uma das sessões em voo fechar; resolver um só não basta",
+    );
   });
 });
