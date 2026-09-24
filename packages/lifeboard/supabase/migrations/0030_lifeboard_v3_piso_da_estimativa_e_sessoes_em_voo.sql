@@ -1309,3 +1309,218 @@ $$;
 comment on function public.painel_fila_consumo_para_tela() is
   'PR #42: o bloco `consumo` de fila_prompts_listar, agora com emVoo e limiteEmVoo — redefinida na 0030, depois da parede do pull.';
 revoke all on function public.painel_fila_consumo_para_tela() from public, anon, authenticated;
+
+-- ── 11 · fila_prompts_fechar_interno — o dono que fecha o cancelado libera a vaga
+-- P2 do Codex (PR #42, 11ª rodada). O §10 apaga `parada_pendente_desde` quando
+-- o worker ouve `cancelado` no heartbeat. Mas quando o cancelamento cruza com o
+-- fim da filha, o worker vai direto ao fechamento — o ramo `cancelada` desta
+-- função, que troca a estimativa pelo número medido — sem outro heartbeat, e a
+-- vaga ficava presa até a janela vencer. Texto da 0029 §7, verbatim, com UMA
+-- coluna a mais no `update` do ramo `cancelada`. O fencing (D1/D26) que roda
+-- antes desse ramo já garante que quem chega aqui é o dono do item.
+create or replace function public.fila_prompts_fechar_interno(
+  p_id uuid, p_conta text, p_worker_id text, p_estado text,
+  p_custo_usd numeric, p_session_id text default null,
+  p_sessao_url text default null, p_resultado text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_row         public.painel_fila_prompts%rowtype;
+  v_sess        text;
+  v_outro       uuid;
+  v_dona        text;
+  v_ultimo_dono boolean;
+  v_reabrir     boolean;
+  v_caixa       jsonb;
+begin
+  if p_id is null then
+    raise exception 'id é obrigatório.' using errcode = 'check_violation';
+  end if;
+  if p_conta is null
+     or not (p_conta = any (public.painel_contas_da_casa()))
+  then
+    raise exception 'conta precisa ser uma das % contas da casa: %',
+      coalesce(array_length(public.painel_contas_da_casa(), 1), 0),
+      array_to_string(public.painel_contas_da_casa(), ', ')
+      using errcode = 'check_violation';
+  end if;
+  if p_worker_id is null or length(btrim(p_worker_id)) = 0 then
+    raise exception 'worker_id é obrigatório (o mesmo usado no fila_prompts_pegar_interno).'
+      using errcode = 'check_violation';
+  end if;
+  if p_estado is null or p_estado not in ('concluida','falhou') then
+    raise exception 'estado de fechamento precisa ser concluida ou falhou.' using errcode = 'check_violation';
+  end if;
+  if p_custo_usd is null then
+    raise exception 'custo_usd é obrigatório ao fechar (use 0 quando não houver custo).'
+      using errcode = 'check_violation';
+  end if;
+  -- ALTO 2 (rodada 13): a faixa é de SANIDADE (ver §0), não o teto do dia. Uma
+  -- sessão que custou mais que o teto PRECISA poder ser relatada: o buraco
+  -- não se fecha recusando a medição, se fecha no pull, que não despacha nada
+  -- novo enquanto o dia não couber.
+  if p_custo_usd < 0 or p_custo_usd > public.painel_custo_maximo_por_item() then
+    raise exception 'custo_usd fora da faixa de sanidade (0 a %): % — este limite não é o teto do dia; quem barra despacho é o pull',
+      public.painel_custo_maximo_por_item(), p_custo_usd
+      using errcode = 'check_violation';
+  end if;
+
+  v_sess := nullif(btrim(coalesce(p_session_id, '')), '');
+  if v_sess is not null and v_sess = btrim(p_worker_id) then
+    raise exception 'session_id é o id da sessão FILHA, não o da Routine' using errcode = 'check_violation';
+  end if;
+
+  select * into v_row from public.painel_fila_prompts
+    where id = p_id and conta = p_conta for update;
+
+  if not found then
+    raise exception 'Item não encontrado ou não pertence à conta informada.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- D26 (rodada 6): a morte tira a posse VIVA para liberar a fila, não para
+  -- proibir o único ator com o número honesto de entregá-lo.
+  v_ultimo_dono := (
+    v_row.worker_id is null
+    and v_row.ultimo_worker_id is not null
+    and v_row.ultimo_worker_id = btrim(p_worker_id)
+  );
+  v_reabrir := (v_row.estado = 'falhou' and v_ultimo_dono and v_row.custo_e_estimativa);
+
+  if v_row.estado = 'na_fila' and v_row.worker_id is null then
+    raise exception 'Item voltou para a fila (45 min sem sinal) — não pode ser fechado; ele será pego de novo.'
+      using errcode = 'check_violation';
+  end if;
+
+  -- D1 · fencing: só quem pegou fecha (ou, por D26, quem tinha pegado).
+  -- BAIXO 1 (rodada 8): a recusa nomeia quem PEGOU, sem cuspir UUID.
+  if not v_ultimo_dono and v_row.worker_id is distinct from p_worker_id then
+    raise exception 'Item pertence a outro worker (%).',
+      coalesce(v_row.worker_id, v_row.ultimo_worker_id, 'ninguém pegou este item')
+      using errcode = 'check_violation';
+  end if;
+
+  if v_sess is not null then
+    select f.id into v_outro from public.painel_fila_prompts f
+      where f.session_id = v_sess and f.id <> p_id limit 1;
+    if v_outro is not null then
+      raise exception 'sessão já vinculada ao item %', v_outro using errcode = 'check_violation';
+    end if;
+    -- D34a (rodada 8) mantida: a porta continua fechada para o caso em que a
+    -- sessão JÁ está publicada. O caminho real — a sessão nascer depois — não
+    -- depende mais desta guarda para nada: a conta do dinheiro é a do
+    -- lançamento (D39), e ela não se remaneja.
+    v_dona := public.painel_sessao_dona(v_sess);
+    if v_dona is not null and v_dona <> v_row.conta then
+      raise exception 'Esta sessão é da conta % — não dá para vinculá-la a um item da conta %.',
+        v_dona, v_row.conta using errcode = 'check_violation';
+    end if;
+  end if;
+
+  if v_reabrir then
+    -- D26 + ALTO 1 (rodada 9): `concluido_em = now()` NÃO move mais dinheiro —
+    -- o dia do dinheiro é o do lançamento, e o lançamento de ontem fica onde
+    -- está. O que `concluido_em` governa é UMA coisa: a janela em que o
+    -- operador ainda pode corrigir o número pela tela
+    -- (`fila_prompts_ajustar_custo`, "só item fechado hoje"). Este item acabou
+    -- de ser fechado AGORA, com o número real — e é hoje que ele é corrigível.
+    update public.painel_fila_prompts
+       set estado = p_estado,
+           custo_usd = p_custo_usd,
+           custo_e_estimativa = false,
+           custo_origem = 'medido',
+           session_id = coalesce(v_sess, session_id),
+           sessao_url = coalesce(p_sessao_url, sessao_url),
+           resultado = coalesce(p_resultado, resultado),
+           motivo_falha = case when p_estado = 'falhou' then motivo_falha else null end,
+           heartbeat_em = null,
+           disponivel_em = null,
+           concluido_em = now()
+     where id = p_id
+    returning * into v_row;
+
+    -- D38 + D54 (rodada 13): o número real é lançado HOJE, e o estorno da
+    -- estimativa é limitado ao que ela pôs em HOJE. Quando a morte foi ontem,
+    -- ontem continua valendo o que foi relatado e hoje fica em zero — nunca
+    -- negativo, nunca virando teto (era hoje = −117 com estimativa 120 e real 3).
+    v_caixa := public.painel_caixa_lancar_item(
+      v_row.id, p_custo_usd, 'medido', now(),
+      'fechamento pelo último dono de item que tinha morrido sem fechar');
+
+    return jsonb_build_object(
+      'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', true, 'estado', p_estado,
+      'caixa', v_caixa
+    );
+  end if;
+
+  -- D8 (rodada 3) · idempotência: a segunda chamada não lança nada.
+  if v_row.estado in ('concluida','falhou') then
+    return jsonb_build_object(
+      'ok', true, 'ja_fechado', true, 'reaberto_e_fechado', false, 'estado', v_row.estado
+    );
+  end if;
+
+  -- D12 (rodada 4): item cancelado pelo operador durante a execução — a
+  -- medição real SUBSTITUI a estimativa, o estado continua `cancelada`.
+  if v_row.estado = 'cancelada' then
+    -- ALTO 2 (rodada 9): `concluido_em` NÃO anda. O item fechou quando foi
+    -- cancelado; esta chamada só troca o NÚMERO. Mover `concluido_em` para
+    -- agora reabriria a janela de escrita da tela sobre um item encerrado em
+    -- outro dia — e era isso que fazia dinheiro entrar num dia encerrado.
+    -- P2 do Codex (PR #42, 11ª rodada): o dono que FECHA o item cancelado
+    -- também ouviu — a filha terminou e entregou o número. Sem apagar a marca
+    -- aqui, a corrida "cancelou × a filha acabou" deixava uma sessão fantasma
+    -- ocupando vaga até a janela de 45 min vencer (§1e').
+    update public.painel_fila_prompts
+       set custo_usd = p_custo_usd,
+           custo_e_estimativa = false,
+           custo_origem = 'medido',
+           session_id = coalesce(v_sess, session_id),
+           sessao_url = coalesce(p_sessao_url, sessao_url),
+           resultado = coalesce(p_resultado, resultado),
+           concluido_em = coalesce(concluido_em, now()),
+           parada_pendente_desde = null
+     where id = p_id
+    returning * into v_row;
+
+    v_caixa := public.painel_caixa_lancar_item(
+      v_row.id, p_custo_usd, 'medido', now(),
+      'medição real sobre item cancelado durante a execução');
+
+    return jsonb_build_object(
+      'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', 'cancelada',
+      'caixa', v_caixa
+    );
+  end if;
+
+  update public.painel_fila_prompts
+     set estado = p_estado,
+         custo_usd = p_custo_usd,
+         custo_e_estimativa = false,
+         custo_origem = 'medido',
+         session_id = coalesce(v_sess, session_id),
+         sessao_url = coalesce(p_sessao_url, sessao_url),
+         resultado = coalesce(p_resultado, resultado),
+         heartbeat_em = null,
+         disponivel_em = null,
+         concluido_em = now()
+   where id = p_id
+  returning * into v_row;
+
+  v_caixa := public.painel_caixa_lancar_item(
+    v_row.id, p_custo_usd, 'medido', now(),
+    'fechamento normal');
+
+  return jsonb_build_object(
+    'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', p_estado,
+    'caixa', v_caixa
+  );
+end;
+$$;
+comment on function public.fila_prompts_fechar_interno(uuid, text, text, text, numeric, text, text, text) is
+  'ALTO 6 (rodada 14): a lista de contas vem de painel_contas_da_casa(). Era a cópia que o crítico sabotou com uma vírgula a menos: o worker gastou US$ 430, o fechamento recusou "conta precisa ser uma das 3 contas da casa", o livro do dia ficou em ZERO e o item morreu valendo a estimativa (120) — US$ 310 de teto falso, com os cinco portões verdes. Quem cobre agora: T83 (a 4ª conta atravessa TODAS as portas, o fechamento inclusive) e T82 (a fonte única × painel_teto_diario, nos dois sentidos). P2 do Codex (PR #42, 11ª rodada, 0030 §11): o ramo do item cancelado apaga parada_pendente_desde — o dono que fecha também libera a vaga de sessão em voo (bloco T101).';
+revoke all on function public.fila_prompts_fechar_interno(uuid, text, text, text, numeric, text, text, text) from public, anon, authenticated;

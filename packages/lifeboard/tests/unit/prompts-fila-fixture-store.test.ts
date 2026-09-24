@@ -368,6 +368,29 @@ describe("D7 — item `pega` não é beco sem saída", () => {
     expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).not.toBeNull();
   });
 
+  it("P2 Codex (PR #42, 11ª rodada): o dono que FECHA o item cancelado também libera a vaga", () => {
+    resetarFilaFixtureStore();
+    for (let i = 0; i < MAXIMO_EM_VOO_POR_CONTA + 1; i += 1) {
+      enfileirarFixture({ prompt: `voo ${i}`, complexidade: "baixa", conta: LUCAS, agora: AGORA + i });
+    }
+    const pegos: string[] = [];
+    for (let i = 1; i <= MAXIMO_EM_VOO_POR_CONTA; i += 1) {
+      const pego = pegarFixture(LUCAS, `W${i}`, AGORA).item as { id: string } | null;
+      if (pego) pegos.push(pego.id);
+    }
+    const emVoo = () => listarConsumoFixture(AGORA).find((c) => c.conta === LUCAS)?.emVoo;
+    const cancelado = pegos[0] as string;
+    cancelarFixture(cancelado, AGORA);
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+
+    // a filha acabou junto com o cancelamento: o worker vai direto ao fechamento
+    expect(
+      fecharFixture({ id: cancelado, conta: LUCAS, workerId: "W1", estado: "concluida", custoUsd: 3, agora: AGORA }),
+    ).toEqual({ ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" });
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA - 1);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).not.toBeNull();
+  });
+
   it("heartbeat de outro worker não renova nada", () => {
     resetarFilaFixtureStore();
     const item = pegarFixture(LUCAS, "W1", AGORA).item as { id: string };

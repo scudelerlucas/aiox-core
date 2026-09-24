@@ -199,6 +199,44 @@ describe("prompts/actions — validação", () => {
  * função assíncrona sai dele), então a prova é pelo caminho de fora — a recusa
  * do repositório entra crua e a resposta da action sai traduzida.
  */
+describe("P2 Codex (PR #42, 11ª rodada) — item que espera vaga de voo não aparece como pronto", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { email: "lucasscudeler@gmail.com" } } });
+  });
+
+  const base = {
+    ok: true,
+    id: "fila-v",
+    conta: "lsgpandora@gmail.com",
+    complexidade: "baixa",
+    cabeHoje: true,
+    headroomUsd: 480,
+    espacoLivreUsd: 480,
+    custoEstimadoUsd: 5,
+    naFilaUsd: 0,
+    itensNaFrente: 0,
+  };
+
+  for (const motivoCodigo of ["manual_sem_vaga", "auto_sem_vaga"] as const) {
+    it(`${motivoCodigo}: dinheiro cabe, mas a tela recebe cabeHoje=false (aviso, não sucesso)`, async () => {
+      vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({ ...base, motivoCodigo } as never);
+      const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+      expect(r.ok).toBe(true);
+      expect(r.cabeHoje).toBe(false);
+    });
+  }
+
+  it("auto_maior_espaco com dinheiro: continua pronto (cabeHoje=true)", async () => {
+    vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+      ...base,
+      motivoCodigo: "auto_maior_espaco",
+    } as never);
+    const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+    expect(r.cabeHoje).toBe(true);
+  });
+});
+
 describe("M7 — a recusa nunca mostra e-mail cru na tela", () => {
   beforeEach(() => {
     vi.clearAllMocks();

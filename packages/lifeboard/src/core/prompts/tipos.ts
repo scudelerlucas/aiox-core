@@ -851,6 +851,17 @@ export function motivoEnfileirarValido(v: string): v is MotivoEnfileirar {
   return (MOTIVOS_ENFILEIRAR as readonly string[]).includes(v);
 }
 
+/**
+ * P2 do Codex (PR #42, 11ª rodada): o item entrou na fila, mas a conta dele
+ * está no limite de sessões em voo — ele ESPERA uma fechar. `cabe_hoje` é a
+ * resposta do DINHEIRO e pode continuar `true` nesse caso; quem decide se a
+ * tela pinta sucesso ou aviso tem de olhar também este código, senão a frase
+ * "sai quando uma vaga abrir" aparece em verde, como pronta.
+ */
+export function motivoEsperaVagaDeVoo(codigo: string | undefined): boolean {
+  return codigo === "manual_sem_vaga" || codigo === "auto_sem_vaga";
+}
+
 export interface NumerosDoEnfileiramento {
   conta: Conta;
   complexidade: Complexidade;

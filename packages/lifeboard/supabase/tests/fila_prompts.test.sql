@@ -5962,3 +5962,56 @@ begin
     v_barrado->'item'->>'id', v_voo_barrado, v_alheio->>'motivo', v_voo_alheio,
     v_ouviu->>'motivo', v_voo_ouviu, v_depois->'item'->>'id', v_reserva_cancelada;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T101 · P2 do Codex (PR #42, 11ª rodada) — O DONO QUE FECHA O ITEM CANCELADO
+-- TAMBÉM LIBERA A VAGA
+-- Quando o cancelamento cruza com o fim da filha, o worker vai direto ao
+-- fechamento (o ramo `cancelada` de `fila_prompts_fechar_interno`, que troca a
+-- estimativa pelo número medido) sem outro heartbeat. Antes, só o heartbeat
+-- apagava a marca: a filha já terminada seguia ocupando vaga por 45 min e, com
+-- a conta no limite, o pull ficava barrado por uma sessão fantasma.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar `parada_pendente_desde = null`
+-- do ramo `cancelada` de `fila_prompts_fechar_interno` (0030 §11).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_limite int := public.painel_fila_maximo_em_voo_por_conta();
+  v_pull jsonb; v_i int; v_cancelado uuid;
+  v_fechou jsonb; v_depois jsonb; v_voo_antes int; v_voo_depois int;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  for v_i in 1..(v_limite + 1) loop
+    insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+    values (v_conta, 'T101 item ' || v_i, 'baixa', 'Haiku');
+  end loop;
+  for v_i in 1..v_limite loop
+    v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T101-' || v_i);
+    if v_i = 1 then v_cancelado := (v_pull->'item'->>'id')::uuid; end if;
+  end loop;
+
+  perform public.fila_prompts_cancelar(v_segredo, v_cancelado);
+  v_voo_antes := public.painel_fila_em_voo(v_conta);
+
+  -- a filha acabou junto: o dono fecha com o número medido, sem heartbeat
+  v_fechou := public.fila_prompts_fechar_interno(v_cancelado, v_conta, 'w-T101-1', 'concluida', 3);
+  v_voo_depois := public.painel_fila_em_voo(v_conta);
+  v_depois := public.fila_prompts_pegar_interno(v_conta, 'w-T101-quinta');
+
+  if v_voo_antes = v_limite
+     and v_fechou->>'estado' = 'cancelada'
+     and v_voo_depois = v_limite - 1
+     and v_depois->'item'->>'id' is not null then
+    raise exception 'RESULTADO: ok — T101 cancelado × filha terminada: em voo % antes do fechamento, % depois dele, e o pull despacha a próxima',
+      v_voo_antes, v_voo_depois;
+  end if;
+  raise exception 'FALHA: T101 esperado em voo % antes, % depois do fechamento do dono e o pull liberado — obteve antes=% fechou=% depois=% pull=%',
+    v_limite, v_limite - 1, v_voo_antes, v_fechou, v_voo_depois, v_depois->'item'->>'id';
+end $$;

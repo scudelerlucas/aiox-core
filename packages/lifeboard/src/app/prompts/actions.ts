@@ -23,6 +23,7 @@ import {
   fraseDoEnfileiramento,
   motivoCancelamentoValido,
   motivoEnfileirarValido,
+  motivoEsperaVagaDeVoo,
   type Complexidade,
 } from "@/core/prompts/tipos";
 import {
@@ -44,7 +45,11 @@ export type EstadoAcaoPrompt = {
    * hoje (US$ 150.00)"), sem acento e com ponto decimal.
    */
   mensagem?: string;
-  /** D3/D29: entrou na fila mas não cabe hoje contando a fila parada. */
+  /**
+   * D3/D29: entrou na fila mas não cabe hoje contando a fila parada. P2 do
+   * Codex (PR #42, 11ª rodada): também `false` quando a conta está no limite
+   * de sessões em voo — é a PRONTIDÃO que a tela mostra, não só o dinheiro.
+   */
   cabeHoje?: boolean;
   /**
    * MÉDIO 4 (crítico da rodada 5): a única frase que avisa "acabei de lançar
@@ -250,7 +255,9 @@ export async function novoPromptAction(
     id: r.id,
     conta: r.conta,
     mensagem: frasePraTela(r),
-    cabeHoje: r.cabeHoje !== false,
+    // P2 do Codex (PR #42, 11ª rodada): `cabeHoje` do banco é o dinheiro; na
+    // tela ele é a prontidão. Item que espera vaga de sessão em voo é aviso.
+    cabeHoje: r.cabeHoje !== false && !motivoEsperaVagaDeVoo(r.motivoCodigo),
   };
 }
 

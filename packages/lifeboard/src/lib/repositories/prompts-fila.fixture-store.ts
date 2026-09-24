@@ -1282,6 +1282,9 @@ export function fecharFixture(input: {
       sessionId: sessionId ?? item.sessionId,
       concluidoEm: item.concluidoEm ?? new Date(agora).toISOString(),
     });
+    // P2 do Codex (PR #42, 11ª rodada): o dono que fecha o cancelado também
+    // ouviu — a filha acabou. Espelho do §11 da 0030.
+    loja_.paradaPendente.delete(item.id);
     return { ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" };
   }
   loja_.fila.set(item.id, {
