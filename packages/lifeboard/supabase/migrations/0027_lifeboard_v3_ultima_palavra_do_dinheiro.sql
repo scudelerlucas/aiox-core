@@ -887,6 +887,7 @@ declare
   v_hoje_ent       numeric;
   v_estornar       numeric;
   v_liquido_novo   numeric;
+  v_adotou         boolean := false;
 begin
   if p_entidade_tipo is null or p_entidade_id is null or btrim(p_entidade_id) = '' then
     raise exception 'painel_caixa_lancar: entidade é obrigatória.' using errcode = 'check_violation';
@@ -965,6 +966,27 @@ begin
   -- publicou (40), e o que faz a ordem de chegada entre a rotina que publica a
   -- sessão e o worker que fecha o item deixar de decidir o total do dia.
   -- Não é erro: quem chamou segue o seu caminho, só o NÚMERO não regride.
+  --
+  -- P2 do Codex (PR #42, 22ª rodada) · O POSTO RECUSA O NÚMERO, NÃO O DONO.
+  -- A sessão filha publica (posto 40) ANTES de o worker dizer o `session_id`
+  -- dela: sem item vinculado, a publicação entra sem dono. O fechamento
+  -- vincula e chega aqui com posto 30 — recusado, e com ele ia embora a única
+  -- chance de o item ser dono daquele dinheiro: a projeção por item junta pelo
+  -- `item_id` gravado e nunca via a sessão. Quando o vigente NÃO TEM DONO e
+  -- quem chama traz um item, o vigente é regravado com o MESMO valor, a MESMA
+  -- origem, o MESMO carimbo e o MESMO posto — só o dono muda (estorno sem dono
+  -- + relançamento com o item, os dois hoje). Vigente de OUTRO item não é
+  -- adotado: dono gravado não se rouba. Bloco: T110.
+  if v_ultimo is not null and v_prec < v_prec_atual
+     and v_item_atual is null and p_item_id is not null then
+    v_adotou    := true;
+    v_alvo      := v_valor_atual;
+    p_origem    := v_origem_atual;
+    p_medido_em := v_medido_atual;
+    v_prec      := v_prec_atual;
+    p_nota      := 'o item passou a ser dono do que esta sessão já tinha publicado (mesmo valor, mesmo carimbo, mesmo posto)';
+  end if;
+
   if v_ultimo is not null and v_prec < v_prec_atual then
     return jsonb_build_object(
       'ok', true, 'movimentou', false, 'conta', v_conta,
@@ -1156,7 +1178,10 @@ begin
     'credito_sem_dia', v_estornar < v_liquido,
     'credito_sem_dia_usd', round(greatest(v_liquido - v_estornar, 0), 2),
     'origem_anterior', v_origem_atual, 'origem', p_origem,
-    'recusado_por_precedencia', false,
+    -- 22ª rodada: com o dono adotado, o NÚMERO pedido continua recusado — só
+    -- a proveniência andou. Quem lê `recusado_por_precedencia` segue certo.
+    'recusado_por_precedencia', v_adotou,
+    'dono_adotado', v_adotou,
     'precedencia_vigente', v_prec_atual, 'precedencia', v_prec,
     'estorno_id', v_estorno, 'lancamento_id', v_novo);
 end;
@@ -1376,8 +1401,19 @@ begin
     return null;
   end if;
 
+  -- P1 do Codex (PR #42, 22ª rodada): a busca TRAVA o item. Sem trava, uma
+  -- publicação da sessão A concorrente com a troca do item de A para B achava o
+  -- item pelo vínculo antigo (ainda não commitado), esperava a trava dentro de
+  -- `painel_caixa_lancar_item`, relia `session_id = B` e lançava o custo de A
+  -- na entidade B, com posto 40 — por cima da medição real de B. Com
+  -- `for update`, o Postgres reavalia o `where` na versão nova da linha depois
+  -- de esperar: se o item já não aponta para A, ele sai do resultado e A
+  -- publica por conta própria, no ramo de baixo. Travado aqui, o vínculo não
+  -- muda até o fim desta transação. Guarda: `guardas-com-gatilho.test.ts`.
   select f.id into v_item from public.painel_fila_prompts f
-    where f.session_id = new.sessao_id limit 1;
+    where f.session_id = new.sessao_id
+    limit 1
+    for update;
 
   if v_item is not null then
     perform public.painel_caixa_lancar_item(
@@ -1796,7 +1832,11 @@ begin
     -- a estimativa é recusada por posto (D53) e o dia NÃO muda. O relatório
     -- diz o que o livro aceitou — antes ele anunciava um lançamento que não
     -- aconteceu, e era por essa porta que US$ 300 medidos viravam US$ 50.
-    if not coalesce((v_caixa->>'movimentou')::boolean, false) then
+    -- 22ª rodada: `movimentou` com `recusado_por_precedencia` é o livro
+    -- trocando só o DONO da publicação (T110) — o número pedido continua
+    -- recusado, e o relatório não pode anunciá-lo.
+    if not coalesce((v_caixa->>'movimentou')::boolean, false)
+       or coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
       v_lancado := 0;
     end if;
   end if;

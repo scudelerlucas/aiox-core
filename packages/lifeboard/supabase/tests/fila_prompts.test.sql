@@ -6460,3 +6460,146 @@ begin
   raise exception 'FALHA: T109 esperado ja_fechado, livro e medido_ate iguais e custo 3 — obteve segunda=% linhas %→% medido %→% custo=%',
     v_segunda, v_linhas_antes, v_linhas_depois, v_medido_antes, v_medido_depois, v_custo;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T110 · P2 do Codex (PR #42, 22ª rodada) — A SESSÃO QUE PUBLICOU ANTES DO
+-- FECHAMENTO PASSA A SER DO ITEM
+-- O worker pega o item; a sessão filha publica US$ 40 ANTES de o worker dizer
+-- qual é o `session_id` dela — sem item vinculado, a publicação entra sem dono
+-- (posto 40). O fechamento vincula e lança US$ 35 (posto 30). O posto recusava
+-- o número (certo: a publicação manda), mas recusava também o DONO: a projeção
+-- por item, que junta pelo `item_id` gravado, nunca via os US$ 40. Agora o
+-- lançamento vigente é regravado com o mesmo valor, a mesma origem, o mesmo
+-- carimbo e o mesmo posto — e o item como dono.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o ramo "dono adotado" da trava
+-- de precedência de `painel_caixa_lancar` (0027 §6).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'almapetra.ltda@gmail.com';
+  v_id uuid; v_pull jsonb;
+  v_item_hoje numeric; v_conta_hoje numeric; v_carimbo timestamptz;
+  v_vigente_valor numeric; v_vigente_prec int; v_vigente_medido timestamptz;
+  v_publicado timestamptz := now() - interval '10 minutes';
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T110 item', 'baixa', 'Haiku');
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T110');
+  v_id := (v_pull->'item'->>'id')::uuid;
+
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T110', v_conta, 'filha', 'idle', 40, v_publicado);
+
+  perform public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T110', 'concluida', 35, 'sess-T110');
+
+  select coalesce(sum(contribuicao), 0) into v_item_hoje
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_id;
+  select coalesce(sum(valor_usd), 0) into v_conta_hoje
+    from public.painel_caixa_lancamentos where conta = v_conta and dia = public.painel_dia_operador();
+  select l.valor_usd, l.precedencia, l.medido_em into v_vigente_valor, v_vigente_prec, v_vigente_medido
+    from public.painel_caixa_lancamentos l
+   where l.entidade_id = 'sess-T110' and l.origem <> 'estorno' and l.item_id = v_id
+     and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id);
+
+  if v_item_hoje = 40 and v_conta_hoje = 40 and v_vigente_valor = 40
+     and v_vigente_prec = 40 and v_vigente_medido = v_publicado then
+    raise exception 'RESULTADO: ok — T110 o item ficou com os US$ % publicados (conta US$ %), posto % e carimbo da publicação',
+      v_item_hoje, v_conta_hoje, v_vigente_prec;
+  end if;
+  raise exception 'FALHA: T110 esperado item 40, conta 40, vigente 40/posto 40/carimbo da publicação — obteve item=% conta=% vigente=% posto=% medido=% (publicado %)',
+    v_item_hoje, v_conta_hoje, v_vigente_valor, v_vigente_prec, v_vigente_medido, v_publicado;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T111 · 22ª rodada (PR #42) — TROCAR SÓ O DONO NÃO É LANÇAR A ESTIMATIVA
+-- Companheiro do T110 pela porta do CANCELAMENTO. A sessão publicou US$ 40 sem
+-- dono, o item passou a apontar para ela e o operador cancela: a estimativa da
+-- casa é recusada pelo posto e o livro só passa a publicação ao item. O
+-- relatório do cancelamento não pode dizer que lançou a estimativa.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar `or recusado_por_precedencia`
+-- do teste de `v_lancado` em `fila_prompts_cancelar` (0027).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'almapetra.ltda@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_id uuid; v_pull jsonb; v_cancel jsonb;
+  v_item_hoje numeric; v_conta_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T111 item', 'baixa', 'Haiku');
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T111');
+  v_id := (v_pull->'item'->>'id')::uuid;
+
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T111', v_conta, 'filha', 'idle', 40, now());
+  update public.painel_fila_prompts set session_id = 'sess-T111' where id = v_id;
+
+  v_cancel := public.fila_prompts_cancelar(v_segredo, v_id);
+
+  select coalesce(sum(contribuicao), 0) into v_item_hoje
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_id;
+  select coalesce(sum(valor_usd), 0) into v_conta_hoje
+    from public.painel_caixa_lancamentos where conta = v_conta and dia = public.painel_dia_operador();
+
+  if (v_cancel->>'custo_lancado_usd')::numeric = 0
+     and (v_cancel->>'recusado_por_precedencia')::boolean
+     and v_item_hoje = 40 and v_conta_hoje = 40 then
+    raise exception 'RESULTADO: ok — T111 o cancelamento não anunciou estimativa (lançado US$ %), o item ficou com os US$ % publicados e a conta com US$ %',
+      v_cancel->>'custo_lancado_usd', v_item_hoje, v_conta_hoje;
+  end if;
+  raise exception 'FALHA: T111 esperado lançado 0, recusado por posto, item 40 e conta 40 — obteve cancel=% item=% conta=%',
+    v_cancel, v_item_hoje, v_conta_hoje;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T112 · P2 do Codex (PR #42, 22ª rodada) — CONTA QUE SAI DA LISTA SAI DA
+-- ESCOLHA, MESMO COM A LINHA DO TETO AINDA NO BANCO
+-- `painel_contas_da_casa()` é a fonte única das contas, e a CHECK de
+-- `painel_teto_diario` a lê — mas o Postgres não revalida linha antiga quando
+-- a função é trocada. A conta removida continuava em `painel_teto_diario`,
+-- `painel_fila_consumos_para_escolha` lia a tabela inteira e a escolha
+-- automática podia cair nela — e aí o `insert` na fila batia na CHECK nova.
+-- O bloco troca a lista por uma de três contas (tudo volta no fim: o bloco
+-- termina em exceção, e a exceção desfaz o que ele fez).
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o `where t.conta = any
+-- (public.painel_contas_da_casa())` de `painel_fila_consumos_para_escolha`
+-- ou de `painel_fila_consumo_para_tela` (0030, fim do arquivo).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_saiu text := 'arborcactus@gmail.com';
+  v_na_escolha boolean; v_na_tela boolean; v_linha_ficou boolean;
+begin
+  execute $f$
+    create or replace function public.painel_contas_da_casa()
+    returns text[] language sql immutable set search_path = public, pg_temp
+    as $b$ select array['lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com']::text[] $b$
+  $f$;
+
+  select exists (select 1 from public.painel_teto_diario where conta = v_saiu) into v_linha_ficou;
+  select exists (
+    select 1 from jsonb_array_elements(public.painel_fila_consumos_para_escolha()) e
+     where e->>'conta' = v_saiu) into v_na_escolha;
+  select exists (
+    select 1 from jsonb_array_elements(public.painel_fila_consumo_para_tela()) e
+     where e->>'conta' = v_saiu) into v_na_tela;
+
+  if v_linha_ficou and not v_na_escolha and not v_na_tela then
+    raise exception 'RESULTADO: ok — T112 a conta removida da lista ficou em painel_teto_diario e mesmo assim saiu da escolha e da tela';
+  end if;
+  raise exception 'FALHA: T112 esperado linha do teto de pé e conta fora da escolha e da tela — obteve linha=% escolha=% tela=%',
+    v_linha_ficou, v_na_escolha, v_na_tela;
+end $$;

@@ -365,3 +365,31 @@ describe("21ª rodada — o que só se prova lendo o SQL", () => {
     expect(corpo).toMatch(/from public\.painel_fila_prompts f where f\.id = p_item\s+for update;/);
   });
 });
+
+/**
+ * P1 do Codex (PR #42, 22ª rodada): a publicação de uma sessão também TRAVA o
+ * item antes de decidir de quem é o custo. Sem trava, a sessão A publicando
+ * enquanto o item trocava de A para B achava o item pelo vínculo antigo e, já
+ * dentro de `painel_caixa_lancar_item`, relia `session_id = B` e lançava o
+ * custo de A na entidade B, com posto 40 — reproduzido com duas conexões
+ * (B publicou 30, A publicou 70: o livro terminava com 70 em B e nada em A).
+ * A suíte SQL roda numa conexão só e não consegue encenar a corrida, por isso
+ * a guarda é de texto.
+ */
+describe("22ª rodada — a publicação trava o item que vai receber o custo", () => {
+  const MIGRACOES = join(PACOTE, "supabase", "migrations");
+
+  it("a última painel_frentes_sessoes_lancar busca o item com FOR UPDATE", () => {
+    const ultima = readdirSync(MIGRACOES)
+      .filter((n) => n.endsWith(".sql") && !n.endsWith(".test.sql"))
+      .sort()
+      .reverse()
+      .map((nome) => readFileSync(join(MIGRACOES, nome), "utf8"))
+      .find((t) => t.includes("create or replace function public.painel_frentes_sessoes_lancar()"));
+    expect(ultima, "nenhuma migration define painel_frentes_sessoes_lancar").toBeDefined();
+    const texto = ultima as string;
+    const inicio = texto.lastIndexOf("create or replace function public.painel_frentes_sessoes_lancar()");
+    const corpo = texto.slice(inicio, texto.indexOf("$$;", inicio));
+    expect(corpo).toMatch(/where f\.session_id = new\.sessao_id\s+limit 1\s+for update;/);
+  });
+});

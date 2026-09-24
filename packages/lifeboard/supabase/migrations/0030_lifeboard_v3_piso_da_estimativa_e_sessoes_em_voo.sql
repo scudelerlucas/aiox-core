@@ -994,7 +994,11 @@ begin
       v_caixa_morte := public.painel_caixa_lancar_item(
         v_morto.id, v_morto.custo_usd, 'estimativa', null,
         'estimativa da casa: item morreu sem fechar');
-      if coalesce((v_caixa_morte->>'movimentou')::boolean, false) then
+      -- 22ª rodada (PR #42): o livro pode MOVIMENTAR só para passar ao item a
+      -- publicação sem dono da sessão dele (T110) — a estimativa segue
+      -- recusada, e a frase do pull não a conta como lançada.
+      if coalesce((v_caixa_morte->>'movimentou')::boolean, false)
+         and not coalesce((v_caixa_morte->>'recusado_por_precedencia')::boolean, false) then
         v_mortos_usd := v_mortos_usd + coalesce((v_caixa_morte->>'delta_usd')::numeric, 0);
       end if;
     end loop;
@@ -1565,6 +1569,12 @@ as $$
           'limite_em_voo', public.painel_fila_maximo_em_voo_por_conta()
         ) as linha
       from public.painel_teto_diario t
+      -- P2 do Codex (PR #42, 22ª rodada): só as contas que a casa tem AGORA.
+      -- Trocar `painel_contas_da_casa()` não revalida a CHECK de
+      -- `painel_teto_diario` (o Postgres não relê linha antiga por troca de
+      -- função), e a conta removida ficava na tabela — a escolha automática
+      -- podia cair nela e o `insert` na fila batia na CHECK nova. T112.
+      where t.conta = any (public.painel_contas_da_casa())
     ) s;
 $$;
 comment on function public.painel_fila_consumos_para_escolha() is
@@ -1602,8 +1612,21 @@ as $$
       )
     ) order by array_position(public.painel_contas_da_casa(), t.conta))
     from public.painel_teto_diario t
+    -- 22ª rodada: o mesmo filtro da escolha — a tela não mostra cartão de
+    -- conta que a casa já não tem. T112.
+    where t.conta = any (public.painel_contas_da_casa())
   ), '[]'::jsonb);
 $$;
 comment on function public.painel_fila_consumo_para_tela() is
   'PR #42: o bloco `consumo` de fila_prompts_listar, agora com emVoo e limiteEmVoo — redefinida na 0030, depois da parede do pull.';
 revoke all on function public.painel_fila_consumo_para_tela() from public, anon, authenticated;
+
+-- ── P2 do Codex (PR #42, 22ª rodada) · COMO UMA CONTA SAI DA CASA ──────────
+-- `painel_contas_da_casa()` é uma linha, mas TROCAR a função não basta: o
+-- Postgres não revalida as CHECKs de `painel_teto_diario` e
+-- `painel_fila_prompts` quando a função delas muda, e as linhas da conta que
+-- saiu continuam lá. A escolha e a tela já filtram pela lista (acima, T112);
+-- o resto é trabalho da migration que remove a conta, dito aqui para quem a
+-- escrever.
+comment on function public.painel_contas_da_casa() is
+  'ALTO 6 (rodada 14): as contas da casa, UMA vez. A ORDEM do array é a ordem de desempate do chooser, igual a CONTAS em src/core/prompts/tipos.ts. P2 do Codex (PR #42, 22ª rodada) — TIRAR UMA CONTA pede, na MESMA migration: (1) redefinir esta função; (2) decidir o destino das linhas dela em painel_teto_diario e dos itens abertos em painel_fila_prompts (apagar o teto; cancelar ou mover os itens — o livro-razão NÃO se apaga, é imutável); (3) `alter table … drop constraint` + `add constraint` das duas CHECKs de conta, que é o que força o Postgres a revalidar as linhas antigas (sem isto a troca não é conferida). A escolha automática e a tela já filtram por esta lista (0030, T112), então uma linha esquecida não é escolhida — mas continua sendo dado que a CHECK diz não existir.';

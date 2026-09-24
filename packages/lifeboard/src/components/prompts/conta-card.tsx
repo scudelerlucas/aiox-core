@@ -61,6 +61,61 @@ const FAIXA_CLASSES: Record<"ok" | "warn" | "crit", { barra: string; texto: stri
   crit: { barra: "bg-state-blocked", texto: "text-state-blocked" },
 };
 
+/**
+ * P2 do Codex (PR #42, 22ª rodada) · O RODAPÉ JUNTA TODOS OS BLOQUEIOS.
+ * Era uma cadeia de `? :` — o primeiro estado verdadeiro ganhava a frase. Uma
+ * conta no limite de sessões E sem espaço para o prompt lia "o próximo item
+ * desta conta sai quando uma delas fechar": fechar uma sessão não cria o
+ * dinheiro que falta, e a condição de destravar era falsa. O mesmo com
+ * "teto atingido — próximo espaço amanhã" sobre uma conta que continua com as
+ * quatro sessões ocupadas. Agora, com mais de um bloqueio, a frase nomeia
+ * todos e diz que o item só sai quando TODOS se resolverem. Os casos de um
+ * bloqueio só, e o par teto + autorização (rodada 9), mantêm as frases de antes.
+ */
+export function textoDoRodape(estado: {
+  atingiu: boolean;
+  travada: boolean;
+  esperaHoje: boolean;
+  semVaga: boolean;
+}): string | null {
+  const { atingiu, travada, esperaHoje, semVaga } = estado;
+  const ativos = [atingiu, travada, esperaHoje, semVaga].filter(Boolean).length;
+  if (ativos === 0) return null;
+  if (ativos === 1) {
+    if (atingiu) return "teto atingido — próximo espaço amanhã";
+    if (travada) return "sem autorização agora — volta a rodar quando a medição desta conta for atualizada";
+    if (semVaga) return "sessões no limite — o próximo item desta conta sai quando uma delas fechar";
+    return "não cabe hoje — este prompt roda quando houver espaço no teto desta conta";
+  }
+  if (ativos === 2 && atingiu && travada) {
+    return "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada";
+  }
+  const nomes: string[] = [];
+  const condicoes: string[] = [];
+  if (atingiu) {
+    nomes.push("teto atingido");
+    condicoes.push("o teto zerar amanhã");
+  }
+  if (esperaHoje) {
+    nomes.push("não cabe hoje");
+    condicoes.push("houver espaço no teto para este prompt");
+  }
+  if (travada) {
+    nomes.push("sem autorização");
+    condicoes.push("a medição desta conta for atualizada");
+  }
+  if (semVaga) {
+    nomes.push("sessões no limite");
+    condicoes.push("uma das sessões em voo fechar");
+  }
+  return `${juntarComE(nomes)} — o próximo item só sai quando ${juntarComE(condicoes)}; resolver um só não basta`;
+}
+
+function juntarComE(partes: string[]): string {
+  if (partes.length <= 1) return partes.join("");
+  return `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}`;
+}
+
 export interface ContaCardProps {
   consumo: ConsumoConta;
   /** Próximo modelo que o roteador sugeriria, na complexidade selecionada. Ignorado quando a conta está no teto. */
@@ -160,16 +215,7 @@ export function ContaCard({
     prazo do cartão. Agora, quando os dois valem, a frase diz os dois — e diz
     qual deles amanhã NÃO resolve.
   */
-  const rodape =
-    atingiu && travada
-      ? "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada"
-      : atingiu
-        ? "teto atingido — próximo espaço amanhã"
-        : travada
-          ? "sem autorização agora — volta a rodar quando a medição desta conta for atualizada"
-          : semVaga
-            ? "sessões no limite — o próximo item desta conta sai quando uma delas fechar"
-            : null;
+  const rodape = textoDoRodape({ atingiu, travada, esperaHoje, semVaga });
 
   return (
     <section

@@ -9,7 +9,7 @@ import {
   frasePeLancamento,
 } from "@/components/prompts/mensagem-da-fila";
 import { alvoAposExclusaoDeNota, focarComAlternativa } from "@/components/task/foco";
-import { ContaCard } from "@/components/prompts/conta-card";
+import { ContaCard, textoDoRodape } from "@/components/prompts/conta-card";
 import {
   POSTO_ESTIMATIVA,
   custoAoCancelarUsd,
@@ -1098,5 +1098,55 @@ describe("CRÍTICO 1 (rodada 13) — crédito de um dia fechado não vira teto N
     expect(html).not.toContain("US$ -358,50");
     expect(html).not.toContain("US$ 843,50 livres");
     expect(html).toContain("US$ 485,00 livres");
+  });
+});
+
+/**
+ * P2 do Codex (PR #42, 22ª rodada) — o rodapé junta todos os bloqueios.
+ * Conta no limite de sessões E sem espaço para o prompt lia "o próximo item
+ * desta conta sai quando uma delas fechar" — fechar uma sessão não cria o
+ * dinheiro que falta. E "teto atingido — próximo espaço amanhã" aparecia sobre
+ * uma conta que amanhã continua com as quatro sessões ocupadas.
+ */
+describe("P2 do Codex (PR #42, 22ª rodada) — o rodapé nomeia todos os bloqueios", () => {
+  const cheia = {
+    medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+    defasagemHoras: 0.5,
+    emVoo: 4,
+    limiteEmVoo: 4,
+  };
+
+  it("sessões no limite E sem espaço: a frase pede as duas coisas, não só uma sessão fechar", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={consumoDeProva({ ...cheia, tetoUsd: 500, consumoHojeUsd: 10 })} agora={AGORA} semEspacoHoje />,
+    );
+    expect(html).not.toContain("sessões no limite — o próximo item desta conta sai quando uma delas fechar");
+    expect(html).toContain(
+      "não cabe hoje e sessões no limite — o próximo item só sai quando houver espaço no teto para este prompt e uma das sessões em voo fechar; resolver um só não basta",
+    );
+  });
+
+  it("teto atingido E sessões no limite: amanhã não basta sozinho", () => {
+    const html = renderToStaticMarkup(
+      <ContaCard consumo={consumoDeProva({ ...cheia, tetoUsd: 150, consumoHojeUsd: 150 })} agora={AGORA} />,
+    );
+    expect(html).not.toContain("teto atingido — próximo espaço amanhã");
+    expect(html).toContain(
+      "teto atingido e sessões no limite — o próximo item só sai quando o teto zerar amanhã e uma das sessões em voo fechar; resolver um só não basta",
+    );
+  });
+
+  it("um bloqueio só e o par teto + autorização mantêm as frases de antes", () => {
+    const f = (e: Partial<Parameters<typeof textoDoRodape>[0]>) =>
+      textoDoRodape({ atingiu: false, travada: false, esperaHoje: false, semVaga: false, ...e });
+    expect(f({})).toBeNull();
+    expect(f({ atingiu: true })).toBe("teto atingido — próximo espaço amanhã");
+    expect(f({ semVaga: true })).toBe("sessões no limite — o próximo item desta conta sai quando uma delas fechar");
+    expect(f({ atingiu: true, travada: true })).toBe(
+      "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada",
+    );
+    expect(f({ atingiu: true, travada: true, semVaga: true })).toBe(
+      "teto atingido, sem autorização e sessões no limite — o próximo item só sai quando o teto zerar amanhã, a medição desta conta for atualizada e uma das sessões em voo fechar; resolver um só não basta",
+    );
   });
 });
