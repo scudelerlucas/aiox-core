@@ -411,9 +411,15 @@ describe("P2 do Codex (PR #42) — conta no limite de sessões em voo não é co
       emVoo: 4,
       limiteEmVoo: 4,
     });
-    const html = renderToStaticMarkup(<ContaCard consumo={cheia} agora={AGORA} seriaEscolhida />);
+    const html = renderToStaticMarkup(<ContaCard consumo={cheia} agora={AGORA} seriaEscolhida proximoModelo="Opus" />);
     expect(html).toContain("sessões no limite");
     expect(html).not.toContain("escolhida agora");
+    // P2 do Codex (PR #42, 5ª rodada): nem a borda dourada nem a sugestão de
+    // modelo — o cartão inteiro fica no estado de bloqueio.
+    expect(html).not.toContain("shadow-heroi");
+    expect(html).not.toContain("próximo modelo sugerido");
+    expect(html).toContain("border-state-blocked/70");
+    expect(html).toContain("o próximo item desta conta sai quando uma delas fechar");
 
     const comVaga = consumoDeProva({
       medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
@@ -421,9 +427,11 @@ describe("P2 do Codex (PR #42) — conta no limite de sessões em voo não é co
       emVoo: 3,
       limiteEmVoo: 4,
     });
-    const htmlVaga = renderToStaticMarkup(<ContaCard consumo={comVaga} agora={AGORA} seriaEscolhida />);
+    const htmlVaga = renderToStaticMarkup(<ContaCard consumo={comVaga} agora={AGORA} seriaEscolhida proximoModelo="Opus" />);
     expect(htmlVaga).not.toContain("sessões no limite");
     expect(htmlVaga).toContain("escolhida agora");
+    expect(htmlVaga).toContain("shadow-heroi");
+    expect(htmlVaga).toContain("próximo modelo sugerido");
   });
 });
 

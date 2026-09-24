@@ -144,8 +144,10 @@ export function ContaCard({
   if (esperaHoje) selos.push({ texto: "não cabe hoje", tom: "bloqueio" });
   // P2 do Codex (PR #42): conta no limite de sessões em voo não despacha nada
   // agora — e por isso não leva o selo "escolhida agora", mesmo quando todas
-  // estão cheias e a escolha cai nela.
-  if (semVagaEmVoo(consumo)) selos.push({ texto: "sessões no limite", tom: "bloqueio" });
+  // estão cheias e a escolha cai nela. O mesmo estado vale para a borda e o
+  // rodapé abaixo: nenhuma parte do cartão convida para o que o pull recusa.
+  const semVaga = semVagaEmVoo(consumo);
+  if (semVaga) selos.push({ texto: "sessões no limite", tom: "bloqueio" });
   if (selos.length === 0 && seriaEscolhida === true) {
     selos.push({ texto: "escolhida agora", tom: "convite" });
   }
@@ -165,12 +167,14 @@ export function ContaCard({
         ? "teto atingido — próximo espaço amanhã"
         : travada
           ? "sem autorização agora — volta a rodar quando a medição desta conta for atualizada"
-          : null;
+          : semVaga
+            ? "sessões no limite — o próximo item desta conta sai quando uma delas fechar"
+            : null;
 
   return (
     <section
       className={`rounded-lg border bg-navy-850 p-4 ${
-        atingiu || esperaHoje || travada
+        atingiu || esperaHoje || travada || semVaga
           ? "border-state-blocked/70"
           : seriaEscolhida
             ? "border-gold-500 shadow-heroi"
