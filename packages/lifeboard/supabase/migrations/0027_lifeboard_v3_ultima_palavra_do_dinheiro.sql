@@ -650,23 +650,25 @@ update public.painel_teto_diario
  where conta in ('lucasscudeler@gmail.com','lsgpandora@gmail.com','almapetra.ltda@gmail.com','arborcactus@gmail.com')
    and teto_usd = 150;
 
-insert into public.painel_teto_diario (conta, teto_usd) values
-  ('lucasscudeler@gmail.com', 500),
-  ('lsgpandora@gmail.com', 500),
-  ('almapetra.ltda@gmail.com', 500)
-on conflict (conta) do nothing;
-
 -- P1 do Codex (PR #42, 9ª rodada): a QUARTA conta nasce TRAVADA pela exigência
 -- de medição recente. Com o default (`false`), a escolha automática via o
 -- teto vazio de US$ 500 como o maior espaço da casa e mandava item para uma
--- conta que ainda não tem Routine configurada (o DEPLOY.md só instrui três) —
--- o item ficava na fila para sempre. Travada, ela não é autorizada até a
+-- conta que ainda não tem Routine configurada (o DEPLOY.md só instruía três)
+-- — o item ficava na fila para sempre. Travada, ela não é autorizada até a
 -- Routine dela publicar a primeira medição (menos de 12 h): aí destrava
--- sozinha, sem ninguém mexer nesta linha. `on conflict do nothing` preserva o
--- que o operador já tiver decidido num banco onde a linha existe. É o mesmo
--- estado que o fixture já mostra para ela (`exigeMedicaoRecente: true`).
-insert into public.painel_teto_diario (conta, teto_usd, exigir_medicao_recente) values
-  ('arborcactus@gmail.com', 500, true)
+-- sozinha, sem ninguém mexer nesta linha. Só quando a linha AINDA NÃO existe:
+-- num banco onde ela já está, vale o que o operador decidiu. É o mesmo estado
+-- que o fixture já mostra para ela (`exigeMedicaoRecente: true`). Vem ANTES da
+-- semente das quatro, que então a pula pelo `on conflict`.
+insert into public.painel_teto_diario (conta, teto_usd, exigir_medicao_recente)
+select 'arborcactus@gmail.com', 500, true
+ where not exists (select 1 from public.painel_teto_diario where conta = 'arborcactus@gmail.com');
+
+insert into public.painel_teto_diario (conta, teto_usd) values
+  ('lucasscudeler@gmail.com', 500),
+  ('lsgpandora@gmail.com', 500),
+  ('almapetra.ltda@gmail.com', 500),
+  ('arborcactus@gmail.com', 500)
 on conflict (conta) do nothing;
 
 comment on column public.painel_teto_diario.teto_usd is
