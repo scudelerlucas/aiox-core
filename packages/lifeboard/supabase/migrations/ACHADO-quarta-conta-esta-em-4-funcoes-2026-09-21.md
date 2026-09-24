@@ -50,3 +50,69 @@ que isso não é afrouxamento.
 
 **Não mergear esta branch antes da decisão A/B.** Testes vermelhos aqui não são defeito do trabalho:
 são o alarme funcionando.
+
+---
+
+# EMENDA (24/09/2026) — o problema é maior: o banco vivo e o repositório divergiram
+
+Ao construir a migration 0027 (as 4 funções com a 4ª conta), parei para **provar** que os corpos que
+eu ia escrever eram os que estão rodando. Não eram.
+
+## A medição
+
+Comparando o miolo de cada função entre a **última migration do repositório** que a define e o
+**`prosrc` vivo** no projeto `hciiilopyivjaekaxfqp`:
+
+| Função | Última migration | Repo | Vivo | Diferença |
+|---|---|---|---|---|
+| `fila_prompts_enfileirar` | 0025 | 6.676 | 6.266 | **−410** |
+| `fila_prompts_listar` | 0018 | 4.186 | 4.138 | **−48** |
+| `fila_prompts_pegar_interno` | 0022 | 8.393 | 9.883 | **+1.490** |
+| `fila_prompts_fechar_interno` | 0023 | 5.530 | 7.427 | **+1.897** |
+
+**Não é erro de leitura do meu script.** O início das quatro bate exatamente, e o fim de três das
+quatro também; nenhuma tem `$$` aninhado que pudesse cortar o bloco no lugar errado. As diferenças
+são **no meio do corpo** — quer dizer, código diferente, não recorte diferente.
+
+E a quarta é mais grave: o **fim** de `fila_prompts_fechar_interno` diverge. O vivo devolve um campo
+a mais no JSON de retorno:
+
+```
+repo (0023):  …'reaberto_e_fechado', false, 'estado', p_estado  );
+vivo:         …false, 'estado', p_estado, 'caixa', v_caixa      );
+```
+
+O campo **`caixa`** existe na função que está rodando e **não existe em nenhuma migration do
+repositório**.
+
+## Por que isto interrompe o trabalho
+
+Eu ia gerar a 0027 extraindo os corpos do repositório e trocando duas cadeias. Se tivesse aplicado,
+o `create or replace` teria **substituído as funções vivas pelas versões do repo** — apagando, em
+silêncio, tudo o que existe no banco e não existe aqui, inclusive o campo `caixa`. Uma mudança
+anunciada como "acrescenta uma conta" teria revertido meses de ajuste.
+
+**Por isso a 0027 foi apagada.** Não existe nesta branch.
+
+## A decisão que isto cria
+
+| Caminho | O que significa |
+|---|---|
+| **C — adotar o vivo como verdade** | gerar a 0027 a partir de `pg_get_functiondef` (o que está rodando), acrescentar a 4ª conta e commitar. Seguro para o comportamento; mas a migration não "deriva" de nenhuma anterior, e quem revisar não consegue diferenciá-la do histórico |
+| **D — investigar antes** | descobrir de onde vieram as diferenças (alguma sessão aplicou SQL direto, como esta fez hoje com a 0026?), reconciliar repo e banco, e só então acrescentar a conta |
+
+**C é rápido e não quebra nada. D é o que impede isto de acontecer de novo.** Não é decisão de
+sessão: é decisão sobre qual é a fonte de verdade deste banco.
+
+## O que isto sugere sobre o resto do banco
+
+As 4 funções examinadas foram as 4 que precisavam da conta nova. **Ninguém mediu as outras.** Se
+estas quatro divergiram, o certo é assumir que outras também divergiram até que se meça — e essa
+medição é barata (comparar `prosrc` contra o repositório, função a função).
+
+## Estado da decisão 7-B
+
+O operador escolheu **7-B** (mudar a regra do teste-guarda para "a última migration que declara a
+ordem é a que vale"). **Não foi executado**, de propósito: mexer na rede de proteção agora
+afrouxaria o guarda sem destravar nada, porque a mudança que ele guarda está parada neste achado.
+Fica pronto para o momento em que C ou D for decidido.
