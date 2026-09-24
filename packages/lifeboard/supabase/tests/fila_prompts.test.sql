@@ -6323,3 +6323,87 @@ begin
   raise exception 'FALHA: T106 esperado 0 linhas das publicações inválidas e dia = 12 — obteve linhas=% dia=%',
     v_linhas_invalidas, v_hoje;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T107 · P2 do Codex (PR #42, 18ª rodada) — TROCA DE DONO NÃO É MEDIÇÃO NOVA
+-- A sessão A, vinculada ao item, publicou há 20 h (conta com a trava de
+-- medição recente: 12 h). O item passa para B e recebe uma estimativa — nada
+-- foi medido. A fusão regravava o lançamento de A sem o item e, sem carimbo,
+-- `painel_caixa_lancar` punha `now()`: a medição de 20 h virava fresca e a
+-- conta destravava sem a Routine ter publicado nada. Agora o carimbo original
+-- vai junto.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar a passar `null` como
+-- `p_medido_em` na fusão de `painel_caixa_lancar_item` (0027 §7).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_item uuid;
+  v_antes timestamptz; v_depois timestamptz;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (v_conta, 'T107 item', 'alta', 'Opus', 'sess-A-T107') returning id into v_item;
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, precedencia, medido_em, nota)
+  values (public.painel_dia_operador(), v_conta, 100, 'medido', 'sessao', 'sess-A-T107',
+          v_item, 'sess-A-T107', 40, now() - interval '20 hours', 'T107 A publicou há 20 h');
+  v_antes := public.painel_fila_medido_ate(v_conta);
+
+  update public.painel_fila_prompts set session_id = 'sess-B-T107' where id = v_item;
+  perform public.painel_caixa_lancar_item(v_item, 50, 'estimativa', null, 'T107 estimativa sob B');
+  v_depois := public.painel_fila_medido_ate(v_conta);
+
+  if v_antes = v_depois and v_depois < now() - interval '19 hours' then
+    raise exception 'RESULTADO: ok — T107 trocar o dono não renovou a medição: medido até % antes e % depois',
+      v_antes, v_depois;
+  end if;
+  raise exception 'FALHA: T107 esperado medido_ate igual antes e depois da troca (20 h atrás) — obteve antes=% depois=%',
+    v_antes, v_depois;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T108 · P2 do Codex (PR #42, 18ª rodada) — A FUSÃO NÃO ACEITA CUSTO FORA DA
+-- FAIXA PELA PORTA DOS FUNDOS
+-- A sessão A publicou −30 (o gatilho ignora: não é medição, T106), e o item
+-- vinculado a ela tinha uma estimativa de 50 em A. O item passa para B. Sem
+-- lançamento de posto 40 em A, a fusão lia `painel_frentes_sessoes.custo_usd`
+-- cru — e o −30 entrava como medição de posto 40. Agora a mesma faixa vale:
+-- fora dela, alvo zero e transferência pura.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar a faixa do fallback da fusão
+-- em `painel_caixa_lancar_item` (0027 §7).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_item uuid;
+  v_negativos int; v_a numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (v_conta, 'T108 item', 'alta', 'Opus', 'sess-A-T108') returning id into v_item;
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-A-T108', v_conta, 'custo negativo', 'idle', -30, now());
+  perform public.painel_caixa_lancar_item(v_item, 50, 'estimativa', null, 'T108 estimativa sob A');
+
+  update public.painel_fila_prompts set session_id = 'sess-B-T108' where id = v_item;
+  perform public.painel_caixa_lancar_item(v_item, 5, 'estimativa', null, 'T108 estimativa sob B');
+
+  select count(*) into v_negativos from public.painel_caixa_lancamentos
+   where entidade_id = 'sess-A-T108' and origem <> 'estorno' and valor_usd < 0;
+  select coalesce(sum(valor_usd), 0) into v_a from public.painel_caixa_lancamentos
+   where entidade_id = 'sess-A-T108';
+
+  if v_negativos = 0 and v_a = 0 then
+    raise exception 'RESULTADO: ok — T108 o −30 da origem não entrou pela fusão (lançamentos negativos=%) e A foi esvaziada (líquido %)',
+      v_negativos, v_a;
+  end if;
+  raise exception 'FALHA: T108 esperado nenhum lançamento negativo em A e líquido 0 — obteve negativos=% líquido=%',
+    v_negativos, v_a;
+end $$;

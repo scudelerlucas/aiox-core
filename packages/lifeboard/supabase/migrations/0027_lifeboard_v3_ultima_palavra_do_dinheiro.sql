@@ -1198,6 +1198,7 @@ declare
   v_antiga    record;
   v_liquido   numeric;
   v_alvo      numeric;
+  v_medido_em timestamptz;
 begin
   select f.id, f.conta, f.session_id into v_f
     from public.painel_fila_prompts f where f.id = p_item;
@@ -1238,8 +1239,14 @@ begin
     -- com 5 e o dia caiu de 100 para 5. Só na falta de publicação no livro a
     -- origem responde, como antes. Bloco que prova: T94.
     v_alvo := null;
+    v_medido_em := null;
     if v_antiga.entidade_tipo = 'sessao' then
-      select l.valor_usd into v_alvo
+      -- P2 do Codex (PR #42, 18ª rodada): o carimbo da medição VAI JUNTO. Com o
+      -- dono mudando, `painel_caixa_lancar` regrava o lançamento idêntico — e,
+      -- sem `p_medido_em`, carimbava `now()`: uma troca de dono virava medição
+      -- fresca e destravava conta com `exigir_medicao_recente` sem a Routine
+      -- ter medido nada (T107).
+      select l.valor_usd, l.medido_em into v_alvo, v_medido_em
         from public.painel_caixa_lancamentos l
        where l.entidade_tipo = 'sessao'
          and l.entidade_id = v_antiga.entidade_id
@@ -1249,7 +1256,14 @@ begin
        order by l.criado_em desc, l.id desc
        limit 1;
       if v_alvo is null then
-        select coalesce(s.custo_usd, 0) into v_alvo
+        -- P2 do Codex (PR #42, 18ª rodada): a MESMA faixa do gatilho de
+        -- publicação (§7b). Um −30 que o gatilho ignorou com razão não pode
+        -- entrar pela fusão como medição de posto 40 (T108). Fora da faixa, a
+        -- sessão não publicou nada — alvo zero, transferência pura.
+        select case when s.custo_usd > 0 and s.custo_usd <= public.painel_custo_maximo_por_item()
+                    then s.custo_usd else 0 end,
+               coalesce(s.atualizado_em, s.criado_em, s.publicado_em)
+          into v_alvo, v_medido_em
           from public.painel_frentes_sessoes s where s.sessao_id = v_antiga.entidade_id;
       end if;
       v_alvo := coalesce(v_alvo, 0);
@@ -1266,7 +1280,7 @@ begin
       v_antiga.entidade_tipo, v_antiga.entidade_id, v_f.conta,
       v_alvo, 'medido', null,
       case when v_antiga.entidade_tipo = 'sessao' then v_antiga.entidade_id else null end,
-      null,
+      v_medido_em,
       case when v_alvo > 0
            then 'o trabalho deste item mudou de entidade; esta sessão fica com o que ela mesma publicou'
            else 'fusão de entidade: o dinheiro deste item saiu daqui e foi para a entidade canônica dele'
