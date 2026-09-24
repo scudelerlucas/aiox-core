@@ -188,6 +188,40 @@ alter table public.painel_fila_prompts
 comment on column public.painel_fila_prompts.parada_pendente_desde is
   'P2 do Codex (PR #42, 10ª rodada): item cancelado DURANTE a execução cuja sessão filha pode ainda estar rodando — guarda o último sinal de vida (heartbeat ou pego_em) do momento do cancelamento. Enquanto não for nula e estiver dentro de painel_fila_janela_em_voo(), o item ocupa vaga em painel_fila_em_voo. Apagada quando o worker do item ouve o cancelamento no heartbeat.';
 
+-- P2 do Codex (PR #42, 14ª rodada) · O CAMINHO DE ATUALIZAÇÃO. O gatilho
+-- abaixo só vê transições FUTURAS. Um item cancelado em execução pouco antes
+-- desta migration nasce com a coluna nula — e a filha dele pode estar rodando
+-- até o próximo heartbeat; sem esta passada, `painel_fila_em_voo` o excluiria
+-- no instante do deploy e o pull abriria a quinta sessão. Conservador: o sinal
+-- de vida é o próprio `concluido_em` (a hora do cancelamento, sempre depois do
+-- último heartbeat), e só entra quem tinha dono (`worker_id`, que o
+-- cancelamento preserva) e ainda não fechou com o número medido — fechar é a
+-- confirmação da parada (§11). Função, e não `update` solto, para que o bloco
+-- T104 a exercite contra o estado de um banco antigo.
+create or replace function public.painel_fila_marcar_paradas_pendentes_legadas()
+returns integer
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_marcados integer;
+begin
+  update public.painel_fila_prompts f
+     set parada_pendente_desde = f.concluido_em
+   where f.estado = 'cancelada'
+     and f.parada_pendente_desde is null
+     and f.worker_id is not null
+     and f.concluido_em >= now() - public.painel_fila_janela_em_voo()
+     and f.custo_origem is distinct from 'medido';
+  get diagnostics v_marcados = row_count;
+  return v_marcados;
+end;
+$$;
+comment on function public.painel_fila_marcar_paradas_pendentes_legadas() is
+  'P2 do Codex (PR #42, 14ª rodada): marca parada_pendente_desde nos itens cancelados em execução ANTES da 0030 (dono conhecido, dentro da janela de voo, sem fechamento medido), para que a vaga deles não se abra no instante do deploy. Roda uma vez na própria 0030; bloco T104.';
+revoke all on function public.painel_fila_marcar_paradas_pendentes_legadas() from public, anon, authenticated;
+select public.painel_fila_marcar_paradas_pendentes_legadas();
+
 create or replace function public.painel_fila_marca_parada_pendente()
 returns trigger
 language plpgsql

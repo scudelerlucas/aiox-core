@@ -6087,3 +6087,101 @@ begin
   raise exception 'FALHA: T102 esperado projeção do item = livro da conta = 30 e 0 estimativas — obteve projeção=% conta=% estimativas=%',
     v_projecao, v_conta_hoje, v_estimativas;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T103 · P2 do Codex (PR #42, 14ª rodada) — A PUBLICAÇÃO DE MESMO VALOR QUE
+-- FICA COM A SESSÃO ANTIGA DEIXA DE SER DO ITEM
+-- A sessão A, vinculada ao item, publica US$ 100 (posto 40, com o `item_id`
+-- dele). O item fecha por OUTRA sessão (B) com US$ 5. A fusão pede a
+-- `painel_caixa_lancar` que A fique com os mesmos 100, agora SEM item — e a
+-- função via "valor igual, origem igual" e não gravava nada: o +100 de A
+-- continuava com o `item_id`, e a projeção do item somava 100 + 5 = 105
+-- enquanto o item é só os 5 de B. Agora a troca de proveniência grava estorno
+-- e relançamento (que se anulam no dia) e o +100 de A passa a ser só de A.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar a comparação de `item_id` do
+-- não-lançamento de `painel_caixa_lancar` (0027).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_hoje numeric; v_a numeric; v_a_do_item int; v_projecao numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T103 troca de sessão', 'maxima', 'Fable') returning id into v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T103');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T103', 'sess-T103-a');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T103-a', v_conta, 'publicou 100', 'idle', 100, now());
+
+  perform public.fila_prompts_fechar_interno(
+    p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T103',
+    p_estado => 'concluida', p_custo_usd => 5, p_session_id => 'sess-T103-b');
+
+  v_hoje := public.painel_fila_consumo_hoje(v_conta);
+  select coalesce(sum(valor_usd), 0) into v_a from public.painel_caixa_lancamentos
+   where entidade_tipo = 'sessao' and entidade_id = 'sess-T103-a';
+  -- o lançamento ATIVO de A não pode mais carregar o item
+  select count(*) into v_a_do_item from public.painel_caixa_lancamentos l
+   where l.entidade_tipo = 'sessao' and l.entidade_id = 'sess-T103-a'
+     and l.origem <> 'estorno' and l.item_id = v_id
+     and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id);
+  select coalesce(sum(contribuicao), 0) into v_projecao
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_id;
+
+  if v_a = 100 and v_hoje = 105 and v_a_do_item = 0 and v_projecao = 5 then
+    raise exception 'RESULTADO: ok — T103 A fica com os seus % sem o item (ativos com item_id=%), o item projeta US$ % e o dia é %',
+      v_a, v_a_do_item, v_projecao, v_hoje;
+  end if;
+  raise exception 'FALHA: T103 esperado A=100 sem item, projeção do item 5 e dia 105 — obteve A=% ativos_do_item=% projeção=% dia=%',
+    v_a, v_a_do_item, v_projecao, v_hoje;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T104 · P2 do Codex (PR #42, 14ª rodada) — O CANCELAMENTO FEITO ANTES DA 0030
+-- TAMBÉM OCUPA A VAGA
+-- O gatilho que marca `parada_pendente_desde` só vê transições futuras. Um item
+-- cancelado em execução pouco antes do deploy nascia com a coluna nula e saía
+-- de `painel_fila_em_voo` na hora, com a filha ainda rodando. A 0030 roda
+-- `painel_fila_marcar_paradas_pendentes_legadas()` uma vez; este bloco monta o
+-- estado de um banco antigo e confere quem ela marca: o cancelado recente com
+-- dono entra; o cancelado fora da janela, o que já fechou com número medido e
+-- o que nunca teve dono ficam de fora.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar do `where` da função (0030
+-- §1e') a condição do dono (`worker_id`), a da janela ou a do fechamento
+-- medido — cada uma deixa entrar uma das três linhas que devem ficar de fora.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_marcados int; v_voo int;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  -- o estado de um banco antigo: quatro canceladas, todas sem a marca
+  insert into public.painel_fila_prompts
+    (conta, prompt, complexidade, modelo_sugerido, estado, worker_id, pego_em, concluido_em, custo_origem)
+  values
+    (v_conta, 'T104 recente com dono', 'baixa', 'Haiku', 'cancelada', 'w-T104-a', now() - interval '10 minutes', now() - interval '2 minutes', 'estimativa'),
+    (v_conta, 'T104 fora da janela', 'baixa', 'Haiku', 'cancelada', 'w-T104-b', now() - interval '3 hours', now() - interval '2 hours', 'estimativa'),
+    (v_conta, 'T104 já fechou medido', 'baixa', 'Haiku', 'cancelada', 'w-T104-c', now() - interval '10 minutes', now() - interval '2 minutes', 'medido'),
+    (v_conta, 'T104 nunca teve dono', 'baixa', 'Haiku', 'cancelada', null, null, now() - interval '2 minutes', 'estimativa');
+  update public.painel_fila_prompts set parada_pendente_desde = null where conta = v_conta;
+
+  v_marcados := public.painel_fila_marcar_paradas_pendentes_legadas();
+  v_voo := public.painel_fila_em_voo(v_conta);
+
+  if v_marcados = 1 and v_voo = 1 then
+    raise exception 'RESULTADO: ok — T104 a passada da 0030 marcou % cancelada legada (a recente com dono) e em voo = %',
+      v_marcados, v_voo;
+  end if;
+  raise exception 'FALHA: T104 esperado 1 marcada e em voo = 1 — obteve marcadas=% em_voo=%', v_marcados, v_voo;
+end $$;

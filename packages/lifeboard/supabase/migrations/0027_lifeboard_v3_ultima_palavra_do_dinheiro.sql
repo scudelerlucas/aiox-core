@@ -869,6 +869,8 @@ declare
   v_liquido        numeric;
   v_conta          text;
   v_ultimo         uuid;
+  v_item_atual     uuid;
+  v_valor_atual    numeric;
   v_origem_atual   text;
   v_medido_atual   timestamptz;
   v_alvo           numeric;
@@ -931,8 +933,10 @@ begin
   -- Ativo = não é estorno, e ninguém o estornou. Por construção há no máximo
   -- um, e a leitura deixa de depender de relógio.
   select l.id, l.origem, l.medido_em,
-         coalesce(l.precedencia, public.painel_caixa_precedencia(l.origem))
-    into v_ultimo, v_origem_atual, v_medido_atual, v_prec_atual
+         coalesce(l.precedencia, public.painel_caixa_precedencia(l.origem)),
+         l.item_id, l.valor_usd
+    into v_ultimo, v_origem_atual, v_medido_atual, v_prec_atual,
+         v_item_atual, v_valor_atual
     from public.painel_caixa_lancamentos l
    where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
      and l.origem <> 'estorno'
@@ -983,13 +987,23 @@ begin
   -- os dois hoje, que se anulam no total do dia — o dinheiro não anda e o
   -- `medido_em` novo passa a existir. Sem `p_medido_em` explícito não há
   -- evidência de medição nova, e continua não-lançamento.
+  -- P2 do Codex (PR #42, 14ª rodada): E O DONO. O `item_id` também é
+  -- proveniência. A fusão de entidade pede que a sessão antiga fique com o que
+  -- publicou, agora SEM o item (`p_item_id => null`) — e com valor e origem
+  -- iguais isto era não-lançamento: o lançamento de A seguia com o `item_id`
+  -- e a projeção do item somava A e B (T103). Trocar o dono grava estorno e
+  -- relançamento, que se anulam no dia. Só quando o lançamento vigente vale o
+  -- próprio alvo: com crédito de dias anteriores no líquido (D54) o par não se
+  -- anularia, e ali o não-lançamento de antes continua valendo.
   if v_liquido = v_alvo
      and (
        v_alvo = 0
        or (v_origem_atual is not distinct from p_origem
            and (p_origem <> 'medido'
                 or (v_medido_atual is not null
-                    and (p_medido_em is null or p_medido_em <= v_medido_atual))))
+                    and (p_medido_em is null or p_medido_em <= v_medido_atual)))
+           and (v_item_atual is not distinct from p_item_id
+                or v_valor_atual is distinct from v_alvo))
      )
   then
     return jsonb_build_object(
