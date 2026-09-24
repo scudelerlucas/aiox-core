@@ -5999,7 +5999,7 @@ end $$;
 -- apagava a marca: a filha já terminada seguia ocupando vaga por 45 min e, com
 -- a conta no limite, o pull ficava barrado por uma sessão fantasma.
 -- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar `parada_pendente_desde = null`
--- do ramo `cancelada` de `fila_prompts_fechar_interno` (0030 §11).
+-- do ramo `cancelada` de `fila_prompts_fechar_interno` (0030 §1e'').
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare

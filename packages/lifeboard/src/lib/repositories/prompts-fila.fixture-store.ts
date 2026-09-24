@@ -1292,7 +1292,7 @@ export function fecharFixture(input: {
     });
     // P2 do Codex (PR #42, 11ª e 13ª rodadas): o dono que fecha o cancelado
     // confirma a parada — é o único ato que libera a vaga antes da janela.
-    // Espelho do §11 da 0030.
+    // Espelho do §1e'' da 0030.
     loja_.paradaPendente.delete(item.id);
     return { ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" };
   }
