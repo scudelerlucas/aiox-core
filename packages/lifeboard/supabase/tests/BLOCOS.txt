@@ -120,3 +120,4 @@ T89 · CRÍTICO (rodada 15) — O PAINEL NUNCA ANUNCIA ESPAÇO SEM DIZER O QUE E
 T90 · CRÍTICO (rodada 15) — AS GUARDAS DE CIRCUNVENÇÃO: subir o teto sem subir o piso é recusado
 T91 · CRÍTICO (rodada 15) — SESSÃO MUDA NÃO OCUPA VAGA NEM RESERVA DINHEIRO (a janela é fonte única)
 T92 · Major CodeRabbit + P2 Codex (PR #42) — A CÉLULA MOSTRA O LANÇAMENTO VIGENTE, NÃO A SOMA DE TODOS OS DIAS
+T93 · P2 Codex (PR #42, 2ª rodada) — O AJUSTE CONFERE A SESSÃO PROPOSTA, NÃO SÓ A ATUAL

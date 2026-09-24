@@ -162,6 +162,18 @@ if [ "$VERMELHOS" -gt 0 ]; then
   exit 1
 fi
 
+# P2 do Codex (PR #42, 2ª rodada): com `ON_ERROR_STOP=0`, um erro de verdade
+# FORA dos vereditos (uma limpeza que falhou, um comando entre blocos com erro
+# de sintaxe) aparecia na saída e o job passava assim mesmo, porque só se
+# procurava `FALHA:` e os nomes do manifesto. Todo ERROR/FATAL/PANIC que não
+# seja um veredito `RESULTADO: ok —` reprova agora.
+INESPERADOS="$(printf '%s\n' "$SAIDA" | grep -E '(ERROR|FATAL|PANIC):' | grep -v 'RESULTADO: ok —' | grep -v 'FALHA:' || true)"
+if [ -n "$INESPERADOS" ]; then
+  echo "✗ a suíte produziu erro do Postgres fora dos vereditos:"
+  printf '%s\n' "$INESPERADOS" | head -20
+  exit 1
+fi
+
 if [ "$VERDES" -eq 0 ]; then
   morrer "nenhum bloco chegou ao veredito — a suíte não rodou (banco fora, arquivo ilegível, erro logo na primeira linha).
    Saída do psql, primeiras linhas:

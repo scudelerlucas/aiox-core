@@ -743,11 +743,17 @@ export interface CustoNaTela {
 
 export function custoNaTela(item: ItemFilaPrompt): CustoNaTela {
   const livro = leituraDoLivro(item);
-  if (livro !== null && livro.posto > POSTO_OPERADOR && livro.liquidoUsd !== item.custoUsd) {
+  // P2 do Codex (PR #42, 2ª rodada): o livro manda sempre que tem posto acima
+  // do operador — não só quando o VALOR difere. Com a condição antiga, uma
+  // sessão que publicava exatamente os US$ 50 que a casa estimava deixava a
+  // célula dizendo "estimativa da casa", em cor de atenção, ao lado da frase
+  // "a sessão já publicou o número deste item". O "(a casa estimava …)" só
+  // aparece quando há um número diferente para lembrar.
+  if (livro !== null && livro.posto > POSTO_OPERADOR) {
     return {
       valorUsd: livro.liquidoUsd,
       nota:
-        item.custoUsd === null
+        item.custoUsd === null || item.custoUsd === livro.liquidoUsd
           ? "medido pela sessão"
           : `medido pela sessão (a casa estimava ${formatarUsd(item.custoUsd)})`,
       atencao: false,

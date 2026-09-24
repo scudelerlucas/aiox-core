@@ -761,8 +761,25 @@ declare
 begin
   set local session_replication_role = replica;
 
+  -- P1 do Codex (PR #42, 2ª rodada): medição PUBLICADA pela sessão tem
+  -- posto 40, não 30. Sem isto, toda publicação que já está no livro virava
+  -- 30 — o mesmo posto do fechamento do worker — e, como posto igual é "o
+  -- mais novo manda", o próximo fechamento derrubava o número publicado.
+  -- As linhas de publicação se reconhecem pela nota fixa que o gatilho
+  -- `painel_frentes_sessoes_lancar` (0019) sempre gravou, e a abertura das
+  -- SESSÕES (0019 §7, o primeiro insert) pela nota dela — as duas vêm de
+  -- `painel_frentes_sessoes`, que é a publicação da rotina. A abertura dos
+  -- ITENS (o segundo insert) também pode cair sob `sessao:<id>`, mas é o
+  -- número que o item disse de si, com outra nota: fica no posto da origem.
   update public.painel_caixa_lancamentos l
-     set precedencia = public.painel_caixa_precedencia(l.origem)
+     set precedencia = case
+           when l.origem = 'medido'
+            and l.nota in ('medição publicada pela sessão vinculada a um item da fila',
+                           'medição publicada pela sessão',
+                           'abertura da rodada 9 — mesmo dia que painel_consumo_por_conta_dia já atribuía')
+             then 40::smallint
+           else public.painel_caixa_precedencia(l.origem)
+         end
    where l.precedencia is null
      and l.origem <> 'estorno';
   get diagnostics v_postos = row_count;
@@ -1629,7 +1646,7 @@ declare
   v_caixa    jsonb;
   v_antes    text;
   v_era_zero boolean;
-  v_origem_livro text;
+  v_posto_livro smallint;
 begin
   select valor into v_expected from private.lifeboard_config where chave = 'load_secret';
   if v_expected is null then
@@ -1671,29 +1688,6 @@ begin
     raise exception 'Este custo foi medido pela sessão — não dá para corrigi-lo aqui.'
       using errcode = 'check_violation';
   end if;
-  -- CRÍTICO 1 (rodada 12): a MESMA guarda, olhando o LIVRO. A coluna
-  -- `custo_origem` do item pode dizer `estimativa` (a casa lançou quando ele
-  -- morreu) enquanto a entidade dele já guarda a medição publicada pela
-  -- sessão. Sem esta linha a correção do operador (posto 20) seria recusada
-  -- por posto lá dentro e a tela responderia "custo ajustado" sobre um dia
-  -- que não se mexeu — o no-op silencioso que a rodada 9 matou por outro
-  -- caminho. Aqui ele vira recusa com motivo.
-  select l.origem into v_origem_livro
-    from public.painel_caixa_lancamentos l
-   where (l.entidade_tipo, l.entidade_id) = (
-           select case when f.session_id is not null then 'sessao' else 'item' end,
-                  case when f.session_id is not null then f.session_id else f.id::text end
-             from public.painel_fila_prompts f where f.id = p_id)
-     and l.origem <> 'estorno'
-     and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id)
-   order by l.criado_em desc, l.id desc
-   limit 1;
-  if public.painel_caixa_precedencia('operador')
-     < coalesce(public.painel_caixa_precedencia(v_origem_livro), 0) then
-    raise exception 'Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.'
-      using errcode = 'check_violation';
-  end if;
-
   if v_sess is not null then
     select f.id into v_outro from public.painel_fila_prompts f
       where f.session_id = v_sess and f.id <> p_id limit 1;
@@ -1705,6 +1699,39 @@ begin
       raise exception 'Esta sessão é da conta % — não dá para vinculá-la a um item da conta %.',
         v_dona, v_row.conta using errcode = 'check_violation';
     end if;
+  end if;
+
+  -- CRÍTICO 1 (rodada 12): a MESMA guarda, olhando o LIVRO. Vem DEPOIS das
+  -- checagens da sessão proposta (outro item, outra conta), para que essas
+  -- recusas continuem dizendo o motivo delas. A coluna
+  -- `custo_origem` do item pode dizer `estimativa` (a casa lançou quando ele
+  -- morreu) enquanto a entidade dele já guarda a medição publicada pela
+  -- sessão. Sem esta linha a correção do operador (posto 20) seria recusada
+  -- por posto lá dentro e a tela responderia "custo ajustado" sobre um dia
+  -- que não se mexeu — o no-op silencioso que a rodada 9 matou por outro
+  -- caminho. Aqui ele vira recusa com motivo.
+  --
+  -- P2 do Codex (PR #42, 2ª rodada): a guarda confere as DUAS entidades — a
+  -- que o item tem hoje e a que ele VAI TER se o operador propôs uma sessão.
+  -- Olhando só a atual, uma sessão proposta já publicada (posto 40) passava,
+  -- o item era gravado com o custo do operador e o livro recusava o
+  -- lançamento por posto — com `ok: true` e a tela dizendo "custo ajustado".
+  -- Olhando só a proposta, trocar de sessão virava a porta para sair de uma
+  -- entidade já medida. Vale o posto mais alto das duas, e o posto lido é o
+  -- do LANÇAMENTO ativo (`l.precedencia`): publicação é 40, não 30.
+  select max(coalesce(l.precedencia, public.painel_caixa_precedencia(l.origem)))
+    into v_posto_livro
+    from public.painel_caixa_lancamentos l
+   where (l.entidade_tipo, l.entidade_id) in (
+           (case when v_row.session_id is not null then 'sessao' else 'item' end,
+            coalesce(v_row.session_id, v_row.id::text)),
+           (case when coalesce(v_sess, v_row.session_id) is not null then 'sessao' else 'item' end,
+            coalesce(v_sess, v_row.session_id, v_row.id::text)))
+     and l.origem <> 'estorno'
+     and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id);
+  if public.painel_caixa_precedencia('operador') < coalesce(v_posto_livro, 0) then
+    raise exception 'Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.'
+      using errcode = 'check_violation';
   end if;
 
   -- A origem de ANTES da correção (o `returning` abaixo já traz 'operador').
@@ -1728,6 +1755,14 @@ begin
   v_caixa := public.painel_caixa_lancar_item(
     v_row.id, p_custo_usd, 'operador', null,
     'correção do operador pela tela');
+
+  -- Cinto de segurança da mesma correção: se, por qualquer caminho que a
+  -- guarda acima não previu, o livro RECUSOU o valor do operador, a RPC não
+  -- confirma sucesso — a exceção desfaz também o UPDATE do item.
+  if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
+    raise exception 'Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.'
+      using errcode = 'check_violation';
+  end if;
 
   return jsonb_build_object(
     'ok', true, 'custo_usd', round(p_custo_usd, 2),

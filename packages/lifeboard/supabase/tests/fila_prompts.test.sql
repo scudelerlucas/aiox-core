@@ -5508,3 +5508,58 @@ begin
   raise exception 'FALHA: T92 esperado soma da entidade 120 e livroLiquidoUsd 3 (medido, posto 30) — obteve soma=% linha=%',
     v_soma, coalesce(v_linha::text, 'item não veio na listagem');
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T93 · P2 do Codex (PR #42, 2ª rodada) — O AJUSTE CONFERE A SESSÃO PROPOSTA
+-- Item cancelado hoje, sem sessão, com a estimativa da casa (posto 10). O
+-- operador ajusta para US$ 3 e PROPÕE uma sessão da mesma conta que já
+-- publicou US$ 300 (posto 40) e não estava vinculada a item nenhum. A guarda
+-- olhava a entidade ATUAL do item (o próprio item, posto 10) e deixava passar;
+-- o livro recusava o valor por posto lá dentro e a RPC devolvia `ok: true` —
+-- a tela dizia "custo ajustado" sobre um dia que não mudou, e o item ficava
+-- gravado com US$ 3 do operador.
+-- Agora: recusa com motivo, e nada no item muda (nem custo, nem sessão).
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar a guarda da 0027 para a
+-- entidade atual E tirar o cinto `recusado_por_precedencia` do fim da RPC.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_id uuid;
+  v_erro text := '';
+  v_r jsonb;
+  v_custo numeric;
+  v_sessao text;
+  v_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T93', v_conta, 'já publicou', 'idle', 300, now());
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T93 sessão proposta já publicada', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 50 where id = v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T93');
+  perform public.fila_prompts_cancelar(v_segredo, v_id);
+
+  begin
+    v_r := public.fila_prompts_ajustar_custo(v_segredo, v_id, 3, 'sess-T93');
+  exception when others then v_erro := sqlerrm;
+  end;
+
+  select custo_usd, session_id into v_custo, v_sessao from public.painel_fila_prompts where id = v_id;
+  v_hoje := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_erro like '%já foi medido pela sessão%'
+     and v_custo = 50 and v_sessao is null
+     and v_hoje = 350 then
+    raise exception 'RESULTADO: ok — T93 ajuste com sessão proposta já publicada é recusado e o item fica como estava (custo=% sessão=% dia=%)',
+      v_custo, coalesce(v_sessao, 'nenhuma'), v_hoje;
+  end if;
+  raise exception 'FALHA: T93 esperado recusa "já foi medido", item com custo 50 sem sessão e dia 350 — obteve erro="%" retorno=% custo=% sessão=% dia=%',
+    v_erro, v_r, v_custo, v_sessao, v_hoje;
+end $$;

@@ -977,6 +977,27 @@ describe("MÉDIO 3 (rodada 13) — a tela sabe o que o BANCO sabe", () => {
     expect(saida).not.toContain("US$ 50,00 ·");
   });
 
+  /*
+   * P2 do Codex (PR #42, 2ª rodada): a sessão publicou EXATAMENTE o valor que
+   * a casa estimava. A condição antiga exigia valores diferentes para o livro
+   * falar, e a célula ficava "estimativa da casa" em cor de atenção ao lado
+   * de "a sessão já publicou o número deste item".
+   */
+  it("sessão que publica o mesmo valor da estimativa: a célula diz medido, sem atenção", () => {
+    const mesmoValor = {
+      custoUsd: 50,
+      custoOrigem: "estimativa",
+      custoEEstimativa: true,
+      livroOrigem: "medido",
+      livroPrecedencia: 40,
+      livroLiquidoUsd: 50,
+    };
+    const naTela = custoNaTela(item(mesmoValor));
+    expect(naTela.valorUsd).toBe(50);
+    expect(naTela.nota).toBe("medido pela sessão");
+    expect(naTela.atencao).toBe(false);
+  });
+
   it("sem lançamento vivo no livro, nada muda — a tela degrada para a coluna", () => {
     // Banco anterior à 0028 (os três campos vêm `undefined`) e item que nunca
     // custou nada: a régua antiga continua valendo, inteira.
