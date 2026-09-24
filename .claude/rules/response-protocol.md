@@ -89,6 +89,10 @@ ser técnico é justamente quando a tradução vale mais).
 - **Nunca pedir dados técnicos ao Lucas** (DevTools, Network, logs do navegador).
   Diagnosticar por conta própria: código, MCP, logs de servidor, banco.
 - Quando a entrega for um deploy, o passo a passo traz o **link final de produção**.
+- Quando a entrega for um `.md` (ou qualquer documento), ele chega **fora do diff**: o passo a passo traz o
+  **link direto do arquivo renderizado no GitHub** (`…/blob/<branch>/<caminho>`), e o arquivo vai junto no chat
+  quando o cliente permitir enviar arquivo. Link de PR ou de diff **não substitui** — ordem do operador, 21/09/2026
+  (*"Sempre me traga .md fora do diff. Ponha no GitHub"*).
 - `!PPL <texto>` sozinho, em qualquer repo, converte um procedimento inteiro em Passo a Passo de
   Leigo — o produto é a lista de passos. Sem alvo → 1 pergunta e para.
 - Sem preâmbulo ("Aqui está…", "Baseado em…").

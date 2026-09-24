@@ -167,4 +167,40 @@ sem reler e não se sente subestimado. Segredos nunca no texto.
 (leitor, ciência, antes × depois) e a seção do passo a passo em
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md).
 
+## Item de frente só entra com dono, data e quem cobra (18/09/2026)
+
+> Achado do Codex no PR #867, e ele estava certo: a 3ª exigência ("quem cobra") existia só em
+> `.claude/rules/item-so-entra-com-dono.md`, que o Codex CLI não lê — a mesma sessão que escreveu a
+> regra ficaria livre dela num repo aberto por este CLI. Mesma correção da CLÁUSULA 0 e da
+> configuração de rede acima.
+
+Item novo só entra numa frente de trabalho com **três** coisas, nunca duas: **(a)** nome de quem
+executa — pessoa real, nunca "a casa", "a sessão" nem um papel disfarçado de nome (ex.: "quem tem
+acesso ao painel"); **(b)** data; **(c)** nome de **quem cobra** — alguém que enxerga o calendário
+onde a data foi escrita e que recebe o lembrete, distinto de quem executa sempre que o executor não
+for o operador. Sem os três, o item não entra na frente: fica registrado no corpo da resposta como
+achado, e a ausência **é** a informação. Nasceu da S072 (10 entrevistas do seed bank): tinha data e
+calendário, mas o dono da tarefa que travava tudo era um papel ("closer"), não um nome — e a metade
+que tinha nome (Aleksandra) não tinha acesso ao calendário onde a data morava. Owner sem cobrador
+que a veja é item que tem tudo no papel e não anda.
+
+**Norma completa** — no hub, não neste repositório:
+[`.claude/rules/item-so-entra-com-dono.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/item-so-entra-com-dono.md).
+
+## Codex corrige, Claude valida — codificação avançada e projeto longo (24/09/2026)
+
+Ordem do operador, válida em **qualquer repo**: em código avançado (banco, dinheiro, migration, concorrência,
+segurança, ou PR já revisado por robô) e em projeto longo (mais de uma sessão ou PRs encadeados), **o Codex corrige o
+achado de revisão e o Claude valida, resolve e mergeia**. O Codex é chamado por um comentário `@codex` no PR, um por
+achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
+suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
+escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
+**(4)** empurrar na **mesma branch** do PR, com mensagem de commit em português dizendo o achado e a correção;
+**(5)** nunca escrever na `main`, nunca aplicar migration em produção; **(6)** dizer no PR o que rodou e o que não
+conseguiu rodar — a validação por fora é do Claude, e ela decide se a thread fecha. Modelo: GPT-6 Astra Pro, esforço
+`max`, escolhido pelo operador nas configurações do Codex. Um autor por branch enquanto a tarefa estiver aberta.
+
+**Norma completa** — no hub, não neste repositório:
+[`.claude/rules/codex-corrige-claude-valida.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md).
+
 <!-- HUB-INVARIANTES-END -->
