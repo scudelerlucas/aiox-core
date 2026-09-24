@@ -6185,3 +6185,57 @@ begin
   end if;
   raise exception 'FALHA: T104 esperado 1 marcada e em voo = 1 — obteve marcadas=% em_voo=%', v_marcados, v_voo;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T105 · P2 do Codex (PR #42, 15ª rodada) — A PROJEÇÃO DO ITEM SEGUE A
+-- TRANSFERÊNCIA, TAMBÉM ATRAVÉS DE DIAS
+-- Ontem a sessão A, vinculada ao item, publicou US$ 100. Hoje foi corrigida
+-- para 40 — pela D54 o estorno de hoje fica limitado a 40, e o crédito de
+-- ontem continua sem dia. Depois o item passa para a sessão B e fecha com 5.
+-- A fusão desliga o +40 de A do item (estorno −40 com o item, relançamento
+-- +40 sem dono) — e a projeção, que somava por `item_id`, via −40 (a correção
+-- de hoje) +40 −40 +5 = −35 para o item, com o livro da conta dizendo +5.
+-- Agora a projeção segue a ENTIDADE: o item é o que a entidade canônica dele
+-- (a sessão vinculada, ou a própria `item:<id>`) moveu no dia; o que ficou em
+-- outra sessão é daquela sessão.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar `painel_fila_itens_do_dia` a
+-- juntar por `item_id` (0019).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_item uuid;
+  v_projecao numeric; v_conta_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (v_conta, 'T105 item', 'alta', 'Opus', 'sess-A-T105')
+  returning id into v_item;
+
+  -- ontem: A publicou 100, com o item
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, precedencia, medido_em, nota)
+  values (public.painel_dia_operador() - 1, v_conta, 100, 'medido', 'sessao', 'sess-A-T105',
+          v_item, 'sess-A-T105', 40, now() - interval '1 day', 'T105 ontem: A publicou 100');
+
+  -- hoje: A corrigida para 40 (D54: o estorno de hoje é −40, não −100)
+  perform public.painel_caixa_lancar_item(v_item, 40, 'medido', now(), 'T105 hoje: A corrigida', 40);
+
+  -- o item passa para B e fecha com 5
+  update public.painel_fila_prompts set session_id = 'sess-B-T105' where id = v_item;
+  perform public.painel_caixa_lancar_item(v_item, 5, 'medido', now(), 'T105 hoje: B fecha', 40);
+
+  select coalesce(sum(contribuicao), 0) into v_projecao
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_item;
+  v_conta_hoje := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_projecao = 5 and v_conta_hoje = 5 then
+    raise exception 'RESULTADO: ok — T105 correção de ontem + troca de sessão: o item projeta US$ % e o livro da conta diz US$ %',
+      v_projecao, v_conta_hoje;
+  end if;
+  raise exception 'FALHA: T105 esperado projeção do item = livro da conta = 5 — obteve projeção=% conta=%',
+    v_projecao, v_conta_hoje;
+end $$;

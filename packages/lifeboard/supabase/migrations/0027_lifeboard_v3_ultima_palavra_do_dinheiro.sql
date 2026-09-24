@@ -1241,6 +1241,41 @@ comment on function public.painel_caixa_lancar_item(uuid, numeric, text, timesta
   'D39 + CRÍTICO 2 (rodada 12): a porta de lançamento de um ITEM. Resolve a entidade canônica (a sessão vinculada quando existe) e ESVAZIA toda entidade que ainda guarde dinheiro deste item — não só a órfã `item:<uuid>` da 0019, mas também a sessão ANTERIOR quando o item passa a apontar para outra. Sessão que publicou custo por si fica com o que ela publicou; o resto vai a zero.';
 revoke all on function public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text, integer) from public, anon, authenticated;
 
+-- ── 7a · a projeção por item segue a ENTIDADE, não o `item_id` ─────────────
+-- P2 do Codex (PR #42, 15ª rodada). `painel_fila_itens_do_dia` (0019) somava
+-- as linhas do livro pelo `item_id`. Com a fusão de entidade (§7) o `item_id`
+-- conta a HISTÓRIA da linha — de que item ela veio —, não de quem é o
+-- dinheiro hoje: ontem a sessão A publicou 100 com o item, hoje foi corrigida
+-- para 40 (estorno −40, D54) e o item passou para B com 5. Pelo `item_id` a
+-- projeção era −40 +40 −40 +5 = −35, com o livro da conta dizendo +5 (T105).
+-- A régua passa a ser a da D39: o item é o que a ENTIDADE CANÔNICA dele move
+-- no dia — a sessão vinculada, e a entidade `item:<id>` que guarda o que ele
+-- lançou antes de ter sessão. O que ficou em outra sessão é daquela sessão.
+-- Os casos que a junção por `item_id` cobria continuam cobertos: a sessão
+-- vinculada (com ou sem `item_id` na linha, que era o segundo ramo da 0019) e
+-- a órfã `item:<id>`. Blocos: T102, T103 e T105.
+create or replace function public.painel_fila_itens_do_dia(p_conta text, p_dia date)
+returns table (id uuid, contribuicao numeric, e_estimativa boolean)
+language sql
+security definer
+stable
+set search_path = public, pg_temp
+as $$
+  select
+    f.id,
+    sum(l.valor_usd) as contribuicao,
+    bool_or(l.origem = 'estimativa') as e_estimativa
+  from public.painel_caixa_lancamentos l
+  join public.painel_fila_prompts f
+    on  (l.entidade_tipo = 'sessao' and f.session_id is not null and l.entidade_id = f.session_id)
+     or (l.entidade_tipo = 'item' and l.entidade_id = f.id::text)
+  where l.conta = p_conta and l.dia = p_dia
+  group by f.id;
+$$;
+comment on function public.painel_fila_itens_do_dia(text, date) is
+  'D41 (rodada 9) + P2 do Codex (PR #42, 15ª rodada): os itens que MOVERAM DINHEIRO naquele dia, lendo o livro-razão pela ENTIDADE CANÔNICA do item (a sessão vinculada e a entidade item:<id>), não pelo item_id — que conta de onde a linha veio, e depois de uma troca de sessão através de dias fazia a projeção do item divergir do livro da conta (T105).';
+revoke all on function public.painel_fila_itens_do_dia(text, date) from public, anon, authenticated;
+
 -- ── 7b · a publicação da sessão pede o posto 40 ────────────────────────────
 -- É a única chamada que declara posto: a rotina da conta é a autoridade sobre
 -- o custo de uma sessão, e o DEPLOY.md (D6/D30) já dizia isso em prosa.
