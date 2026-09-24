@@ -403,6 +403,30 @@ function consumoDeProva(patch: Record<string, unknown>): never {
   } as never;
 }
 
+describe("P2 do Codex (PR #42) — conta no limite de sessões em voo não é convidada", () => {
+  it("o cartão diz 'sessões no limite' e não leva 'escolhida agora', mesmo sendo a escolhida", () => {
+    const cheia = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+      defasagemHoras: 0.5,
+      emVoo: 4,
+      limiteEmVoo: 4,
+    });
+    const html = renderToStaticMarkup(<ContaCard consumo={cheia} agora={AGORA} seriaEscolhida />);
+    expect(html).toContain("sessões no limite");
+    expect(html).not.toContain("escolhida agora");
+
+    const comVaga = consumoDeProva({
+      medidoAteEm: new Date(AGORA - 30 * 60_000).toISOString(),
+      defasagemHoras: 0.5,
+      emVoo: 3,
+      limiteEmVoo: 4,
+    });
+    const htmlVaga = renderToStaticMarkup(<ContaCard consumo={comVaga} agora={AGORA} seriaEscolhida />);
+    expect(htmlVaga).not.toContain("sessões no limite");
+    expect(htmlVaga).toContain("escolhida agora");
+  });
+});
+
 describe("D32a — três estados de medição, três frases (eram um só)", () => {
   it("conta que NUNCA mediu: 'sem medição nenhuma' — e nada de 'US$ 150,00 livres'", () => {
     const html = renderToStaticMarkup(<ContaCard consumo={consumoDeProva({})} agora={AGORA} />);

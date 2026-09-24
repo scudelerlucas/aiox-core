@@ -74,6 +74,7 @@ import {
   headroomUsd,
   horasDeDefasagem,
   seloDaMedicao,
+  semVagaEmVoo,
 } from "@/core/prompts/tipos";
 
 export interface EscolhaDeConta {
@@ -101,6 +102,12 @@ export interface EscolhaDeConta {
    * `todas_recusadas` em `painel_fila_escolher_conta` (migration 0019 §15).
    */
   todasRecusadas: boolean;
+  /**
+   * P2 do Codex (PR #42): nenhuma conta da disputa tem vaga de sessão em voo
+   * agora. A escolha volta a ser entre todas; `cabeHoje` continua sendo
+   * dinheiro (vaga libera em minutos). Espelho de `todas_sem_vaga` (0030).
+   */
+  todasSemVaga: boolean;
 }
 
 
@@ -131,6 +138,7 @@ export function escolherConta(
       espacoLivreUsd: 0,
       headroomUsd: 0,
       todasRecusadas: false,
+      todasSemVaga: false,
     };
   }
 
@@ -155,6 +163,7 @@ export function escolherConta(
       espacoLivreUsd: 0,
       headroomUsd: 0,
       todasRecusadas: false,
+      todasSemVaga: false,
     };
   }
 
@@ -170,8 +179,14 @@ export function escolherConta(
   // ganha o item e não é apresentada como "a mais folgada": espaço livre num
   // saldo que o banco não autoriza a gastar não é espaço livre.
   const autorizadas = candidatas.filter((c) => !bancoRecusaria(c, agora));
-  const disputa = autorizadas.length > 0 ? autorizadas : candidatas;
+  const disputaPorAutorizacao = autorizadas.length > 0 ? autorizadas : candidatas;
   const todasRecusadas = autorizadas.length === 0;
+  // P2 do Codex (PR #42): dentro da disputa, conta COM VAGA de sessão em voo
+  // vem antes. A conta com o maior espaço mas quatro sessões em voo ganhava o
+  // item, que ficava parado atrás do limite enquanto outra conta tinha vaga.
+  const comVaga = disputaPorAutorizacao.filter((c) => !semVagaEmVoo(c));
+  const todasSemVaga = comVaga.length === 0;
+  const disputa = todasSemVaga ? disputaPorAutorizacao : comVaga;
 
   let melhor = disputa[0] as ConsumoConta;
   let melhorEspaco = espacoLivreUsd(melhor);
@@ -209,6 +224,7 @@ export function escolherConta(
       espacoLivreUsd: melhorEspaco,
       headroomUsd: headroom,
       todasRecusadas: true,
+      todasSemVaga,
     };
   }
 
@@ -231,6 +247,9 @@ export function escolherConta(
   // Empate → ordem de CONTAS, e o operador lê por quê (antes o desempate era
   // silencioso e parecia arbitrário).
   const empate = empatados > 1 ? " Empate no espaço livre; vale a ordem da casa." : "";
+  const semVaga = todasSemVaga
+    ? " Todas as contas estão no limite de sessões em voo; o item sai quando uma vaga abrir."
+    : "";
 
   // D9: frase gramatical, rótulo da conta (nunca o e-mail cru), complexidade
   // por extenso e dinheiro com vírgula. D13: nada de número negativo.
@@ -244,13 +263,13 @@ export function escolherConta(
   const selo = ` — ${seloDaMedicao(melhor, agora)}`;
   const motivo = cabeHoje
     ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje contando a fila parada: ` +
-      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}`
+      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}${semVaga}`
     : `Nenhuma conta tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
       `${ROTULO_COMPLEXIDADE[complexidade]} contando a fila parada. A mais folgada ` +
       // Arranhão da rodada 7: saía "A mais folgada (Pandora) tem US$ 30,00" —
       // sem dizer de quê. Toda metade da frase agora termina em "livres".
       `(${ROTULO_CONTA[melhor.conta]}) tem ${melhorEspaco > 0 ? `${formatarUsd(melhorEspaco)} livres` : "0 livres"}` +
-      `${detalhe}${selo}${revelacao}.${empate}`;
+      `${detalhe}${selo}${revelacao}.${empate}${semVaga}`;
 
   return {
     conta: melhor.conta,
@@ -260,6 +279,7 @@ export function escolherConta(
     espacoLivreUsd: melhorEspaco,
     headroomUsd: headroom,
     todasRecusadas,
+    todasSemVaga,
   };
 }
 

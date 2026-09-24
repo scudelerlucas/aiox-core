@@ -993,3 +993,177 @@ $$;
 comment on function public.fila_prompts_heartbeat_interno(uuid, text, text, text) is
   'D11/D7/D18/D34a + fonte única da janela (rodada 15): o `expira_em` que a Routine mostra sai de painel_fila_janela_em_voo(), não de um `interval ''45 minutes''` copiado — era a última cópia da janela depois que as três funções que DECIDEM passaram a ler a fonte única. Bloco T91 confere que o relógio anunciado é a janela de verdade.';
 revoke all on function public.fila_prompts_heartbeat_interno(uuid, text, text, text) from public, anon, authenticated;
+
+-- ── P2 do Codex (PR #42, 4ª rodada) · o histórico do card também tem piso ──
+-- A D54 preserva, como dado legado, os dias FECHADOS que ficaram negativos
+-- antes dela (crédito que anulava dinheiro de outro dia). Hoje já nunca é
+-- mostrado negativo, mas o min/máx/mediana que o card imprime ao lado do teto
+-- lia `painel_consumo_por_conta_dia` cru: um dia legado de −30 virava "gasto
+-- mínimo −US$ 30" e puxava a mediana para baixo — a régua com que o operador
+-- escolhe o teto. O piso vale no número de PRODUTO; `painel_caixa_do_dia` e a
+-- própria visão continuam crus, para auditoria. Bloco que prova: T95.
+create or replace function public.painel_fila_historico_medido(
+  p_conta text, p_dias integer default 10
+)
+returns table (dias integer, min_usd numeric, max_usd numeric, mediana_usd numeric)
+language sql
+security definer
+stable
+set search_path = public, pg_temp
+as $$
+  with ultimos as (
+    select greatest(c.custo_usd, 0) as custo_usd
+    from public.painel_consumo_por_conta_dia c
+    where c.conta = p_conta
+      and c.dia < public.painel_dia_operador()
+    order by c.dia desc
+    limit greatest(coalesce(p_dias, 10), 1)
+  )
+  select
+    count(*)::integer,
+    round(min(u.custo_usd), 2),
+    round(max(u.custo_usd), 2),
+    round((percentile_cont(0.5) within group (order by u.custo_usd))::numeric, 2)
+  from ultimos u;
+$$;
+comment on function public.painel_fila_historico_medido(text, integer) is
+  'D32d (rodada 7) + piso (PR #42): min, máx e mediana do gasto MEDIDO dos últimos N dias com dado (hoje fora, porque hoje é parcial), cada dia com piso zero — dia legado negativo (anterior à D54) conta como zero no número que o card imprime. A auditoria crua continua em painel_caixa_do_dia. Uma linha sempre; com dias = 0 os três números são NULL.';
+revoke all on function public.painel_fila_historico_medido(text, integer) from public, anon, authenticated;
+
+-- ── P2 do Codex (PR #42, 4ª rodada) · o ROTEAMENTO conhece o limite de voo ──
+-- A quarta parede (o limite de sessões em voo por conta) só agia no PULL,
+-- depois de a conta já ter sido escolhida. A escolha automática olhava só
+-- dinheiro: a conta com quatro itens de US$ 5 em voo e o maior espaço livre
+-- ganhava o item novo — que então ficava parado atrás do limite enquanto
+-- outra conta tinha vaga, e o cartão dela levava o selo "escolhida agora".
+-- Agora, dentro da disputa (autorizadas, ou todas quando nenhuma é), as
+-- contas COM VAGA vêm primeiro; só quando nenhuma tem vaga a disputa volta a
+-- ser entre todas, e a resposta diz isso (`todas_sem_vaga`). `cabe_hoje`
+-- continua sendo DINHEIRO: vaga libera em minutos, o dia não. Os campos
+-- `em_voo` e `limite_em_voo` são opcionais — sem eles, a escolha é a de antes.
+-- Espelho: `escolherConta` (src/core/prompts/roteador.ts); casos no T42.
+create or replace function public.painel_fila_escolher_conta(
+  p_consumos jsonb, p_estimado numeric
+)
+returns jsonb
+language plpgsql
+immutable
+set search_path = public, pg_temp
+as $$
+declare
+  v_limite_defasagem constant numeric := 12;  -- espelho de LIMITE_DEFASAGEM_HORAS
+  rec               jsonb;
+  v_conta           text;
+  v_teto            numeric;
+  v_espaco          numeric;
+  v_headroom        numeric;
+  v_defasagem       numeric;
+  v_exige           boolean;
+  v_recusaria       boolean;
+  v_cabe_no_teto    boolean;
+  v_maior_teto      numeric := null;
+  v_autorizadas     integer := 0;
+  v_candidatas      integer := 0;
+  v_melhor          text := null;
+  v_melhor_espaco   numeric := null;
+  v_melhor_headroom numeric := null;
+  v_empatados       integer := 0;
+  v_todas_recusadas boolean := false;
+  v_fase            integer;
+  v_limite_voo      integer;
+  v_sem_vaga        boolean;
+  v_com_vaga        integer := 0;
+  v_so_com_vaga     boolean;
+begin
+  if p_consumos is null or jsonb_typeof(p_consumos) <> 'array' or jsonb_array_length(p_consumos) = 0 then
+    return jsonb_build_object(
+      'conta', null, 'cabe_hoje', false, 'espaco_livre_usd', 0, 'headroom_usd', 0,
+      'todas_recusadas', false, 'todas_sem_vaga', false, 'empatados', 0,
+      'nunca_cabe', false, 'maior_teto_usd', null);
+  end if;
+
+  for rec in select * from jsonb_array_elements(p_consumos) loop
+    v_teto := (rec->>'teto_usd')::numeric;
+    if v_maior_teto is null or v_teto > v_maior_teto then v_maior_teto := v_teto; end if;
+    if v_teto >= p_estimado then
+      v_candidatas := v_candidatas + 1;
+      v_exige := coalesce((rec->>'exige_medicao_recente')::boolean, false);
+      v_defasagem := nullif(rec->>'defasagem_horas', '')::numeric;
+      if v_exige and (v_defasagem is null or v_defasagem > v_limite_defasagem) then
+        null;  -- o banco recusaria esta conta agora (D36)
+      else
+        v_autorizadas := v_autorizadas + 1;
+      end if;
+    end if;
+  end loop;
+
+  if v_candidatas = 0 then
+    return jsonb_build_object(
+      'conta', null, 'cabe_hoje', false, 'espaco_livre_usd', 0, 'headroom_usd', 0,
+      'todas_recusadas', false, 'todas_sem_vaga', false, 'empatados', 0,
+      'nunca_cabe', true, 'maior_teto_usd', round(v_maior_teto, 2));
+  end if;
+
+  v_todas_recusadas := (v_autorizadas = 0);
+  v_fase := case when v_todas_recusadas then 2 else 1 end;
+
+  -- Quantas contas DA DISPUTA têm vaga agora.
+  for rec in select * from jsonb_array_elements(p_consumos) loop
+    v_teto := (rec->>'teto_usd')::numeric;
+    if v_teto < p_estimado then continue; end if;
+    v_exige := coalesce((rec->>'exige_medicao_recente')::boolean, false);
+    v_defasagem := nullif(rec->>'defasagem_horas', '')::numeric;
+    v_recusaria := v_exige and (v_defasagem is null or v_defasagem > v_limite_defasagem);
+    if v_fase = 1 and v_recusaria then continue; end if;
+    v_limite_voo := nullif(rec->>'limite_em_voo', '')::integer;
+    v_sem_vaga := v_limite_voo is not null and v_limite_voo > 0
+                  and coalesce(nullif(rec->>'em_voo', '')::integer, 0) >= v_limite_voo;
+    if not v_sem_vaga then v_com_vaga := v_com_vaga + 1; end if;
+  end loop;
+  v_so_com_vaga := v_com_vaga > 0;
+
+  for rec in select * from jsonb_array_elements(p_consumos) loop
+    v_conta := rec->>'conta';
+    v_teto := (rec->>'teto_usd')::numeric;
+    if v_teto < p_estimado then continue; end if;
+    v_exige := coalesce((rec->>'exige_medicao_recente')::boolean, false);
+    v_defasagem := nullif(rec->>'defasagem_horas', '')::numeric;
+    v_recusaria := v_exige and (v_defasagem is null or v_defasagem > v_limite_defasagem);
+    if v_fase = 1 and v_recusaria then continue; end if;
+    v_limite_voo := nullif(rec->>'limite_em_voo', '')::integer;
+    v_sem_vaga := v_limite_voo is not null and v_limite_voo > 0
+                  and coalesce(nullif(rec->>'em_voo', '')::integer, 0) >= v_limite_voo;
+    if v_so_com_vaga and v_sem_vaga then continue; end if;
+
+    v_headroom := v_teto
+                - coalesce((rec->>'medido_usd')::numeric, 0)
+                - coalesce((rec->>'em_execucao_usd')::numeric, 0);
+    v_espaco := v_headroom - coalesce((rec->>'na_fila_usd')::numeric, 0);
+
+    if v_melhor is null or v_espaco > v_melhor_espaco then
+      v_melhor := v_conta;
+      v_melhor_espaco := v_espaco;
+      v_melhor_headroom := v_headroom;
+      v_empatados := 1;
+    elsif v_espaco = v_melhor_espaco then
+      v_empatados := v_empatados + 1;
+    end if;
+  end loop;
+
+  v_cabe_no_teto := (not v_todas_recusadas) and p_estimado <= v_melhor_espaco;
+
+  return jsonb_build_object(
+    'conta', v_melhor,
+    'cabe_hoje', v_cabe_no_teto,
+    'espaco_livre_usd', round(v_melhor_espaco, 2),
+    'headroom_usd', round(v_melhor_headroom, 2),
+    'todas_recusadas', v_todas_recusadas,
+    'todas_sem_vaga', not v_so_com_vaga,
+    'empatados', v_empatados,
+    'nunca_cabe', false,
+    'maior_teto_usd', round(v_maior_teto, 2));
+end;
+$$;
+comment on function public.painel_fila_escolher_conta(jsonb, numeric) is
+  'D42 (rodada 9) + limite de voo (PR #42): a regra de roteamento como FUNÇÃO PURA — espelho de escolherConta (src/core/prompts/roteador.ts), provado caso a caso pelo bloco T42 e por tests/unit/prompts-paridade-chooser.test.ts sobre o MESMO literal. Dentro da disputa, conta com VAGA de sessão em voo vem antes de conta no limite; sem nenhuma com vaga, a disputa é entre todas e todas_sem_vaga=true. cabe_hoje segue sendo dinheiro.';
+revoke all on function public.painel_fila_escolher_conta(jsonb, numeric) from public, anon, authenticated;

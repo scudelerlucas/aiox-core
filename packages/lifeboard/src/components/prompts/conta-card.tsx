@@ -6,6 +6,7 @@ import {
   faixaConsumo,
   formatarUsd,
   headroomUsd,
+  semVagaEmVoo,
   tetoAtingido,
   textoDaMedicao,
   textoEspacoLivre,
@@ -141,6 +142,10 @@ export function ContaCard({
   if (atingiu) selos.push({ texto: "teto atingido", tom: "bloqueio" });
   if (travada) selos.push({ texto: "sem autorização agora", tom: "bloqueio" });
   if (esperaHoje) selos.push({ texto: "não cabe hoje", tom: "bloqueio" });
+  // P2 do Codex (PR #42): conta no limite de sessões em voo não despacha nada
+  // agora — e por isso não leva o selo "escolhida agora", mesmo quando todas
+  // estão cheias e a escolha cai nela.
+  if (semVagaEmVoo(consumo)) selos.push({ texto: "sessões no limite", tom: "bloqueio" });
   if (selos.length === 0 && seriaEscolhida === true) {
     selos.push({ texto: "escolhida agora", tom: "convite" });
   }

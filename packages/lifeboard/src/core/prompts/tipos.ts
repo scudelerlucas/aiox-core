@@ -225,6 +225,13 @@ export interface ConsumoConta {
   exigeMedicaoRecente?: boolean;
   /** D32d: a faixa real dos últimos dias MEDIDOS, para o teto ser comparável. */
   historico?: HistoricoMedido | null;
+  /**
+   * P2 do Codex (PR #42): quantas sessões desta conta estão em voo agora e o
+   * limite por conta (`painel_fila_em_voo` / `painel_fila_maximo_em_voo_por_conta`).
+   * Opcionais: banco anterior à 0030 não manda, e a escolha é a de antes.
+   */
+  emVoo?: number;
+  limiteEmVoo?: number | null;
 }
 
 /**
@@ -544,6 +551,16 @@ export function textoDaMedicao(consumo: ConsumoConta, agora: number): string {
  * "sem medição nenhuma". É a extensão de D9 ("teto atingido não convida") ao
  * estado novo — nenhuma superfície convida para o que o banco vai recusar.
  */
+/**
+ * P2 do Codex (PR #42): a conta está no limite de sessões em voo — o pull
+ * não despacha nada dela até uma fechar. Espelho de `v_sem_vaga` em
+ * `painel_fila_escolher_conta` (0030).
+ */
+export function semVagaEmVoo(consumo: ConsumoConta): boolean {
+  const limite = consumo.limiteEmVoo ?? null;
+  return limite !== null && limite > 0 && (consumo.emVoo ?? 0) >= limite;
+}
+
 export function bancoRecusaria(consumo: ConsumoConta, agora: number): boolean {
   if (consumo.exigeMedicaoRecente !== true) return false;
   const horas = horasDeDefasagem(consumo, agora);

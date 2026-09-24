@@ -42,6 +42,8 @@ interface ContaDoCaso {
   na_fila_usd: number;
   defasagem_horas: number | null;
   exige_medicao_recente: boolean;
+  em_voo?: number;
+  limite_em_voo?: number | null;
 }
 
 interface CasoDeParidade {
@@ -55,6 +57,7 @@ interface CasoDeParidade {
     todas_recusadas: boolean;
     nunca_cabe: boolean;
     espaco_livre_usd: number;
+    todas_sem_vaga?: boolean;
   };
 }
 
@@ -86,6 +89,8 @@ function paraConsumo(c: ContaDoCaso): ConsumoConta {
     defasagemHoras: c.defasagem_horas,
     exigeMedicaoRecente: c.exige_medicao_recente,
     historico: null,
+    ...(c.em_voo === undefined ? {} : { emVoo: c.em_voo }),
+    ...(c.limite_em_voo === undefined ? {} : { limiteEmVoo: c.limite_em_voo }),
   };
 }
 
@@ -97,6 +102,8 @@ describe("MÉDIO 1 — o chooser do TS e o do SQL escolhem a mesma conta", () =>
     const nomes = casos.map((c) => c.nome).join(" | ");
     expect(nomes).toContain("MEDIO 1");
     expect(nomes).toContain("BAIXO 4");
+    // P2 do Codex (PR #42): o limite de sessões em voo entra na escolha.
+    expect(nomes).toContain("LIMITE DE VOO");
     // Cada caso lista as TRÊS contas da casa, na ordem de `CONTAS` — é essa
     // ordem que desempata dos dois lados.
     for (const caso of casos) {
@@ -125,6 +132,9 @@ describe("MÉDIO 1 — o chooser do TS e o do SQL escolhem a mesma conta", () =>
       expect(escolha.cabeHoje, "cabe hoje").toBe(caso.esperado.cabe_hoje);
       if (!caso.esperado.nunca_cabe) {
         expect(escolha.espacoLivreUsd, "espaço livre").toBe(caso.esperado.espaco_livre_usd);
+      }
+      if (caso.esperado.todas_sem_vaga !== undefined) {
+        expect(escolha.todasSemVaga, "todas sem vaga").toBe(caso.esperado.todas_sem_vaga);
       }
     });
   }

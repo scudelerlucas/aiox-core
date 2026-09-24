@@ -375,6 +375,10 @@ export function listarConsumoFixture(agora: number = Date.now()): ConsumoConta[]
       defasagemHoras: base?.defasagemHoras ?? null,
       exigeMedicaoRecente: base?.exigeMedicaoRecente === true,
       historico: base?.historico ?? null,
+      // P2 do Codex (PR #42): o mesmo par que a RPC manda — a escolha de
+      // conta passa a conhecer o limite de sessões em voo.
+      emVoo: emVooDe(conta, agora),
+      limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
     };
   });
 }

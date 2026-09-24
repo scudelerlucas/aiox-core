@@ -767,7 +767,12 @@ begin
           'em_execucao_usd', public.painel_fila_reservado(t.conta),
           'na_fila_usd', public.painel_fila_na_fila(t.conta),
           'defasagem_horas', public.painel_fila_defasagem_horas(t.conta),
-          'exige_medicao_recente', coalesce(t.exigir_medicao_recente, false)
+          'exige_medicao_recente', coalesce(t.exigir_medicao_recente, false),
+          -- P2 do Codex (PR #42): o limite de voo entra na ESCOLHA, não só no
+          -- pull. As duas funções nascem na 0030 (esta RPC só as chama em
+          -- tempo de execução; as duas migrations se aplicam juntas).
+          'em_voo', public.painel_fila_em_voo(t.conta),
+          'limite_em_voo', public.painel_fila_maximo_em_voo_por_conta()
         ) as linha
       from public.painel_teto_diario t
     ) s;
@@ -979,6 +984,11 @@ begin
           'medidoAteEm', public.painel_fila_medido_ate(t.conta),
           'defasagemHoras', public.painel_fila_defasagem_horas(t.conta),
           'exigeMedicaoRecente', coalesce(t.exigir_medicao_recente, false),
+          -- P2 do Codex (PR #42): o mesmo par que a escolha usa, para o
+          -- roteador da tela não pôr o selo "escolhida agora" numa conta que
+          -- está no limite de sessões em voo.
+          'emVoo', public.painel_fila_em_voo(t.conta),
+          'limiteEmVoo', public.painel_fila_maximo_em_voo_por_conta(),
           'historico', (
             select jsonb_build_object(
               'dias', h.dias, 'minUsd', h.min_usd,

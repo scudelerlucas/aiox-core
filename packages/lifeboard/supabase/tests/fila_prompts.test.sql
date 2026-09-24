@@ -2404,6 +2404,28 @@ declare
         {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false}
       ],
       "esperado": {"conta":"arborcactus@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":400}
+    },
+    {
+      "nome": "LIMITE DE VOO: a mais folgada esta no limite de sessoes, a proxima com vaga ganha",
+      "complexidade": "alta", "estimado_usd": 50,
+      "contas": [
+        {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":20,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":4,"limite_em_voo":4},
+        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":1,"limite_em_voo":4},
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":0,"limite_em_voo":4},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":0,"limite_em_voo":4}
+      ],
+      "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":200,"todas_sem_vaga":false}
+    },
+    {
+      "nome": "LIMITE DE VOO: todas no limite, a disputa volta a ser entre todas e diz isso",
+      "complexidade": "alta", "estimado_usd": 50,
+      "contas": [
+        {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":20,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":4,"limite_em_voo":4},
+        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":20,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":4,"limite_em_voo":4},
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":20,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":4,"limite_em_voo":4},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":20,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":4,"limite_em_voo":4}
+      ],
+      "esperado": {"conta":"lucasscudeler@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":480,"todas_sem_vaga":true}
     }
   ]$casos$;
   v_caso jsonb;
@@ -2422,6 +2444,8 @@ begin
        or (v_obtido->>'todas_recusadas')::boolean is distinct from (v_esp->>'todas_recusadas')::boolean
        or (v_obtido->>'nunca_cabe')::boolean is distinct from (v_esp->>'nunca_cabe')::boolean
        or (v_obtido->>'espaco_livre_usd')::numeric is distinct from (v_esp->>'espaco_livre_usd')::numeric
+       or (v_esp ? 'todas_sem_vaga'
+           and (v_obtido->>'todas_sem_vaga')::boolean is distinct from (v_esp->>'todas_sem_vaga')::boolean)
     then
       v_falhas := v_falhas || format(' | %s: esperado=%s obtido=%s', v_caso->>'nome', v_esp, v_obtido);
     end if;
@@ -5614,4 +5638,97 @@ begin
   end if;
   raise exception 'FALHA: T94 esperado antes 100, sessão A com 100 e dia 105 — obteve antes=% A=% dia=%',
     v_antes, v_a, v_hoje;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T95 · P2 do Codex (PR #42, 4ª rodada) — O HISTÓRICO DO CARD NÃO MOSTRA DIA
+-- NEGATIVO LEGADO
+-- Dois dias fechados: anteontem US$ 100; ontem −US$ 30 (um dia legado,
+-- anterior à D54, em que um crédito anulou dinheiro de outro dia). A visão
+-- crua continua dizendo −30 (auditoria); o min/máx/mediana que o card
+-- imprime ao lado do teto dizia "mínimo −30, mediana 35". Agora: 0, 100, 50.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o `greatest(…, 0)` da
+-- redefinição de `painel_fila_historico_medido` no fim da 0030.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_h record;
+  v_cru numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_caixa_lancamentos (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, nota)
+  values (public.painel_dia_operador() - 2, v_conta, 100, 'estimativa', 'item', 'T95-a', 10, 'T95: dia comum'),
+         (public.painel_dia_operador() - 1, v_conta, -30, 'operador', 'item', 'T95-b', 20, 'T95: dia legado negativo');
+
+  select custo_usd into v_cru from public.painel_consumo_por_conta_dia
+   where conta = v_conta and dia = public.painel_dia_operador() - 1;
+  select * into v_h from public.painel_fila_historico_medido(v_conta);
+
+  if v_cru = -30 and v_h.dias = 2 and v_h.min_usd = 0 and v_h.max_usd = 100 and v_h.mediana_usd = 50 then
+    raise exception 'RESULTADO: ok — T95 o card lê piso zero (min=% máx=% mediana=%) e a visão crua guarda o legado (%)',
+      v_h.min_usd, v_h.max_usd, v_h.mediana_usd, v_cru;
+  end if;
+  raise exception 'FALHA: T95 esperado cru −30 e histórico 2 dias min 0 máx 100 mediana 50 — obteve cru=% dias=% min=% máx=% mediana=%',
+    v_cru, v_h.dias, v_h.min_usd, v_h.max_usd, v_h.mediana_usd;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T96 · P2 do Codex (PR #42, 4ª rodada) — O ENFILEIRAMENTO AUTOMÁTICO DESVIA
+-- DA CONTA QUE ESTÁ NO LIMITE DE SESSÕES EM VOO
+-- Pela porta real. Todas as contas limpas e com o mesmo teto; a primeira da
+-- ordem da casa (que ganharia o empate) tem QUATRO sessões em voo de US$ 5.
+-- Antes, a escolha só via dinheiro — e o item novo ia para ela e ficava
+-- parado atrás do limite. Agora vai para a próxima com vaga.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar `em_voo`/`limite_em_voo` da
+-- lista que `fila_prompts_enfileirar` monta (0029), ou a fase "com vaga" da
+-- redefinição de `painel_fila_escolher_conta` (0030).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_contas text[] := public.painel_contas_da_casa();
+  v_cheia text := (public.painel_contas_da_casa())[1];
+  v_i int;
+  v_id uuid;
+  v_r jsonb;
+begin
+  -- As QUATRO contas são de prova aqui: a escolha automática olha todas.
+  delete from public.painel_frentes_sessoes where conta = any (v_contas);
+  delete from public.painel_fila_prompts where conta = any (v_contas);
+  delete from public.painel_caixa_lancamentos where conta = any (v_contas);
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = any (v_contas);
+
+  for v_i in 1..public.painel_fila_maximo_em_voo_por_conta() loop
+    insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, estado,
+                                            worker_id, pego_em, heartbeat_em, custo_estimado_usd)
+    values (v_cheia, format('T96 em voo %s', v_i), 'baixa', 'Haiku', 'pega',
+            format('w-T96-%s', v_i), now(), now(), 5);
+  end loop;
+  -- As outras contas gastaram US$ 100 hoje: a cheia (500 − 20 em voo = 480)
+  -- tem MAIS espaço que qualquer uma delas (400). Só o limite de voo explica
+  -- ela não ganhar — sem isto o bloco passava pela diferença de dinheiro.
+  for v_i in 2..array_length(v_contas, 1) loop
+    insert into public.painel_caixa_lancamentos
+      (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, nota)
+    values (public.painel_dia_operador(), v_contas[v_i], 100, 'medido', 'item',
+            format('T96-gasto-%s', v_i), 30, 'T96: gasto de hoje');
+  end loop;
+
+  v_r := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T96 item novo', 'complexidade', 'alta'));
+
+  if public.painel_fila_em_voo(v_cheia) = public.painel_fila_maximo_em_voo_por_conta()
+     and v_r->>'conta' is not null
+     and v_r->>'conta' <> v_cheia
+     and v_r->>'conta' = v_contas[2] then
+    raise exception 'RESULTADO: ok — T96 a conta no limite (% em voo) é pulada; o item foi para %',
+      public.painel_fila_em_voo(v_cheia), v_r->>'conta';
+  end if;
+  raise exception 'FALHA: T96 esperado o item fora de % (no limite) e em % — obteve %',
+    v_cheia, v_contas[2], v_r;
 end $$;

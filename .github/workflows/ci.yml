@@ -535,11 +535,17 @@ jobs:
             FAILED=true
           fi
 
-          # Lifeboard SQL: fail if ran and didn't succeed
-          if [ "${{ needs.lifeboard-sql.result }}" == "failure" ]; then
-            echo "❌ Lifeboard SQL behaviour suite failed (o caminho do dinheiro)"
-            FAILED=true
-          fi
+          # Lifeboard SQL: fail on ANY result other than success or an
+          # intentional skip. P2 do Codex (PR #42): with `== "failure"` only, a
+          # run that timed out or was cancelled (`cancelled`) left the summary
+          # green although the money-path suite never finished.
+          case "${{ needs.lifeboard-sql.result }}" in
+            success|skipped) ;;
+            *)
+              echo "❌ Lifeboard SQL behaviour suite did not succeed (${{ needs.lifeboard-sql.result }}) — o caminho do dinheiro"
+              FAILED=true
+              ;;
+          esac
 
           # Story Validation: fail if ran and didn't succeed
           if [ "${{ needs.story-validation.result }}" == "failure" ]; then
