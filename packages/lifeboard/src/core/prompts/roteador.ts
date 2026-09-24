@@ -324,3 +324,38 @@ export function contaTemEspacoPara(
   if (bancoRecusaria(consumo, agora)) return false;
   return espacoLivreUsd(consumo) >= custoEstimadoParaComplexidade(complexidade);
 }
+
+/**
+ * A prontidão que a tela mostra ANTES do envio — aviso, nunca bloqueio.
+ *
+ * P2 do Codex (PR #42, 17ª rodada): o limite de sessões em voo também é
+ * prontidão. A escolha manual de uma conta com quatro sessões em voo e
+ * dinheiro sobrando não avisava nada antes do envio, e a resposta depois
+ * dizia que o item ia esperar vaga. No automático, `cabeHoje` continua sendo
+ * dinheiro — a espera por vaga vem de `todasSemVaga`, e o motivo automático já
+ * a nomeia. Pura, fora do componente, para ser testada sem montá-lo.
+ */
+export function prontidaoDoEnvio(
+  contaOverrideItem: ConsumoConta | undefined,
+  escolha: Pick<EscolhaDeConta, "cabeHoje" | "todasSemVaga">,
+  complexidade: Complexidade,
+  instante: number,
+): { overrideSemEspaco: boolean; naoCabeHoje: boolean; avisoEspera: string | undefined } {
+  if (contaOverrideItem === undefined) {
+    return {
+      overrideSemEspaco: false,
+      naoCabeHoje: !escolha.cabeHoje || escolha.todasSemVaga,
+      avisoEspera: undefined,
+    };
+  }
+  const overrideSemEspaco = !contaTemEspacoPara(contaOverrideItem, complexidade, instante);
+  const overrideSemVaga = semVagaEmVoo(contaOverrideItem);
+  return {
+    overrideSemEspaco,
+    naoCabeHoje: overrideSemEspaco || overrideSemVaga,
+    avisoEspera:
+      overrideSemVaga && !overrideSemEspaco
+        ? "Esta conta está no limite de sessões em voo agora: o item entra na fila e só sai quando uma delas fechar."
+        : undefined,
+  };
+}

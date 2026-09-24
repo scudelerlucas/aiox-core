@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { ContaCard } from "@/components/prompts/conta-card";
 import { NovoPromptForm, type TarefaParaLink } from "@/components/prompts/novo-prompt-form";
-import { contaTemEspacoPara, escolherConta } from "@/core/prompts/roteador";
+import { escolherConta, prontidaoDoEnvio } from "@/core/prompts/roteador";
 import type { Complexidade, ConsumoConta } from "@/core/prompts/tipos";
 import { CONTAS, modeloParaComplexidade } from "@/core/prompts/tipos";
 
@@ -44,12 +44,12 @@ export function PromptsClient({
 
   const contaOverrideItem =
     contaOverride === "" ? undefined : consumo.find((c) => c.conta === contaOverride);
-  const overrideSemEspaco =
-    contaOverrideItem !== undefined &&
-    !contaTemEspacoPara(contaOverrideItem, complexidade, instante);
-
-  // "Não cabe hoje" é um AVISO; "impossível" (conta null) é o único bloqueio.
-  const naoCabeHoje = contaOverride === "" ? !escolha.cabeHoje : overrideSemEspaco;
+  const { overrideSemEspaco, naoCabeHoje, avisoEspera } = prontidaoDoEnvio(
+    contaOverrideItem,
+    escolha,
+    complexidade,
+    instante,
+  );
   const impossivel = escolha.conta === null;
 
   return (
@@ -94,8 +94,10 @@ export function PromptsClient({
         contaAuto={escolha.conta}
         tarefas={tarefas}
         naoCabeHoje={naoCabeHoje}
+        avisoEspera={avisoEspera}
         impossivel={impossivel}
       />
     </div>
   );
 }
+

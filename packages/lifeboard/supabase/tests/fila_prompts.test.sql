@@ -6201,13 +6201,17 @@ end $$;
 -- A régua certa é o dono GRAVADO em cada linha (`item_id`), que o livro
 -- imutável não reescreve: o item de ontem é 100 antes e depois da troca, os 7
 -- de B continuam de B, e hoje a conta fecha: o que os itens movem mais o que
--- as linhas sem dono movem é o livro da conta. E nenhum estorno troca de dono
--- — o da publicação PRÓPRIA de B (sem item) continua sem item, mesmo com a
--- fusão chamando em nome do item (a 1ª versão do estorno herdado caía no
--- `p_item_id` de quem chamou quando o anulado não tinha dono).
+-- as linhas sem dono movem é o livro da conta. O estorno da publicação PRÓPRIA
+-- de B (sem item) continua sem item, mesmo com a fusão chamando em nome do
+-- item (a 1ª versão do estorno herdado caía no `p_item_id` de quem chamou).
+-- 17ª rodada: e hoje o item gasta 5, o custo de B — não −35. Ao desligar A do
+-- item, o item só cede o que ele tinha em A HOJE (zero: −40 +40); os 40 do
+-- estorno de desligamento ficam sem dono, com A (`painel_caixa_lancar`).
 -- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: juntar `painel_fila_itens_do_dia` pela
--- sessão vinculada agora (a 15ª rodada), ou voltar o `item_id` do estorno em
--- `painel_caixa_lancar` a cair no `p_item_id` quando o anulado não tem dono.
+-- sessão vinculada agora (a 15ª rodada), voltar o `item_id` do estorno em
+-- `painel_caixa_lancar` a cair no `p_item_id` quando o anulado não tem dono,
+-- ou tirar o teto "o que o item tinha hoje" da parte do estorno que fica com
+-- o dono antigo (17ª rodada).
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -6252,18 +6256,70 @@ begin
     from public.painel_caixa_lancamentos l
    where l.conta = v_conta and l.dia = public.painel_dia_operador() and l.item_id is null;
   v_conta_hoje := public.painel_fila_consumo_hoje(v_conta);
-  -- nenhum estorno troca de dono: ele é de quem era o que ele anula
+  -- o estorno do que a sessão publicou por conta própria nunca vira do item
   select count(*) into v_estorno_trocou_dono
     from public.painel_caixa_lancamentos e
     join public.painel_caixa_lancamentos r on r.id = e.estorna_id
-   where e.conta = v_conta and e.item_id is distinct from r.item_id;
+   where e.conta = v_conta and r.item_id is null and e.item_id is not null;
 
   if v_ontem_antes = 100 and v_ontem_depois = 100
+     and v_hoje_item = 5
      and v_hoje_item + v_hoje_sem_dono = v_conta_hoje
      and v_estorno_trocou_dono = 0 then
-    raise exception 'RESULTADO: ok — T105 ontem o item vale % antes e % depois da troca (os 7 de B não entram); hoje item % + sem dono % = conta %; estornos que trocaram de dono: %',
+    raise exception 'RESULTADO: ok — T105 ontem o item vale % antes e % depois da troca (os 7 de B não entram); hoje o item gasta US$ % (o custo de B, não a transferência), item + sem dono % = conta %; estornos de dinheiro próprio que viraram do item: %',
       v_ontem_antes, v_ontem_depois, v_hoje_item, v_hoje_sem_dono, v_conta_hoje, v_estorno_trocou_dono;
   end if;
-  raise exception 'FALHA: T105 esperado ontem 100 antes e depois, item + sem dono = conta hoje e nenhum estorno trocando de dono — obteve ontem_antes=% ontem_depois=% item=% sem_dono=% conta=% estornos_trocados=%',
+  raise exception 'FALHA: T105 esperado ontem 100 antes e depois, item hoje = 5, item + sem dono = conta e nenhum estorno de dinheiro próprio virando do item — obteve ontem_antes=% ontem_depois=% item=% sem_dono=% conta=% estornos=%',
     v_ontem_antes, v_ontem_depois, v_hoje_item, v_hoje_sem_dono, v_conta_hoje, v_estorno_trocou_dono;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T106 · P2 do Codex (PR #42, 17ª rodada) — PUBLICAÇÃO FORA DA FAIXA NÃO É
+-- MEDIÇÃO
+-- `painel_frentes_sessoes.custo_usd` não tem restrição de faixa. Um −30
+-- publicado pela Routine entrava no livro com posto 40: o piso do consumo o
+-- fazia valer zero e o fechamento real do worker (posto 30) era recusado por
+-- posto — a conta ficava com espaço que não tinha. Agora negativo e acima de
+-- painel_custo_maximo_por_item() são tratados como null/zero (D40): não lançam
+-- e não bloqueiam o fechamento.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar a guarda de faixa de
+-- `painel_frentes_sessoes_lancar` (0027 §7b).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_linhas_invalidas int; v_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T106 item', 'alta', 'Opus') returning id into v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T106');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T106', 'sess-T106');
+
+  -- a Routine publica lixo: negativo na sessão do item, absurdo numa avulsa
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T106', v_conta, 'custo negativo', 'idle', -30, now()),
+         ('sess-T106-avulsa', v_conta, 'custo absurdo', 'idle', public.painel_custo_maximo_por_item() + 1, now());
+
+  select count(*) into v_linhas_invalidas from public.painel_caixa_lancamentos
+   where entidade_id in ('sess-T106', 'sess-T106-avulsa');
+
+  -- o worker fecha com o número real, posto 30: tem de valer
+  perform public.fila_prompts_fechar_interno(
+    p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T106',
+    p_estado => 'concluida', p_custo_usd => 12, p_session_id => 'sess-T106');
+  v_hoje := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_linhas_invalidas = 0 and v_hoje = 12 then
+    raise exception 'RESULTADO: ok — T106 publicação negativa/absurda não entrou no livro (% linhas) e o fechamento real valeu (dia = %)',
+      v_linhas_invalidas, v_hoje;
+  end if;
+  raise exception 'FALHA: T106 esperado 0 linhas das publicações inválidas e dia = 12 — obteve linhas=% dia=%',
+    v_linhas_invalidas, v_hoje;
 end $$;

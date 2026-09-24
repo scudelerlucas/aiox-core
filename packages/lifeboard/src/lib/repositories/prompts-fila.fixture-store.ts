@@ -806,6 +806,7 @@ export function publicarSessaoFixture(
   conta: Conta,
   sessionId: string,
   custoUsd: number | null,
+  agora: number = Date.now(),
 ): void {
   const estado = loja();
   const jaPublicada = estado.sessoesPublicadas.get(sessionId);
@@ -827,15 +828,24 @@ export function publicarSessaoFixture(
   if (semMedicao && jaPublicada !== undefined && jaPublicada.custoUsd !== null && jaPublicada.custoUsd !== 0) {
     return;
   }
+  // P2 do Codex (PR #42, 17ª rodada): fora da faixa de sanidade não é medição
+  // — espelho da guarda de `painel_frentes_sessoes_lancar` (0027 §7b).
+  if (custoUsd !== null && (custoUsd < 0 || custoUsd > TETO_CUSTO_USD)) return;
   estado.sessoesPublicadas.set(sessionId, { conta, custoUsd });
   const base = estado.base.get(conta);
   if (!base) return;
   // A sessão publicada entra no "medido" das sessões, como a view do SQL.
   // Republicar com outro custo troca o valor, não soma duas vezes.
   const antes = jaPublicada?.custoUsd ?? 0;
+  // P2 do Codex (PR #42, 17ª rodada): publicação com custo é MEDIÇÃO — renova
+  // a idade da medição, como o SQL (`painel_fila_medido_ate` lê o livro). Sem
+  // isto a trava de medição recente (a 4ª conta nasce com ela) nunca soltava no
+  // fixture, e o caminho real de destravar não tinha como ser exercitado.
+  const mediu = !semMedicao;
   estado.base.set(conta, {
     ...base,
     publicadasUsd: base.publicadasUsd - antes + (custoUsd ?? 0),
+    ...(mediu ? { medidoAteEm: new Date(agora).toISOString(), defasagemHoras: null } : {}),
   });
 }
 

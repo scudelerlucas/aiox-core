@@ -190,6 +190,27 @@ describe("D2 — expiração com fim", () => {
   });
 });
 
+describe("P2 Codex (PR #42, 17ª rodada) — publicar sessão renova a medição no fixture", () => {
+  it("a 4ª conta nasce travada e destrava quando a Routine dela publica um custo", () => {
+    resetarFilaFixtureStore();
+    const ARBOR: Conta = "arborcactus@gmail.com";
+    enfileirarFixture({ prompt: "para a 4ª", complexidade: "baixa", conta: ARBOR, agora: AGORA });
+
+    const antes = pegarFixture(ARBOR, "W-arbor", AGORA);
+    expect(antes.item).toBeNull();
+    expect(antes.recusadoPorMedicao).toBe(true);
+
+    // custo inválido não conta como medição
+    publicarSessaoFixture(ARBOR, "sess-arbor-lixo", -30, AGORA);
+    expect(pegarFixture(ARBOR, "W-arbor", AGORA).recusadoPorMedicao).toBe(true);
+
+    publicarSessaoFixture(ARBOR, "sess-arbor", 3, AGORA);
+    const depois = pegarFixture(ARBOR, "W-arbor", AGORA);
+    expect(depois.recusadoPorMedicao).toBe(false);
+    expect(depois.item).not.toBeNull();
+  });
+});
+
 describe("D3 — elegibilidade por item, não reserva agregada", () => {
   it("o que está na_fila NÃO reserva orçamento; só o que está em execução com sinal vivo", () => {
     resetarFilaFixtureStore();

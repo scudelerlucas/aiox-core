@@ -876,6 +876,9 @@ declare
   v_alvo           numeric;
   v_dia            date;
   v_estorno        uuid;
+  v_dono_antigo    uuid;
+  v_hoje_dono      numeric;
+  v_parte_dono     numeric;
   v_novo           uuid;
   v_prec           smallint;
   v_prec_atual     smallint;
@@ -1082,18 +1085,52 @@ begin
   -- quem chamou nesse caso, e o estorno da publicação PRÓPRIA da sessão B
   -- virava dinheiro do item que acabara de se vincular a ela). O `p_item_id`
   -- só vale quando não há lançamento anulado. Blocos: T102 e T105.
+  --
+  -- P2 do Codex (PR #42, 17ª rodada) · O ITEM SÓ CEDE O QUE ELE TEM HOJE. Quando
+  -- o dono muda DE UM ITEM para outro dono (a fusão desligando a sessão antiga
+  -- do item), o estorno herdado inteiro virava gasto negativo do item no dia:
+  -- ontem A publicou 100 com o item, hoje foi corrigida para 40 (−40 +40, hoje
+  -- líquido zero para o item) e, ao desligar, o −40 caía no item — que
+  -- projetava −35 com custo real de 5. A parte do estorno que fica com o dono
+  -- antigo é no máximo o que ele moveu NESTA entidade HOJE; o resto é do novo
+  -- dono (sem dono, na fusão). Dois estornos para o mesmo lançamento, somando o
+  -- mesmo valor — o livro da conta não muda, só a atribuição. Dono antigo sem
+  -- item (sessão que publicou por conta própria) continua herdando inteiro.
   if v_estornar <> 0 then
-    insert into public.painel_caixa_lancamentos
-      (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
-    values
-      (v_dia, v_conta, -v_estornar, 'estorno', p_entidade_tipo, p_entidade_id,
-       case when v_ultimo is not null
-            then (select l.item_id from public.painel_caixa_lancamentos l where l.id = v_ultimo)
-            else p_item_id end,
-       p_sessao_id, v_ultimo,
-       coalesce(p_nota, 'estorno do líquido anterior desta entidade'),
-       coalesce(v_prec_atual, v_prec))
-    returning id into v_estorno;
+    v_dono_antigo := case when v_ultimo is not null
+                          then (select l.item_id from public.painel_caixa_lancamentos l where l.id = v_ultimo)
+                          else p_item_id end;
+    v_parte_dono := v_estornar;
+    if v_ultimo is not null and v_dono_antigo is not null
+       and v_dono_antigo is distinct from p_item_id and v_estornar > 0 then
+      select coalesce(sum(l.valor_usd), 0) into v_hoje_dono
+        from public.painel_caixa_lancamentos l
+       where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
+         and l.dia = v_dia and l.item_id = v_dono_antigo;
+      v_parte_dono := least(v_estornar, greatest(v_hoje_dono, 0));
+    end if;
+
+    if v_parte_dono <> 0 then
+      insert into public.painel_caixa_lancamentos
+        (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
+      values
+        (v_dia, v_conta, -v_parte_dono, 'estorno', p_entidade_tipo, p_entidade_id,
+         v_dono_antigo, p_sessao_id, v_ultimo,
+         coalesce(p_nota, 'estorno do líquido anterior desta entidade'),
+         coalesce(v_prec_atual, v_prec))
+      returning id into v_estorno;
+    end if;
+    if v_estornar - v_parte_dono <> 0 then
+      insert into public.painel_caixa_lancamentos
+        (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
+      values
+        (v_dia, v_conta, -(v_estornar - v_parte_dono), 'estorno', p_entidade_tipo, p_entidade_id,
+         p_item_id, p_sessao_id, v_ultimo,
+         coalesce(p_nota, 'estorno do líquido anterior desta entidade')
+           || ' (parte que o item não tinha hoje: fica com o novo dono)',
+         coalesce(v_prec_atual, v_prec))
+      returning id into v_estorno;
+    end if;
   end if;
 
   if v_alvo <> 0 then
@@ -1300,6 +1337,15 @@ begin
   -- medição — é a ausência dela. Ela não lança e, principalmente, NÃO ESTORNA
   -- o que o item já tinha lançado (21 das 215 sessões reais são assim).
   if new.custo_usd is null or new.custo_usd = 0 then
+    return null;
+  end if;
+  -- P2 do Codex (PR #42, 17ª rodada): número fora da faixa de sanidade não é
+  -- medição. `painel_frentes_sessoes.custo_usd` não tem restrição própria, e um
+  -- valor negativo (ou absurdo) entrava aqui com posto 40 — o piso do consumo o
+  -- transformava em zero e o fechamento válido do worker (posto 30) passava a
+  -- ser recusado, abrindo teto falso. Mesmo tratamento de null/zero (D40): não
+  -- lança e não estorna. A faixa é a das outras portas, de uma fonte só. T106.
+  if new.custo_usd < 0 or new.custo_usd > public.painel_custo_maximo_por_item() then
     return null;
   end if;
 

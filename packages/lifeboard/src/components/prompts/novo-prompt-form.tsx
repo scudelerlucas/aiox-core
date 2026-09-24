@@ -38,6 +38,12 @@ export interface NovoPromptFormProps {
    */
   naoCabeHoje?: boolean;
   /**
+   * P2 do Codex (PR #42, 17ª rodada): frase do aviso quando ele NÃO é a do
+   * roteamento automático — a escolha manual de uma conta no limite de
+   * sessões em voo. Sem ela o aviso repetia o motivo da escolha automática.
+   */
+  avisoEspera?: string;
+  /**
    * D3: o ÚNICO bloqueio real — a tarefa custa mais que o teto de qualquer
    * conta e nunca vai caber, em nenhum dia. Aí o banco recusa mesmo.
    */
@@ -60,6 +66,7 @@ export function NovoPromptForm({
   contaAuto,
   tarefas,
   naoCabeHoje,
+  avisoEspera,
   impossivel,
 }: NovoPromptFormProps): JSX.Element {
   const [prompt, setPrompt] = useState("");
@@ -184,7 +191,7 @@ export function NovoPromptForm({
         </p>
       ) : naoCabeHoje ? (
         <p role="status" className="mt-2 text-xs font-medium text-state-progress">
-          {motivoAuto} Entra na fila assim mesmo e roda quando houver espaço.
+          {avisoEspera ?? `${motivoAuto} Entra na fila assim mesmo e roda quando houver espaço.`}
         </p>
       ) : null}
 
