@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -20,7 +21,7 @@ import { describe, expect, it } from "vitest";
  * ele fica vermelho se o script sair do `package.json` ou do CI.
  */
 
-const AQUI = new URL(".", import.meta.url).pathname;
+const AQUI = fileURLToPath(new URL(".", import.meta.url));
 const PACOTE = join(AQUI, "..", "..");
 const RAIZ_REPO = join(PACOTE, "..", "..");
 
@@ -205,5 +206,41 @@ describe("MÉDIO 4 — o cabeçalho da cobertura só cita função viva", () => 
         `${fn} voltou a existir — se voltou, o cabeçalho da cobertura precisa voltar a citá-la`,
       ).toBe("drop");
     }
+  });
+});
+
+/**
+ * P1 do Codex (PR #42, 23/09): o livro-razão é IMUTÁVEL pelo gatilho
+ * `painel_caixa_lancamentos_imutavel` (0019). Um UPDATE/DELETE solto numa
+ * migration passa no CI — o banco do CI tem o livro vazio, o comando toca
+ * zero linhas e o gatilho nunca dispara — e aborta a migration inteira em
+ * produção, onde há lançamentos. Foi o que a 0027 fazia com o preenchimento
+ * do posto. Toda escrita no livro dentro de migration tem de estar sob o
+ * desvio da 0020 §4 (`session_replication_role = replica` só nesta transação).
+ */
+describe("P1 — migration nenhuma edita o livro-razão fora do desvio da trava", () => {
+  it("todo UPDATE/DELETE em painel_caixa_lancamentos vem depois de `replica` no mesmo bloco", () => {
+    const pasta = join(PACOTE, "supabase", "migrations");
+    const soltos: string[] = [];
+    for (const nome of readdirSync(pasta).filter((n) => /^\d{4}_.*\.sql$/.test(n) && !n.endsWith(".test.sql"))) {
+      const sql = readFileSync(join(pasta, nome), "utf8")
+        .split("\n")
+        .map((linha) => linha.replace(/--.*$/, ""))
+        .join("\n");
+      const escrita = /\b(update|delete\s+from)\s+public\.painel_caixa_lancamentos\b/gi;
+      for (let m = escrita.exec(sql); m !== null; m = escrita.exec(sql)) {
+        // o bloco `do $$ … $$` que contém a escrita
+        const inicio = sql.lastIndexOf("$$", m.index);
+        const trecho = sql.slice(inicio < 0 ? 0 : inicio, m.index);
+        const dentroDeFuncao = /create\s+(or\s+replace\s+)?function/i.test(
+          sql.slice(Math.max(0, sql.lastIndexOf("$$", inicio - 1) - 400), inicio),
+        );
+        if (dentroDeFuncao) continue; // corpo de função roda em runtime, não na migration
+        if (!/session_replication_role\s*=\s*replica/i.test(trecho)) {
+          soltos.push(`${nome}: ${sql.slice(m.index, m.index + 60).replace(/\s+/g, " ")}`);
+        }
+      }
+    }
+    expect(soltos, "escrita no livro sem o desvio da trava — aborta em produção").toEqual([]);
   });
 });

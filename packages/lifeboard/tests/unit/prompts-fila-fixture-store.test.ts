@@ -834,6 +834,41 @@ describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
   });
 });
 
+describe("P2 do Codex (PR #42) — a morte respeita o posto do livro no fixture", () => {
+  it("item cuja sessão já publicou morre sem lançar a estimativa (mortosUsd 0), como no SQL", () => {
+    resetarFilaFixtureStore();
+    definirExigirMedicaoFixture(ALMA, false);
+    ajustarTetoFixture(ALMA, 800);
+    const novo = enfileirarFixture({
+      prompt: "vai morrer na 3a com sessão publicada",
+      complexidade: "alta",
+      conta: ALMA,
+      agora: AGORA,
+    });
+    const id = (novo as { id: string }).id;
+    for (let tentativa = 1; tentativa <= 3; tentativa += 1) {
+      const worker = pegarAte(ALMA, id, AGORA);
+      if (tentativa === 3) {
+        // a sessão vinculada publica o número real ANTES de o item morrer
+        heartbeatFixture(id, ALMA, worker, "session_JA_PUBLICOU", AGORA);
+        publicarSessaoFixture(ALMA, "session_JA_PUBLICOU", 300);
+      }
+      envelhecerSinalFixture(id, 46, AGORA);
+      if (tentativa < 3) {
+        pegarFixture(ALMA, "W-expira", AGORA);
+        vencerBackoffFixture(id, AGORA);
+      }
+    }
+    const morte = pegarFixture(ALMA, "W-morte", AGORA);
+    expect(morte.mortos).toBe(1);
+    expect(morte.mortosUsd).toBe(0);
+    expect(morte.motivo).toContain(
+      "1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido",
+    );
+    expect(morte.motivo).not.toContain("lançou US$");
+  });
+});
+
 describe("D24 — o dia que RESERVOU paga (pego 23h50, fechado 00h10)", () => {
   it("o item conta no dia em que foi pego, nunca no dia em que fechou", () => {
     resetarFilaFixtureStore();

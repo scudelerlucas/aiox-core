@@ -416,7 +416,11 @@ function livroDoItemFixture(item: ItemFilaPrompt): Pick<
       return { livroOrigem: "medido", livroPrecedencia: 40, livroLiquidoUsd: publicada.custoUsd };
     }
   }
-  if (item.custoUsd === null) {
+  // D40: zero é AUSÊNCIA de medição — o banco não grava lançamento para ele
+  // (`painel_caixa_lancar` sai cedo com alvo 0), e a listagem manda o livro
+  // vazio. Tratar zero como lançamento dava posto 30 a um "medido-zero" e
+  // sumia com o botão de ajuste que o SQL oferece (Minor do CodeRabbit, PR #42).
+  if (item.custoUsd === null || item.custoUsd === 0) {
     return { livroOrigem: null, livroPrecedencia: null, livroLiquidoUsd: null };
   }
   const origem = item.custoOrigem ?? (item.custoEEstimativa ? "estimativa" : "medido");
@@ -854,6 +858,16 @@ function expirar(
       });
       devolvidos.push(item.id);
     } else {
+      // P2 do Codex (PR #42): o livro é consultado ANTES de a coluna virar
+      // estimativa. Se a sessão vinculada já publicou (posto 40), o SQL recusa
+      // a estimativa da morte pelo posto (D53) e `mortos_usd` não anda — o
+      // fixture somava a estimativa mesmo assim, e a frase do pull anunciava
+      // um lançamento que o banco real não faz.
+      const livroAntes = livroDoItemFixture(item);
+      const livroAceitaEstimativa =
+        livroAntes.livroPrecedencia === null || livroAntes.livroPrecedencia === undefined
+          ? true
+          : POSTO_ESTIMATIVA >= livroAntes.livroPrecedencia;
       estado.fila.set(item.id, {
         ...item,
         estado: "falhou",
@@ -869,7 +883,7 @@ function expirar(
         concluidoEm: new Date(agora).toISOString(),
       });
       mortos.push(item.id);
-      mortosUsd += Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD);
+      if (livroAceitaEstimativa) mortosUsd += Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD);
     }
   }
   return { devolvidos, mortos, mortosUsd };

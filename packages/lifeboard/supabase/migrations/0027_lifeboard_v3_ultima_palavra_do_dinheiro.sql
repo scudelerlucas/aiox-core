@@ -739,14 +739,70 @@ revoke all on function public.painel_caixa_precedencia(text) from public, anon, 
 
 -- As linhas que já existem recebem o posto da própria origem. Estorno herda o
 -- posto do que ele anula (ele nunca é "o ativo", então o número só documenta).
-update public.painel_caixa_lancamentos l
-   set precedencia = case
-         when l.origem = 'estorno' then
-           coalesce((select e.precedencia from public.painel_caixa_lancamentos e where e.id = l.estorna_id),
-                    public.painel_caixa_precedencia(l.origem))
-         else public.painel_caixa_precedencia(l.origem)
-       end
- where l.precedencia is null;
+--
+-- P1 do Codex no PR #42 (23/09): este UPDATE era solto, e o livro é IMUTÁVEL
+-- pelo gatilho `painel_caixa_lancamentos_imutavel` (0019) — qualquer UPDATE
+-- dispara `check_violation`. No CI o livro está vazio, o UPDATE toca zero
+-- linhas e o gatilho nunca dispara; em PRODUÇÃO, com lançamentos, a 0027
+-- inteira abortava aqui (reproduzido: 0001…0025 + 1 lançamento → ERRO na
+-- linha do UPDATE). Mesmo desvio da 0020 §4, pelos mesmos motivos: o gatilho
+-- NÃO é desligado (o `disable trigger` falha com eventos pendentes e deixaria
+-- o livro aberto se algo morresse no meio); só esta transação pula gatilhos
+-- de usuário, e volta ao normal no fim ou no erro. A conferência logo abaixo
+-- prova que nada ficou sem posto e que a trava continua de pé.
+--
+-- Duas passadas, não uma: numa passada única o estorno lia o posto do
+-- original ANTES de ele ser preenchido (o UPDATE enxerga a foto de antes), e
+-- todo estorno caía no 10 do coalesce, mesmo anulando uma medição 30.
+do $$
+declare
+  v_postos   integer := 0;
+  v_estornos integer := 0;
+begin
+  set local session_replication_role = replica;
+
+  update public.painel_caixa_lancamentos l
+     set precedencia = public.painel_caixa_precedencia(l.origem)
+   where l.precedencia is null
+     and l.origem <> 'estorno';
+  get diagnostics v_postos = row_count;
+
+  update public.painel_caixa_lancamentos l
+     set precedencia = coalesce(
+           (select e.precedencia from public.painel_caixa_lancamentos e where e.id = l.estorna_id),
+           public.painel_caixa_precedencia(l.origem))
+   where l.precedencia is null
+     and l.origem = 'estorno';
+  get diagnostics v_estornos = row_count;
+
+  set local session_replication_role = origin;
+  raise notice '0027 §5: posto gravado em % lançamento(s) e % estorno(s)', v_postos, v_estornos;
+exception when others then
+  begin
+    set local session_replication_role = origin;
+  exception when others then
+    null;
+  end;
+  raise;
+end;
+$$;
+
+-- Conferência do desvio: nenhum lançamento sem posto, e a trava ATIVA.
+do $$
+begin
+  if exists (select 1 from public.painel_caixa_lancamentos where precedencia is null) then
+    raise exception '0027 §5: sobrou lançamento sem posto depois do preenchimento';
+  end if;
+  if not exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.painel_caixa_lancamentos'::regclass
+       and tgname  = 'painel_caixa_lancamentos_imutavel'
+       and tgenabled <> 'D'
+  ) then
+    raise exception '0027 §5: a trava de imutabilidade do livro não está ativa depois do preenchimento';
+  end if;
+end;
+$$;
 
 alter table public.painel_caixa_lancamentos
   alter column precedencia set default 10;

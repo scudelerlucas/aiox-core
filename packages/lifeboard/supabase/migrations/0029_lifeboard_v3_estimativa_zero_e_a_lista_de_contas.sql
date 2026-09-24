@@ -913,14 +913,18 @@ begin
       v.id as item_id,
       a.origem       as livro_origem,
       coalesce(a.precedencia, public.painel_caixa_precedencia(a.origem)) as livro_precedencia,
-      (select coalesce(sum(x.valor_usd), 0)
-         from public.painel_caixa_lancamentos x
-        where x.entidade_tipo = case when v.session_id is not null then 'sessao' else 'item' end
-          and x.entidade_id   = case when v.session_id is not null then v.session_id else v.id::text end
-      ) as livro_liquido
+      -- O VALOR do lançamento ativo, não a soma de todos os dias da entidade
+      -- (CodeRabbit Major + Codex P2 no PR #42, 23/09). Desde a D54 os dois
+      -- divergem quando a correção atravessa a virada do dia: estimativa de
+      -- 120 ONTEM, medição real de 3 HOJE → o estorno fica limitado ao que a
+      -- entidade pôs hoje (3), a soma da entidade continua 120, e a célula
+      -- imprimia "US$ 120 · medido pela sessão (a casa estimava US$ 3)" — a
+      -- medição e a estimativa trocadas. A 0028 §2 tem a mesma expressão
+      -- antiga; esta função é a última palavra. Bloco que prova: T92.
+      a.valor_usd as livro_liquido
     from visivel v
     left join lateral (
-      select l.origem, l.precedencia
+      select l.origem, l.precedencia, l.valor_usd
         from public.painel_caixa_lancamentos l
        where l.entidade_tipo = case when v.session_id is not null then 'sessao' else 'item' end
          and l.entidade_id   = case when v.session_id is not null then v.session_id else v.id::text end

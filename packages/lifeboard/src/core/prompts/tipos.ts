@@ -916,6 +916,22 @@ export function fraseDoCancelamento(
   custoLancadoUsd: number,
   tentativas: number,
 ): string {
+  // P2 do Codex (PR #42): o cancelamento de item que JÁ RODOU pode não lançar
+  // nada — o item já tinha custo registrado, ou a sessão vinculada já
+  // publicou a medição e o livro recusou a estimativa pelo posto (D53). O
+  // banco devolve `custo_lancado_usd = 0`, e as duas frases abaixo diziam
+  // "US$ 0,00 entram no gasto de hoje" e mandavam ajustar na linha — ajuste
+  // que a tela, com razão, já não oferece nesse caso.
+  if (codigo !== "cancelado_nunca_pego" && !(custoLancadoUsd > 0)) {
+    const inicio =
+      codigo === "cancelado_em_execucao"
+        ? "Cancelado durante a execução."
+        : `Cancelado. Ele já tinha sido pego ${tentativas === 1 ? "1 vez" : `${tentativas} vezes`}.`;
+    return (
+      `${inicio} Este cancelamento não soma nada ao gasto de hoje: o custo deste item já estava ` +
+      `registrado (medido pela sessão ou lançado antes), e é esse número que conta.`
+    );
+  }
   switch (codigo) {
     case "cancelado_nunca_pego":
       return "Cancelado. Este prompt nunca chegou a rodar, então não entrou no gasto de hoje.";

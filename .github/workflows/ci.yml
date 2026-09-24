@@ -339,6 +339,8 @@ jobs:
       - name: Migrations em ordem + suíte de comportamento
         env:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/lifeboard_teste
+          # O banco do serviço acima é criado para este job e morre com ele.
+          LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL: sim
         run: packages/lifeboard/scripts/rodar-suite-sql.sh
 
   story-validation:

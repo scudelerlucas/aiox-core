@@ -119,3 +119,4 @@ T88 · CRÍTICO (rodada 15) — O TETO DE SESSÕES EM VOO POR CONTA (a parede qu
 T89 · CRÍTICO (rodada 15) — O PAINEL NUNCA ANUNCIA ESPAÇO SEM DIZER O QUE ESTÁ EM VOO (os três ramos do pull)
 T90 · CRÍTICO (rodada 15) — AS GUARDAS DE CIRCUNVENÇÃO: subir o teto sem subir o piso é recusado
 T91 · CRÍTICO (rodada 15) — SESSÃO MUDA NÃO OCUPA VAGA NEM RESERVA DINHEIRO (a janela é fonte única)
+T92 · Major CodeRabbit + P2 Codex (PR #42) — A CÉLULA MOSTRA O LANÇAMENTO VIGENTE, NÃO A SOMA DE TODOS OS DIAS

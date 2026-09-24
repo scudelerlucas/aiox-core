@@ -48,9 +48,26 @@
 # percorrem. Cobertura fora dali é zero, e dizer o contrário é o que fez o
 # crítico da rodada 12 gastar uma linha para provar.
 #
-# COMO USAR
-#   scripts/rodar-suite-sql.sh                      # sobe nada, usa $DATABASE_URL
-#   DATABASE_URL=postgres://… scripts/rodar-suite-sql.sh
+# COMO USAR — só contra um banco DESCARTÁVEL, criado para isto:
+#   createdb lifeboard_teste
+#   LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL=sim \
+#   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lifeboard_teste \
+#     scripts/rodar-suite-sql.sh
+#
+# A TRAVA DE ALVO (P1 do Codex no PR #42, 23/09). Este script cria papéis,
+# stubs de `auth` e aplica TODAS as migrations — num banco de verdade isso
+# reescreveria funções de produção e poria stubs no lugar do `auth` real. Antes,
+# `DATABASE_URL` herdado do terminal (o de um `.env` de produção, por exemplo)
+# ou até a falta dele (caía num padrão local) bastava para ele sair aplicando.
+# Agora ele recusa, antes de tocar o banco, se:
+#   · `LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL` não for exatamente `sim` — é a
+#     declaração de quem roda de que o banco pode ser destruído;
+#   · `DATABASE_URL` não vier explícito (não há mais endereço padrão);
+#   · o endereço apontar para o Supabase (`supabase.co`, `supabase.com`,
+#     `pooler.supabase`) — a suíte nunca tem motivo para ir lá;
+#   · o esquema `public` do alvo já tiver qualquer tabela — banco novo é o
+#     único caminho que a suíte valida (DEPLOY.md), e banco com tabela é, por
+#     definição, um banco que alguém usa.
 #
 # O QUE ELE FAZ, em ordem:
 #   1. aplica `supabase/tests/00-ambiente-de-teste.sql` (papéis, stubs de auth
@@ -73,7 +90,6 @@
 set -euo pipefail
 
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DB="${DATABASE_URL:-postgres://postgres:postgres@127.0.0.1:5432/postgres}"
 SEGREDO="${LIFEBOARD_LOAD_SECRET:-segredo-de-suite-sql}"
 
 SUITE="$AQUI/supabase/tests/fila_prompts.test.sql"
@@ -97,6 +113,19 @@ while read -r id _resto; do
 done < "$MANIFESTO"
 
 [ "${#BLOCOS_ESPERADOS[@]}" -gt 0 ] || morrer "o manifesto $MANIFESTO não lista bloco nenhum"
+
+# ── 0b · a trava de alvo: só banco descartável, declarado e vazio ────────────
+[ "${LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL:-}" = "sim" ] || morrer "recusado: este script DESTRÓI o banco alvo (papéis, stubs de auth, todas as migrations).
+   Rode só contra um banco criado para isto, declarando: LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL=sim"
+[ -n "${DATABASE_URL:-}" ] || morrer "recusado: DATABASE_URL vazio — não há endereço padrão; diga qual banco descartável usar"
+DB="$DATABASE_URL"
+case "$(printf '%s' "$DB" | tr '[:upper:]' '[:lower:]')" in
+  *supabase.co*|*supabase.com*|*pooler.supabase*)
+    morrer "recusado: DATABASE_URL aponta para o Supabase — a suíte nunca roda em banco hospedado";;
+esac
+TABELAS_EXISTENTES="$(psql "$DB" -qtAX -v ON_ERROR_STOP=1 -c "select count(*) from pg_tables where schemaname = 'public'")" \
+  || morrer "não consegui ler o banco alvo para conferir se ele está vazio"
+[ "$TABELAS_EXISTENTES" = "0" ] || morrer "recusado: o esquema public do alvo já tem $TABELAS_EXISTENTES tabela(s) — a suíte só roda em banco NOVO e vazio"
 
 echo "▸ 1/4 ambiente de teste (papéis, auth, painel de frentes)"
 psql_q -f "$AQUI/supabase/tests/00-ambiente-de-teste.sql"

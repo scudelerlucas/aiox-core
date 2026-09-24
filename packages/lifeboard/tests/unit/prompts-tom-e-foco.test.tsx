@@ -35,7 +35,7 @@ vi.mock("@/lib/supabase/live-client", () => ({
   ajustarCustoPrompt: vi.fn(),
 }));
 
-const { FilaTabela, podeAjustarCusto, estadoInicialDoAjuste } = await import(
+const { FilaTabela, podeAjustarCusto, estadoInicialDoAjuste, aplicarMudancaNoAjuste } = await import(
   "@/components/prompts/fila-tabela"
 );
 const { AjustarCustoBotao } = await import("@/components/prompts/ajustar-custo-botao");
@@ -105,6 +105,25 @@ describe("MÉDIO 4 — a frase que LANÇA dinheiro nunca sai em verde de sucesso
     expect(html).toContain("text-state-progress");
   });
 
+  /*
+   * P2 do Codex (PR #42): item que já rodou mas cujo custo já estava no livro
+   * (a sessão vinculada publicou, a estimativa foi recusada pelo posto) volta
+   * com `custo_lancado_usd = 0`. A frase dizia "US$ 0,00 entram no gasto de
+   * hoje" e mandava ajustar na linha — o ajuste que a tela já não oferece.
+   */
+  it("cancelamento de item que já rodou sem lançar nada não promete dinheiro nem ajuste", () => {
+    for (const [codigo, tentativas] of [
+      ["cancelado_em_execucao", 1],
+      ["cancelado_apos_devolucao", 2],
+    ] as const) {
+      const frase = fraseDoCancelamento(codigo, 0, tentativas);
+      expect(frase).not.toContain("US$ 0,00");
+      expect(frase).not.toContain("ajuste na linha");
+      expect(frase).toContain("não soma nada ao gasto de hoje");
+      expect(frasePeLancamento(frase)).toBe(false);
+    }
+  });
+
   it("cancelamento que NÃO custou nada continua em verde", () => {
     const frase = fraseDoCancelamento("cancelado_nunca_pego", 0, 0);
     expect(frasePeLancamento(frase)).toBe(false);
@@ -163,6 +182,25 @@ describe("MÉDIO 3 — o botão 'ajustar custo' só aparece em item fechado HOJE
     expect(estadoInicialDoAjuste(item({ sessionId: null })).sessao).toBe("");
     // e o valor continua partindo do custo atual do item
     expect(estadoInicialDoAjuste(item({ custoUsd: 120 })).valor).toBe("120.00");
+  });
+
+  /*
+   * P2 do Codex (PR #42): o estado inicial só valia ATÉ a primeira mexida. O
+   * clique em "ajustar custo" grava `{ aberto: true }`, e o ponto de partida
+   * dessa gravação era o estado vazio — o formulário abria sem a sessão e sem
+   * o custo. MUTAÇÃO QUE DEIXA ESTE TESTE VERMELHO: voltar o `??` de
+   * `aplicarMudancaNoAjuste` para `AJUSTE_VAZIO`.
+   */
+  it("abrir o ajuste pela primeira vez mantém a sessão e o custo do item", () => {
+    const alvo: Parameters<typeof estadoInicialDoAjuste>[0] = item({
+      sessionId: "sess-ja-vinculada",
+      custoUsd: 120,
+    });
+    const depois = aplicarMudancaNoAjuste({}, alvo, { aberto: true });
+    expect(depois[alvo.id]).toEqual({ aberto: true, valor: "120.00", sessao: "sess-ja-vinculada" });
+    // e o que o operador já digitou não é trocado pelo inicial na mexida seguinte
+    const digitado = aplicarMudancaNoAjuste(depois, alvo, { valor: "3" });
+    expect(digitado[alvo.id]).toEqual({ aberto: true, valor: "3", sessao: "sess-ja-vinculada" });
   });
 
   it("o campo OPCIONAL de sessão existe no painel de ajuste (D26)", () => {

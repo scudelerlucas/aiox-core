@@ -5448,3 +5448,63 @@ begin
   raise exception 'FALHA: T91 esperado 2 itens `pega`, em_voo=1, reserva=5 e expira_em = heartbeat + janela única — obteve pega=% em_voo=% reserva=% hb_ok=% expira_dito=% expira_real=%',
     v_pega, v_em_voo, v_reservado, v_hb->>'ok', v_expira_dito, v_expira_real;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T92 · Major do CodeRabbit + P2 do Codex (PR #42, 23/09) — A CÉLULA MOSTRA O
+-- LANÇAMENTO VIGENTE, NÃO A SOMA DE TODOS OS DIAS
+-- A estimativa da casa (120) caiu ONTEM; HOJE chega a medição real (3) na
+-- mesma entidade. Pela D54 o estorno fica limitado ao que a entidade pôs hoje,
+-- então a SOMA da entidade continua 120 — e era ela que a listagem mandava em
+-- `livroLiquidoUsd`. Medido antes: `liquido=120` com `livroOrigem=medido`,
+-- e a tela escrevia "US$ 120 · medido pela sessão (a casa estimava US$ 3)".
+-- Agora: `livroLiquidoUsd = 3`, o valor do lançamento ativo.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar `livro_liquido` da 0029 para
+-- `sum(x.valor_usd)` sobre a entidade inteira.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_r jsonb;
+  v_linha jsonb;
+  v_soma numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T92 corrigido de um dia para o outro', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts
+     set custo_estimado_usd = 120, custo_usd = 120, custo_e_estimativa = true,
+         custo_origem = 'estimativa', estado = 'falhou', tentativas = 3,
+         concluido_em = (public.painel_dia_operador() - 1)::timestamp at time zone 'America/Sao_Paulo' + interval '23 hours'
+   where id = v_id;
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, precedencia, nota)
+  values (public.painel_dia_operador() - 1, v_conta, 120, 'estimativa', 'item', v_id::text, v_id, 10,
+          'semente T92: a casa lançou ontem');
+
+  perform public.painel_caixa_lancar('item', v_id::text, v_conta, 3::numeric, 'medido',
+                                     v_id, null::text, now(), 'T92: o real, hoje');
+  update public.painel_fila_prompts
+     set custo_usd = 3, custo_e_estimativa = false, custo_origem = 'medido'
+   where id = v_id;
+
+  select sum(valor_usd) into v_soma from public.painel_caixa_lancamentos
+   where entidade_tipo = 'item' and entidade_id = v_id::text;
+
+  v_r := public.fila_prompts_listar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'), 50);
+  select l into v_linha from jsonb_array_elements(v_r->'fila') as l where l->>'id' = v_id::text;
+
+  if v_soma = 120
+     and v_linha->>'livroOrigem' = 'medido'
+     and (v_linha->>'livroPrecedencia')::int = 30
+     and (v_linha->>'livroLiquidoUsd')::numeric = 3 then
+    raise exception 'RESULTADO: ok — T92 a célula recebe o vigente (liquido=%) e não a soma da entidade (%)',
+      v_linha->>'livroLiquidoUsd', v_soma;
+  end if;
+  raise exception 'FALHA: T92 esperado soma da entidade 120 e livroLiquidoUsd 3 (medido, posto 30) — obteve soma=% linha=%',
+    v_soma, coalesce(v_linha::text, 'item não veio na listagem');
+end $$;

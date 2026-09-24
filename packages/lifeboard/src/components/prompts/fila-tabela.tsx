@@ -210,6 +210,21 @@ export function estadoInicialDoAjuste(item: ItemFilaPrompt): EstadoDoAjuste {
   };
 }
 
+/**
+ * A primeira mexida no painel de ajuste parte do estado INICIAL do item, não
+ * do vazio (P2 do Codex no PR #42). Com o vazio como ponto de partida, o
+ * clique em "ajustar custo" gravava `{ aberto: true }` por cima de um estado
+ * sem nada, e o formulário abria sem a sessão vinculada e sem o custo atual —
+ * desfazendo o CRÍTICO 2 da rodada 12 no primeiro clique.
+ */
+export function aplicarMudancaNoAjuste(
+  mapa: Readonly<Record<string, EstadoDoAjuste>>,
+  item: ItemFilaPrompt,
+  patch: Partial<EstadoDoAjuste>,
+): Record<string, EstadoDoAjuste> {
+  return { ...mapa, [item.id]: { ...(mapa[item.id] ?? estadoInicialDoAjuste(item)), ...patch } };
+}
+
 function temTexto(estado: EstadoAcaoPrompt | undefined): boolean {
   return Boolean(estado && (estado.mensagem || estado.erro));
 }
@@ -229,7 +244,7 @@ function AcoesDaLinha({
   respostas: RespostasDaLinha | undefined;
   aoResponder: (id: string, qual: "cancelar" | "ajustar", estado: EstadoAcaoPrompt) => void;
   ajuste: EstadoDoAjuste;
-  aoMudarAjuste: (id: string, patch: Partial<EstadoDoAjuste>) => void;
+  aoMudarAjuste: (item: ItemFilaPrompt, patch: Partial<EstadoDoAjuste>) => void;
   /** BAIXO 2 (rodada 8): a confirmação de cancelar também mora na LINHA. */
   confirmandoCancelar: boolean;
   aoMudarConfirmarCancelar: (id: string, armado: boolean) => void;
@@ -254,7 +269,7 @@ function AcoesDaLinha({
   const acaoAjustar = useAcaoPrompt(
     ajustarCustoPromptAction,
     () => {
-      aoMudarAjuste(item.id, { aberto: false });
+      aoMudarAjuste(item, { aberto: false });
       setPedidoDeFocoAjuste((n) => n + 1);
     },
     (estado) => {
@@ -322,7 +337,7 @@ function AcoesDaLinha({
         podeAjustar={ajustavel}
         pendente={acaoAjustar.pendente}
         estado={ajuste}
-        aoMudarEstado={(patch) => aoMudarAjuste(item.id, patch)}
+        aoMudarEstado={(patch) => aoMudarAjuste(item, patch)}
         aoSalvar={dispararAjuste}
         fraseSemAjuste={ajustavel ? null : textoSemAjuste(item)}
         refDaMensagem={mensagemRef}
@@ -383,8 +398,8 @@ export function FilaTabela({
   function mudarConfirmarCancelar(id: string, armado: boolean): void {
     setConfirmandoCancelar((atual) => ({ ...atual, [id]: armado }));
   }
-  function mudarAjuste(id: string, patch: Partial<EstadoDoAjuste>): void {
-    setAjustes((atual) => ({ ...atual, [id]: { ...(atual[id] ?? AJUSTE_VAZIO), ...patch } }));
+  function mudarAjuste(item: ItemFilaPrompt, patch: Partial<EstadoDoAjuste>): void {
+    setAjustes((atual) => aplicarMudancaNoAjuste(atual, item, patch));
   }
   function ajusteDe(item: ItemFilaPrompt): EstadoDoAjuste {
     const guardado = ajustes[item.id];

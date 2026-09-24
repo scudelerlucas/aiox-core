@@ -25,7 +25,7 @@ vi.mock("@/lib/supabase/user-server", () => ({
 
 import { cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/prompts-fila.fixture-store";
-import { CUSTO_MAXIMO_POR_ITEM_USD } from "@/core/prompts/tipos";
+import { CONTAS, CUSTO_MAXIMO_POR_ITEM_USD, ROTULO_CONTA } from "@/core/prompts/tipos";
 import {
   ajustarCustoPromptAction,
   cancelarPromptAction,
@@ -218,12 +218,12 @@ describe("M7 — a recusa nunca mostra e-mail cru na tela", () => {
     expect(r.erro).not.toContain("fila: ");
   });
 
-  it("as TRÊS contas da casa têm rótulo — nenhuma escapa", async () => {
-    for (const [conta, rotulo] of [
-      ["lucasscudeler@gmail.com", "Lucas"],
-      ["lsgpandora@gmail.com", "Pandora"],
-      ["almapetra.ltda@gmail.com", "Alma Petra"],
-    ] as const) {
+  it("todas as contas da casa têm rótulo — nenhuma escapa", async () => {
+    // Lê a lista do contrato, não uma cópia à mão: a cópia tinha três contas e
+    // a 4ª (arborcactus@) passava sem ser testada (Minor do CodeRabbit, PR #42).
+    expect(CONTAS.length).toBeGreaterThanOrEqual(4);
+    for (const conta of CONTAS) {
+      const rotulo = ROTULO_CONTA[conta];
       vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
         erro: `fila: a conta ${conta} recusou.`,
       } as never);
