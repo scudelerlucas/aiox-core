@@ -54,9 +54,26 @@ function migrationsDoDisco(): readonly string[] {
 /** Onde as funções vivem: todas as migrations, porque `create or replace` anda. */
 const ARQUIVOS = migrationsDoDisco();
 
-/** As migrations da fila — a varredura do `raise` (#3) vale para todas. */
-const MIGRATIONS_DA_FILA = migrationsDoDisco().filter((f) =>
-  /fila|caixa|livro_razao|consumo_por_entidade/.test(f),
+/**
+ * As migrations da fila — a varredura do `raise` (#3) vale para todas.
+ *
+ * ALTO 2 (rodada 13): o filtro era só por NOME DE ARQUIVO, e as duas
+ * migrations mais recentes do dinheiro não casavam com nenhuma das palavras —
+ * `0027_lifeboard_v3_ultima_palavra_do_dinheiro` e
+ * `0028_lifeboard_v3_credito_sem_dia_e_a_tela_que_sabe` ficavam de fora de
+ * TODAS as guardas desta lista, inclusive da que exige que função citada pelo
+ * teste SQL exista numa migration. O buraco só apareceu quando uma função
+ * nasceu SÓ na 0027 (`painel_custo_maximo_por_item`): até então toda função
+ * da 0027 também existia numa migration antiga de nome casado, e a ausência
+ * ficava invisível. O filtro passa a olhar o CONTEÚDO — migration que declara
+ * função da fila ou do caixa é migration da fila, tenha o nome que tiver.
+ */
+const MIGRATIONS_DA_FILA = migrationsDoDisco().filter(
+  (f) =>
+    /fila|caixa|livro_razao|consumo_por_entidade/.test(f) ||
+    /create or replace function public\.(fila_prompts_|painel_(fila|caixa)_)/.test(
+      readFileSync(join(DIR_MIGRATIONS, f), "utf8"),
+    ),
 );
 
 /** O teste COMPORTAMENTAL da fila — o que este arquivo NÃO é (ver o bloco D28). */
@@ -138,17 +155,46 @@ describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
     }
   });
 
-  it("a ordem de desempate das contas no SQL é a ordem de CONTAS no TS", () => {
+  /*
+   * [rodada 12] A casa passou de 3 para 4 contas (`arborcactus@gmail.com`,
+   * que existe em produção com teto 500 desde 21/09/2026). Migration aplicada
+   * não se edita, então as antigas continuam listando as 3 primeiras — e é
+   * correto que continuem: a ordem delas é um PREFIXO da ordem de hoje, e o
+   * `else 9` que todas trazem põe qualquer conta nova depois, na posição certa.
+   *
+   * O que este espelho passa a exigir, e é mais forte do que exigia antes:
+   *   (a) nenhuma migration inverte a ordem — toda lista é prefixo de CONTAS;
+   *   (b) a ÚLTIMA migration que declara o desempate lista TODAS as contas.
+   * Era (b) que faltava: com a regra antiga, "todo arquivo igual a CONTAS",
+   * acrescentar uma conta obrigaria a reescrever o passado ou a afrouxar o
+   * teste — e a segunda saída é a que acontece na pressa.
+   */
+  it("nenhuma migration inverte a ordem de desempate (toda lista é prefixo de CONTAS)", () => {
     for (const arquivo of ARQUIVOS) {
       const ordem = ordemDasContas(semComentarios(ler(arquivo)));
       if (ordem.length === 0) continue; // migration que não repete o desempate
-      expect(ordem, `${arquivo}: ordem das contas`).toEqual([...CONTAS]);
+      expect(ordem, `${arquivo}: ordem das contas`).toEqual(
+        [...CONTAS].slice(0, ordem.length),
+      );
     }
   });
 
-  it("0013 (a migration desta rodada) declara o desempate — não herda em silêncio", () => {
+  it("a ÚLTIMA migration que declara o desempate lista TODAS as contas de CONTAS", () => {
+    const comOrdem = ARQUIVOS.filter(
+      (a) => ordemDasContas(semComentarios(ler(a))).length > 0,
+    );
+    expect(comOrdem.length, "nenhuma migration declara o desempate").toBeGreaterThan(0);
+    const ultima = comOrdem[comOrdem.length - 1] as string;
+    expect(
+      ordemDasContas(semComentarios(ler(ultima))),
+      `${ultima} é a última palavra sobre o desempate e precisa citar todas as contas`,
+    ).toEqual([...CONTAS]);
+  });
+
+  it("0013 (a migration da rodada 4) declara o desempate — não herda em silêncio", () => {
     const ordem = ordemDasContas(semComentarios(ler("0013_lifeboard_v3_fila_contabilidade.sql")));
-    expect(ordem).toEqual([...CONTAS]);
+    expect(ordem.length, "0013 precisa declarar o desempate").toBeGreaterThan(0);
+    expect(ordem).toEqual([...CONTAS].slice(0, ordem.length));
   });
 
   it("a janela de expiração do heartbeat no SQL é JANELA_HEARTBEAT_MIN", () => {
@@ -183,8 +229,21 @@ describe("D17 — o espelho olha o SQL (migrations lidas do disco)", () => {
     }
   });
 
-  it("#3 — nenhuma migration da fila usa %s num `raise` (isso é `format`)", () => {
-    for (const arquivo of MIGRATIONS_DA_FILA) {
+  /**
+   * VARREDURA DE GENERALIZAÇÃO (rodada 14) · UNIVERSO POR CONVENÇÃO.
+   *
+   * Esta guarda varria `MIGRATIONS_DA_FILA` — o subconjunto escolhido por nome
+   * de arquivo OU por conteúdo. Só que o defeito que ela pega (`raise` com
+   * `%s`, que o Postgres imprime literalmente, porque quem tem `%s` é o
+   * `format`) não é um defeito "da fila": é de QUALQUER migration, e a
+   * mensagem quebrada chega ao operador do mesmo jeito. Guarda que afirma uma
+   * propriedade universal tem de varrer o universo — é o ALTO 1 desta rodada,
+   * em TypeScript. Passa a varrer `ARQUIVOS`, que é o diretório inteiro, com
+   * piso no número de arquivos varridos.
+   */
+  it("#3 — NENHUMA migration usa %s num `raise` (isso é `format`)", () => {
+    expect(ARQUIVOS.length, "a varredura não achou migration nenhuma").toBeGreaterThan(15);
+    for (const arquivo of ARQUIVOS) {
       const linhas = raisesComPorcentoS(semComentarios(ler(arquivo)));
       expect(linhas, `${arquivo}: raise com %s`).toEqual([]);
     }

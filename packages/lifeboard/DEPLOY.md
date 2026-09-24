@@ -321,9 +321,61 @@ leitura** e não escrevem nada.
 | 0b | `PASSO-0b-historico.sql` | **Rode PRIMEIRO, sempre.** Lê `supabase_migrations.schema_migrations`: mostra o que já rodou naquele banco. Nome de outro sistema **não** quer dizer projeto errado — o `quiz-diagnosys` divide o banco com ~15 sistemas. Quer dizer que há aplicação viva ali e que aplicar o LifeBoard vai somar ~40 objetos ao banco dela. **Nenhum script identifica o projeto** — nem este nem o `PASSO-0`. A identidade vem do project ref, de fonte autoritativa (ver o aviso no topo). |
 | 0 | `PASSO-0-diagnostico.sql` | Confere 20 marcadores de objeto, um por migration; só a 0011 sai como `NAO VERIFICAVEL`. Diz se o LifeBoard já mora naquele banco, não se o banco é o certo. Em banco novo: 20/20 `FALTA`. |
 | 0c | `PASSO-0c-drift.sql` | **Só leitura.** Compara o histórico do banco com os arquivos de `supabase/migrations/` e nomeia os três casos: o que está **só no banco** (e, se o banco guardar o SQL, devolve o SQL para virar arquivo), o que está **só no repositório**, e que nome foi **registrado duas vezes**. Fecha o vão que o `PASSO-0` não alcança: ele confere os objetos que o repositório conhece e **não pode sentir falta do que nunca foi escrito** — um banco reconstruído sem essas migrations passa 20/20 verde. Não é versionado: gerar com `node scripts/gerar-conferencia-drift.mjs > supabase/aplicar/PASSO-0c-drift.sql`. |
-| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois `migrations/0001` … `0025`, depois o `alter ... teto_usd set default 500`. |
+| 2 | `PASSO-2-aplicar.sql` | Aplica tudo, em ordem, numa colagem. **Não é versionado** (é cópia gerada das migrations — cópia velha do caminho do dinheiro é risco). Regerar concatenando: a migration do hub, depois **todos** os arquivos de `migrations/` em ordem numérica (hoje até a `0030`; os `.test.sql` ficam de fora) — sem teto fixo escrito aqui, porque o teto fixo envelheceu duas vezes (dizia `0027` com a `0028`–`0030` já no repositório, e quem seguia montava um banco sem o crédito de dia da D54, sem o piso da estimativa e sem o limite de sessões em voo). É a mesma regra que o `rodar-suite-sql.sh` usa. **O `alter ... teto_usd set default 500` saiu daqui**: ele era um passo manual que nenhum arquivo conferia, e virou parte da `0027` (achado M3 da rodada 11). |
 | 1 | `PASSO-1-detector.sql` | Depois de aplicar: acusa dinheiro dobrado no livro-razão. Deve dizer `LIVRO SÃO`. |
-| — | `tests/fila_prompts.test.sql` | A guarda comportamental: 62 blocos. Os três últimos (T60, T61, T62) são da rodada pós-merge e só passam com a `0025` aplicada. |
+| — | `tests/fila_prompts.test.sql` | A guarda comportamental. **Quantos blocos, e quais, está em `tests/BLOCOS.txt`** — o manifesto nominal, que é também o que o runner exige por nome (CRÍTICO 1 da rodada 13: este número dizia 68 quando já eram 74, e era o próprio arquivo que contava a si mesmo). T60–T62 são da rodada pós-merge (exigem a `0025`); T63–T74 são das rodadas 12 e 13 e exigem a `0027` e a `0028`; T75–T78 são da rodada 13; T79–T85 são da rodada 14 e exigem a `0029`; T86–T91 são da rodada 15 e exigem a `0030`; T92 (a célula mostra o lançamento vigente), T93 (o ajuste confere a sessão proposta), T94 (trocar de sessão não apaga o que a antiga publicou), T95 (o histórico do card tem piso zero), T96 (a escolha automática desvia da conta no limite de sessões em voo), T97 (com todas as contas no limite, a resposta avisa a espera), T98 (o estorno nunca passa do lançamento que referencia), T99 (a 4ª conta nasce travada), T100 (cancelar não libera a vaga antes de o dono confirmar a parada) T101 (o dono que fecha o item cancelado libera a vaga) T102 (o estorno de transferência continua sendo do item), T103 (a publicação de mesmo valor que fica com a sessão antiga deixa de ser do item) T104 (o cancelamento feito antes da `0030` também ocupa a vaga) T105 (a projeção do item lê o dono gravado em cada linha, o passado não muda quando o item troca de sessão, e o item só cede o que tinha naquele dia) T106 (publicação de custo fora da faixa não é medição), T107 (troca de dono não é medição nova) T108 (a fusão não aceita custo fora da faixa) T109 (fechar de novo um cancelado já medido não faz nada), T110 (a sessão que publicou antes do fechamento passa a ser do item), T111 (trocar só o dono não é lançar a estimativa) T112 (conta que sai da lista sai da escolha e da tela) e T113 (sessão vinculada que publica por outra conta não é cobrada do item) exigem a `0027`, a `0029` e a `0030` como ficaram no PR #42. |
+| — | `scripts/rodar-suite-sql.sh` | **O jeito de rodar tudo isso de uma vez**, num Postgres **descartável e vazio** (ele recusa rodar sem `LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL=sim`, sem `DATABASE_URL` explícito, contra endereço do Supabase ou contra banco que já tenha qualquer esquema ou objeto de usuário, ou num servidor sem os papéis de teste `anon`/`authenticated`/`service_role` sem `LIFEBOARD_SUITE_SQL_CLUSTER_DESCARTAVEL=sim` — papel é do servidor inteiro, não do banco): aplica o ambiente de teste (`tests/00-ambiente-de-teste.sql`), as migrations em ordem e a suíte, e sai com erro se um bloco reprovar ou se um bloco não chegar ao veredito. É o mesmo comando que o job `lifeboard-sql` do CI executa — `LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL=sim DATABASE_URL=postgres://… packages/lifeboard/scripts/rodar-suite-sql.sh`. |
+
+### A `0027`, e por que ela é obrigatória em banco NOVO
+
+> **Ela se chamava `0026` até a rodada 12.** Produção aplicou em 21/09/2026, às
+> 12:32 UTC, uma migration `0026_lifeboard_v3_fila_quarta_conta_arborcactus`
+> vinda de uma branch irmã. Dois arquivos diferentes com o mesmo número
+> quebram qualquer reconciliação entre o repositório e o histórico do banco,
+> então este arquivo virou `0027`. Quem regerar o `PASSO-2` ou conferir o drift
+> deve contar **todos** os arquivos de `migrations/`, em ordem — hoje até a `0030`.
+
+
+As migrations `0022`, `0023` e `0024` são **versões antigas**: rodaram em
+produção em 13/09/2026 — antes da `0019` (o livro-razão) — e só chegaram ao
+repositório depois, recuperadas do histórico do banco, com números que as
+colocam no **fim** da ordem de aplicação.
+
+Em produção nada quebrou, porque lá a ordem real foi outra. Quem quebra é quem
+segue esta página e aplica `0001` … `0025` em ordem num banco novo: a **última
+palavra** sobre duas funções do dinheiro passa a ser a versão velha.
+
+| Função | Última definição de `0001`…`0025` | O que se perde |
+|---|---|---|
+| `fila_prompts_fechar_interno` | `0023` | **Fechar um item não escreve no livro-razão** — o custo dele some do gasto do dia. |
+| `fila_prompts_pegar_interno` | `0022` | Some a recusa por medição velha (D32c), some o lançamento da estimativa do item que morre (D37), e volta o teto fantasma `v_teto := 150`. |
+| `painel_fila_motivo_do_pull` | `0024` | Ressuscita a sobrecarga de 13 argumentos que a `0016` tinha apagado — com as duas vivas, a chamada de 13 argumentos nomeados fica ambígua. |
+
+A `0027_lifeboard_v3_ultima_palavra_do_dinheiro.sql` redeclara, como última
+palavra da ordem, o texto da `0019` para as duas funções do dinheiro, apaga de
+novo a sobrecarga de 13 argumentos e traz o teto de **500 por conta** (decisão
+do operador de 14/09/2026) para dentro de uma migration.
+
+**A partir da rodada 12 ela faz mais quatro coisas, e essas SIM precisam chegar
+a produção** (§§5 a 10 do arquivo):
+
+| § | O que entra | Por quê |
+|---|---|---|
+| 5–6 | **Precedência do dinheiro (D53).** Cada lançamento do livro-razão carrega um POSTO — 10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta — e um lançamento de posto menor **não derruba** um de posto maior, em nenhuma ordem de chegada. | A estimativa da casa apagava a medição real: item com sessão de US$ 480 medidos, o worker morre, o pull mata o item e o dia passava a valer US$ 50 — com o pull despachando mais US$ 120 num teto de 500. E os mesmos dois fatos davam dois totais conforme a ordem de chegada (20 num sentido, 100 no outro), embora esta página prometesse desde D6/D30 que **a medição publicada prevalece**. Agora ela prevalece de verdade, por mecanismo. |
+| 7 | **Fusão geral de entidade.** `painel_caixa_lancar_item` esvazia qualquer entidade que ainda guarde dinheiro do item — não só a órfã `item:<uuid>`, mas também a **sessão anterior**, quando o item passa a apontar para outra. Sessão que publicou custo por si fica com o que ela publicou. | Trocar a sessão vinculada (pela tela ou pelo worker) contava o mesmo trabalho duas vezes: item morto com estimativa 50 em `sess-ERRADA`, ajuste para 30 em `sess-CERTA`, e o dia fechava em **80**. |
+| 8 | **A quarta conta.** `arborcactus@gmail.com` entra na lista das funções e nas duas travas de coluna (`painel_teto_diario`, `painel_fila_prompts`). | Medido em produção: a conta tem teto de 500 e nenhuma função da fila a citava — orçamento sem poder receber um item sequer. |
+| 9–10 | A frase do pull e as duas portas do operador (`cancelar`, `ajustar custo`) passam a dizer **o que o livro aceitou**, não o que a casa tentou. | Com a estimativa recusada, a frase anunciava um lançamento que não houve e a tela respondia "custo ajustado" sobre um dia parado. |
+
+A guarda que impede a repetição é `tests/unit/prompts-ultima-palavra-sql.test.ts`:
+ela varre **todas** as migrations em ordem, acha a ÚLTIMA definição de cada
+função e afirma sobre ela — nomeando a função e o arquivo quando falha. Ela é
+de **ortografia**, e diz isso de si mesma. Quem prova COMPORTAMENTO é
+`tests/fila_prompts.test.sql` contra um Postgres de verdade — e desde a rodada
+12 essa suíte roda no CI, no job `lifeboard-sql` (`.github/workflows/ci.yml`),
+com um serviço `postgres:16` e as migrations aplicadas em ordem. Antes disso o
+caminho do dinheiro tinha **zero** cobertura automática de comportamento: a
+mutação `and f.custo_estimado_usd <= v_headroom + 100000` deixava os 1387
+testes do vitest verdes.
 
 ### A `0025`, e por que ela existe
 
@@ -351,11 +403,15 @@ uma a uma, aplique a do hub primeiro.
 
 **Depois de aplicar, o banco está pronto mas VAZIO** — e o app continua sem ler
 dele até `LIFEBOARD_DATA_MODE` virar `live` na Vercel. São duas decisões
-separadas de propósito: "o banco está certo" (provável pelos 62 blocos) e "o app
+separadas de propósito: "o banco está certo" (provável pelos blocos do manifesto
+`tests/BLOCOS.txt`) e "o app
 mostra isso pros usuários" (sua, no seu tempo).
 
 Ainda falta, num banco novo: o `insert` do `load_secret` (item 5 do Passo 3
-acima) e os tetos das 3 contas em `painel_teto_diario`.
+acima). Os tetos das **4 contas** em `painel_teto_diario` já vêm da `0027` §4 —
+4 × US$ 500 = **US$ 2.000/dia** de orçamento despachável na casa (decisão do
+operador de 14/09/2026, total confirmado em 22/09/2026; a régua da casa é
+`teto-de-gasto-diario`). Quem confere o total: o bloco T78 da suíte.
 
 ## Fila de prompts entre as 3 contas (P7 · rodada 6, 13/09/2026)
 
@@ -565,7 +621,7 @@ crítico aplicadas uma a uma sobre a migration viva e a suíte inteira rodada em
 | **D4** | **vazão** | o doc do worker ganhou laço 5b→5g: até 3 itens por disparo, sequenciais (um `create_session` por vez), com heartbeat a cada passo. |
 | **D5** | **desempate único** | roteamento automático = maior espaço livre (`teto − medido − em_execucao − na_fila`); empate pela ordem de `CONTAS` no TS (lucasscudeler, lsgpandora, almapetra). A regra mora em **um** lugar — `src/core/prompts/roteador.ts` — e o `case` do SQL cita esse caminho em comentário. `tests/unit/roteador-de-conta.test.ts` roda a mesma tabela de cenários contra um espelho da ordem SQL (mais 200 cenários aleatórios). |
 | **D6** | **sem dupla contagem** | `fechar_interno` grava `p_session_id` (a sessão FILHA). `painel_fila_consumo_hoje` **não soma** o item da fila cuja sessão já aparece em `painel_frentes_sessoes` (mesma conta, mesmo dia do operador) — a medição publicada prevalece. |
-| **D7** | **`pega` não é beco sem saída** | `fila_prompts_cancelar(p_secret, p_id)` aceita `na_fila` **e** `pega`; o item para de reservar na hora e `fila_prompts_heartbeat_interno` passa a devolver `{ok:false, motivo:'cancelado'}` — o worker interrompe a sessão filha (`interrupt_session`). Na tela, o botão cancelar aparece nos dois estados. |
+| **D7** | **`pega` não é beco sem saída** | `fila_prompts_cancelar(p_secret, p_id)` aceita `na_fila` **e** `pega`; o item para de reservar na hora e `fila_prompts_heartbeat_interno` passa a devolver `{ok:false, motivo:'cancelado'}` — o worker interrompe a sessão filha (`interrupt_session`). **A vaga de sessão em voo, não:** ela continua ocupada até o dono do item **fechá-lo** (`fechar_interno`, que o contrato manda chamar depois de `interrupt_session`) ou a janela de 45 min vencer. Ouvir o `cancelado` no heartbeat **não** libera: a filha só é interrompida depois dessa resposta. Sem isso, cancelar com a conta no limite abria uma quinta sessão com a quarta ainda rodando (P2 do Codex no PR #42, 10ª, 11ª e 13ª rodadas; coluna `parada_pendente_desde`, 0030; blocos T100 e T101). Na tela, o botão cancelar aparece nos dois estados. |
 | **D8** | **idempotência e paginação** | 2º `fechar_interno` do MESMO worker → `{ok:true, ja_fechado:true}` (de outro worker → erro de posse). `fila_prompts_listar(p_secret, p_limite default 50, p_antes_de default null)` pagina por `criado_em desc` e devolve `prompt` truncado em 300 caracteres + `promptTamanho`; a tela mostra 50 e um "mostrar mais 50" (`/prompts?limite=100`). |
 | **D9** | **textos** | recusas e avisos usam `ROTULO_COMPLEXIDADE` ("máxima") e dinheiro com vírgula (`formatarUsd`): *"Nenhuma conta tem US$ 120,00 livres hoje para uma tarefa máxima. A mais próxima (Pandora) tem US$ 102,90."* Cartão no teto não sugere modelo — diz "teto atingido — próximo espaço amanhã". |
 
@@ -607,11 +663,21 @@ do teste SQL varre `pg_proc` e falha se qualquer uma delas virar executável por
   `revoke select … from anon, authenticated`; leitura do painel reusa a allowlist de
   `painel_frentes_*` (`painel_frentes_leitor_autorizado()`, migration do hub
   `20260912a_painel_frentes_tres_contas.sql`).
-- **`custo_usd` 0..500** na coluna e em `fechar_interno` (negativo zerava o freio do teto).
+- **`custo_usd` de 0 a US$ 100.000** na coluna, em `fechar_interno` e em `ajustar_custo` — faixa de
+  **sanidade**, não de orçamento, derivada de um lugar só (`painel_custo_maximo_por_item()`, `0027`).
+  Negativo continua recusado (zerava o freio do teto). Até a rodada 13 o limite era 500, e ele recusava
+  exatamente a medição de que a casa precisa: uma sessão real de US$ 620 morria valendo a estimativa e
+  abria teto falso. **Quem implementa o worker não limita nem arredonda o número medido** — o teto do dia
+  é aplicado pelo pull, antes de despachar, e nunca no fechamento.
 - O texto exato que a Routine de cada conta roda está em
   `Lucas-Contexto-Geral/docs/ops/PROMPT-ROUTINE-publicar-sessoes-outras-contas-2026-09-12.md`
-  §"Fila de prompts (P7 · rodada 3)". Exige edição manual do operador nas 3 contas (a API de
-  Routines não deixa uma sessão editar a Routine de outra conta).
+  §"Fila de prompts (P7 · rodada 3)". Exige edição manual do operador em cada conta que roda
+  worker (a API de Routines não deixa uma sessão editar a Routine de outra conta).
+- **A 4ª conta (`arborcactus@gmail.com`) nasce TRAVADA** (`exigir_medicao_recente = true`,
+  semente da `0027`): sem Routine, ela não recebe item da escolha automática — antes o teto
+  vazio de US$ 500 a fazia parecer a mais folgada e o item ficava na fila para sempre. Para
+  ligá-la, configure a Routine dela como nas outras três; a primeira medição publicada (menos
+  de 12 h) destrava sozinha. Bloco T99.
 
 ### Página
 

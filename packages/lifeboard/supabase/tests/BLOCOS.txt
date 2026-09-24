@@ -1,0 +1,143 @@
+# =============================================================================
+# OS-LIFEBOARD · P7 — MANIFESTO NOMINAL DOS BLOCOS DE `fila_prompts.test.sql`
+# =============================================================================
+# POR QUE ESTE ARQUIVO EXISTE (CRÍTICO 1, crítico da rodada 13).
+# O runner tirava o número de blocos esperados do MESMO arquivo cujo
+# encolhimento ele deveria denunciar:
+#     ESPERADOS="$(grep -c "raise exception 'RESULTADO: ok" "$SUITE")"
+# Apagar um bloco baixava os DOIS lados da comparação e a suíte declarava
+# verde. O crítico apagou o T74 junto com dois `greatest(..., 0)` das
+# migrations e despachou US$ 840 contra um teto de US$ 500 com os quatro
+# portões verdes.
+#
+# A partir daqui o esperado vem DE FORA do arquivo da suíte, e por NOME, não
+# por contagem: o runner exige que CADA identificador listado abaixo tenha
+# reportado `RESULTADO: ok` na execução, e recusa bloco que rode sem estar
+# listado aqui. Apagar um bloco passa a exigir apagar a linha correspondente
+# deste arquivo — uma linha a menos num diff de manifesto, que um revisor vê.
+#
+# SEGUNDA CÓPIA, INDEPENDENTE: `tests/unit/suite-sql-blocos.test.ts` carrega a
+# mesma lista escrita à mão em TypeScript e a compara com este arquivo e com a
+# suíte. Apagar bloco + linha do manifesto ainda deixa o vitest vermelho.
+#
+# FORMATO: uma linha por bloco, `Txx · rótulo`. O runner lê só o primeiro
+# campo (o identificador); o rótulo é para quem revisa o diff. Linhas vazias e
+# linhas iniciadas por `#` são ignoradas.
+#
+# COMO ACRESCENTAR UM BLOCO: escreva o bloco na suíte, acrescente a linha aqui
+# e o identificador no array do teste de unidade. Os três têm de casar.
+# =============================================================================
+
+T01 · D25 — VIRADA DO DIA: quem fecha hoje paga hoje
+T02 · D25 — O ITEM EM VOO É RESERVA DO DIA CORRENTE, SEMPRE
+T03 · D25 — QUALQUER DIA É LEGÍVEL (o buraco do ALTO 1)
+T04 · D26 — O DONO DO ITEM MORTO FECHA COM O NÚMERO REAL
+T05 · D26 — OUTRO WORKER CONTINUA RECUSADO
+T06 · D26 — IDEMPOTÊNCIA: a segunda chamada do dono não reescreve nada
+T07 · D26 — `ajustar_custo` vincula a sessão (a porta pela TELA)
+T08 · D30 — A MEDIÇÃO PUBLICADA SUBSTITUI A ESTIMATIVA (o caso do MÉDIO 6)
+T09 · D30 — o outro sentido: sessão de 100 sobre item de 42
+T10 · D10 preservada — sessão publicada SEM custo não abate nada
+T11 · D27 — MOTIVO ADITIVO: 1 morto + 1 que não cabe
+T12 · D27 — MOTIVO ADITIVO: 3 baixas em backoff + 5 máximas disponíveis
+T13 · B5 — ITEM TRAVADO NÃO É "FILA VAZIA" (ramo puro)
+T14 · BAIXO 1 — HEADROOM NEGATIVO NUNCA VIRA NÚMERO
+T15 · D21 — O ELEGÍVEL DA POSIÇÃO 137 DE 200 SAI (elegibilidade no `where`)
+T16 · D21/M2 — O TETO DO DIA BARRA O PULL ← O TESTE QUE A MUTAÇÃO QUEBRA
+T17 · MÉDIO 3/D25 — `ajustar_custo` recusa item de OUTRO dia
+T18 · B2 — a recusa que chega à TELA não cospe UUID
+T19 · PRIVILÉGIOS — nenhuma função `_interno` é executável por anon/authenticated
+T20 · D27 — "fila vazia" só quando ela está vazia
+T21 · D31 — O CASO-TÍTULO: o mesmo dinheiro cobrado DUAS vezes na virada
+T22 · D31/D33 — O SENTIDO INVERSO (o crítico mediu 160 nos DOIS)
+T23 · D26 POSSE, SEGUNDO CAMINHO — a recusa do intruso não move DINHEIRO
+T24 · MÉDIO 3 + ALTO 1, SEGUNDO CAMINHO — A RPC SECRET-GATED, NOS DOIS DIAS
+T25 · D31/D41, SEGUNDO CAMINHO — a contribuição ITEM A ITEM, nos dois dias
+T26 · D32a/D32b — A DEFASAGEM É MEDIDA E ENTRA NA FRASE
+T27 · D32c — `exigir_medicao_recente` RECUSA o pull (e o default não muda nada)
+T28 · D32d — A REALIDADE MEDIDA AO LADO DO TETO
+T29 · MÉDIO 4 + BAIXO 9 — o medido ZERO é ajustável; o medido de verdade não
+T30 · D33 (ALTO 1) — O CENÁRIO S1: UM DIA ENCERRADO NÃO É REESCRITO
+T31 · D34a (ALTO 2) — SESSÃO DE OUTRA CONTA É RECUSADA NAS TRÊS PORTAS
+T32 · D34b (ALTO 2) — A DEDUP CASA POR SESSÃO, SEM OLHAR CONTA
+T33 · D35 (ALTO 3) — A TRAVA NÃO É DESARMADA POR QUEM NÃO MEDIU NADA
+T34 · MÉDIO 4 — O OPERADOR CORRIGE O PRÓPRIO ERRO DE DIGITAÇÃO
+T35 · BAIXO 4 + BAIXO 5 — SEM TETO DECLARADO NÃO SE INVENTA NÚMERO, E
+T36 · BAIXO 1 — A RECUSA DE FENCING NOMEIA QUEM PEGOU, SEM UUID CRU
+T37 · D34a, SEGUNDO CAMINHO — A RECUSA NÃO DEIXA RASTRO
+T38 · D34b, SEGUNDO CAMINHO — A SOMA DAS DUAS CONTAS É 80
+T39 · D35, SEGUNDO CAMINHO — O QUE A TELA RECEBE
+T40 · MÉDIO 3, TERCEIRO CAMINHO — `itens` × `itens_com_contribuicao` COM DOIS
+T41 · MÉDIO 4, SEGUNDO CAMINHO — PELO CANCELAR, COM A ORIGEM GRAVADA
+T42 · MÉDIO 1 — PARIDADE DO CHOOSER: o SQL escolhe a MESMA conta que o TS
+T43 · ALTO 1 (M14) — O DIA DA MORTE NÃO É REESCRITO PELO CAMINHO DO ITEM
+T44 · ALTO 2 (M19) — DINHEIRO NÃO ENTRA NUM DIA ENCERRADO, E A JANELA DE
+T45 · D12 (M23) — "CANCELADA QUE JÁ TEVE DONO GASTOU DINHEIRO"
+T46 · ALTO 3 — A CONTA É FIXADA NO LANÇAMENTO, E NÃO SE REMANEJA
+T47 · ALTO 4 (M21) — "SEM VALOR" E "VALOR ZERO" SÃO O MESMO NÃO-LANÇAMENTO
+T48 · D37 — O LIVRO É IMUTÁVEL, E QUEM RECUSA É O BANCO
+T49 · MÉDIO 5 — CONTA SEM TETO NÃO SOME DO RELATÓRIO LEVANDO O GASTO JUNTO
+T50 · MÉDIO 3 — UMA DEFINIÇÃO SÓ DE "QUANTO A CONTA GASTOU NA TERÇA?"
+T51 · D43 — A BARREIRA DE TESTE ESTÁ ARMADA E É DIFERIDA
+T52 · D42 — painel_caixa_lancar TOMA a trava da entidade
+T53 · D43 — medir o MESMO valor que a estimativa ainda grava a medição
+T54 · D44 — a parcela ESTIMADA desconta os estornos
+T55 · D45 — o que o OPERADOR digitou não é medição
+T56 · D46 — a escolha MANUAL de conta também passa pela trava de medição
+T57 · D47 — o estorno aponta para o lançamento ATIVO, nunca para outro
+T58 · D44b — a parcela estimada não fica NEGATIVA quando a estimativa
+T59 · D49 — nenhuma entidade ganha linha de ABERTURA depois de já ter sido
+T60 · D50 — MEDIR DE NOVO O MESMO VALOR TAMBÉM É MEDIR
+T61 · D51 — a recusa por MEDIÇÃO VELHA tem código próprio
+T62 · D52 — a checagem de dono da sessão trava a MESMA entidade do caixa
+T63 · CRÍTICO 1 (rodada 12) — A ESTIMATIVA DA CASA NÃO APAGA A MEDIÇÃO REAL
+T64 · CRÍTICO 1 pela porta do OPERADOR — cancelar não apaga a medição
+T65 · CRÍTICO 2 (rodada 12) — TROCAR A SESSÃO NÃO CRIA UMA SEGUNDA ENTIDADE
+T66 · ALTO 1 (rodada 12) — A ORDEM DE CHEGADA NÃO DECIDE O TOTAL
+T67 · D53 — a ordem de precedência é a MESMA nos dois sentidos, entidade a
+T68 · MÉDIO 3 (rodada 12) — A QUARTA CONTA RECEBE ITEM
+T69 · ALTO 2 (rodada 12→13) — O HEADROOM DESCONTA O QUE ESTÁ EM EXECUÇÃO
+T70 · CRÍTICO 1 · D54 — A ROTINA BAIXAR O NÚMERO DE ONTEM NÃO ABRE TETO HOJE
+T71 · CRÍTICO 1 · D54 — ITEM QUE MORRE ONTEM E FECHA HOJE MAIS BARATO
+T72 · MÉDIO 3 (rodada 13) — A LISTAGEM MANDA O QUE O LIVRO SABE
+T73 · BAIXO 4 + MÉDIO 3 (rodada 13) — varredura de pg_proc: nenhuma função do lifeboard com execute público fora da allowlist justificada
+T74 · CRÍTICO 1 · a SEGUNDA parede — DIA JÁ NEGATIVO não vira teto
+T75 · ALTO 2 (rodada 13) — A PORTA DE FECHAMENTO ACEITA O NÚMERO REAL, AINDA
+T76 · ALTO 2 (rodada 13) — A CORREÇÃO DO OPERADOR TAMBÉM ACEITA O NÚMERO REAL
+T77 · ALTO 2 (rodada 13) — O QUE SOBRA É SANIDADE, E ELA CONTINUA DE PÉ
+T78 · MÉDIO 5 (rodada 13) — O ORÇAMENTO DA CASA É 4 × 500 = US$ 2.000/DIA
+T79 · CRÍTICO 5 (rodada 14) — ESTIMATIVA ZERO NÃO É ESTIMATIVA (paredes 1 e 2: a tabela de estimativas e a coluna do item)
+T80 · CRÍTICO 5 (rodada 14) — DIA SEM ESPAÇO NÃO DESPACHA (parede 3: v_headroom > 0 no pull)
+T81 · ALTO 2 (rodada 14) — O PULL TRAVA A LINHA DO TETO DAQUELA CONTA (irmão do T52, para o despacho)
+T82 · ALTO 6 (rodada 14) — A LISTA DE CONTAS TEM UMA FONTE SÓ (painel_contas_da_casa, nos dois sentidos)
+T83 · ALTO 6 (rodada 14) — A 4ª CONTA ATRAVESSA TODAS AS PORTAS, INCLUSIVE O FECHAMENTO
+T84 · BAIXO 8 (rodada 14) — A FAIXA DE SANIDADE CABE NA COLUNA (capacidade lida do catálogo)
+T85 · ALTO 1 (rodada 14) — O ESQUEMA private NÃO CONCEDE USAGE a anon/authenticated/public
+T86 · CRÍTICO (rodada 15) — A SONDA DO CENTAVO: 40 itens de US$ 0,0001 num dia com US$ 1,00 de espaço despacham ZERO
+T87 · CRÍTICO (rodada 15) — O PISO EXATO É VERDE, UM PASSO ABAIXO É VERMELHO (o piso não é "fechar tudo")
+T88 · CRÍTICO (rodada 15) — O TETO DE SESSÕES EM VOO POR CONTA (a parede que corresponde ao dano, que é de contagem)
+T89 · CRÍTICO (rodada 15) — O PAINEL NUNCA ANUNCIA ESPAÇO SEM DIZER O QUE ESTÁ EM VOO (os três ramos do pull)
+T90 · CRÍTICO (rodada 15) — AS GUARDAS DE CIRCUNVENÇÃO: subir o teto sem subir o piso é recusado
+T91 · CRÍTICO (rodada 15) — SESSÃO MUDA NÃO OCUPA VAGA NEM RESERVA DINHEIRO (a janela é fonte única)
+T92 · Major CodeRabbit + P2 Codex (PR #42) — A CÉLULA MOSTRA O LANÇAMENTO VIGENTE, NÃO A SOMA DE TODOS OS DIAS
+T93 · P2 Codex (PR #42, 2ª rodada) — O AJUSTE CONFERE A SESSÃO PROPOSTA, NÃO SÓ A ATUAL
+T94 · P1 Codex (PR #42, 3ª rodada) — TROCAR DE SESSÃO NÃO APAGA O QUE A SESSÃO ANTIGA PUBLICOU
+T95 · P2 Codex (PR #42, 4ª rodada) — O HISTÓRICO DO CARD NÃO MOSTRA DIA NEGATIVO LEGADO
+T96 · P2 Codex (PR #42, 4ª rodada) — O ENFILEIRAMENTO AUTOMÁTICO DESVIA DA CONTA NO LIMITE DE SESSÕES EM VOO
+T97 · P2 Codex (PR #42, 7ª rodada) — COM TODAS AS CONTAS NO LIMITE DE VOO, O ENFILEIRAMENTO DIZ QUE O ITEM VAI ESPERAR
+T98 · P2 Codex (PR #42, 8ª rodada) — O ESTORNO NUNCA PASSA DO VALOR DO LANÇAMENTO QUE ELE REFERENCIA
+T99 · P1 Codex (PR #42, 9ª rodada) — A QUARTA CONTA NASCE TRAVADA ATÉ A ROUTINE DELA EXISTIR
+T100 · P2 Codex (PR #42, 10ª e 13ª rodadas) — CANCELAR NÃO LIBERA A VAGA ANTES DE O DONO CONFIRMAR A PARADA
+T101 · P2 Codex (PR #42, 11ª rodada) — O DONO QUE FECHA O ITEM CANCELADO TAMBÉM LIBERA A VAGA
+T102 · P2 Codex (PR #42, 12ª rodada) — O ESTORNO DE TRANSFERÊNCIA CONTINUA SENDO DO ITEM
+T103 · P2 Codex (PR #42, 14ª rodada) — A PUBLICAÇÃO DE MESMO VALOR QUE FICA COM A SESSÃO ANTIGA DEIXA DE SER DO ITEM
+T104 · P2 Codex (PR #42, 14ª rodada) — O CANCELAMENTO FEITO ANTES DA 0030 TAMBÉM OCUPA A VAGA
+T105 · P2 Codex (PR #42, 15ª, 16ª e 17ª rodadas) — A PROJEÇÃO DO ITEM LÊ O DONO GRAVADO EM CADA LINHA, E O PASSADO NÃO MUDA
+T106 · P2 Codex (PR #42, 17ª rodada) — PUBLICAÇÃO FORA DA FAIXA NÃO É MEDIÇÃO
+T107 · P2 Codex (PR #42, 18ª rodada) — TROCA DE DONO NÃO É MEDIÇÃO NOVA
+T108 · P2 Codex (PR #42, 18ª rodada) — A FUSÃO NÃO ACEITA CUSTO FORA DA FAIXA PELA PORTA DOS FUNDOS
+T109 · P2 Codex (PR #42, 21ª rodada) — FECHAR DE NOVO UM CANCELADO JÁ MEDIDO NÃO FAZ NADA
+T110 · P2 Codex (PR #42, 22ª rodada) — A SESSÃO QUE PUBLICOU ANTES DO FECHAMENTO PASSA A SER DO ITEM
+T111 · 22ª rodada (PR #42) — TROCAR SÓ O DONO NÃO É LANÇAR A ESTIMATIVA
+T112 · P2 Codex (PR #42, 22ª rodada) — CONTA QUE SAI DA LISTA SAI DA ESCOLHA, MESMO COM A LINHA DO TETO AINDA NO BANCO
+T113 · P2 Codex (PR #42, 25ª rodada) — SESSÃO VINCULADA QUE PUBLICA POR OUTRA CONTA NÃO É COBRADA DO ITEM
