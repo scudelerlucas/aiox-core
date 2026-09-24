@@ -2355,7 +2355,7 @@ declare
       "complexidade": "alta", "estimado_usd": 50,
       "contas": [
         {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":37,"exige_medicao_recente":true},
-        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true},
+        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":100,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":50,"exige_medicao_recente":true},
         {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":40,"exige_medicao_recente":true},
         {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":500,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
       ],
@@ -2426,6 +2426,28 @@ declare
         {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":20,"na_fila_usd":0,"defasagem_horas":1,"exige_medicao_recente":false,"em_voo":4,"limite_em_voo":4}
       ],
       "esperado": {"conta":"lucasscudeler@gmail.com","cabe_hoje":true,"todas_recusadas":false,"nunca_cabe":false,"espaco_livre_usd":480,"todas_sem_vaga":true}
+    },
+    {
+      "nome": "NUNCA MEDIU FORA DO FALLBACK: todas recusadas, a quarta conta sem Routine tem o teto vazio e NAO ganha",
+      "complexidade": "alta", "estimado_usd": 50,
+      "contas": [
+        {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":400,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":37,"exige_medicao_recente":true},
+        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":300,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":20,"exige_medicao_recente":true},
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":450,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":40,"exige_medicao_recente":true},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
+      ],
+      "esperado": {"conta":"lsgpandora@gmail.com","cabe_hoje":false,"todas_recusadas":true,"nunca_cabe":false,"espaco_livre_usd":200}
+    },
+    {
+      "nome": "NUNCA MEDIU FORA DO FALLBACK: banco novo, nenhuma mediu, a regra antiga vale e o empate cai na ordem da casa",
+      "complexidade": "alta", "estimado_usd": 50,
+      "contas": [
+        {"conta":"lucasscudeler@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true},
+        {"conta":"lsgpandora@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true},
+        {"conta":"almapetra.ltda@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true},
+        {"conta":"arborcactus@gmail.com","teto_usd":500,"medido_usd":0,"em_execucao_usd":0,"na_fila_usd":0,"defasagem_horas":null,"exige_medicao_recente":true}
+      ],
+      "esperado": {"conta":"lucasscudeler@gmail.com","cabe_hoje":false,"todas_recusadas":true,"nunca_cabe":false,"espaco_livre_usd":500}
     }
   ]$casos$;
   v_caso jsonb;
@@ -6014,4 +6036,49 @@ begin
   end if;
   raise exception 'FALHA: T101 esperado em voo % antes, % depois do fechamento do dono e o pull liberado — obteve antes=% fechou=% depois=% pull=%',
     v_limite, v_limite - 1, v_voo_antes, v_fechou, v_voo_depois, v_depois->'item'->>'id';
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T102 · P2 do Codex (PR #42, 12ª rodada) — O ESTORNO DE TRANSFERÊNCIA CONTINUA
+-- SENDO DO ITEM
+-- Item com estimativa de US$ 50 lançada sob a sessão A; o item passa a apontar
+-- para a sessão B e recebe o ajuste de US$ 30. A fusão (D39) esvazia A com um
+-- estorno de −50 — que era gravado SEM `item_id`. A projeção por item juntava
+-- o +50 de A (pelo item_id) e o +30 de B, mas não o −50: o item aparecia
+-- valendo US$ 80 enquanto o livro da conta dizia 30; e a contagem de
+-- estimativas via duas entidades (+50 sob o item, −50 sob a sessão A).
+-- Agora o estorno herda o `item_id` do lançamento que ele anula.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar o `item_id` do estorno em
+-- `painel_caixa_lancar` (0027) a só `p_item_id`.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_item uuid;
+  v_projecao numeric; v_estimativas int; v_conta_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (v_conta, 'T102 item', 'alta', 'Opus', 'sess-A-T102')
+  returning id into v_item;
+
+  perform public.painel_caixa_lancar_item(v_item, 50, 'estimativa', null, 'T102 estimativa sob A');
+
+  update public.painel_fila_prompts set session_id = 'sess-B-T102' where id = v_item;
+  perform public.painel_caixa_lancar_item(v_item, 30, 'operador', null, 'T102 ajuste sob B');
+
+  select coalesce(sum(contribuicao), 0) into v_projecao
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_item;
+  v_estimativas := public.painel_fila_estimativa_itens(v_conta);
+  v_conta_hoje := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_projecao = 30 and v_conta_hoje = 30 and v_estimativas = 0 then
+    raise exception 'RESULTADO: ok — T102 transferência A→B: o item projeta US$ % (o livro da conta diz US$ %), e nenhuma entidade sobra na parcela estimada (%)',
+      v_projecao, v_conta_hoje, v_estimativas;
+  end if;
+  raise exception 'FALHA: T102 esperado projeção do item = livro da conta = 30 e 0 estimativas — obteve projeção=% conta=% estimativas=%',
+    v_projecao, v_conta_hoje, v_estimativas;
 end $$;

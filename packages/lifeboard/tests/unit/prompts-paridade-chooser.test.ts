@@ -104,6 +104,8 @@ describe("MÉDIO 1 — o chooser do TS e o do SQL escolhem a mesma conta", () =>
     expect(nomes).toContain("BAIXO 4");
     // P2 do Codex (PR #42): o limite de sessões em voo entra na escolha.
     expect(nomes).toContain("LIMITE DE VOO");
+    // P2 do Codex (PR #42, 12ª rodada): conta sem medição nenhuma fora do fallback.
+    expect(nomes).toContain("NUNCA MEDIU FORA DO FALLBACK");
     // Cada caso lista as TRÊS contas da casa, na ordem de `CONTAS` — é essa
     // ordem que desempata dos dois lados.
     for (const caso of casos) {

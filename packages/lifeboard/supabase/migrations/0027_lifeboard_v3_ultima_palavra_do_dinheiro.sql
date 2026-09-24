@@ -1057,12 +1057,21 @@ begin
 
   -- D38: a correção é um ESTORNO DATADO do líquido anterior, seguido do
   -- lançamento novo.
+  -- P2 do Codex (PR #42, 12ª rodada): o estorno HERDA o `item_id` do
+  -- lançamento que ele anula. A fusão de entidade (`painel_caixa_lancar_item`)
+  -- chama esta função com `p_item_id => null` para esvaziar a sessão antiga, e
+  -- o estorno saía sem dono: a projeção por item somava o +50 da sessão A
+  -- (pelo item_id) e o +30 da sessão B, mas não o −50 — o item valia 80 com o
+  -- livro da conta dizendo 30, e a parcela estimada via duas entidades. Um
+  -- estorno pertence a quem pertencia o que ele anula; só na falta disso vale
+  -- o `p_item_id` de quem chamou, como antes. Bloco que prova: T102.
   if v_estornar <> 0 then
     insert into public.painel_caixa_lancamentos
       (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
     values
       (v_dia, v_conta, -v_estornar, 'estorno', p_entidade_tipo, p_entidade_id,
-       p_item_id, p_sessao_id, v_ultimo,
+       coalesce((select l.item_id from public.painel_caixa_lancamentos l where l.id = v_ultimo), p_item_id),
+       p_sessao_id, v_ultimo,
        coalesce(p_nota, 'estorno do líquido anterior desta entidade'),
        coalesce(v_prec_atual, v_prec))
     returning id into v_estorno;
@@ -1192,7 +1201,9 @@ begin
       v_alvo := 0;
     end if;
 
-    -- `p_item_id => null`: a partir daqui essas linhas não são mais deste item.
+    -- `p_item_id => null`: o que a sessão antiga guarda daqui em diante não é
+    -- mais deste item. O ESTORNO do que era dele continua sendo dele — herda o
+    -- `item_id` do lançamento anulado, em `painel_caixa_lancar` (T102).
     -- Posto: 40 quando o que fica é a medição publicada da própria sessão; 99
     -- quando é transferência pura (esvaziar não pode ser recusado por posto).
     perform public.painel_caixa_lancar(

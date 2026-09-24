@@ -1135,6 +1135,7 @@ declare
   v_com_vaga        integer := 0;
   v_na_disputa      integer := 0;
   v_so_com_vaga     boolean;
+  v_alguma_ja_mediu boolean := false;
 begin
   if p_consumos is null or jsonb_typeof(p_consumos) <> 'array' or jsonb_array_length(p_consumos) = 0 then
     return jsonb_build_object(
@@ -1168,6 +1169,22 @@ begin
   v_todas_recusadas := (v_autorizadas = 0);
   v_fase := case when v_todas_recusadas then 2 else 1 end;
 
+  -- P2 do Codex (PR #42, 12ª rodada): na fase 2 (todas recusadas por medição
+  -- velha) a disputa volta a incluir as recusadas — mas conta que NUNCA mediu
+  -- não tem Routine que prove existir, e a 4ª conta nasce assim. Com o teto
+  -- vazio ela seria a mais folgada e ficaria com o item para sempre: as outras
+  -- voltam a medir e a puxar, ela não. Havendo ao menos uma conta da disputa
+  -- que JÁ mediu, só as que já mediram disputam; sem nenhuma (banco novo), a
+  -- regra antiga vale.
+  if v_fase = 2 then
+    for rec in select * from jsonb_array_elements(p_consumos) loop
+      if (rec->>'teto_usd')::numeric >= p_estimado
+         and nullif(rec->>'defasagem_horas', '') is not null then
+        v_alguma_ja_mediu := true;
+      end if;
+    end loop;
+  end if;
+
   -- Quantas contas DA DISPUTA têm vaga agora.
   for rec in select * from jsonb_array_elements(p_consumos) loop
     v_teto := (rec->>'teto_usd')::numeric;
@@ -1176,6 +1193,7 @@ begin
     v_defasagem := nullif(rec->>'defasagem_horas', '')::numeric;
     v_recusaria := v_exige and (v_defasagem is null or v_defasagem > v_limite_defasagem);
     if v_fase = 1 and v_recusaria then continue; end if;
+    if v_fase = 2 and v_alguma_ja_mediu and v_defasagem is null then continue; end if;
     v_limite_voo := nullif(rec->>'limite_em_voo', '')::integer;
     v_sem_vaga := v_limite_voo is not null and v_limite_voo > 0
                   and coalesce(nullif(rec->>'em_voo', '')::integer, 0) >= v_limite_voo;
@@ -1192,6 +1210,7 @@ begin
     v_defasagem := nullif(rec->>'defasagem_horas', '')::numeric;
     v_recusaria := v_exige and (v_defasagem is null or v_defasagem > v_limite_defasagem);
     if v_fase = 1 and v_recusaria then continue; end if;
+    if v_fase = 2 and v_alguma_ja_mediu and v_defasagem is null then continue; end if;
     v_limite_voo := nullif(rec->>'limite_em_voo', '')::integer;
     v_sem_vaga := v_limite_voo is not null and v_limite_voo > 0
                   and coalesce(nullif(rec->>'em_voo', '')::integer, 0) >= v_limite_voo;
@@ -1231,7 +1250,7 @@ begin
 end;
 $$;
 comment on function public.painel_fila_escolher_conta(jsonb, numeric) is
-  'D42 (rodada 9) + limite de voo (PR #42): a regra de roteamento como FUNÇÃO PURA — espelho de escolherConta (src/core/prompts/roteador.ts), provado caso a caso pelo bloco T42 e por tests/unit/prompts-paridade-chooser.test.ts sobre o MESMO literal. Dentro da disputa, conta com VAGA de sessão em voo vem antes de conta no limite; sem nenhuma com vaga, a disputa é entre todas e todas_sem_vaga=true. cabe_hoje segue sendo dinheiro.';
+  'D42 (rodada 9) + limite de voo (PR #42): a regra de roteamento como FUNÇÃO PURA — espelho de escolherConta (src/core/prompts/roteador.ts), provado caso a caso pelo bloco T42 e por tests/unit/prompts-paridade-chooser.test.ts sobre o MESMO literal. Dentro da disputa, conta com VAGA de sessão em voo vem antes de conta no limite; sem nenhuma com vaga, a disputa é entre todas e todas_sem_vaga=true. cabe_hoje segue sendo dinheiro. P2 do Codex (12ª rodada): com todas recusadas, conta que NUNCA mediu (sem Routine provada, como a 4ª ao nascer) só disputa se nenhuma outra já mediu.';
 revoke all on function public.painel_fila_escolher_conta(jsonb, numeric) from public, anon, authenticated;
 
 -- ── P1 do Codex (PR #42, 8ª rodada) · o limite de voo chega à ESCOLHA e à

@@ -186,7 +186,13 @@ export function escolherConta(
   // ganha o item e não é apresentada como "a mais folgada": espaço livre num
   // saldo que o banco não autoriza a gastar não é espaço livre.
   const autorizadas = candidatas.filter((c) => !bancoRecusaria(c, agora));
-  const disputaPorAutorizacao = autorizadas.length > 0 ? autorizadas : candidatas;
+  // P2 do Codex (PR #42, 12ª rodada): com todas recusadas, conta que NUNCA
+  // mediu (sem Routine provada — a 4ª conta nasce assim) só disputa se nenhuma
+  // outra já mediu. Com o teto vazio ela seria a mais folgada e ficaria com o
+  // item para sempre. Espelho de `v_alguma_ja_mediu` (0030).
+  const jaMediram = candidatas.filter((c) => horasDeDefasagem(c, agora) !== null);
+  const disputaPorAutorizacao =
+    autorizadas.length > 0 ? autorizadas : jaMediram.length > 0 ? jaMediram : candidatas;
   const todasRecusadas = autorizadas.length === 0;
   // P2 do Codex (PR #42): dentro da disputa, conta COM VAGA de sessão em voo
   // vem antes. A conta com o maior espaço mas quatro sessões em voo ganhava o
