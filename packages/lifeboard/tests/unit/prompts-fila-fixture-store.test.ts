@@ -20,7 +20,7 @@ import {
   vencerBackoffFixture,
 } from "@/lib/repositories/prompts-fila.fixture-store";
 import { AGORA_FIXTURE } from "@/lib/repositories/prompts-fila.fixture";
-import { CUSTO_MAXIMO_POR_ITEM_USD, type Conta } from "@/core/prompts/tipos";
+import { CUSTO_MAXIMO_POR_ITEM_USD, MAXIMO_EM_VOO_POR_CONTA, type Conta } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — o fixture-store é o ESPELHO em memória das RPCs. Se ele
@@ -331,6 +331,41 @@ describe("D7 — item `pega` não é beco sem saída", () => {
       ok: false,
       motivo: "cancelado",
     });
+  });
+
+  it("P2 Codex (PR #42, 10ª rodada): cancelar com a conta no limite NÃO abre vaga até o worker daquele item ouvir", () => {
+    resetarFilaFixtureStore();
+    for (let i = 0; i < MAXIMO_EM_VOO_POR_CONTA + 1; i += 1) {
+      enfileirarFixture({ prompt: `voo ${i}`, complexidade: "baixa", conta: LUCAS, agora: AGORA + i });
+    }
+    const pegos: string[] = [];
+    for (let i = 1; i <= MAXIMO_EM_VOO_POR_CONTA; i += 1) {
+      const pego = pegarFixture(LUCAS, `W${i}`, AGORA).item as { id: string } | null;
+      if (pego) pegos.push(pego.id);
+    }
+    const emVoo = () => listarConsumoFixture(AGORA).find((c) => c.conta === LUCAS)?.emVoo;
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+
+    const cancelado = pegos[0] as string;
+    cancelarFixture(cancelado, AGORA);
+    // a filha pode estar rodando: a vaga continua ocupada e o pull não abre a quinta
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).toBeNull();
+
+    // heartbeat de OUTRO worker sobre o item cancelado não libera nada
+    expect(heartbeatFixture(cancelado, LUCAS, "W-intruso", null, AGORA)).toEqual({
+      ok: false,
+      motivo: "cancelado",
+    });
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+
+    // o worker DESTE item ouve o cancelamento: agora a vaga sai
+    expect(heartbeatFixture(cancelado, LUCAS, "W1", null, AGORA)).toEqual({
+      ok: false,
+      motivo: "cancelado",
+    });
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA - 1);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).not.toBeNull();
   });
 
   it("heartbeat de outro worker não renova nada", () => {

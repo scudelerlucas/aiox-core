@@ -168,9 +168,53 @@ comment on function public.painel_fila_janela_em_voo() is
   'D3 + BAIXO 6 (rodada 8), agora com fonte única (rodada 15): a janela em que um item pego ainda conta como EM EXECUÇÃO — 45 minutos de heartbeat. Estava escrita à mão no laço de expiração do pull, em painel_fila_reservado e ia ganhar uma terceira cópia na contagem de sessões em voo; é a mesma classe de defeito do ALTO 6 (a lista de contas em cinco lugares).';
 revoke all on function public.painel_fila_janela_em_voo() from public, anon, authenticated;
 
--- (1e) A CONTAGEM de sessões em voo — uma definição só, a MESMA de
--- `painel_fila_reservado` (item `pega` com heartbeat vivo). O pull a usa para
--- decidir e o painel a usa para contar a verdade ao lado do headroom.
+-- (1e') P2 do Codex (PR #42, 10ª rodada) · CANCELAR NÃO LIBERA A VAGA ANTES
+-- DE O WORKER OUVIR. `fila_prompts_cancelar` passa o item `pega` para
+-- `cancelada` na hora e apaga o heartbeat, mas a sessão filha só é
+-- interrompida quando o worker faz o próximo heartbeat e ouve `cancelado`
+-- (D7). Contando só `pega`, a vaga saía no mesmo instante: com a conta no
+-- limite, cancelar uma deixava o pull seguinte abrir uma QUINTA sessão com a
+-- quarta ainda rodando, e cancelar em série contornava o limite inteiro.
+-- A coluna guarda o ÚLTIMO SINAL DE VIDA do item no momento do cancelamento
+-- (`coalesce(heartbeat_em, pego_em)`, o mesmo relógio de `pega`): a vaga fica
+-- ocupada até o worker daquele item ouvir o cancelamento (§10 apaga a marca)
+-- ou até a janela de voo vencer — exatamente quando ela venceria se o item
+-- tivesse continuado `pega` e mudo. Quem marca é um gatilho, e não o corpo de
+-- `fila_prompts_cancelar`, para que QUALQUER caminho de `pega` → `cancelada`
+-- ocupe a vaga sem uma quinta cópia daquela função.
+alter table public.painel_fila_prompts
+  add column if not exists parada_pendente_desde timestamptz;
+comment on column public.painel_fila_prompts.parada_pendente_desde is
+  'P2 do Codex (PR #42, 10ª rodada): item cancelado DURANTE a execução cuja sessão filha pode ainda estar rodando — guarda o último sinal de vida (heartbeat ou pego_em) do momento do cancelamento. Enquanto não for nula e estiver dentro de painel_fila_janela_em_voo(), o item ocupa vaga em painel_fila_em_voo. Apagada quando o worker do item ouve o cancelamento no heartbeat.';
+
+create or replace function public.painel_fila_marca_parada_pendente()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if old.estado = 'pega' and new.estado = 'cancelada' then
+    new.parada_pendente_desde := coalesce(old.heartbeat_em, old.pego_em);
+  elsif new.estado <> 'cancelada' then
+    new.parada_pendente_desde := null;
+  end if;
+  return new;
+end;
+$$;
+comment on function public.painel_fila_marca_parada_pendente() is
+  'P2 do Codex (PR #42, 10ª rodada): no pega → cancelada, guarda o último sinal de vida em parada_pendente_desde para a vaga continuar ocupada até o worker ouvir o cancelamento. Bloco T100.';
+revoke all on function public.painel_fila_marca_parada_pendente() from public, anon, authenticated;
+drop trigger if exists painel_fila_prompts_parada_pendente on public.painel_fila_prompts;
+create trigger painel_fila_prompts_parada_pendente
+  before update of estado on public.painel_fila_prompts
+  for each row execute function public.painel_fila_marca_parada_pendente();
+
+-- (1e) A CONTAGEM de sessões em voo — `pega` com heartbeat vivo (a MESMA
+-- régua de `painel_fila_reservado`) MAIS o item cancelado cuja sessão filha
+-- ainda não ouviu o cancelamento (1e'). O pull a usa para decidir e o painel a
+-- usa para contar a verdade ao lado do headroom. A reserva de DINHEIRO não
+-- ganha o segundo ramo: o cancelamento já lançou a estimativa no livro, e
+-- reservá-la de novo contaria o mesmo dinheiro duas vezes.
 create or replace function public.painel_fila_em_voo(p_conta text)
 returns integer
 language sql
@@ -180,11 +224,16 @@ as $$
   select count(*)::integer
   from public.painel_fila_prompts f
   where f.conta = p_conta
-    and f.estado = 'pega'
-    and coalesce(f.heartbeat_em, f.pego_em) >= now() - public.painel_fila_janela_em_voo();
+    and (
+      (f.estado = 'pega'
+        and coalesce(f.heartbeat_em, f.pego_em) >= now() - public.painel_fila_janela_em_voo())
+      or
+      (f.estado = 'cancelada'
+        and f.parada_pendente_desde >= now() - public.painel_fila_janela_em_voo())
+    );
 $$;
 comment on function public.painel_fila_em_voo(text) is
-  'CRÍTICO (rodada 15): quantas sessões desta conta estão EM VOO agora — mesma definição de painel_fila_reservado (estado pega com heartbeat dentro de painel_fila_janela_em_voo), para que o número que o pull usa para decidir e o número que o painel mostra sejam o mesmo. O headroom anunciado sem esta contagem ao lado era a mentira do painel: US$ 1,00 livres com 40 sessões gastando dinheiro naquele instante.';
+  'CRÍTICO (rodada 15) + P2 do Codex (PR #42, 10ª rodada): quantas sessões desta conta estão EM VOO agora — item pega com heartbeat dentro de painel_fila_janela_em_voo (a régua de painel_fila_reservado) MAIS o item cancelado durante a execução cujo worker ainda não ouviu o cancelamento (parada_pendente_desde). O pull usa este número para decidir e o painel o mostra ao lado do headroom; sem o segundo ramo, cancelar com a conta no limite abria uma quinta sessão com a quarta ainda rodando (bloco T100).';
 revoke all on function public.painel_fila_em_voo(text) from public, anon, authenticated;
 
 -- ── 2 · PRIMEIRA PAREDE · o piso na tabela de estimativas ──────────────────
@@ -914,7 +963,8 @@ comment on function public.painel_fila_prompts_checar_teto() is
 -- número é o relógio que ela mostra ao operador. Copiada, ela silenciosamente
 -- mente no dia em que a janela mudar — que é o modo de falha do ALTO 6 da
 -- rodada 14, só que na direção do aviso em vez da decisão.
--- Texto da 0018 §?, verbatim, com UMA expressão trocada.
+-- Texto da 0018 §?, verbatim, com UMA expressão trocada — e, desde a 10ª
+-- rodada do Codex no PR #42, o ramo `cancelada` que libera a vaga (§1e').
 create or replace function public.fila_prompts_heartbeat_interno(
   p_id uuid, p_conta text, p_worker_id text, p_session_id text default null
 )
@@ -947,6 +997,16 @@ begin
   end if;
   -- D7 (rodada 3): o operador cancelou pela tela enquanto a filha rodava.
   if v_row.estado = 'cancelada' then
+    -- P2 do Codex (PR #42, 10ª rodada): este é o momento em que a sessão filha
+    -- é interrompida (D7) — o worker DESTE item ouve `cancelado` e chama
+    -- `interrupt_session`. Só então a vaga sai (§1e'). Heartbeat de outro
+    -- worker não libera nada.
+    if v_row.parada_pendente_desde is not null
+       and coalesce(v_row.worker_id, v_row.ultimo_worker_id) = p_worker_id then
+      update public.painel_fila_prompts
+         set parada_pendente_desde = null
+       where id = p_id;
+    end if;
     return jsonb_build_object('ok', false, 'motivo', 'cancelado');
   end if;
   if v_row.worker_id is distinct from p_worker_id then
@@ -991,7 +1051,7 @@ begin
 end;
 $$;
 comment on function public.fila_prompts_heartbeat_interno(uuid, text, text, text) is
-  'D11/D7/D18/D34a + fonte única da janela (rodada 15): o `expira_em` que a Routine mostra sai de painel_fila_janela_em_voo(), não de um `interval ''45 minutes''` copiado — era a última cópia da janela depois que as três funções que DECIDEM passaram a ler a fonte única. Bloco T91 confere que o relógio anunciado é a janela de verdade.';
+  'D11/D7/D18/D34a + fonte única da janela (rodada 15): o `expira_em` que a Routine mostra sai de painel_fila_janela_em_voo(), não de um `interval ''45 minutes''` copiado — era a última cópia da janela depois que as três funções que DECIDEM passaram a ler a fonte única. Bloco T91 confere que o relógio anunciado é a janela de verdade. P2 do Codex (PR #42, 10ª rodada): sobre item cancelado, o heartbeat do worker DAQUELE item apaga parada_pendente_desde — é quando a filha é interrompida, e só então a vaga sai (bloco T100).';
 revoke all on function public.fila_prompts_heartbeat_interno(uuid, text, text, text) from public, anon, authenticated;
 
 -- ── P2 do Codex (PR #42, 4ª rodada) · o histórico do card também tem piso ──

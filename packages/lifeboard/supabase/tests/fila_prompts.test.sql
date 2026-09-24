@@ -5886,3 +5886,79 @@ begin
   raise exception 'FALHA: T99 esperado a 4ª conta travada na semente e o item fora dela — obteve trava=% retorno=%',
     v_trava, v_r;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T100 · P2 do Codex (PR #42, 10ª rodada) — CANCELAR NÃO LIBERA A VAGA ANTES
+-- DE O WORKER OUVIR
+-- `fila_prompts_cancelar` passa o item `pega` para `cancelada` na hora, mas a
+-- sessão filha só é interrompida quando o worker faz o próximo heartbeat e
+-- ouve `cancelado`. Antes, a vaga saía no mesmo instante: com a conta no
+-- limite, cancelar uma deixava o pull seguinte abrir uma QUINTA sessão com a
+-- quarta ainda rodando — e cancelar em série contornava o limite inteiro.
+-- Agora a vaga fica ocupada até o worker DAQUELE item ouvir o cancelamento
+-- (ou a janela de voo vencer, o mesmo relógio de um item mudo). Heartbeat de
+-- outro worker não libera nada. Dinheiro não entra: a estimativa já foi
+-- lançada no livro pelo cancelamento, então a reserva continua saindo na hora.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o ramo `estado = 'cancelada'`
+-- de `painel_fila_em_voo` (0030 §1f), ou o gatilho que marca
+-- `parada_pendente_desde` no cancelamento.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_limite int := public.painel_fila_maximo_em_voo_por_conta();
+  v_pull jsonb; v_i int; v_cancelado uuid;
+  v_barrado jsonb; v_alheio jsonb; v_ouviu jsonb; v_depois jsonb;
+  v_voo_barrado int; v_voo_alheio int; v_voo_ouviu int; v_reserva_cancelada numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  for v_i in 1..(v_limite + 2) loop
+    insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+    values (v_conta, 'T100 item ' || v_i, 'baixa', 'Haiku');
+  end loop;
+
+  -- a conta no limite
+  for v_i in 1..v_limite loop
+    v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T100-' || v_i);
+    if v_i = 1 then v_cancelado := (v_pull->'item'->>'id')::uuid; end if;
+  end loop;
+
+  -- o operador cancela a primeira enquanto ela roda
+  perform public.fila_prompts_cancelar(v_segredo, v_cancelado);
+  v_reserva_cancelada := public.painel_fila_reservado(v_conta);
+
+  -- (a) o worker ainda não ouviu: o pull NÃO abre a quinta
+  v_barrado := public.fila_prompts_pegar_interno(v_conta, 'w-T100-quinta');
+  v_voo_barrado := public.painel_fila_em_voo(v_conta);
+
+  -- (b) heartbeat de OUTRO worker sobre o item cancelado não libera a vaga
+  v_alheio := public.fila_prompts_heartbeat_interno(v_cancelado, v_conta, 'w-T100-intruso');
+  v_voo_alheio := public.painel_fila_em_voo(v_conta);
+
+  -- (c) o worker do item ouve o cancelamento: agora a vaga sai
+  v_ouviu := public.fila_prompts_heartbeat_interno(v_cancelado, v_conta, 'w-T100-1');
+  v_voo_ouviu := public.painel_fila_em_voo(v_conta);
+  v_depois := public.fila_prompts_pegar_interno(v_conta, 'w-T100-quinta');
+
+  if v_barrado->'item'->>'id' is null
+     and v_voo_barrado = v_limite
+     and v_alheio->>'motivo' = 'cancelado'
+     and v_voo_alheio = v_limite
+     and v_ouviu->>'motivo' = 'cancelado'
+     and v_voo_ouviu = v_limite - 1
+     and v_depois->'item'->>'id' is not null
+     and v_reserva_cancelada = 5 * (v_limite - 1) then
+    raise exception 'RESULTADO: ok — T100 cancelar com a conta no limite: em voo continua % até o worker ouvir (intruso não libera: %), a reserva sai na hora (US$ %), e só depois do heartbeat do dono a vaga abre (em voo=%, o pull despacha)',
+      v_voo_barrado, v_voo_alheio, v_reserva_cancelada, v_voo_ouviu;
+  end if;
+  raise exception 'FALHA: T100 esperado em voo %/% antes do dono ouvir, % depois, pull barrado e depois liberado, reserva % — obteve barrado=% voo_barrado=% alheio=% voo_alheio=% ouviu=% voo_ouviu=% depois=% reserva=%',
+    v_limite, v_limite, v_limite - 1, 5 * (v_limite - 1),
+    v_barrado->'item'->>'id', v_voo_barrado, v_alheio->>'motivo', v_voo_alheio,
+    v_ouviu->>'motivo', v_voo_ouviu, v_depois->'item'->>'id', v_reserva_cancelada;
+end $$;

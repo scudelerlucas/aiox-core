@@ -188,7 +188,9 @@ VERMELHOS="$(printf '%s' "$SAIDA" | grep -c 'FALHA:' || true)"
 
 # Quem reportou ok, por NOME. É esta lista que se compara com o manifesto —
 # nunca mais uma contagem tirada do próprio arquivo que se quer auditar.
-REPORTADOS="$(printf '%s\n' "$SAIDA" | grep -o 'RESULTADO: ok — T[0-9][0-9]' | grep -o 'T[0-9][0-9]' | sort -u || true)"
+# `T[0-9]+`, não `T[0-9][0-9]`: com dois dígitos fixos o T100 era lido como
+# "T10" — um bloco novo teria mascarado a ausência do T10.
+REPORTADOS="$(printf '%s\n' "$SAIDA" | grep -oE 'RESULTADO: ok — T[0-9]+' | grep -oE 'T[0-9]+' | sort -u || true)"
 
 echo "   blocos no manifesto: ${#BLOCOS_ESPERADOS[@]} · verdes: $VERDES · vermelhos: $VERMELHOS"
 

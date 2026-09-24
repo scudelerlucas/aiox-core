@@ -47,7 +47,7 @@ const BLOCOS_FIXADOS: readonly string[] = [
   "T65", "T66", "T67", "T68", "T69", "T70", "T71", "T72",
   "T73", "T74", "T75", "T76", "T77", "T78", "T79", "T80",
   "T81", "T82", "T83", "T84", "T85", "T86", "T87", "T88",
-  "T89", "T90", "T91", "T92", "T93", "T94", "T95", "T96", "T97", "T98", "T99",
+  "T89", "T90", "T91", "T92", "T93", "T94", "T95", "T96", "T97", "T98", "T99", "T100",
 ];
 
 function idsDoManifesto(): string[] {
@@ -60,8 +60,10 @@ function idsDoManifesto(): string[] {
 
 function idsDaSuite(): string[] {
   const texto = readFileSync(SUITE, "utf8");
-  const achados = texto.match(/raise exception 'RESULTADO: ok — T\d\d/g) ?? [];
-  return achados.map((a) => a.slice(-3));
+  // `T\d+`, não `T\d\d` + `slice(-3)`: com dois dígitos fixos o T100 era
+  // lido como "T10".
+  const achados = texto.match(/raise exception 'RESULTADO: ok — T\d+/g) ?? [];
+  return achados.map((a) => a.slice(a.lastIndexOf("T")));
 }
 
 describe("CRÍTICO 1 — o esperado da suíte SQL é NOMINAL e vem de fora dela", () => {
@@ -94,7 +96,7 @@ describe("CRÍTICO 1 — o esperado da suíte SQL é NOMINAL e vem de fora dela"
    * Acrescentar bloco não pede nada aqui; o piso só proíbe descer.
    */
   it("a suíte nunca encolhe: o número de blocos só sobe", () => {
-    const PISO_DE_BLOCOS = 99;
+    const PISO_DE_BLOCOS = 100;
     expect(
       BLOCOS_FIXADOS.length,
       "a suíte SQL encolheu — se a remoção é de propósito, baixe o PISO_DE_BLOCOS no mesmo commit e diga por quê na mensagem",

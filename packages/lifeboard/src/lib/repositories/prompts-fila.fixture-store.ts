@@ -169,6 +169,14 @@ interface EstadoFilaFixture {
    * listagem (que não devolve, e não precisa devolver, essa coluna).
    */
   ultimoDono: Map<string, string>;
+  /**
+   * P2 do Codex (PR #42, 10ª rodada): espelho de `parada_pendente_desde` — o
+   * último sinal de vida (ms) de um item cancelado DURANTE a execução cujo
+   * worker ainda não ouviu o cancelamento. Enquanto estiver na janela, o item
+   * ocupa vaga em `emVooDe`. Fora de `ItemFilaPrompt` pelo mesmo motivo de
+   * `ultimoDono`: é dado de worker, não da tela.
+   */
+  paradaPendente: Map<string, number>;
   contador: number;
 }
 
@@ -193,6 +201,7 @@ function estadoNovo(): EstadoFilaFixture {
     ),
     sessoesPublicadas: new Map<string, { conta: Conta; custoUsd: number | null }>(),
     ultimoDono: new Map<string, string>(),
+    paradaPendente: new Map<string, number>(),
     contador: 0,
   };
 }
@@ -339,10 +348,20 @@ function emEsperaDe(conta: Conta, agora: number): number {
 /**
  * CRÍTICO (rodada 15): a MESMA definição de `reservadoDe` — item `pega` com
  * sinal vivo —, contada em vez de somada. Espelho de `painel_fila_em_voo`.
+ * P2 do Codex (PR #42, 10ª rodada): mais o item cancelado cujo worker ainda
+ * não ouviu o cancelamento — a sessão filha pode estar rodando. A reserva de
+ * dinheiro não ganha este ramo: o cancelamento já lançou a estimativa.
  */
 function emVooDe(conta: Conta, agora: number): number {
-  return itens().filter((i) => i.conta === conta && i.estado === "pega" && !semSinal(i, agora))
-    .length;
+  const pendentes = loja().paradaPendente;
+  return itens().filter(
+    (i) =>
+      i.conta === conta &&
+      ((i.estado === "pega" && !semSinal(i, agora)) ||
+        (i.estado === "cancelada" &&
+          pendentes.has(i.id) &&
+          agora - (pendentes.get(i.id) as number) <= JANELA_HEARTBEAT_MS)),
+  ).length;
 }
 
 function reservadoDe(conta: Conta, agora: number): number {
@@ -665,6 +684,12 @@ export function cancelarFixture(id: string, agora: number = Date.now()): Resulta
         : "cancelado_nunca_pego";
   // D26: o cancelamento também é uma perda de posse — a memória fica.
   if (item.workerId !== null) estado.ultimoDono.set(id, item.workerId);
+  // P2 do Codex (PR #42, 10ª rodada): a vaga fica ocupada até o worker ouvir
+  // — espelho do gatilho `painel_fila_marca_parada_pendente` (0030 §1e').
+  if (item.estado === "pega") {
+    const ultimoSinal = Date.parse(item.heartbeatEm ?? item.pegoEm ?? "");
+    if (!Number.isNaN(ultimoSinal)) estado.paradaPendente.set(id, ultimoSinal);
+  }
   // MÉDIO 3 (rodada 13): o livro RECUSA a estimativa da casa (posto 10) quando
   // a entidade do item já guarda medição publicada (posto 40) — é o que
   // `fila_prompts_cancelar` devolve como `custo_lancado_usd = 0` com
@@ -1152,7 +1177,12 @@ export function heartbeatFixture(
   }
   const item = estado.fila.get(id);
   if (!item || item.conta !== conta) return { ok: false, motivo: "inexistente" };
-  if (item.estado === "cancelada") return { ok: false, motivo: "cancelado" };
+  if (item.estado === "cancelada") {
+    // P2 do Codex (PR #42, 10ª rodada): o worker DESTE item ouviu — a filha é
+    // interrompida agora, e só agora a vaga sai. Outro worker não libera nada.
+    if ((item.workerId ?? ultimoDonoDe(id)) === workerId) estado.paradaPendente.delete(id);
+    return { ok: false, motivo: "cancelado" };
+  }
   if (item.workerId !== workerId) return { ok: false, motivo: "outro worker" };
   if (item.estado !== "pega") return { ok: false, motivo: `item esta ${item.estado}` };
   if (sessionId !== null) {
