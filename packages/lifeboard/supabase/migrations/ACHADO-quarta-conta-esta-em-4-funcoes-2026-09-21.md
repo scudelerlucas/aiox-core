@@ -116,3 +116,28 @@ O operador escolheu **7-B** (mudar a regra do teste-guarda para "a última migra
 ordem é a que vale"). **Não foi executado**, de propósito: mexer na rede de proteção agora
 afrouxaria o guarda sem destravar nada, porque a mudança que ele guarda está parada neste achado.
 Fica pronto para o momento em que C ou D for decidido.
+
+---
+
+# CORREÇÃO DA EMENDA (24/09/2026, mais tarde) — a divergência tem causa, e não é a que eu escrevi
+
+A emenda acima diz que a função viva devolve um campo `caixa` que **"nenhuma migration deste
+repositório produz"**, e sugere escrita direta no banco. **Estava errado.** Eu comparava cada função
+só contra a **última** migração que a define. Comparada contra **todas**, a função viva é idêntica,
+byte a byte, à **0019**.
+
+**O que de fato aconteceu** (cartório do banco + datas do git):
+
+- **13/09** — 0022, 0023, 0024 aplicadas pelo editor SQL; não existiam no repositório.
+- **14/09** — 0016 e 0018–0021, escritas **sem** elas, aplicadas **depois** e por cima (0018–0021
+  por fora do cartório: nenhum dos 199 registros menciona o livro-razão).
+- **17/09** — as três recuperadas do cartório e numeradas **depois** da 0021.
+- **21/09** — a 0025 escrita e **nunca aplicada**.
+
+**Resultado:** as correções de 0022, 0023, 0024 e 0025 **não rodam em produção**, embora cartório,
+repositório e testes digam que sim. A fila tem zero linhas, então ninguém sentiu — ainda.
+
+**Consequência para a 4ª conta:** a migração dela não pode partir nem do banco (faltam 4 correções)
+nem da última versão do repositório (0022/0023 apagariam o livro-razão da 0019). Precisa partir de
+uma **fusão** das duas linhagens, função por função. Relatório completo:
+`Lucas-Contexto-Geral/docs/audit/AUDITORIA-banco-x-repositorio-2026-09-24.md`.
