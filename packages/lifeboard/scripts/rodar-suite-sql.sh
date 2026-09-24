@@ -65,9 +65,10 @@
 #   · `DATABASE_URL` não vier explícito (não há mais endereço padrão);
 #   · o endereço apontar para o Supabase (`supabase.co`, `supabase.com`,
 #     `pooler.supabase`) — a suíte nunca tem motivo para ir lá;
-#   · o esquema `public` do alvo já tiver qualquer tabela — banco novo é o
-#     único caminho que a suíte valida (DEPLOY.md), e banco com tabela é, por
-#     definição, um banco que alguém usa.
+#   · o alvo já tiver qualquer esquema além dos do sistema e de `public`, ou
+#     qualquer objeto em `public` — banco novo é o único caminho que a suíte
+#     valida (DEPLOY.md), e banco com objeto é, por definição, um banco que
+#     alguém usa.
 #
 # O QUE ELE FAZ, em ordem:
 #   1. aplica `supabase/tests/00-ambiente-de-teste.sql` (papéis, stubs de auth
@@ -123,9 +124,25 @@ case "$(printf '%s' "$DB" | tr '[:upper:]' '[:lower:]')" in
   *supabase.co*|*supabase.com*|*pooler.supabase*)
     morrer "recusado: DATABASE_URL aponta para o Supabase — a suíte nunca roda em banco hospedado";;
 esac
-TABELAS_EXISTENTES="$(psql "$DB" -qtAX -v ON_ERROR_STOP=1 -c "select count(*) from pg_tables where schemaname = 'public'")" \
+# P2 do Codex (PR #42, 3ª rodada): olhar só as tabelas de `public` deixava
+# passar um banco com `public` vazio e dados reais em `auth` ou em outro
+# esquema — e o passo 1 troca `auth.uid()`/`auth.jwt()`/`auth.role()` por
+# stubs. Agora "vazio" é: nenhum esquema além dos do sistema e de `public`, e
+# nenhum objeto (tabela, visão, sequência, função, tipo) em `public`. É o
+# estado de um `createdb` recém-feito e do banco do serviço no CI.
+OBJETOS_EXISTENTES="$(psql "$DB" -qtAX -v ON_ERROR_STOP=1 -c "
+  select
+    (select count(*) from pg_namespace n
+      where n.nspname not in ('public', 'information_schema')
+        and n.nspname not like 'pg\_%')
+  + (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public')
+  + (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public')
+  + (select count(*) from pg_type t join pg_namespace n on n.oid = t.typnamespace
+      where n.nspname = 'public' and t.typrelid = 0 and t.typelem = 0)")" \
   || morrer "não consegui ler o banco alvo para conferir se ele está vazio"
-[ "$TABELAS_EXISTENTES" = "0" ] || morrer "recusado: o esquema public do alvo já tem $TABELAS_EXISTENTES tabela(s) — a suíte só roda em banco NOVO e vazio"
+[ "$OBJETOS_EXISTENTES" = "0" ] || morrer "recusado: o banco alvo já tem $OBJETOS_EXISTENTES esquema(s)/objeto(s) de usuário — a suíte só roda em banco NOVO e vazio (um createdb recém-feito)"
 
 echo "▸ 1/4 ambiente de teste (papéis, auth, painel de frentes)"
 psql_q -f "$AQUI/supabase/tests/00-ambiente-de-teste.sql"

@@ -715,18 +715,6 @@ export function ajustarCustoFixture(
   if (origem === "medido") {
     return { erro: "Este custo foi medido pela sessão — não dá para corrigi-lo aqui." };
   }
-  // MÉDIO 3 (rodada 13): a MESMA guarda, olhando o LIVRO. A coluna do item
-  // pode dizer `estimativa` enquanto a entidade dele já guarda a medição
-  // publicada pela sessão — e é essa a recusa que o banco devolve
-  // (`fila_prompts_ajustar_custo`, 0027 §10).
-  const livroDoAjuste = livroDoItemFixture(item);
-  if (
-    livroDoAjuste.livroPrecedencia !== null &&
-    livroDoAjuste.livroPrecedencia !== undefined &&
-    POSTO_OPERADOR < livroDoAjuste.livroPrecedencia
-  ) {
-    return { erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui." };
-  }
   // D26 (rodada 6): sem o vínculo de sessão, o dia soma a estimativa do item
   // MAIS o custo real da sessão que rodou (o crítico mediu 200 num trabalho de
   // 80). A tela pode criar o vínculo aqui.
@@ -736,6 +724,21 @@ export function ajustarCustoFixture(
     if (outro) return { erro: "Esta sessão já está vinculada a outro item da fila." };
     const recusa = recusaDeContaDaSessao(sess, item.conta);
     if (recusa) return { erro: recusa };
+  }
+  // MÉDIO 3 (rodada 13): a MESMA guarda, olhando o LIVRO. A coluna do item
+  // pode dizer `estimativa` enquanto a entidade dele já guarda a medição
+  // publicada pela sessão — e é essa a recusa que o banco devolve
+  // (`fila_prompts_ajustar_custo`, 0027 §10). P2 do Codex (PR #42, 3ª rodada):
+  // como no banco, confere a entidade ATUAL e a da sessão PROPOSTA, depois das
+  // checagens da sessão (outro item, outra conta) para elas manterem o motivo.
+  const postosDoAjuste = [
+    livroDoItemFixture(item),
+    livroDoItemFixture({ ...item, sessionId: sess ?? item.sessionId }),
+  ]
+    .map((l) => l.livroPrecedencia)
+    .filter((p): p is number => typeof p === "number");
+  if (postosDoAjuste.some((posto) => POSTO_OPERADOR < posto)) {
+    return { erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui." };
   }
   estado.fila.set(id, {
     ...item,

@@ -5563,3 +5563,55 @@ begin
   raise exception 'FALHA: T93 esperado recusa "já foi medido", item com custo 50 sem sessão e dia 350 — obteve erro="%" retorno=% custo=% sessão=% dia=%',
     v_erro, v_r, v_custo, v_sessao, v_hoje;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T94 · P1 do Codex (PR #42, 3ª rodada) — TROCAR DE SESSÃO NÃO APAGA O QUE A
+-- SESSÃO ANTIGA PUBLICOU, MESMO QUE A ORIGEM TENHA SIDO ZERADA DEPOIS
+-- A sessão A, vinculada ao item, publica US$ 100 (posto 40). Depois a linha
+-- dela em `painel_frentes_sessoes` vai a zero — ausência de medição (D40): o
+-- gatilho de publicação não mexe no livro. O item fecha por OUTRA sessão (B)
+-- com US$ 5. A fusão de entidade lia o valor ATUAL da origem de A (0) e
+-- estornava os 100: medido antes, o dia caía de 100 para 5.
+-- Agora: A fica com os 100 que publicou, B com os 5 — dia 105.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar a fusão da 0027 a ler
+-- `painel_frentes_sessoes.custo_usd` em vez do lançamento de posto 40.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_antes numeric;
+  v_hoje numeric;
+  v_a numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T94 troca de sessão', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 50 where id = v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T94');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T94', 'sess-T94-a');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T94-a', v_conta, 'publicou e depois zerou', 'idle', 100, now());
+  update public.painel_frentes_sessoes set custo_usd = 0 where sessao_id = 'sess-T94-a';
+  v_antes := public.painel_fila_consumo_hoje(v_conta);
+
+  perform public.fila_prompts_fechar_interno(
+    p_id => v_id, p_conta => v_conta, p_worker_id => 'w-T94',
+    p_estado => 'concluida', p_custo_usd => 5, p_session_id => 'sess-T94-b');
+
+  v_hoje := public.painel_fila_consumo_hoje(v_conta);
+  select coalesce(sum(valor_usd), 0) into v_a from public.painel_caixa_lancamentos
+   where entidade_tipo = 'sessao' and entidade_id = 'sess-T94-a';
+
+  if v_antes = 100 and v_a = 100 and v_hoje = 105 then
+    raise exception 'RESULTADO: ok — T94 a sessão antiga fica com o que publicou (%) mesmo zerada na origem; dia=%',
+      v_a, v_hoje;
+  end if;
+  raise exception 'FALHA: T94 esperado antes 100, sessão A com 100 e dia 105 — obteve antes=% A=% dia=%',
+    v_antes, v_a, v_hoje;
+end $$;

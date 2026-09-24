@@ -72,8 +72,12 @@ legibilidade. **Não** servem para julgar o que acontece quando o projeto tem 30
 
 ## Como um destes itens vira frente de verdade
 
-Basta o operador dizer, para o item: **quem executa** (pessoa real) e **até quando**. Aí ele
-sai desta lista e entra na frente, com entrada no calendário pessoal
-(`lucas.scudeler@pandoratreinamentos.com.br`), como a regra manda.
+O operador diz, para o item, as **três** coisas que a regra exige — nunca duas:
+**quem executa** (pessoa real, não um papel), **até quando**, e **quem cobra** (alguém que
+enxerga o calendário onde a data foi escrita e recebe o lembrete; distinto de quem executa
+sempre que o executor não for o operador). Com as três, o item sai desta lista e entra na
+frente, com a entrada no calendário pessoal do operador (`lucasscudeler@gmail.com`, o padrão
+desde a correção de 14/09) e os três nomes no registro da frente. Faltando qualquer uma, ele
+continua aqui.
 
-*Registro. A norma que governa esta lista vive no hub: `.claude/rules/item-so-entra-com-dono.md`.*
+*Registro. A norma que governa esta lista: `AGENTS.md` §"Item de frente só entra com dono, data e quem cobra" (e, no hub, `.claude/rules/item-so-entra-com-dono.md`).*

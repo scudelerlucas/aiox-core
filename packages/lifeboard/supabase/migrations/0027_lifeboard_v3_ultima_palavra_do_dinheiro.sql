@@ -1136,9 +1136,29 @@ begin
       continue;
     end if;
 
+    -- P1 do Codex (PR #42, 3ª rodada): o que FICA com a sessão antiga é o que
+    -- ela publicou e o LIVRO guardou (posto 40), não o valor de agora na
+    -- tabela de origem. Publicação zerada ou apagada depois NÃO é medição (D40)
+    -- — o gatilho de publicação preserva o último número de propósito —, mas
+    -- esta fusão lia a origem, via 0 e estornava a medição inteira: reproduzido,
+    -- sessão publicou 100, virou 0 na origem, o item fechou por outra sessão
+    -- com 5 e o dia caiu de 100 para 5. Só na falta de publicação no livro a
+    -- origem responde, como antes. Bloco que prova: T94.
+    v_alvo := null;
     if v_antiga.entidade_tipo = 'sessao' then
-      select coalesce(s.custo_usd, 0) into v_alvo
-        from public.painel_frentes_sessoes s where s.sessao_id = v_antiga.entidade_id;
+      select l.valor_usd into v_alvo
+        from public.painel_caixa_lancamentos l
+       where l.entidade_tipo = 'sessao'
+         and l.entidade_id = v_antiga.entidade_id
+         and l.origem <> 'estorno'
+         and l.precedencia >= 40
+         and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id)
+       order by l.criado_em desc, l.id desc
+       limit 1;
+      if v_alvo is null then
+        select coalesce(s.custo_usd, 0) into v_alvo
+          from public.painel_frentes_sessoes s where s.sessao_id = v_antiga.entidade_id;
+      end if;
       v_alvo := coalesce(v_alvo, 0);
     else
       v_alvo := 0;

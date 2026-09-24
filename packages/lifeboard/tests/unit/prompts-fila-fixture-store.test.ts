@@ -869,6 +869,33 @@ describe("P2 do Codex (PR #42) — a morte respeita o posto do livro no fixture"
   });
 });
 
+describe("P2 do Codex (PR #42, 3ª rodada) — o ajuste do fixture confere a sessão PROPOSTA", () => {
+  it("propor uma sessão da mesma conta que já publicou recusa, como o banco (T93)", () => {
+    resetarFilaFixtureStore();
+    definirExigirMedicaoFixture(ALMA, false);
+    ajustarTetoFixture(ALMA, 800);
+    const novo = enfileirarFixture({
+      prompt: "cancelado em execução",
+      complexidade: "alta",
+      conta: ALMA,
+      agora: AGORA,
+    });
+    const id = (novo as { id: string }).id;
+    pegarAte(ALMA, id, AGORA);
+    expect(cancelarFixture(id, AGORA)).toMatchObject({ ok: true });
+    publicarSessaoFixture(ALMA, "session_JA_PUBLICADA_SOLTA", 300);
+
+    expect(ajustarCustoFixture(id, 3, "session_JA_PUBLICADA_SOLTA", AGORA)).toEqual({
+      erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.",
+    });
+    const depois = listarFilaFixture(200).find((i) => i.id === id);
+    expect(depois?.sessionId ?? null).toBeNull();
+    expect(depois?.custoOrigem).toBe("estimativa");
+    // sem sessão proposta, o mesmo item continua ajustável
+    expect(ajustarCustoFixture(id, 3, null, AGORA)).toEqual({ ok: true });
+  });
+});
+
 describe("D24 — o dia que RESERVOU paga (pego 23h50, fechado 00h10)", () => {
   it("o item conta no dia em que foi pego, nunca no dia em que fechou", () => {
     resetarFilaFixtureStore();
