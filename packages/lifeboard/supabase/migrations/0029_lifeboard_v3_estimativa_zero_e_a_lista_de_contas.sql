@@ -996,8 +996,9 @@ begin
       -- 120 ONTEM, medição real de 3 HOJE → o estorno fica limitado ao que a
       -- entidade pôs hoje (3), a soma da entidade continua 120, e a célula
       -- imprimia "US$ 120 · medido pela sessão (a casa estimava US$ 3)" — a
-      -- medição e a estimativa trocadas. A 0028 §2 tem a mesma expressão
-      -- antiga; esta função é a última palavra. Bloco que prova: T92.
+      -- medição e a estimativa trocadas. A 0028 §2 foi alinhada na 19ª rodada
+      -- do Codex, para não haver janela entre as duas migrations; esta função
+      -- continua sendo a última palavra. Bloco que prova: T92.
       a.valor_usd as livro_liquido
     from visivel v
     left join lateral (

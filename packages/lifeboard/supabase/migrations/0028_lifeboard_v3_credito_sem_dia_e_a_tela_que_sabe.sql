@@ -118,14 +118,16 @@ begin
       v.id as item_id,
       a.origem       as livro_origem,
       coalesce(a.precedencia, public.painel_caixa_precedencia(a.origem)) as livro_precedencia,
-      (select coalesce(sum(x.valor_usd), 0)
-         from public.painel_caixa_lancamentos x
-        where x.entidade_tipo = case when v.session_id is not null then 'sessao' else 'item' end
-          and x.entidade_id   = case when v.session_id is not null then v.session_id else v.id::text end
-      ) as livro_liquido
+      -- O VALOR do lançamento ativo, não a soma da entidade em todos os dias:
+      -- com a D54 a soma guarda crédito de dias anteriores (100 ontem corrigido
+      -- para 40 hoje soma 100, e a célula dizia "US$ 100 · medido pela
+      -- sessão"). A 0029 redefine esta função com a mesma expressão; aqui ela
+      -- já nasce certa para não haver janela entre as duas migrations (P2 do
+      -- Codex, PR #42, 19ª rodada). Bloco que prova: T92.
+      a.valor_usd as livro_liquido
     from visivel v
     left join lateral (
-      select l.origem, l.precedencia
+      select l.origem, l.precedencia, l.valor_usd
         from public.painel_caixa_lancamentos l
        where l.entidade_tipo = case when v.session_id is not null then 'sessao' else 'item' end
          and l.entidade_id   = case when v.session_id is not null then v.session_id else v.id::text end
