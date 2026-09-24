@@ -6,6 +6,7 @@ import {
   faixaConsumo,
   formatarUsd,
   headroomUsd,
+  semVagaEmVoo,
   tetoAtingido,
   textoDaMedicao,
   textoEspacoLivre,
@@ -60,6 +61,61 @@ const FAIXA_CLASSES: Record<"ok" | "warn" | "crit", { barra: string; texto: stri
   crit: { barra: "bg-state-blocked", texto: "text-state-blocked" },
 };
 
+/**
+ * P2 do Codex (PR #42, 22ª rodada) · O RODAPÉ JUNTA TODOS OS BLOQUEIOS.
+ * Era uma cadeia de `? :` — o primeiro estado verdadeiro ganhava a frase. Uma
+ * conta no limite de sessões E sem espaço para o prompt lia "o próximo item
+ * desta conta sai quando uma delas fechar": fechar uma sessão não cria o
+ * dinheiro que falta, e a condição de destravar era falsa. O mesmo com
+ * "teto atingido — próximo espaço amanhã" sobre uma conta que continua com as
+ * quatro sessões ocupadas. Agora, com mais de um bloqueio, a frase nomeia
+ * todos e diz que o item só sai quando TODOS se resolverem. Os casos de um
+ * bloqueio só, e o par teto + autorização (rodada 9), mantêm as frases de antes.
+ */
+export function textoDoRodape(estado: {
+  atingiu: boolean;
+  travada: boolean;
+  esperaHoje: boolean;
+  semVaga: boolean;
+}): string | null {
+  const { atingiu, travada, esperaHoje, semVaga } = estado;
+  const ativos = [atingiu, travada, esperaHoje, semVaga].filter(Boolean).length;
+  if (ativos === 0) return null;
+  if (ativos === 1) {
+    if (atingiu) return "teto atingido — próximo espaço amanhã";
+    if (travada) return "sem autorização agora — volta a rodar quando a medição desta conta for atualizada";
+    if (semVaga) return "sessões no limite — o próximo item desta conta sai quando uma delas fechar";
+    return "não cabe hoje — este prompt roda quando houver espaço no teto desta conta";
+  }
+  if (ativos === 2 && atingiu && travada) {
+    return "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada";
+  }
+  const nomes: string[] = [];
+  const condicoes: string[] = [];
+  if (atingiu) {
+    nomes.push("teto atingido");
+    condicoes.push("o teto zerar amanhã");
+  }
+  if (esperaHoje) {
+    nomes.push("não cabe hoje");
+    condicoes.push("houver espaço no teto para este prompt");
+  }
+  if (travada) {
+    nomes.push("sem autorização");
+    condicoes.push("a medição desta conta for atualizada");
+  }
+  if (semVaga) {
+    nomes.push("sessões no limite");
+    condicoes.push("uma das sessões em voo fechar");
+  }
+  return `${juntarComE(nomes)} — o próximo item só sai quando ${juntarComE(condicoes)}; resolver um só não basta`;
+}
+
+function juntarComE(partes: string[]): string {
+  if (partes.length <= 1) return partes.join("");
+  return `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}`;
+}
+
 export interface ContaCardProps {
   consumo: ConsumoConta;
   /** Próximo modelo que o roteador sugeriria, na complexidade selecionada. Ignorado quando a conta está no teto. */
@@ -81,10 +137,29 @@ export function ContaCard({
   semEspacoHoje,
   agora = Date.now(),
 }: ContaCardProps): JSX.Element {
-  const emUso = consumo.consumoHojeUsd + consumo.reservadoUsd;
+  /*
+    CRÍTICO 1 (rodada 13) · A TERCEIRA PAREDE, e a única que fica DENTRO da
+    tela. As duas primeiras estão no banco (o estorno que não tira de hoje mais
+    do que hoje tem, migration 0027 §6; o piso do número que governa o teto,
+    0028 §1), e é lá que o defeito nasce e morre. Esta existe porque a promessa
+    do DEPLOY.md D13 — "a tela nunca mostra número negativo" — era guardada só
+    na SAÍDA (`textoEspacoLivre` clampa) e nunca na ENTRADA: com
+    `consumoHojeUsd = -358,50` o cartão imprimia "US$ -358,50 de US$ 500,00 ·
+    US$ 858,50 livres", a barra saía com `style="width:-72%"` (CSS inválido: o
+    navegador cai no `w-full` da classe e desenha 100% CHEIA, em verde) e o
+    `aria-valuenow="-72"` ficava fora da faixa declarada `0..100`.
+    Nenhum número que chegue aqui, de qualquer banco e de qualquer versão,
+    consegue mais desenhar uma barra inválida.
+  */
+  const gastoHoje = Math.max(0, consumo.consumoHojeUsd);
+  const emUso = gastoHoje + consumo.reservadoUsd;
+  // Uma clampagem só, e ela é a de cima: com `gastoHoje` no piso zero e
+  // `reservadoUsd` nunca negativo, `emUso` não tem como ser negativo. Um
+  // segundo `Math.max` aqui seria linha que nenhum teste consegue deixar
+  // vermelha — guarda que não se prova é guarda que se acredita.
   const razao = consumo.tetoUsd > 0 ? Math.min(1, emUso / consumo.tetoUsd) : 1;
-  const faixa = faixaConsumo(consumo.consumoHojeUsd, consumo.reservadoUsd, consumo.tetoUsd);
-  const atingiu = tetoAtingido(consumo.consumoHojeUsd, consumo.reservadoUsd, consumo.tetoUsd);
+  const faixa = faixaConsumo(gastoHoje, consumo.reservadoUsd, consumo.tetoUsd);
+  const atingiu = tetoAtingido(gastoHoje, consumo.reservadoUsd, consumo.tetoUsd);
   const headroom = headroomUsd(consumo);
   const cores = FAIXA_CLASSES[faixa];
   const previsao = textoPrevisaoComFila(consumo);
@@ -94,6 +169,23 @@ export function ContaCard({
   const medicao = estadoDaMedicao(consumo, agora);
   const fraseDaMedicao = textoDaMedicao(consumo, agora);
   const semMedicao = medicao === "sem-medicao";
+  /*
+    MÉDIO 2 (rodada 12): "sem medição" e "sem gasto nenhum" NÃO são a mesma
+    coisa, e o card tratava as duas como uma. Medido pelo crítico a 1280 px:
+    `consumoHojeUsd = 98,50`, reservado 15, teto 500 — a linha do dinheiro
+    imprimia "nada medido ainda + US$ 15,00 em execução de US$ 500,00", o
+    `aria-label` repetia isso e a barra desenhava `aria-valuenow=23`. O texto
+    explicava 3% enquanto a barra mostrava 23%, e duas linhas abaixo o próprio
+    card dizia "US$ 50,00 do consumo são estimativa de 1 item que morreu sem
+    fechar". O número que governa o teto estava escondido pela própria tela.
+
+    Quem esconde o número passa a ser só o estado em que NÃO HÁ número: nada
+    medido E nada consumido. É esse o caso que D32a (rodada 7) veio proteger —
+    "US$ 0,00 de US$ 500,00 · US$ 500,00 livres" sobre um dia que ninguém
+    mediu. Com consumo lançado, o número aparece, e a proveniência (sem medição
+    nenhuma · a parcela estimada) continua dita na linha de baixo.
+  */
+  const semNumero = semMedicao && gastoHoje === 0;
   const realidade = textoTetoVsRealidade(consumo);
   // D36: o banco recusaria QUALQUER disparo desta conta agora.
   const travada = bancoRecusaria(consumo, agora);
@@ -105,6 +197,12 @@ export function ContaCard({
   if (atingiu) selos.push({ texto: "teto atingido", tom: "bloqueio" });
   if (travada) selos.push({ texto: "sem autorização agora", tom: "bloqueio" });
   if (esperaHoje) selos.push({ texto: "não cabe hoje", tom: "bloqueio" });
+  // P2 do Codex (PR #42): conta no limite de sessões em voo não despacha nada
+  // agora — e por isso não leva o selo "escolhida agora", mesmo quando todas
+  // estão cheias e a escolha cai nela. O mesmo estado vale para a borda e o
+  // rodapé abaixo: nenhuma parte do cartão convida para o que o pull recusa.
+  const semVaga = semVagaEmVoo(consumo);
+  if (semVaga) selos.push({ texto: "sessões no limite", tom: "bloqueio" });
   if (selos.length === 0 && seriaEscolhida === true) {
     selos.push({ texto: "escolhida agora", tom: "convite" });
   }
@@ -117,19 +215,12 @@ export function ContaCard({
     prazo do cartão. Agora, quando os dois valem, a frase diz os dois — e diz
     qual deles amanhã NÃO resolve.
   */
-  const rodape =
-    atingiu && travada
-      ? "teto atingido e sem autorização — amanhã o teto zera, mas o disparo só volta quando a medição desta conta for atualizada"
-      : atingiu
-        ? "teto atingido — próximo espaço amanhã"
-        : travada
-          ? "sem autorização agora — volta a rodar quando a medição desta conta for atualizada"
-          : null;
+  const rodape = textoDoRodape({ atingiu, travada, esperaHoje, semVaga });
 
   return (
     <section
       className={`rounded-lg border bg-navy-850 p-4 ${
-        atingiu || esperaHoje || travada
+        atingiu || esperaHoje || travada || semVaga
           ? "border-state-blocked/70"
           : seriaEscolhida
             ? "border-gold-500 shadow-heroi"
@@ -172,9 +263,11 @@ export function ContaCard({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-label={
-            semMedicao
+            semNumero
               ? `Nada medido ainda nesta conta; ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
-              : `Gasto de hoje: ${formatarUsd(consumo.consumoHojeUsd)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+              : semMedicao
+                ? `Gasto de hoje: ${formatarUsd(gastoHoje)} lançado sem medição de sessão (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
+                : `Gasto de hoje: ${formatarUsd(gastoHoje)} medido (${fraseDaMedicao}) mais ${formatarUsd(consumo.reservadoUsd)} em execução, de ${formatarUsd(consumo.tetoUsd)}`
           }
           className="h-2.5 w-full overflow-hidden rounded-full bg-navy-600"
         >
@@ -196,9 +289,9 @@ export function ContaCard({
           dentro do `aria-label`, onde ninguém que enxerga o lê.
         */}
         <p
-          className={`mt-1.5 text-xs font-medium ${semMedicao ? "text-state-blocked" : cores.texto}`}
+          className={`mt-1.5 text-xs font-medium ${semNumero ? "text-state-blocked" : cores.texto}`}
         >
-          {semMedicao ? "nada medido ainda" : formatarUsd(consumo.consumoHojeUsd)}
+          {semNumero ? "nada medido ainda" : formatarUsd(gastoHoje)}
           {consumo.reservadoUsd > 0 ? ` + ${formatarUsd(consumo.reservadoUsd)} em execução` : ""}
           {" de "}
           {formatarUsd(consumo.tetoUsd)}
@@ -219,7 +312,7 @@ export function ContaCard({
             : semMedicao
               ? "sem medição nenhuma — nenhuma sessão desta conta foi medida ainda"
               : fraseDaMedicao}
-          {semMedicao ? null : (
+          {semNumero ? null : (
             <>
               {" · "}
               {/* D13: clamp em 0 — "US$ -20,00 livres" não é informação, é erro. */}

@@ -36,7 +36,7 @@ function menosMin(minutos: number): string {
  * desde a rodada 7) não entrava em screenshot nenhum, e os dois ramos de
  * `conta-card.tsx` que mais mudaram nesta rodada não tinham retrato.
  *
- * Como as contas são exatamente 3 (`CONTAS`, o contrato do banco), os estados
+ * Como as contas são exatamente 4 (`CONTAS`, o contrato do banco), os estados
  * foram REDISTRIBUÍDOS em vez de somados — e os quatro cabem:
  *   · Lucas       → medição RECENTE (30 min);
  *   · Pandora     → SEM MEDIÇÃO NENHUMA (`medidoAteEm: null`);
@@ -112,6 +112,26 @@ export const FIXTURE_CONSUMO: readonly ConsumoConta[] = [
     exigeMedicaoRecente: true,
     historico: { dias: 1, minUsd: 500, maxUsd: 500, medianaUsd: 500 },
   }, // crit — teto atingido E sem autorização (medição de 13 h com a trava ligada)
+  {
+    // MÉDIO 3 (rodada 12): a QUARTA conta da casa. Ela existe em produção
+    // desde 21/09/2026, com teto 500 e sem uma única sessão publicada — e era
+    // justamente esse o defeito: tinha orçamento e nenhuma função da fila a
+    // citava. O retrato aqui é o estado real dela: conta nova, nada medido,
+    // trava de medição ligada (nenhum disparo é autorizado até a rotina da
+    // conta publicar a primeira sessão).
+    conta: "arborcactus@gmail.com",
+    tetoUsd: 500,
+    consumoHojeUsd: 0,
+    reservadoUsd: 0,
+    naFilaUsd: 0,
+    estimativaUsd: 0,
+    estimativaItens: 0,
+    emEspera: 0,
+    medidoAteEm: null,
+    defasagemHoras: null,
+    exigeMedicaoRecente: true,
+    historico: null,
+  }, // conta nova — sem medição nenhuma e com a trava ligada
 ];
 
 export const FIXTURE_FILA: readonly ItemFilaPrompt[] = [
