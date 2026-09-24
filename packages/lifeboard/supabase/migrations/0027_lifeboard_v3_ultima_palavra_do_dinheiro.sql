@@ -1077,14 +1077,19 @@ begin
   -- o estorno saía sem dono: a projeção por item somava o +50 da sessão A
   -- (pelo item_id) e o +30 da sessão B, mas não o −50 — o item valia 80 com o
   -- livro da conta dizendo 30, e a parcela estimada via duas entidades. Um
-  -- estorno pertence a quem pertencia o que ele anula; só na falta disso vale
-  -- o `p_item_id` de quem chamou, como antes. Bloco que prova: T102.
+  -- estorno pertence a quem pertencia o que ele anula — INCLUSIVE quando o
+  -- anulado não tinha dono (16ª rodada: a 1ª versão caía no `p_item_id` de
+  -- quem chamou nesse caso, e o estorno da publicação PRÓPRIA da sessão B
+  -- virava dinheiro do item que acabara de se vincular a ela). O `p_item_id`
+  -- só vale quando não há lançamento anulado. Blocos: T102 e T105.
   if v_estornar <> 0 then
     insert into public.painel_caixa_lancamentos
       (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, estorna_id, nota, precedencia)
     values
       (v_dia, v_conta, -v_estornar, 'estorno', p_entidade_tipo, p_entidade_id,
-       coalesce((select l.item_id from public.painel_caixa_lancamentos l where l.id = v_ultimo), p_item_id),
+       case when v_ultimo is not null
+            then (select l.item_id from public.painel_caixa_lancamentos l where l.id = v_ultimo)
+            else p_item_id end,
        p_sessao_id, v_ultimo,
        coalesce(p_nota, 'estorno do líquido anterior desta entidade'),
        coalesce(v_prec_atual, v_prec))
@@ -1241,19 +1246,20 @@ comment on function public.painel_caixa_lancar_item(uuid, numeric, text, timesta
   'D39 + CRÍTICO 2 (rodada 12): a porta de lançamento de um ITEM. Resolve a entidade canônica (a sessão vinculada quando existe) e ESVAZIA toda entidade que ainda guarde dinheiro deste item — não só a órfã `item:<uuid>` da 0019, mas também a sessão ANTERIOR quando o item passa a apontar para outra. Sessão que publicou custo por si fica com o que ela publicou; o resto vai a zero.';
 revoke all on function public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text, integer) from public, anon, authenticated;
 
--- ── 7a · a projeção por item segue a ENTIDADE, não o `item_id` ─────────────
--- P2 do Codex (PR #42, 15ª rodada). `painel_fila_itens_do_dia` (0019) somava
--- as linhas do livro pelo `item_id`. Com a fusão de entidade (§7) o `item_id`
--- conta a HISTÓRIA da linha — de que item ela veio —, não de quem é o
--- dinheiro hoje: ontem a sessão A publicou 100 com o item, hoje foi corrigida
--- para 40 (estorno −40, D54) e o item passou para B com 5. Pelo `item_id` a
--- projeção era −40 +40 −40 +5 = −35, com o livro da conta dizendo +5 (T105).
--- A régua passa a ser a da D39: o item é o que a ENTIDADE CANÔNICA dele move
--- no dia — a sessão vinculada, e a entidade `item:<id>` que guarda o que ele
--- lançou antes de ter sessão. O que ficou em outra sessão é daquela sessão.
--- Os casos que a junção por `item_id` cobria continuam cobertos: a sessão
--- vinculada (com ou sem `item_id` na linha, que era o segundo ramo da 0019) e
--- a órfã `item:<id>`. Blocos: T102, T103 e T105.
+-- ── 7a · a projeção por item lê o DONO GRAVADO em cada linha ────────────
+-- P2 do Codex (PR #42, 15ª e 16ª rodadas). `painel_fila_itens_do_dia` (0019)
+-- juntava por `item_id` MAIS um 2º ramo: linhas SEM dono da sessão que o item
+-- tem AGORA. A 15ª rodada mostrou o item projetando −35 contra +5 da conta
+-- depois de uma correção de ontem e uma troca de sessão; a 1ª resposta trocou
+-- a régua inteira pela sessão vinculada agora — e a 16ª mostrou o custo: o
+-- PASSADO mudava a cada troca de sessão (o item perdia o que A lançou ontem
+-- com ele e herdava o que B lançou por conta própria).
+-- A régua é o dono GRAVADO em cada linha (`item_id`). O livro é imutável,
+-- então o dia de ontem nunca muda; e a conta de um dia fecha por construção:
+-- o que os itens movem mais o que as linhas sem dono movem é o livro da conta.
+-- O −35 da 15ª era isso, lido pela metade: o item cede a A os 40 que A
+-- publicou (−40 do item, +40 de A sem dono) — o que faltava era o estorno
+-- nunca trocar de dono (ver `painel_caixa_lancar`, T102 e T105).
 create or replace function public.painel_fila_itens_do_dia(p_conta text, p_dia date)
 returns table (id uuid, contribuicao numeric, e_estimativa boolean)
 language sql
@@ -1267,13 +1273,12 @@ as $$
     bool_or(l.origem = 'estimativa') as e_estimativa
   from public.painel_caixa_lancamentos l
   join public.painel_fila_prompts f
-    on  (l.entidade_tipo = 'sessao' and f.session_id is not null and l.entidade_id = f.session_id)
-     or (l.entidade_tipo = 'item' and l.entidade_id = f.id::text)
+    on l.item_id = f.id
   where l.conta = p_conta and l.dia = p_dia
   group by f.id;
 $$;
 comment on function public.painel_fila_itens_do_dia(text, date) is
-  'D41 (rodada 9) + P2 do Codex (PR #42, 15ª rodada): os itens que MOVERAM DINHEIRO naquele dia, lendo o livro-razão pela ENTIDADE CANÔNICA do item (a sessão vinculada e a entidade item:<id>), não pelo item_id — que conta de onde a linha veio, e depois de uma troca de sessão através de dias fazia a projeção do item divergir do livro da conta (T105).';
+  'D41 (rodada 9) + P2 do Codex (PR #42, 15ª e 16ª rodadas): os itens que MOVERAM DINHEIRO naquele dia, pelo dono GRAVADO em cada linha do livro (item_id). Sem o ramo da 0019 que juntava linhas sem dono pela sessão vinculada AGORA: com ele, e com a régua de sessão vinculada que a 15ª rodada tentou, o passado mudava a cada troca de sessão. Itens + linhas sem dono = livro da conta, dia a dia (T105).';
 revoke all on function public.painel_fila_itens_do_dia(text, date) from public, anon, authenticated;
 
 -- ── 7b · a publicação da sessão pede o posto 40 ────────────────────────────

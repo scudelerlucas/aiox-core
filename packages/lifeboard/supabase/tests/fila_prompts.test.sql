@@ -6187,25 +6187,35 @@ begin
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- T105 · P2 do Codex (PR #42, 15ª rodada) — A PROJEÇÃO DO ITEM SEGUE A
--- TRANSFERÊNCIA, TAMBÉM ATRAVÉS DE DIAS
--- Ontem a sessão A, vinculada ao item, publicou US$ 100. Hoje foi corrigida
--- para 40 — pela D54 o estorno de hoje fica limitado a 40, e o crédito de
--- ontem continua sem dia. Depois o item passa para a sessão B e fecha com 5.
--- A fusão desliga o +40 de A do item (estorno −40 com o item, relançamento
--- +40 sem dono) — e a projeção, que somava por `item_id`, via −40 (a correção
--- de hoje) +40 −40 +5 = −35 para o item, com o livro da conta dizendo +5.
--- Agora a projeção segue a ENTIDADE: o item é o que a entidade canônica dele
--- (a sessão vinculada, ou a própria `item:<id>`) moveu no dia; o que ficou em
--- outra sessão é daquela sessão.
--- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar `painel_fila_itens_do_dia` a
--- juntar por `item_id` (0019).
+-- T105 · P2 do Codex (PR #42, 15ª e 16ª rodadas) — A PROJEÇÃO DO ITEM LÊ O
+-- DONO GRAVADO EM CADA LINHA, E O PASSADO NÃO MUDA QUANDO O ITEM TROCA DE
+-- SESSÃO
+-- Ontem a sessão A, vinculada ao item, publicou US$ 100; a sessão B publicou
+-- US$ 7 por conta própria, sem item. Hoje A foi corrigida para 40 (D54: o
+-- estorno de hoje é −40) e o item passou para B, fechando com 5.
+-- 15ª rodada: a projeção somava por `item_id` MAIS as linhas sem dono da
+-- sessão vinculada AGORA — e o item de hoje (−35) não batia com o livro da
+-- conta (+5). A correção da 15ª trocou a régua pela sessão vinculada agora, e
+-- a 16ª mostrou o custo: o passado passava a mudar a cada troca de sessão (o
+-- item perdia os 100 de ontem e ganhava os 7 de B, que nunca foram dele).
+-- A régua certa é o dono GRAVADO em cada linha (`item_id`), que o livro
+-- imutável não reescreve: o item de ontem é 100 antes e depois da troca, os 7
+-- de B continuam de B, e hoje a conta fecha: o que os itens movem mais o que
+-- as linhas sem dono movem é o livro da conta. E nenhum estorno troca de dono
+-- — o da publicação PRÓPRIA de B (sem item) continua sem item, mesmo com a
+-- fusão chamando em nome do item (a 1ª versão do estorno herdado caía no
+-- `p_item_id` de quem chamou quando o anulado não tinha dono).
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: juntar `painel_fila_itens_do_dia` pela
+-- sessão vinculada agora (a 15ª rodada), ou voltar o `item_id` do estorno em
+-- `painel_caixa_lancar` a cair no `p_item_id` quando o anulado não tem dono.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
   v_conta text := 'lsgpandora@gmail.com';
   v_item uuid;
-  v_projecao numeric; v_conta_hoje numeric;
+  v_ontem_antes numeric; v_ontem_depois numeric;
+  v_hoje_item numeric; v_hoje_sem_dono numeric; v_conta_hoje numeric;
+  v_estorno_trocou_dono int;
 begin
   delete from public.painel_frentes_sessoes where conta = v_conta;
   delete from public.painel_fila_prompts where conta = v_conta;
@@ -6215,27 +6225,45 @@ begin
   values (v_conta, 'T105 item', 'alta', 'Opus', 'sess-A-T105')
   returning id into v_item;
 
-  -- ontem: A publicou 100, com o item
+  -- ontem: A publicou 100 com o item; B publicou 7 por conta própria
   insert into public.painel_caixa_lancamentos
     (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, item_id, sessao_id, precedencia, medido_em, nota)
-  values (public.painel_dia_operador() - 1, v_conta, 100, 'medido', 'sessao', 'sess-A-T105',
-          v_item, 'sess-A-T105', 40, now() - interval '1 day', 'T105 ontem: A publicou 100');
+  values
+    (public.painel_dia_operador() - 1, v_conta, 100, 'medido', 'sessao', 'sess-A-T105',
+     v_item, 'sess-A-T105', 40, now() - interval '1 day', 'T105 ontem: A publicou 100'),
+    (public.painel_dia_operador() - 1, v_conta, 7, 'medido', 'sessao', 'sess-B-T105',
+     null, 'sess-B-T105', 40, now() - interval '1 day', 'T105 ontem: B publicou 7 sem item');
 
   -- hoje: A corrigida para 40 (D54: o estorno de hoje é −40, não −100)
   perform public.painel_caixa_lancar_item(v_item, 40, 'medido', now(), 'T105 hoje: A corrigida', 40);
+
+  select coalesce(sum(contribuicao), 0) into v_ontem_antes
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador() - 1) where id = v_item;
 
   -- o item passa para B e fecha com 5
   update public.painel_fila_prompts set session_id = 'sess-B-T105' where id = v_item;
   perform public.painel_caixa_lancar_item(v_item, 5, 'medido', now(), 'T105 hoje: B fecha', 40);
 
-  select coalesce(sum(contribuicao), 0) into v_projecao
+  select coalesce(sum(contribuicao), 0) into v_ontem_depois
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador() - 1) where id = v_item;
+  select coalesce(sum(contribuicao), 0) into v_hoje_item
     from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_item;
+  select coalesce(sum(l.valor_usd), 0) into v_hoje_sem_dono
+    from public.painel_caixa_lancamentos l
+   where l.conta = v_conta and l.dia = public.painel_dia_operador() and l.item_id is null;
   v_conta_hoje := public.painel_fila_consumo_hoje(v_conta);
+  -- nenhum estorno troca de dono: ele é de quem era o que ele anula
+  select count(*) into v_estorno_trocou_dono
+    from public.painel_caixa_lancamentos e
+    join public.painel_caixa_lancamentos r on r.id = e.estorna_id
+   where e.conta = v_conta and e.item_id is distinct from r.item_id;
 
-  if v_projecao = 5 and v_conta_hoje = 5 then
-    raise exception 'RESULTADO: ok — T105 correção de ontem + troca de sessão: o item projeta US$ % e o livro da conta diz US$ %',
-      v_projecao, v_conta_hoje;
+  if v_ontem_antes = 100 and v_ontem_depois = 100
+     and v_hoje_item + v_hoje_sem_dono = v_conta_hoje
+     and v_estorno_trocou_dono = 0 then
+    raise exception 'RESULTADO: ok — T105 ontem o item vale % antes e % depois da troca (os 7 de B não entram); hoje item % + sem dono % = conta %; estornos que trocaram de dono: %',
+      v_ontem_antes, v_ontem_depois, v_hoje_item, v_hoje_sem_dono, v_conta_hoje, v_estorno_trocou_dono;
   end if;
-  raise exception 'FALHA: T105 esperado projeção do item = livro da conta = 5 — obteve projeção=% conta=%',
-    v_projecao, v_conta_hoje;
+  raise exception 'FALHA: T105 esperado ontem 100 antes e depois, item + sem dono = conta hoje e nenhum estorno trocando de dono — obteve ontem_antes=% ontem_depois=% item=% sem_dono=% conta=% estornos_trocados=%',
+    v_ontem_antes, v_ontem_depois, v_hoje_item, v_hoje_sem_dono, v_conta_hoje, v_estorno_trocou_dono;
 end $$;
