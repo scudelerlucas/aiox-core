@@ -3793,6 +3793,11 @@ declare
 begin
   delete from public.painel_frentes_sessoes where conta = v_conta;
   delete from public.painel_fila_prompts where conta = v_conta;
+  -- PR #42 (9ª rodada): a 4ª conta nasce travada pela medição recente até a
+  -- Routine dela existir (T99 prova a trava). Este bloco prova o CICLO de uma
+  -- conta pronta, então a trava sai aqui, em voz alta — como faria o operador
+  -- depois de configurar a Routine (ou a primeira medição, que destrava sozinha).
+  update public.painel_teto_diario set exigir_medicao_recente = false where conta = v_conta;
 
   select teto_usd into v_teto from public.painel_teto_diario where conta = v_conta;
 
@@ -5834,4 +5839,50 @@ begin
   end if;
   raise exception 'FALHA: T98 esperado 0 estornos maiores que o referenciado e hoje = 10 — obteve excedentes=% hoje=%',
     v_excede, v_hoje;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T99 · P1 do Codex (PR #42, 9ª rodada) — A QUARTA CONTA NASCE TRAVADA ATÉ A
+-- ROUTINE DELA EXISTIR
+-- Num banco novo, `arborcactus@gmail.com` tinha `exigir_medicao_recente =
+-- false` (o default): com o teto vazio de US$ 500, a escolha automática a via
+-- como a mais folgada da casa e mandava item para uma conta sem Routine — o
+-- item ficava na fila para sempre. Agora a semente da 0027 a trava; sem
+-- nenhuma medição, ela não é autorizada, e a escolha automática vai para uma
+-- conta com worker. A primeira medição dela (Routine configurada) destrava.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: voltar a semente da 4ª conta ao
+-- default (sem `exigir_medicao_recente = true`) na 0027.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_quarta text := 'arborcactus@gmail.com';
+  v_contas text[] := public.painel_contas_da_casa();
+  v_trava boolean;
+  v_r jsonb;
+begin
+  -- a semente, como a 0027 a deixou num banco novo
+  select exigir_medicao_recente into v_trava from public.painel_teto_diario where conta = v_quarta;
+
+  -- as outras três com um pouco de gasto hoje e medição fresca: a 4ª (vazia)
+  -- seria a mais folgada se estivesse destravada
+  delete from public.painel_frentes_sessoes where conta = any (v_contas);
+  delete from public.painel_fila_prompts where conta = any (v_contas);
+  delete from public.painel_caixa_lancamentos where conta = any (v_contas);
+  update public.painel_teto_diario set teto_usd = 500 where conta = any (v_contas);
+  update public.painel_teto_diario set exigir_medicao_recente = false where conta <> v_quarta and conta = any (v_contas);
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, medido_em, nota)
+  select public.painel_dia_operador(), c, 50, 'medido', 'item', 'T99-' || c, 30, now(), 'T99 gasto de hoje'
+    from unnest(v_contas) c where c <> v_quarta;
+
+  v_r := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T99 item novo', 'complexidade', 'alta'));
+
+  if v_trava is true and v_r->>'conta' is not null and v_r->>'conta' <> v_quarta then
+    raise exception 'RESULTADO: ok — T99 a 4ª conta nasce travada (exigir_medicao_recente=%) e a escolha automática vai para %',
+      v_trava, v_r->>'conta';
+  end if;
+  raise exception 'FALHA: T99 esperado a 4ª conta travada na semente e o item fora dela — obteve trava=% retorno=%',
+    v_trava, v_r;
 end $$;

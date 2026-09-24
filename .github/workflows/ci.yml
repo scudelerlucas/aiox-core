@@ -341,6 +341,9 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/lifeboard_teste
           # O banco do serviço acima é criado para este job e morre com ele.
           LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL: sim
+          # E o servidor inteiro também: o contêiner do serviço cria os papéis
+          # de teste (anon/authenticated/service_role) e morre com o job.
+          LIFEBOARD_SUITE_SQL_CLUSTER_DESCARTAVEL: sim
         run: packages/lifeboard/scripts/rodar-suite-sql.sh
 
   story-validation:

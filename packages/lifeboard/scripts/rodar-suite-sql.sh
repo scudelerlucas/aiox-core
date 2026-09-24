@@ -51,6 +51,7 @@
 # COMO USAR — só contra um banco DESCARTÁVEL, criado para isto:
 #   createdb lifeboard_teste
 #   LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL=sim \
+#   LIFEBOARD_SUITE_SQL_CLUSTER_DESCARTAVEL=sim \   # só se o servidor não tiver os papéis de teste
 #   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/lifeboard_teste \
 #     scripts/rodar-suite-sql.sh
 #
@@ -143,6 +144,24 @@ OBJETOS_EXISTENTES="$(psql "$DB" -qtAX -v ON_ERROR_STOP=1 -c "
       where n.nspname = 'public' and t.typrelid = 0 and t.typelem = 0)")" \
   || morrer "não consegui ler o banco alvo para conferir se ele está vazio"
 [ "$OBJETOS_EXISTENTES" = "0" ] || morrer "recusado: o banco alvo já tem $OBJETOS_EXISTENTES esquema(s)/objeto(s) de usuário — a suíte só roda em banco NOVO e vazio (um createdb recém-feito)"
+
+# P2 do Codex (PR #42, 9ª rodada): o passo 1 CRIA os papéis `anon`,
+# `authenticated` e `service_role` (este com BYPASSRLS) quando faltam — e
+# papel é do CLUSTER, não do banco. Num Postgres que alguém usa, um banco
+# descartável deixava esses papéis para trás, valendo para todos os bancos
+# daquele servidor, mesmo depois de apagado. Se algum falta, o script só
+# segue com a declaração de que o SERVIDOR inteiro é descartável (o serviço do
+# CI, um contêiner criado para isto). Onde os papéis já existem (um Supabase
+# local, por exemplo), nada é criado e a declaração não é pedida.
+PAPEIS_FALTANDO="$(psql "$DB" -qtAX -v ON_ERROR_STOP=1 -c "
+  select count(*) from unnest(array['anon','authenticated','service_role']) r
+   where not exists (select 1 from pg_roles where rolname = r)")" \
+  || morrer "não consegui ler os papéis do servidor alvo"
+if [ "$PAPEIS_FALTANDO" != "0" ] && [ "${LIFEBOARD_SUITE_SQL_CLUSTER_DESCARTAVEL:-}" != "sim" ]; then
+  morrer "recusado: faltam $PAPEIS_FALTANDO papel(éis) de teste (anon/authenticated/service_role) e criá-los muda o SERVIDOR inteiro, não só este banco.
+   Rode num servidor descartável (contêiner, serviço do CI) declarando LIFEBOARD_SUITE_SQL_CLUSTER_DESCARTAVEL=sim,
+   ou crie os três papéis você mesmo antes, sabendo que eles ficam."
+fi
 
 echo "▸ 1/4 ambiente de teste (papéis, auth, painel de frentes)"
 psql_q -f "$AQUI/supabase/tests/00-ambiente-de-teste.sql"

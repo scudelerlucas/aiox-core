@@ -6,12 +6,14 @@
 
 ## Por que existe este arquivo, e por que ele não é uma frente
 
-A regra da casa (`item-so-entra-com-dono`, hub) é literal: item de frente só entra com
-**(a) nome de quem executa** — pessoa real, não "a casa" nem "a sessão" — **e (b) data**.
-Sem os dois, não entra: fica como achado, e a **ausência de dono é a informação**, não o
-defeito.
+A regra da casa (`AGENTS.md` §"Item de frente só entra com dono, data e quem cobra"; no
+hub, `item-so-entra-com-dono`) é literal: item de frente só entra com **três** coisas —
+**(a) nome de quem executa** (pessoa real, não "a casa" nem "a sessão"), **(b) data** e
+**(c) nome de quem cobra** (alguém que enxerga o calendário onde a data foi escrita e recebe
+o lembrete). Faltando qualquer uma, não entra: fica como achado, e a **ausência é a
+informação**, não o defeito.
 
-Nenhum dos itens abaixo tem dono nem data. Então **nenhum deles é uma frente**. Eles estão
+Nenhum dos itens abaixo tem dono, data nem quem cobra. Então **nenhum deles é uma frente**. Eles estão
 aqui para não se perderem, marcados como `sem dono`, até alguém assumir ou o operador
 arquivar com data e motivo.
 
