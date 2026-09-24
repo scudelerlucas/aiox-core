@@ -6407,3 +6407,56 @@ begin
   raise exception 'FALHA: T108 esperado nenhum lançamento negativo em A e líquido 0 — obteve negativos=% líquido=%',
     v_negativos, v_a;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T109 · P2 do Codex (PR #42, 21ª rodada) — FECHAR DE NOVO UM CANCELADO JÁ
+-- MEDIDO NÃO FAZ NADA
+-- O item cancelado continua `cancelada` depois que o dono fecha com o número
+-- medido. A repetição do fechamento (resposta perdida) passava pelo mesmo
+-- ramo: trocava o custo e relançava com `now()` — um carimbo de medição novo
+-- sem medição nova. Agora a segunda chamada devolve `ja_fechado` e o livro, o
+-- custo e o `medido_ate` da conta não mudam.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o retorno `ja_fechado` do ramo
+-- `cancelada` de `fila_prompts_fechar_interno` (0030 §1e'').
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_id uuid; v_pull jsonb;
+  v_linhas_antes int; v_linhas_depois int;
+  v_medido_antes timestamptz; v_medido_depois timestamptz;
+  v_segunda jsonb; v_custo numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T109 item', 'baixa', 'Haiku');
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T109');
+  v_id := (v_pull->'item'->>'id')::uuid;
+  perform public.fila_prompts_cancelar(v_segredo, v_id);
+
+  perform public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T109', 'concluida', 3);
+  select count(*) into v_linhas_antes from public.painel_caixa_lancamentos where conta = v_conta;
+  v_medido_antes := public.painel_fila_medido_ate(v_conta);
+
+  perform pg_sleep(0.01);
+  v_segunda := public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T109', 'concluida', 9);
+  select count(*) into v_linhas_depois from public.painel_caixa_lancamentos where conta = v_conta;
+  v_medido_depois := public.painel_fila_medido_ate(v_conta);
+  select custo_usd into v_custo from public.painel_fila_prompts where id = v_id;
+
+  if (v_segunda->>'ja_fechado')::boolean
+     and v_linhas_antes = v_linhas_depois
+     and v_medido_antes = v_medido_depois
+     and v_custo = 3 then
+    raise exception 'RESULTADO: ok — T109 o 2º fechamento do cancelado devolveu ja_fechado, o livro ficou com % linhas, o custo em US$ % e o medido_ate não andou',
+      v_linhas_depois, v_custo;
+  end if;
+  raise exception 'FALHA: T109 esperado ja_fechado, livro e medido_ate iguais e custo 3 — obteve segunda=% linhas %→% medido %→% custo=%',
+    v_segunda, v_linhas_antes, v_linhas_depois, v_medido_antes, v_medido_depois, v_custo;
+end $$;

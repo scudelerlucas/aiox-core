@@ -309,3 +309,59 @@ describe("P1 — a 0029 não anuncia o limite de voo que só a 0030 aplica", () 
     expect(sql).not.toMatch(/painel_fila_em_voo\s*\(|painel_fila_maximo_em_voo_por_conta\s*\(/);
   });
 });
+
+/**
+ * P1 + P2 do Codex (PR #42, 21ª rodada): duas propriedades que a suíte SQL
+ * não consegue exercitar, porque ela roda numa conexão só e aplica cada
+ * migration inteira antes do primeiro bloco.
+ *
+ * (1) DROP e CREATE da mesma função numa transação. O runner e o passo do
+ *     DEPLOY.md usam `psql` em autocommit; um deploy interrompido entre os dois
+ *     comandos deixava os chamadores sem função nenhuma.
+ * (2) `painel_caixa_lancar_item` trava o item antes de escolher a entidade
+ *     canônica — sem isso, uma publicação concorrente a uma troca de sessão
+ *     lia o vínculo antigo.
+ */
+describe("21ª rodada — o que só se prova lendo o SQL", () => {
+  const MIGRACOES = join(PACOTE, "supabase", "migrations");
+  const arquivos = readdirSync(MIGRACOES)
+    .filter((n) => /^00(2[7-9]|3\d)_.*\.sql$/.test(n) && !n.endsWith(".test.sql"))
+    .sort();
+
+  // Exceção declarada: a 0027 apaga a SOBRECARGA de 13 argumentos de
+  // `painel_fila_motivo_do_pull` enquanto a de 15 continua viva (0022/0024) —
+  // não há intervalo sem função; o CREATE mais adiante substitui a de 15.
+  const SOBRECARGA_EXTRA = new Set(["0027_lifeboard_v3_ultima_palavra_do_dinheiro.sql: painel_fila_motivo_do_pull"]);
+
+  it("todo DROP FUNCTION seguido de CREATE da mesma função está dentro de begin/commit", () => {
+    const soltos: string[] = [];
+    for (const nome of arquivos) {
+      const texto = readFileSync(join(MIGRACOES, nome), "utf8");
+      const re = /^drop function if exists public\.(\w+)\(/gm;
+      for (let m = re.exec(texto); m !== null; m = re.exec(texto)) {
+        const funcao = m[1] as string;
+        const depois = texto.slice(m.index);
+        if (!new RegExp(`create or replace function public\\.${funcao}\\(`).test(depois)) continue;
+        const antes = texto.slice(0, m.index);
+        const ultimoBegin = antes.lastIndexOf("\nbegin;");
+        const ultimoCommit = antes.lastIndexOf("\ncommit;");
+        const chave = `${nome}: ${funcao}`;
+        if (SOBRECARGA_EXTRA.has(chave)) continue;
+        if (ultimoBegin === -1 || ultimoBegin < ultimoCommit) soltos.push(chave);
+      }
+    }
+    expect(soltos, "drop+create fora de transação: um deploy interrompido deixa a função ausente").toEqual([]);
+  });
+
+  it("a última painel_caixa_lancar_item lê o item com FOR UPDATE", () => {
+    const ultima = [...arquivos]
+      .reverse()
+      .map((nome) => readFileSync(join(MIGRACOES, nome), "utf8"))
+      .find((t) => t.includes("create or replace function public.painel_caixa_lancar_item("));
+    expect(ultima, "nenhuma migration define painel_caixa_lancar_item").toBeDefined();
+    const corpo = (ultima as string).slice(
+      (ultima as string).lastIndexOf("create or replace function public.painel_caixa_lancar_item("),
+    );
+    expect(corpo).toMatch(/from public\.painel_fila_prompts f where f\.id = p_item\s+for update;/);
+  });
+});

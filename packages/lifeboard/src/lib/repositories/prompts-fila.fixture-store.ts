@@ -1282,6 +1282,12 @@ export function fecharFixture(input: {
   // D12: item cancelado pelo operador — a medição real SUBSTITUI a estimativa,
   // mas a decisão do operador não é revogada (o estado continua `cancelada`).
   if (item.estado === "cancelada") {
+    // P2 do Codex (PR #42, 21ª rodada): já medido pelo dono = já fechado. A
+    // segunda chamada não troca o número nem relança — espelho da 0030.
+    if (item.custoOrigem === "medido" && !item.custoEEstimativa && item.custoUsd !== null) {
+      loja_.paradaPendente.delete(item.id);
+      return { ok: true, jaFechado: true, reabertoEFechado: false, estado: "cancelada" };
+    }
     loja_.fila.set(item.id, {
       ...item,
       custoUsd: input.custoUsd,

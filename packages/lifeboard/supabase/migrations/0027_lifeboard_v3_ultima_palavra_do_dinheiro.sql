@@ -845,6 +845,8 @@ comment on column public.painel_caixa_lancamentos.precedencia is
 -- A assinatura de 9 argumentos SAI e a de 10 entra no lugar: com as duas
 -- vivas, toda chamada de 9 argumentos ficaria ambígua (a de 10 tem default no
 -- último). Nenhum chamador muda: todos passam 9 ou menos, posicionalmente.
+-- P1 do Codex (PR #42, 21ª rodada): drop e create da MESMA função numa transação — o psql roda em autocommit, e um deploy interrompido entre os dois deixava todo fechamento chamando uma função que não existe.
+begin;
 drop function if exists public.painel_caixa_lancar(
   text, text, text, numeric, text, uuid, text, timestamptz, text);
 
@@ -1162,6 +1164,7 @@ $$;
 comment on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) is
   'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53: cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta) e um lançamento de posto menor NÃO derruba um de posto maior — em nenhuma ordem de chegada. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos dois fatos darem o mesmo total nos dois sentidos (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção. D54 (rodada 13): o ESTORNO é limitado ao que a entidade já pôs no dia de HOJE — crédito que anula dinheiro de um dia FECHADO não vira teto de hoje, e por isso nenhum dia pode somar negativo.';
 revoke all on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) from public, anon, authenticated;
+commit;
 
 -- ── 7 · CRÍTICO 2 · a fusão de entidade deixa de ser só a órfã `item:` ─────
 -- A versão da 0019 fundia UMA entidade: a órfã `item:<uuid>`. O caso que ela
@@ -1176,6 +1179,8 @@ revoke all on function public.painel_caixa_lancar(text, text, text, numeric, tex
 -- pelo que ela publicou — o que sai de lá é só o que era do item. Esvaziar uma
 -- sessão medida junto com o item subcontaria o dia, e num teto errar para
 -- baixo é pior que errar para cima.
+-- P1 do Codex (PR #42, 21ª rodada): drop e create da MESMA função numa transação — o psql roda em autocommit, e um deploy interrompido entre os dois deixava todo fechamento chamando uma função que não existe.
+begin;
 drop function if exists public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text);
 
 create or replace function public.painel_caixa_lancar_item(
@@ -1200,8 +1205,15 @@ declare
   v_alvo      numeric;
   v_medido_em timestamptz;
 begin
+  -- P2 do Codex (PR #42, 21ª rodada): `for update` — a entidade canônica sai
+  -- da sessão vinculada, e ler o item sem trava deixava uma publicação
+  -- concorrente a uma troca de sessão (A → B) enxergar ainda A: depois do
+  -- commit da troca, A e B ficavam os dois com o item. Com a trava, quem chega
+  -- depois espera a troca terminar e lê o vínculo já gravado. Quem chama com o
+  -- item já travado (o fechamento, o cancelamento) não espera nada.
   select f.id, f.conta, f.session_id into v_f
-    from public.painel_fila_prompts f where f.id = p_item;
+    from public.painel_fila_prompts f where f.id = p_item
+    for update;
   if not found then
     raise exception 'painel_caixa_lancar_item: item % não existe.', p_item
       using errcode = 'check_violation';
@@ -1296,6 +1308,7 @@ $$;
 comment on function public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text, integer) is
   'D39 + CRÍTICO 2 (rodada 12): a porta de lançamento de um ITEM. Resolve a entidade canônica (a sessão vinculada quando existe) e ESVAZIA toda entidade que ainda guarde dinheiro deste item — não só a órfã `item:<uuid>` da 0019, mas também a sessão ANTERIOR quando o item passa a apontar para outra. Sessão que publicou custo por si fica com o que ela publicou; o resto vai a zero.';
 revoke all on function public.painel_caixa_lancar_item(uuid, numeric, text, timestamptz, text, integer) from public, anon, authenticated;
+commit;
 
 -- ── 7a · a projeção por item lê o DONO GRAVADO em cada linha ────────────
 -- P2 do Codex (PR #42, 15ª e 16ª rodadas). `painel_fila_itens_do_dia` (0019)

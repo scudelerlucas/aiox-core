@@ -422,6 +422,23 @@ begin
     -- a filha já terminou e entregou o número. Sem apagar a marca
     -- aqui, a corrida "cancelou × a filha acabou" deixava uma sessão fantasma
     -- ocupando vaga até a janela de 45 min vencer (§1e').
+    --
+    -- P2 do Codex (PR #42, 21ª rodada) · IDEMPOTÊNCIA, como a do D8 para
+    -- concluída/falhou. O cancelado continua `cancelada` depois de fechado, e a
+    -- segunda chamada (resposta perdida, worker repetindo) passava de novo por
+    -- aqui: trocava o número e relançava com `now()` — um carimbo novo sem
+    -- medição nova, que destravava conta com `exigir_medicao_recente`. Já
+    -- medido pelo dono = já fechado; só a marca de parada ainda sai (T109).
+    if v_row.custo_origem = 'medido'
+       and not coalesce(v_row.custo_e_estimativa, false)
+       and v_row.custo_usd is not null then
+      update public.painel_fila_prompts
+         set parada_pendente_desde = null
+       where id = p_id and parada_pendente_desde is not null;
+      return jsonb_build_object(
+        'ok', true, 'ja_fechado', true, 'reaberto_e_fechado', false, 'estado', 'cancelada'
+      );
+    end if;
     update public.painel_fila_prompts
        set custo_usd = p_custo_usd,
            custo_e_estimativa = false,
@@ -666,6 +683,8 @@ revoke all on function public.painel_fila_reservado(text) from public, anon, aut
 -- DEFAULT criaria uma SEGUNDA função de mesmo nome, e toda chamada que omite
 -- os novos parâmetros (as seis da suíte, mais o pull) passaria a ser AMBÍGUA.
 -- O texto é o da 0027 §9, verbatim, mais uma oração.
+-- P1 do Codex (PR #42, 21ª rodada): drop e create da MESMA função numa transação — o psql roda em autocommit, e um deploy interrompido entre os dois deixava todo fechamento chamando uma função que não existe.
+begin;
 drop function if exists public.painel_fila_motivo_do_pull(
   integer, numeric, numeric, numeric, numeric, integer, integer, numeric,
   integer, integer, integer, numeric, integer, numeric, boolean);
@@ -810,6 +829,7 @@ $$;
 comment on function public.painel_fila_motivo_do_pull(integer, numeric, numeric, numeric, numeric, integer, integer, numeric, integer, integer, integer, numeric, integer, numeric, boolean, integer, integer, integer) is
   'D32b/D32c + CRÍTICO 1 (rodada 12) + CRÍTICO rodada 15: a frase do pull, função pura. Ganhou a oração das SESSÕES EM VOO, que fecha a mentira do painel — o headroom anunciava US$ 1,00 de espaço com 40 sessões gastando dinheiro naquele instante, e estava aritmeticamente correto. Com p_limite_em_voo => null (o default) toda frase anterior a esta migration sai idêntica, letra por letra.';
 revoke all on function public.painel_fila_motivo_do_pull(integer, numeric, numeric, numeric, numeric, integer, integer, numeric, integer, integer, integer, numeric, integer, numeric, boolean, integer, integer, integer) from public, anon, authenticated;
+commit;
 
 -- ── 8 · fila_prompts_pegar_interno — TERCEIRA e QUARTA paredes ────────────
 -- Texto da 0029 §6, com QUATRO pontos mudados e nada mais:
