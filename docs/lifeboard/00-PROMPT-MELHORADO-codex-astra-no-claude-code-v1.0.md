@@ -9,6 +9,11 @@
 > **Precedentes:** `Lucas-Contexto-Geral/docs/mirofish/00-PROMPT-MELHORADO-mirofish-no-codex-v1.0.md` (11/09) ·
 > `docs/lifeboard/00-PROMPT-MELHORADO-vercel-troca-supabase-500-v1.0.md` (15/09).
 > **Classificação:** CRIAR (ligar uma ferramenta) + DECIDIR (o que "terminar" quer dizer). **Nada foi executado.**
+>
+> **Decidido pelo operador em 24/09/2026: D1-A · D2-A · D3-A · D4-A** (§5). Palavras dele: *"O que trava o
+> Lifeboard é o seu passo de painel, não falta de código. O Codex acelera o que vem depois desse passo, mas
+> não o substitui."* Consequência no prompt (§4): entrou o **passo 0**, a trava que confere o passo de 28/09
+> antes de ligar o Codex.
 
 ---
 
@@ -82,6 +87,11 @@ REUSE ANTES
 - docs/ops/PROMPT-CHROME-2026-09-15-lifeboard-vercel-diagnostico.md
 
 ENTREGUE
+0. TRAVA ANTES DE TUDO: o meu passo de painel já foi feito? Confira, sem mexer em nada, só lendo:
+   (a) a Vercel do LifeBoard aponta para o Supabase hciiilopyivjaekaxfqp (não ofskmjpzlgzmnivmkyop);
+   (b) o login Google entra e cai no painel; (c) /api/health responde ok.
+   Se QUALQUER um falhar: pare aqui, me diga qual e aponte o trecho do packages/lifeboard/DEPLOY.md
+   que eu sigo. Não ligue o Codex antes disso (decisão D4-A de 24/09).
 1. Ligar o Codex: `/plugin marketplace add openai/codex-plugin-cc` → `/plugin install codex@openai-codex`
    → `/reload-plugins` → `/codex:setup`. Se faltar o CLI: `npm install -g @openai/codex`.
    O `codex login` quem faz sou eu (Lucas); pare e me peça. Confirme qual modelo o Codex usa
@@ -122,7 +132,7 @@ passo | feito? | prova | custo (limite do ChatGPT usado) | rodadas de revisão |
 - **D3 · Papel do Codex.** A: executor com linha de chegada e no máximo 2 rodadas de revisão · B: revisor permanente com a trava de revisão ligada.
 - **D4 · Ordem.** A: primeiro o passo de 28/09 (Vercel no banco certo + login Google), depois o Codex · B: Codex primeiro, em paralelo.
 
-**Recomendação:** D1-A · D2-A · D3-A · D4-A. O gargalo medido é o passo de painel que só o Lucas faz.
+**Decidido em 24/09/2026: D1-A · D2-A · D3-A · D4-A** (igual à recomendação). O gargalo medido é o passo de painel que só o Lucas faz.
 O Codex acelera o código que vem depois dele, mas não o substitui.
 
 ---
