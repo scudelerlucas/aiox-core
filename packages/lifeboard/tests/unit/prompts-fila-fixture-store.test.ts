@@ -333,7 +333,7 @@ describe("D7 — item `pega` não é beco sem saída", () => {
     });
   });
 
-  it("P2 Codex (PR #42, 10ª rodada): cancelar com a conta no limite NÃO abre vaga até o worker daquele item ouvir", () => {
+  it("P2 Codex (PR #42, 10ª e 13ª rodadas): cancelar com a conta no limite NÃO abre vaga nem quando o dono ouve", () => {
     resetarFilaFixtureStore();
     for (let i = 0; i < MAXIMO_EM_VOO_POR_CONTA + 1; i += 1) {
       enfileirarFixture({ prompt: `voo ${i}`, complexidade: "baixa", conta: LUCAS, agora: AGORA + i });
@@ -359,13 +359,14 @@ describe("D7 — item `pega` não é beco sem saída", () => {
     });
     expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
 
-    // o worker DESTE item ouve o cancelamento: agora a vaga sai
+    // o dono ouve `cancelado`, mas a filha só é interrompida depois desta
+    // resposta: a vaga continua ocupada (13ª rodada)
     expect(heartbeatFixture(cancelado, LUCAS, "W1", null, AGORA)).toEqual({
       ok: false,
       motivo: "cancelado",
     });
-    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA - 1);
-    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).not.toBeNull();
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).toBeNull();
   });
 
   it("P2 Codex (PR #42, 11ª rodada): o dono que FECHA o item cancelado também libera a vaga", () => {

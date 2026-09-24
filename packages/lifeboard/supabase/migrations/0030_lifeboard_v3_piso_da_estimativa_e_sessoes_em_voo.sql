@@ -177,8 +177,9 @@ revoke all on function public.painel_fila_janela_em_voo() from public, anon, aut
 -- quarta ainda rodando, e cancelar em série contornava o limite inteiro.
 -- A coluna guarda o ÚLTIMO SINAL DE VIDA do item no momento do cancelamento
 -- (`coalesce(heartbeat_em, pego_em)`, o mesmo relógio de `pega`): a vaga fica
--- ocupada até o worker daquele item ouvir o cancelamento (§10 apaga a marca)
--- ou até a janela de voo vencer — exatamente quando ela venceria se o item
+-- ocupada até o worker daquele item FECHAR o item depois de interromper a filha
+-- (§11 apaga a marca; desde a 13ª rodada, ouvir `cancelado` no heartbeat não
+-- basta) ou até a janela de voo vencer — exatamente quando ela venceria se o item
 -- tivesse continuado `pega` e mudo. Quem marca é um gatilho, e não o corpo de
 -- `fila_prompts_cancelar`, para que QUALQUER caminho de `pega` → `cancelada`
 -- ocupe a vaga sem uma quinta cópia daquela função.
@@ -202,7 +203,7 @@ begin
 end;
 $$;
 comment on function public.painel_fila_marca_parada_pendente() is
-  'P2 do Codex (PR #42, 10ª rodada): no pega → cancelada, guarda o último sinal de vida em parada_pendente_desde para a vaga continuar ocupada até o worker ouvir o cancelamento. Bloco T100.';
+  'P2 do Codex (PR #42, 10ª rodada): no pega → cancelada, guarda o último sinal de vida em parada_pendente_desde para a vaga continuar ocupada até o dono fechar o item depois de interromper a filha (ou a janela vencer). Blocos T100/T101.';
 revoke all on function public.painel_fila_marca_parada_pendente() from public, anon, authenticated;
 drop trigger if exists painel_fila_prompts_parada_pendente on public.painel_fila_prompts;
 create trigger painel_fila_prompts_parada_pendente
@@ -211,7 +212,7 @@ create trigger painel_fila_prompts_parada_pendente
 
 -- (1e) A CONTAGEM de sessões em voo — `pega` com heartbeat vivo (a MESMA
 -- régua de `painel_fila_reservado`) MAIS o item cancelado cuja sessão filha
--- ainda não ouviu o cancelamento (1e'). O pull a usa para decidir e o painel a
+-- ainda não confirmou a parada (1e'). O pull a usa para decidir e o painel a
 -- usa para contar a verdade ao lado do headroom. A reserva de DINHEIRO não
 -- ganha o segundo ramo: o cancelamento já lançou a estimativa no livro, e
 -- reservá-la de novo contaria o mesmo dinheiro duas vezes.
@@ -233,7 +234,7 @@ as $$
     );
 $$;
 comment on function public.painel_fila_em_voo(text) is
-  'CRÍTICO (rodada 15) + P2 do Codex (PR #42, 10ª rodada): quantas sessões desta conta estão EM VOO agora — item pega com heartbeat dentro de painel_fila_janela_em_voo (a régua de painel_fila_reservado) MAIS o item cancelado durante a execução cujo worker ainda não ouviu o cancelamento (parada_pendente_desde). O pull usa este número para decidir e o painel o mostra ao lado do headroom; sem o segundo ramo, cancelar com a conta no limite abria uma quinta sessão com a quarta ainda rodando (bloco T100).';
+  'CRÍTICO (rodada 15) + P2 do Codex (PR #42, 10ª rodada): quantas sessões desta conta estão EM VOO agora — item pega com heartbeat dentro de painel_fila_janela_em_voo (a régua de painel_fila_reservado) MAIS o item cancelado durante a execução cujo dono ainda não confirmou a parada fechando o item (parada_pendente_desde). O pull usa este número para decidir e o painel o mostra ao lado do headroom; sem o segundo ramo, cancelar com a conta no limite abria uma quinta sessão com a quarta ainda rodando (bloco T100).';
 revoke all on function public.painel_fila_em_voo(text) from public, anon, authenticated;
 
 -- ── 2 · PRIMEIRA PAREDE · o piso na tabela de estimativas ──────────────────
@@ -997,16 +998,12 @@ begin
   end if;
   -- D7 (rodada 3): o operador cancelou pela tela enquanto a filha rodava.
   if v_row.estado = 'cancelada' then
-    -- P2 do Codex (PR #42, 10ª rodada): este é o momento em que a sessão filha
-    -- é interrompida (D7) — o worker DESTE item ouve `cancelado` e chama
-    -- `interrupt_session`. Só então a vaga sai (§1e'). Heartbeat de outro
-    -- worker não libera nada.
-    if v_row.parada_pendente_desde is not null
-       and coalesce(v_row.worker_id, v_row.ultimo_worker_id) = p_worker_id then
-      update public.painel_fila_prompts
-         set parada_pendente_desde = null
-       where id = p_id;
-    end if;
+    -- P2 do Codex (PR #42, 13ª rodada): ouvir `cancelado` NÃO libera a vaga.
+    -- O worker só chama `interrupt_session` DEPOIS desta resposta, e a filha
+    -- ainda roda nesse intervalo — liberar aqui deixava o pull abrir uma
+    -- quinta sessão entre a resposta e a interrupção. Quem libera é o
+    -- fechamento do dono (§11), que o contrato manda fazer depois de
+    -- interromper, ou a janela de voo vencer (§1e').
     return jsonb_build_object('ok', false, 'motivo', 'cancelado');
   end if;
   if v_row.worker_id is distinct from p_worker_id then
@@ -1051,7 +1048,7 @@ begin
 end;
 $$;
 comment on function public.fila_prompts_heartbeat_interno(uuid, text, text, text) is
-  'D11/D7/D18/D34a + fonte única da janela (rodada 15): o `expira_em` que a Routine mostra sai de painel_fila_janela_em_voo(), não de um `interval ''45 minutes''` copiado — era a última cópia da janela depois que as três funções que DECIDEM passaram a ler a fonte única. Bloco T91 confere que o relógio anunciado é a janela de verdade. P2 do Codex (PR #42, 10ª rodada): sobre item cancelado, o heartbeat do worker DAQUELE item apaga parada_pendente_desde — é quando a filha é interrompida, e só então a vaga sai (bloco T100).';
+  'D11/D7/D18/D34a + fonte única da janela (rodada 15): o `expira_em` que a Routine mostra sai de painel_fila_janela_em_voo(), não de um `interval ''45 minutes''` copiado — era a última cópia da janela depois que as três funções que DECIDEM passaram a ler a fonte única. Bloco T91 confere que o relógio anunciado é a janela de verdade. P2 do Codex (PR #42, 10ª e 13ª rodadas): sobre item cancelado, o heartbeat devolve `cancelado` e NÃO libera a vaga — a filha só é interrompida depois desta resposta; quem libera é o fechamento do dono (§11) ou a janela (bloco T100).';
 revoke all on function public.fila_prompts_heartbeat_interno(uuid, text, text, text) from public, anon, authenticated;
 
 -- ── P2 do Codex (PR #42, 4ª rodada) · o histórico do card também tem piso ──
@@ -1330,9 +1327,13 @@ comment on function public.painel_fila_consumo_para_tela() is
 revoke all on function public.painel_fila_consumo_para_tela() from public, anon, authenticated;
 
 -- ── 11 · fila_prompts_fechar_interno — o dono que fecha o cancelado libera a vaga
--- P2 do Codex (PR #42, 11ª rodada). O §10 apaga `parada_pendente_desde` quando
--- o worker ouve `cancelado` no heartbeat. Mas quando o cancelamento cruza com o
--- fim da filha, o worker vai direto ao fechamento — o ramo `cancelada` desta
+-- P2 do Codex (PR #42, 11ª e 13ª rodadas). Na 10ª rodada o §10 apagava
+-- `parada_pendente_desde` quando o worker ouvia `cancelado` no heartbeat — cedo
+-- demais: a filha só é interrompida depois dessa resposta (13ª rodada). O
+-- contrato do worker é interromper e SÓ ENTÃO fechar, então o fechamento do
+-- dono é a confirmação da parada, e é o único ato que libera a vaga antes da
+-- janela. E quando o cancelamento cruza com o fim da filha, o worker vai
+-- direto ao fechamento — o ramo `cancelada` desta
 -- função, que troca a estimativa pelo número medido — sem outro heartbeat, e a
 -- vaga ficava presa até a janela vencer. Texto da 0029 §7, verbatim, com UMA
 -- coluna a mais no `update` do ramo `cancelada`. O fencing (D1/D26) que roda
@@ -1490,8 +1491,9 @@ begin
     -- cancelado; esta chamada só troca o NÚMERO. Mover `concluido_em` para
     -- agora reabriria a janela de escrita da tela sobre um item encerrado em
     -- outro dia — e era isso que fazia dinheiro entrar num dia encerrado.
-    -- P2 do Codex (PR #42, 11ª rodada): o dono que FECHA o item cancelado
-    -- também ouviu — a filha terminou e entregou o número. Sem apagar a marca
+    -- P2 do Codex (PR #42, 11ª e 13ª rodadas): o dono que FECHA o item
+    -- cancelado confirma a parada — ele interrompe a filha antes de fechar, ou
+    -- a filha já terminou e entregou o número. Sem apagar a marca
     -- aqui, a corrida "cancelou × a filha acabou" deixava uma sessão fantasma
     -- ocupando vaga até a janela de 45 min vencer (§1e').
     update public.painel_fila_prompts

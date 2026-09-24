@@ -172,7 +172,7 @@ interface EstadoFilaFixture {
   /**
    * P2 do Codex (PR #42, 10ª rodada): espelho de `parada_pendente_desde` — o
    * último sinal de vida (ms) de um item cancelado DURANTE a execução cujo
-   * worker ainda não ouviu o cancelamento. Enquanto estiver na janela, o item
+   * dono ainda não confirmou a parada fechando o item. Enquanto estiver na janela, o item
    * ocupa vaga em `emVooDe`. Fora de `ItemFilaPrompt` pelo mesmo motivo de
    * `ultimoDono`: é dado de worker, não da tela.
    */
@@ -348,8 +348,8 @@ function emEsperaDe(conta: Conta, agora: number): number {
 /**
  * CRÍTICO (rodada 15): a MESMA definição de `reservadoDe` — item `pega` com
  * sinal vivo —, contada em vez de somada. Espelho de `painel_fila_em_voo`.
- * P2 do Codex (PR #42, 10ª rodada): mais o item cancelado cujo worker ainda
- * não ouviu o cancelamento — a sessão filha pode estar rodando. A reserva de
+ * P2 do Codex (PR #42, 10ª rodada): mais o item cancelado cujo dono ainda
+ * não confirmou a parada — a sessão filha pode estar rodando. A reserva de
  * dinheiro não ganha este ramo: o cancelamento já lançou a estimativa.
  */
 function emVooDe(conta: Conta, agora: number): number {
@@ -684,8 +684,8 @@ export function cancelarFixture(id: string, agora: number = Date.now()): Resulta
         : "cancelado_nunca_pego";
   // D26: o cancelamento também é uma perda de posse — a memória fica.
   if (item.workerId !== null) estado.ultimoDono.set(id, item.workerId);
-  // P2 do Codex (PR #42, 10ª rodada): a vaga fica ocupada até o worker ouvir
-  // — espelho do gatilho `painel_fila_marca_parada_pendente` (0030 §1e').
+  // P2 do Codex (PR #42, 10ª rodada): a vaga fica ocupada até o dono fechar
+  // o item — espelho do gatilho `painel_fila_marca_parada_pendente` (0030 §1e').
   if (item.estado === "pega") {
     const ultimoSinal = Date.parse(item.heartbeatEm ?? item.pegoEm ?? "");
     if (!Number.isNaN(ultimoSinal)) estado.paradaPendente.set(id, ultimoSinal);
@@ -1177,12 +1177,10 @@ export function heartbeatFixture(
   }
   const item = estado.fila.get(id);
   if (!item || item.conta !== conta) return { ok: false, motivo: "inexistente" };
-  if (item.estado === "cancelada") {
-    // P2 do Codex (PR #42, 10ª rodada): o worker DESTE item ouviu — a filha é
-    // interrompida agora, e só agora a vaga sai. Outro worker não libera nada.
-    if ((item.workerId ?? ultimoDonoDe(id)) === workerId) estado.paradaPendente.delete(id);
-    return { ok: false, motivo: "cancelado" };
-  }
+  // P2 do Codex (PR #42, 13ª rodada): ouvir `cancelado` NÃO libera a vaga — a
+  // filha só é interrompida depois desta resposta. Quem libera é o fechamento
+  // do dono (`fecharFixture`) ou a janela. Espelho do §10 da 0030.
+  if (item.estado === "cancelada") return { ok: false, motivo: "cancelado" };
   if (item.workerId !== workerId) return { ok: false, motivo: "outro worker" };
   if (item.estado !== "pega") return { ok: false, motivo: `item esta ${item.estado}` };
   if (sessionId !== null) {
@@ -1282,8 +1280,9 @@ export function fecharFixture(input: {
       sessionId: sessionId ?? item.sessionId,
       concluidoEm: item.concluidoEm ?? new Date(agora).toISOString(),
     });
-    // P2 do Codex (PR #42, 11ª rodada): o dono que fecha o cancelado também
-    // ouviu — a filha acabou. Espelho do §11 da 0030.
+    // P2 do Codex (PR #42, 11ª e 13ª rodadas): o dono que fecha o cancelado
+    // confirma a parada — é o único ato que libera a vaga antes da janela.
+    // Espelho do §11 da 0030.
     loja_.paradaPendente.delete(item.id);
     return { ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" };
   }
