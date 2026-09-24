@@ -841,6 +841,9 @@ export const MOTIVOS_ENFILEIRAR = [
   // P2 do Codex (PR #42, 7ª rodada): TODAS as contas estão no limite de
   // sessões em voo. O item entra, mas não sai agora — a frase diz a espera.
   "auto_sem_vaga",
+  // P2 do Codex (PR #42, 8ª rodada): a conta escolhida À MÃO está no limite
+  // de sessões em voo. Entra na fila, mas não sai agora.
+  "manual_sem_vaga",
 ] as const;
 export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
 
@@ -912,6 +915,13 @@ export function fraseDoEnfileiramento(
         `então o item só sai quando uma sessão fechar. ${conta} é a de maior espaço livre ` +
         `(${formatarUsd(espaco)} para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})` +
         `${detalheDaFila}` +
+        (espaco >= n.custoEstimadoUsd ? "." : ", e o dia ainda precisa ter espaço para ele.")
+      );
+    case "manual_sem_vaga":
+      return (
+        `Enfileirado para ${conta} (escolha manual): esta conta está no limite de sessões em voo ` +
+        `agora, então o item só sai quando uma delas fechar (${formatarUsd(espaco)} livres para uma ` +
+        `tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}` +
         (espaco >= n.custoEstimadoUsd ? "." : ", e o dia ainda precisa ter espaço para ele.")
       );
     case "manual_cabe":

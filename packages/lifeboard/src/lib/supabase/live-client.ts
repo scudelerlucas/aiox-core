@@ -424,6 +424,7 @@ export async function enfileirarPrompt(payload: {
       todas_recusadas?: boolean;
       puladas_sem_vaga?: number;
       todas_sem_vaga?: boolean;
+      sem_vaga?: boolean;
     };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
@@ -445,10 +446,15 @@ export async function enfileirarPrompt(payload: {
     const autoSemVaga =
       body.todas_sem_vaga === true &&
       (body.motivo_codigo === "auto_maior_espaco" || body.motivo_codigo === "auto_nao_cabe_hoje");
+    const manualSemVaga =
+      body.sem_vaga === true &&
+      (body.motivo_codigo === "manual_cabe" || body.motivo_codigo === "manual_nao_cabe_hoje");
     const codigo =
       body.motivo_codigo === "auto_nao_cabe_hoje" && body.todas_recusadas === true
         ? "auto_medicao_velha"
-        : autoSemVaga
+        : manualSemVaga
+          ? "manual_sem_vaga"
+          : autoSemVaga
           ? "auto_sem_vaga"
           : pulouSemVaga && body.motivo_codigo === "auto_maior_espaco"
           ? "auto_maior_espaco_com_vaga"

@@ -674,73 +674,75 @@ $$;comment on function public.fila_prompts_fechar_interno(uuid, text, text, text
   'ALTO 6 (rodada 14): a lista de contas vem de painel_contas_da_casa(). Era a cópia que o crítico sabotou com uma vírgula a menos: o worker gastou US$ 430, o fechamento recusou "conta precisa ser uma das 3 contas da casa", o livro do dia ficou em ZERO e o item morreu valendo a estimativa (120) — US$ 310 de teto falso, com os cinco portões verdes. Quem cobre agora: T83 (a 4ª conta atravessa TODAS as portas, o fechamento inclusive) e T82 (a fonte única × painel_teto_diario, nos dois sentidos).';
 revoke all on function public.fila_prompts_fechar_interno(uuid, text, text, text, numeric, text, text, text) from public, anon, authenticated;
 
--- ── 7b · o LIMITE DE SESSÕES EM VOO — nasce aqui, antes do primeiro uso ─────
--- Estas três funções eram da 0030 (rodada 15). Vieram para cá porque a
--- escolha de conta (§8) e a listagem (§10) desta migration passaram a
--- chamá-las (P2 do Codex no PR #42: o roteamento conhece o limite de voo), e
--- uma função chamada tem de existir no instante em que a migration que a
--- chama termina — o runner aplica cada arquivo num `psql` próprio (P1 do
--- Codex, 6ª rodada). Texto e comentários são os da 0030, sem mudança.
-
--- (1c) O TETO DE SESSÕES EM VOO por conta — a parede que corresponde ao DANO.
--- QUATRO. É exatamente o que um teto de US$ 500 paga na complexidade mais cara
--- que a casa declara (`maxima` = US$ 120): `floor(500/120) = 4`. Ou seja: esta
--- parede não tira NADA que a parede de valor já permitia a preço cheio — ela
--- tira só a possibilidade de comprar concorrência declarando a estimativa
--- barata, que é o dano inteiro deste achado.
---
--- É REGRA NOVA DE PRODUTO, e é declarada como tal: o número não se deriva de
--- mais nada, mora aqui e só aqui. A guarda que o protege não é "ele nunca
--- muda" — o operador pode mudá-lo — é "ele nunca fica decorativo": §5 aborta a
--- migration se K itens no PISO já não couberem no menor teto declarado,
--- porque aí a parede de valor morderia primeiro e esta seria enfeite.
-create or replace function public.painel_fila_maximo_em_voo_por_conta()
-returns integer
-language sql
-immutable
-set search_path = public, pg_temp
-as $$
-  select 4;
-$$;
-comment on function public.painel_fila_maximo_em_voo_por_conta() is
-  'CRÍTICO (rodada 15): quantas sessões a MESMA conta pode ter em voo ao mesmo tempo — QUATRO. O dano do achado é de CONTAGEM, não de soma: a US$ 0,0001 por item, US$ 1 de espaço admite dez mil sessões simultâneas, e uma sessão real da casa custa da ordem de US$ 200 (12/09/2026: US$ 2.513,29 em 12 sessões). Quatro é o que um teto de US$ 500 paga na complexidade mais cara declarada (maxima = 120), então esta parede não tira nada que a de valor já permitia a preço cheio: tira só a compra de concorrência por estimativa barata. Regra de produto, número declarado; §5 da 0030 aborta se ele ficar decorativo diante do piso.';
-revoke all on function public.painel_fila_maximo_em_voo_por_conta() from public, anon, authenticated;
-
--- (1d) A JANELA DE "EM VOO", que já existia escrita à mão em três lugares
--- (o laço de expiração do pull, `painel_fila_reservado` e agora a contagem).
--- Mesma disciplina do ALTO 6 da rodada 14: a lista estava em cinco lugares e
--- tirar a 4ª conta de UM deles passou pelos cinco portões. Aqui a janela passa
--- a sair de uma fonte só ANTES de ganhar o quarto consumidor.
-create or replace function public.painel_fila_janela_em_voo()
-returns interval
-language sql
-immutable
-set search_path = public, pg_temp
-as $$
-  select interval '45 minutes';
-$$;
-comment on function public.painel_fila_janela_em_voo() is
-  'D3 + BAIXO 6 (rodada 8), agora com fonte única (rodada 15): a janela em que um item pego ainda conta como EM EXECUÇÃO — 45 minutos de heartbeat. Estava escrita à mão no laço de expiração do pull, em painel_fila_reservado e ia ganhar uma terceira cópia na contagem de sessões em voo; é a mesma classe de defeito do ALTO 6 (a lista de contas em cinco lugares).';
-revoke all on function public.painel_fila_janela_em_voo() from public, anon, authenticated;
-
--- (1e) A CONTAGEM de sessões em voo — uma definição só, a MESMA de
--- `painel_fila_reservado` (item `pega` com heartbeat vivo). O pull a usa para
--- decidir e o painel a usa para contar a verdade ao lado do headroom.
-create or replace function public.painel_fila_em_voo(p_conta text)
-returns integer
+-- ── 7b · os números que a ESCOLHA de conta lê — uma função só ─────────────
+-- Era um `select jsonb_agg(…)` dentro de `fila_prompts_enfileirar`. Virou
+-- função (PR #42, 8ª rodada do Codex) para que o limite de sessões em voo
+-- entre na escolha no MESMO arquivo em que o pull passa a obedecê-lo (a 0030
+-- a redefine no fim, depois da parede do pull). Aqui ela não fala de voo: uma
+-- 0029 aplicada sozinha anunciaria um limite que ainda não existe.
+create or replace function public.painel_fila_consumos_para_escolha()
+returns jsonb
 language sql
 stable
+security definer
 set search_path = public, pg_temp
 as $$
-  select count(*)::integer
-  from public.painel_fila_prompts f
-  where f.conta = p_conta
-    and f.estado = 'pega'
-    and coalesce(f.heartbeat_em, f.pego_em) >= now() - public.painel_fila_janela_em_voo();
+  select coalesce(jsonb_agg(linha order by ordem), '[]'::jsonb)
+    from (
+      select
+        -- ALTO 6 (rodada 14): a ORDEM sai da mesma fonte da MEMBRESIA.
+        array_position(public.painel_contas_da_casa(), t.conta) as ordem,
+        jsonb_build_object(
+          'conta', t.conta,
+          'teto_usd', t.teto_usd,
+          'medido_usd', public.painel_fila_consumo_hoje(t.conta),
+          'em_execucao_usd', public.painel_fila_reservado(t.conta),
+          'na_fila_usd', public.painel_fila_na_fila(t.conta),
+          'defasagem_horas', public.painel_fila_defasagem_horas(t.conta),
+          'exige_medicao_recente', coalesce(t.exigir_medicao_recente, false)
+        ) as linha
+      from public.painel_teto_diario t
+    ) s;
 $$;
-comment on function public.painel_fila_em_voo(text) is
-  'CRÍTICO (rodada 15): quantas sessões desta conta estão EM VOO agora — mesma definição de painel_fila_reservado (estado pega com heartbeat dentro de painel_fila_janela_em_voo), para que o número que o pull usa para decidir e o número que o painel mostra sejam o mesmo. O headroom anunciado sem esta contagem ao lado era a mentira do painel: US$ 1,00 livres com 40 sessões gastando dinheiro naquele instante.';
-revoke all on function public.painel_fila_em_voo(text) from public, anon, authenticated;
+comment on function public.painel_fila_consumos_para_escolha() is
+  'D42 + PR #42: os números por conta que painel_fila_escolher_conta recebe, na ordem de painel_contas_da_casa(). A 0030 redefine para somar em_voo e limite_em_voo.';
+revoke all on function public.painel_fila_consumos_para_escolha() from public, anon, authenticated;
+
+-- ── 7c · o CONSUMO por conta que a listagem manda para a tela ─────────────
+-- Mesma razão do §7b: a 0030 redefine para somar emVoo/limiteEmVoo.
+create or replace function public.painel_fila_consumo_para_tela()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'conta', t.conta, 'tetoUsd', t.teto_usd,
+      'consumoHojeUsd', public.painel_fila_consumo_hoje(t.conta),
+      'reservadoUsd', public.painel_fila_reservado(t.conta),
+      'naFilaUsd', public.painel_fila_na_fila(t.conta),
+      'estimativaUsd', public.painel_fila_estimativa_usd(t.conta),
+      'estimativaItens', public.painel_fila_estimativa_itens(t.conta),
+      'emEspera', public.painel_fila_em_espera(t.conta),
+      'medidoAteEm', public.painel_fila_medido_ate(t.conta),
+      'defasagemHoras', public.painel_fila_defasagem_horas(t.conta),
+      'exigeMedicaoRecente', coalesce(t.exigir_medicao_recente, false),
+      'historico', (
+        select jsonb_build_object(
+          'dias', h.dias, 'minUsd', h.min_usd,
+          'maxUsd', h.max_usd, 'medianaUsd', h.mediana_usd)
+        from public.painel_fila_historico_medido(t.conta) h
+      )
+    -- ALTO 6 (rodada 14): a ordem sai de `painel_contas_da_casa()`.
+    ) order by array_position(public.painel_contas_da_casa(), t.conta))
+    from public.painel_teto_diario t
+  ), '[]'::jsonb);
+$$;
+comment on function public.painel_fila_consumo_para_tela() is
+  'PR #42: o bloco `consumo` de fila_prompts_listar, por conta, na ordem de painel_contas_da_casa(). A 0030 redefine para somar emVoo e limiteEmVoo.';
+revoke all on function public.painel_fila_consumo_para_tela() from public, anon, authenticated;
 
 -- ── 8 · fila_prompts_enfileirar — fonte única de contas E de ordem ─────────
 -- Texto da 0027 §8, com a lista de contas e a ORDEM DE DESEMPATE (que era a
@@ -820,30 +822,11 @@ begin
       using errcode = 'check_violation';
   end if;
 
-  -- D42: os números, na ORDEM DE `CONTAS` do TS (é ela que desempata).
-  select jsonb_agg(linha order by ordem)
-    into v_consumos
-    from (
-      select
-        -- ALTO 6 (rodada 14): a ORDEM sai da mesma fonte da MEMBRESIA. Era uma
-        -- quinta cópia da lista escrita à mão, com `else 9` para o resto.
-        array_position(public.painel_contas_da_casa(), t.conta) as ordem,
-        jsonb_build_object(
-          'conta', t.conta,
-          'teto_usd', t.teto_usd,
-          'medido_usd', public.painel_fila_consumo_hoje(t.conta),
-          'em_execucao_usd', public.painel_fila_reservado(t.conta),
-          'na_fila_usd', public.painel_fila_na_fila(t.conta),
-          'defasagem_horas', public.painel_fila_defasagem_horas(t.conta),
-          'exige_medicao_recente', coalesce(t.exigir_medicao_recente, false),
-          -- P2 do Codex (PR #42): o limite de voo entra na ESCOLHA, não só no
-          -- pull. As duas funções nascem na 0030 (esta RPC só as chama em
-          -- tempo de execução; as duas migrations se aplicam juntas).
-          'em_voo', public.painel_fila_em_voo(t.conta),
-          'limite_em_voo', public.painel_fila_maximo_em_voo_por_conta()
-        ) as linha
-      from public.painel_teto_diario t
-    ) s;
+  -- D42: os números, na ORDEM DE `CONTAS` do TS (é ela que desempata). Vêm
+  -- de uma função própria desde o PR #42 (8ª rodada do Codex): a 0030 a
+  -- redefine para incluir o limite de sessões em voo NO MESMO arquivo em que
+  -- o pull passa a obedecê-lo — nunca antes.
+  v_consumos := public.painel_fila_consumos_para_escolha();
 
   v_escolha := public.painel_fila_escolher_conta(coalesce(v_consumos, '[]'::jsonb), v_estimado);
 
@@ -926,7 +909,18 @@ begin
     -- entra, mas só sai quando uma sessão fechar. Sem este campo, o cliente
     -- mantinha `auto_maior_espaco` e a frase de sucesso omitia a espera.
     'todas_sem_vaga', nullif(p_payload->>'conta','') is null
-                      and coalesce((v_escolha->>'todas_sem_vaga')::boolean, false)
+                      and coalesce((v_escolha->>'todas_sem_vaga')::boolean, false),
+    -- P2 do Codex (PR #42, 8ª rodada): a conta que RECEBEU o item está no
+    -- limite de sessões em voo agora (vale para a escolha manual, onde não há
+    -- disputa). Lido dos mesmos números da escolha: numa 0029 aplicada
+    -- sozinha eles não trazem o limite e isto sai `false` — o limite só é
+    -- anunciado quando a 0030 já o aplica no pull.
+    'sem_vaga', coalesce((
+      select (x->>'limite_em_voo')::integer > 0
+             and coalesce((x->>'em_voo')::integer, 0) >= (x->>'limite_em_voo')::integer
+        from jsonb_array_elements(coalesce(v_consumos, '[]'::jsonb)) x
+       where x->>'conta' = v_conta
+       limit 1), false)
   );
 end;
 $$;comment on function public.fila_prompts_enfileirar(text, jsonb) is
@@ -1050,37 +1044,9 @@ begin
         from visivel v
         left join livro b on b.item_id = v.id
       ), '[]'::jsonb),
-      'consumo', coalesce((
-        select jsonb_agg(jsonb_build_object(
-          'conta', t.conta, 'tetoUsd', t.teto_usd,
-          'consumoHojeUsd', public.painel_fila_consumo_hoje(t.conta),
-          'reservadoUsd', public.painel_fila_reservado(t.conta),
-          'naFilaUsd', public.painel_fila_na_fila(t.conta),
-          'estimativaUsd', public.painel_fila_estimativa_usd(t.conta),
-          'estimativaItens', public.painel_fila_estimativa_itens(t.conta),
-          'emEspera', public.painel_fila_em_espera(t.conta),
-          'medidoAteEm', public.painel_fila_medido_ate(t.conta),
-          'defasagemHoras', public.painel_fila_defasagem_horas(t.conta),
-          'exigeMedicaoRecente', coalesce(t.exigir_medicao_recente, false),
-          -- P2 do Codex (PR #42): o mesmo par que a escolha usa, para o
-          -- roteador da tela não pôr o selo "escolhida agora" numa conta que
-          -- está no limite de sessões em voo.
-          'emVoo', public.painel_fila_em_voo(t.conta),
-          'limiteEmVoo', public.painel_fila_maximo_em_voo_por_conta(),
-          'historico', (
-            select jsonb_build_object(
-              'dias', h.dias, 'minUsd', h.min_usd,
-              'maxUsd', h.max_usd, 'medianaUsd', h.mediana_usd)
-            from public.painel_fila_historico_medido(t.conta) h
-          )
-        -- ALTO 6 (rodada 14): a ordem sai de `painel_contas_da_casa()`, a MESMA
-        -- fonte da membresia. Era a última cópia da lista escrita à mão dentro
-        -- de uma função viva, e o bloco T82 a acusou por nome. Conta fora da
-        -- lista continua indo para o fim: `array_position` devolve NULL e
-        -- `order by` ordena NULL por último, que é o que o `else 9` fazia.
-        ) order by array_position(public.painel_contas_da_casa(), t.conta))
-        from public.painel_teto_diario t
-      ), '[]'::jsonb),
+      -- PR #42 (8ª rodada do Codex): o bloco por conta mora em
+      -- painel_fila_consumo_para_tela() (§7c), que a 0030 redefine.
+      'consumo', public.painel_fila_consumo_para_tela(),
       'limite', v_limite,
       'temMais', (select count(*) from pagina) > v_limite,
       'proximoAntesDe', (select v.criado_em from visivel v order by v.criado_em asc, v.id asc limit 1),

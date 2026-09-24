@@ -86,6 +86,27 @@ describe("live-client — fila de prompts (contrato HTTP real das RPCs)", () => 
     });
   });
 
+  it("P2 do Codex (PR #42, 8ª rodada): conta escolhida à mão no limite de voo vira 'manual_sem_vaga'", async () => {
+    for (const codigoSql of ["manual_cabe", "manual_nao_cabe_hoje"] as const) {
+      fetchMock.mockResolvedValueOnce(
+        respostaOk({
+          ok: true, id: "abc", conta: "lucasscudeler@gmail.com", complexidade: "alta",
+          modelo_sugerido: "Opus", motivo_codigo: codigoSql, cabe_hoje: codigoSql === "manual_cabe",
+          headroom_usd: 480, espaco_livre_usd: 480, custo_estimado_usd: 50, na_fila_usd: 0,
+          itens_na_frente: 0, sem_vaga: true,
+        }),
+      );
+      const r = await enfileirarPrompt({ prompt: "oi", complexidade: "alta", conta: "lucasscudeler@gmail.com" });
+      expect(r).toMatchObject({ ok: true, motivoCodigo: "manual_sem_vaga" });
+    }
+    expect(
+      fraseDoEnfileiramento("manual_sem_vaga", {
+        conta: "lucasscudeler@gmail.com", complexidade: "alta", headroomUsd: 480,
+        espacoLivreUsd: 480, custoEstimadoUsd: 50, naFilaUsd: 0, itensNaFrente: 0,
+      }),
+    ).toContain("está no limite de sessões em voo agora");
+  });
+
   it("P2 do Codex (PR #42, 7ª rodada): todas as contas no limite de voo viram 'auto_sem_vaga'", async () => {
     for (const codigoSql of ["auto_maior_espaco", "auto_nao_cabe_hoje"] as const) {
       fetchMock.mockResolvedValueOnce(

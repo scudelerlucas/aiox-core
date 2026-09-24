@@ -290,3 +290,22 @@ describe("P1 — migration nenhuma chama função que só nasce depois dela", ()
     expect([...new Set(adiantadas)], "chamada a função que ainda não existe quando a migration termina").toEqual([]);
   });
 });
+
+/**
+ * P1 do Codex (PR #42, 8ª rodada): o limite de sessões em voo só pode ser
+ * ANUNCIADO (escolha de conta, listagem) no mesmo arquivo em que o PULL passa
+ * a obedecê-lo — a 0030. Uma 0029 que o mencionasse, aplicada sozinha,
+ * roteava e mostrava um limite que o pull ainda não aplicava.
+ */
+describe("P1 — a 0029 não anuncia o limite de voo que só a 0030 aplica", () => {
+  it("nenhuma chamada às funções do limite de voo na 0029", () => {
+    const sql = readFileSync(
+      join(PACOTE, "supabase", "migrations", "0029_lifeboard_v3_estimativa_zero_e_a_lista_de_contas.sql"),
+      "utf8",
+    )
+      .split("\n")
+      .map((linha) => linha.replace(/--.*$/, ""))
+      .join("\n");
+    expect(sql).not.toMatch(/painel_fila_em_voo\s*\(|painel_fila_maximo_em_voo_por_conta\s*\(/);
+  });
+});

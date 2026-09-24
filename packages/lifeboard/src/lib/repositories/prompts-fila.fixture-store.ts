@@ -97,6 +97,7 @@ import {
   montarMotivoDoPull,
   origemDoCusto,
   semSinal,
+  semVagaEmVoo,
 } from "@/core/prompts/tipos";
 import { FIXTURE_CONSUMO, FIXTURE_FILA } from "@/lib/repositories/prompts-fila.fixture";
 
@@ -571,8 +572,12 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
   const manualCabe = cabeNoEspaco && !recusaPorMedicao;
   // A2: no automático quem vereditou foi o ROTEADOR (ele já conta D36).
   const cabeHoje = manual ? manualCabe : autoCabeHoje;
+  // P2 do Codex (PR #42, 8ª rodada): conta escolhida à mão no limite de voo.
+  const manualSemVaga = manual && !recusaPorMedicao && semVagaEmVoo(c);
   const motivoCodigo: MotivoEnfileirar = manual
-    ? manualCabe
+    ? manualSemVaga
+      ? "manual_sem_vaga"
+      : manualCabe
       ? "manual_cabe"
       : recusaPorMedicao
         ? "manual_medicao_velha"

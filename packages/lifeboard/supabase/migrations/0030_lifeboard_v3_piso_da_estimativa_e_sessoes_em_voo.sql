@@ -127,13 +127,65 @@ comment on function public.painel_custo_minimo_por_item() is
   'CRÍTICO (rodada 15): PISO de valor por item (US$ 5,00) — irmã de painel_custo_maximo_por_item(). É 1% do teto que o esquema declara como default de painel_teto_diario.teto_usd (500 ÷ painel_fila_itens_simultaneos_maximos_por_valor()). Abaixo de 1% a reserva de um item é indistinguível de reserva nenhuma: medido pelo coordenador, estimativa de US$ 0,0001 despachou 40 sessões em voo com US$ 1,00 de espaço no dia e reserva total de US$ 0,0040 — e US$ 1 admitiria dez mil. Não é o custo mínimo de uma chamada de LLM; é o piso abaixo do qual o freio de valor não frea. Igual à complexidade mais barata do painel (baixa = 5), então nada que a casa declara hoje é recusado.';
 revoke all on function public.painel_custo_minimo_por_item() from public, anon, authenticated;
 
--- (1c)–(1e) O TETO DE SESSÕES EM VOO, A JANELA e A CONTAGEM foram para a 0029
--- (P1 do Codex no PR #42, 6ª rodada): a 0029 passou a chamá-los dentro de
--- `fila_prompts_enfileirar` e `fila_prompts_listar`, e o runner aplica cada
--- migration num `psql` próprio, em autocommit. Definidos aqui, uma aplicação
--- interrompida entre a 0029 e a 0030 — ou uma 0030 abortada por uma das
--- guardas de dado legado abaixo — deixava as duas RPCs no ar chamando função
--- que não existe. Definição única, agora antes do primeiro uso.
+-- (1c) O TETO DE SESSÕES EM VOO por conta — a parede que corresponde ao DANO.
+-- QUATRO. É exatamente o que um teto de US$ 500 paga na complexidade mais cara
+-- que a casa declara (`maxima` = US$ 120): `floor(500/120) = 4`. Ou seja: esta
+-- parede não tira NADA que a parede de valor já permitia a preço cheio — ela
+-- tira só a possibilidade de comprar concorrência declarando a estimativa
+-- barata, que é o dano inteiro deste achado.
+--
+-- É REGRA NOVA DE PRODUTO, e é declarada como tal: o número não se deriva de
+-- mais nada, mora aqui e só aqui. A guarda que o protege não é "ele nunca
+-- muda" — o operador pode mudá-lo — é "ele nunca fica decorativo": §5 aborta a
+-- migration se K itens no PISO já não couberem no menor teto declarado,
+-- porque aí a parede de valor morderia primeiro e esta seria enfeite.
+create or replace function public.painel_fila_maximo_em_voo_por_conta()
+returns integer
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select 4;
+$$;
+comment on function public.painel_fila_maximo_em_voo_por_conta() is
+  'CRÍTICO (rodada 15): quantas sessões a MESMA conta pode ter em voo ao mesmo tempo — QUATRO. O dano do achado é de CONTAGEM, não de soma: a US$ 0,0001 por item, US$ 1 de espaço admite dez mil sessões simultâneas, e uma sessão real da casa custa da ordem de US$ 200 (12/09/2026: US$ 2.513,29 em 12 sessões). Quatro é o que um teto de US$ 500 paga na complexidade mais cara declarada (maxima = 120), então esta parede não tira nada que a de valor já permitia a preço cheio: tira só a compra de concorrência por estimativa barata. Regra de produto, número declarado; §5 da 0030 aborta se ele ficar decorativo diante do piso.';
+revoke all on function public.painel_fila_maximo_em_voo_por_conta() from public, anon, authenticated;
+
+-- (1d) A JANELA DE "EM VOO", que já existia escrita à mão em três lugares
+-- (o laço de expiração do pull, `painel_fila_reservado` e agora a contagem).
+-- Mesma disciplina do ALTO 6 da rodada 14: a lista estava em cinco lugares e
+-- tirar a 4ª conta de UM deles passou pelos cinco portões. Aqui a janela passa
+-- a sair de uma fonte só ANTES de ganhar o quarto consumidor.
+create or replace function public.painel_fila_janela_em_voo()
+returns interval
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select interval '45 minutes';
+$$;
+comment on function public.painel_fila_janela_em_voo() is
+  'D3 + BAIXO 6 (rodada 8), agora com fonte única (rodada 15): a janela em que um item pego ainda conta como EM EXECUÇÃO — 45 minutos de heartbeat. Estava escrita à mão no laço de expiração do pull, em painel_fila_reservado e ia ganhar uma terceira cópia na contagem de sessões em voo; é a mesma classe de defeito do ALTO 6 (a lista de contas em cinco lugares).';
+revoke all on function public.painel_fila_janela_em_voo() from public, anon, authenticated;
+
+-- (1e) A CONTAGEM de sessões em voo — uma definição só, a MESMA de
+-- `painel_fila_reservado` (item `pega` com heartbeat vivo). O pull a usa para
+-- decidir e o painel a usa para contar a verdade ao lado do headroom.
+create or replace function public.painel_fila_em_voo(p_conta text)
+returns integer
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select count(*)::integer
+  from public.painel_fila_prompts f
+  where f.conta = p_conta
+    and f.estado = 'pega'
+    and coalesce(f.heartbeat_em, f.pego_em) >= now() - public.painel_fila_janela_em_voo();
+$$;
+comment on function public.painel_fila_em_voo(text) is
+  'CRÍTICO (rodada 15): quantas sessões desta conta estão EM VOO agora — mesma definição de painel_fila_reservado (estado pega com heartbeat dentro de painel_fila_janela_em_voo), para que o número que o pull usa para decidir e o número que o painel mostra sejam o mesmo. O headroom anunciado sem esta contagem ao lado era a mentira do painel: US$ 1,00 livres com 40 sessões gastando dinheiro naquele instante.';
+revoke all on function public.painel_fila_em_voo(text) from public, anon, authenticated;
 
 -- ── 2 · PRIMEIRA PAREDE · o piso na tabela de estimativas ──────────────────
 -- A migration ABORTA se o banco já tiver estimativa abaixo do piso: ajustar o
@@ -1121,3 +1173,79 @@ $$;
 comment on function public.painel_fila_escolher_conta(jsonb, numeric) is
   'D42 (rodada 9) + limite de voo (PR #42): a regra de roteamento como FUNÇÃO PURA — espelho de escolherConta (src/core/prompts/roteador.ts), provado caso a caso pelo bloco T42 e por tests/unit/prompts-paridade-chooser.test.ts sobre o MESMO literal. Dentro da disputa, conta com VAGA de sessão em voo vem antes de conta no limite; sem nenhuma com vaga, a disputa é entre todas e todas_sem_vaga=true. cabe_hoje segue sendo dinheiro.';
 revoke all on function public.painel_fila_escolher_conta(jsonb, numeric) from public, anon, authenticated;
+
+-- ── P1 do Codex (PR #42, 8ª rodada) · o limite de voo chega à ESCOLHA e à
+-- TELA no mesmo arquivo em que o PULL passa a obedecê-lo ─────────────────────
+-- As duas funções abaixo nasceram na 0029 sem falar de voo. Antes, a 0029
+-- montava os números com `em_voo` e `limite_em_voo` dentro das próprias RPCs:
+-- aplicada sozinha (o runner aplica cada arquivo num `psql` próprio, e a 0030
+-- pode abortar nas guardas de dado legado), a casa anunciava e roteava por um
+-- limite que o pull — ainda o da 0029 — não aplicava. Redefinidas aqui, no
+-- fim da 0030, elas só passam a falar do limite depois de o pull (§ acima)
+-- já recusar a quinta sessão.
+create or replace function public.painel_fila_consumos_para_escolha()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(linha order by ordem), '[]'::jsonb)
+    from (
+      select
+        array_position(public.painel_contas_da_casa(), t.conta) as ordem,
+        jsonb_build_object(
+          'conta', t.conta,
+          'teto_usd', t.teto_usd,
+          'medido_usd', public.painel_fila_consumo_hoje(t.conta),
+          'em_execucao_usd', public.painel_fila_reservado(t.conta),
+          'na_fila_usd', public.painel_fila_na_fila(t.conta),
+          'defasagem_horas', public.painel_fila_defasagem_horas(t.conta),
+          'exige_medicao_recente', coalesce(t.exigir_medicao_recente, false),
+          -- P2 do Codex (PR #42): o limite de voo entra na ESCOLHA.
+          'em_voo', public.painel_fila_em_voo(t.conta),
+          'limite_em_voo', public.painel_fila_maximo_em_voo_por_conta()
+        ) as linha
+      from public.painel_teto_diario t
+    ) s;
+$$;
+comment on function public.painel_fila_consumos_para_escolha() is
+  'D42 + PR #42: os números por conta que painel_fila_escolher_conta recebe, na ordem de painel_contas_da_casa(), agora com em_voo e limite_em_voo — redefinida na 0030, depois da parede do pull.';
+revoke all on function public.painel_fila_consumos_para_escolha() from public, anon, authenticated;
+
+create or replace function public.painel_fila_consumo_para_tela()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'conta', t.conta, 'tetoUsd', t.teto_usd,
+      'consumoHojeUsd', public.painel_fila_consumo_hoje(t.conta),
+      'reservadoUsd', public.painel_fila_reservado(t.conta),
+      'naFilaUsd', public.painel_fila_na_fila(t.conta),
+      'estimativaUsd', public.painel_fila_estimativa_usd(t.conta),
+      'estimativaItens', public.painel_fila_estimativa_itens(t.conta),
+      'emEspera', public.painel_fila_em_espera(t.conta),
+      'medidoAteEm', public.painel_fila_medido_ate(t.conta),
+      'defasagemHoras', public.painel_fila_defasagem_horas(t.conta),
+      'exigeMedicaoRecente', coalesce(t.exigir_medicao_recente, false),
+      -- P2 do Codex (PR #42): o mesmo par que a escolha usa, para o cartão
+      -- não convidar uma conta no limite de sessões em voo.
+      'emVoo', public.painel_fila_em_voo(t.conta),
+      'limiteEmVoo', public.painel_fila_maximo_em_voo_por_conta(),
+      'historico', (
+        select jsonb_build_object(
+          'dias', h.dias, 'minUsd', h.min_usd,
+          'maxUsd', h.max_usd, 'medianaUsd', h.mediana_usd)
+        from public.painel_fila_historico_medido(t.conta) h
+      )
+    ) order by array_position(public.painel_contas_da_casa(), t.conta))
+    from public.painel_teto_diario t
+  ), '[]'::jsonb);
+$$;
+comment on function public.painel_fila_consumo_para_tela() is
+  'PR #42: o bloco `consumo` de fila_prompts_listar, agora com emVoo e limiteEmVoo — redefinida na 0030, depois da parede do pull.';
+revoke all on function public.painel_fila_consumo_para_tela() from public, anon, authenticated;

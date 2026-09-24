@@ -1014,6 +1014,20 @@ begin
   v_estornar := v_liquido;
   if v_liquido > 0 then
     v_estornar := least(v_liquido, greatest(v_hoje_ent, 0) + v_alvo);
+    -- P2 do Codex (PR #42, 8ª rodada): o estorno também não passa do valor
+    -- do lançamento que ele REFERENCIA (`estorna_id = v_ultimo`). Com a D54 o
+    -- líquido da entidade pode guardar crédito de dias anteriores, maior que
+    -- o lançamento vigente: 100 anteontem, corrigido para 40 ontem (líquido
+    -- 100, vigente 40), corrigido para 50 hoje gravava −50 apontando para os
+    -- 40 — um livro imutável dizendo que anulou mais do que existia. Agora o
+    -- estorno é −40 e o dia de hoje recebe +10, a diferença real entre o
+    -- vigente e o número novo. O crédito antigo continua sem dia (D54).
+    -- Bloco que prova: T98.
+    if v_ultimo is not null then
+      v_estornar := least(
+        v_estornar,
+        greatest((select l.valor_usd from public.painel_caixa_lancamentos l where l.id = v_ultimo), 0));
+    end if;
   end if;
   v_liquido_novo := v_liquido - v_estornar + v_alvo;
 

@@ -5694,6 +5694,7 @@ declare
   v_i int;
   v_id uuid;
   v_r jsonb;
+  v_manual jsonb;
 begin
   -- As QUATRO contas são de prova aqui: a escolha automática olha todas.
   delete from public.painel_frentes_sessoes where conta = any (v_contas);
@@ -5721,8 +5722,14 @@ begin
   v_r := public.fila_prompts_enfileirar(
     (select valor from private.lifeboard_config where chave = 'load_secret'),
     jsonb_build_object('prompt', 'T96 item novo', 'complexidade', 'alta'));
+  -- 8ª rodada: a mesma conta cheia, escolhida À MÃO, avisa que não sai agora.
+  v_manual := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T96 manual na cheia', 'complexidade', 'alta', 'conta', v_cheia));
 
-  if public.painel_fila_em_voo(v_cheia) = public.painel_fila_maximo_em_voo_por_conta()
+  if (v_manual->>'sem_vaga')::boolean is true
+     and (v_r->>'sem_vaga')::boolean is false
+     and public.painel_fila_em_voo(v_cheia) = public.painel_fila_maximo_em_voo_por_conta()
      and v_r->>'conta' is not null
      and v_r->>'conta' <> v_cheia
      and v_r->>'conta' = v_contas[2]
@@ -5732,8 +5739,8 @@ begin
     raise exception 'RESULTADO: ok — T96 a conta no limite (% em voo) é pulada; o item foi para % (puladas_sem_vaga=%)',
       public.painel_fila_em_voo(v_cheia), v_r->>'conta', v_r->>'puladas_sem_vaga';
   end if;
-  raise exception 'FALHA: T96 esperado o item fora de % (no limite) e em % — obteve %',
-    v_cheia, v_contas[2], v_r;
+  raise exception 'FALHA: T96 esperado o item fora de % (no limite) e em %, e a escolha manual da cheia com sem_vaga — obteve auto=% manual=%',
+    v_cheia, v_contas[2], v_r, v_manual;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -5779,4 +5786,52 @@ begin
       v_r->>'conta', v_r->>'todas_sem_vaga';
   end if;
   raise exception 'FALHA: T97 esperado todas_sem_vaga=true e puladas_sem_vaga=0 — obteve %', v_r;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T98 · P2 do Codex (PR #42, 8ª rodada) — O ESTORNO NUNCA PASSA DO VALOR DO
+-- LANÇAMENTO QUE ELE REFERENCIA
+-- Anteontem a sessão mediu 100. Ontem foi corrigida para 40 (estorno de −40
+-- apontando para os 100, lançamento de 40): pela D54 o líquido da entidade
+-- ficou 100 e o vigente é o 40. Hoje, nova correção para 50. Antes: estorno
+-- de −50 apontando para o lançamento de 40. Agora: −40 para o 40, +50 novo,
+-- e o dia de hoje recebe os +10 da diferença.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o `least(…, valor do
+-- lançamento referenciado)` de `painel_caixa_lancar` (0027).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_a uuid := gen_random_uuid();
+  v_excede int;
+  v_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_caixa_lancamentos
+    (id, dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, medido_em, nota)
+  values (v_a, public.painel_dia_operador() - 2, v_conta, 100, 'medido', 'sessao', 'sess-T98', 30, now(), 'T98 anteontem');
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, estorna_id, precedencia, nota)
+  values (public.painel_dia_operador() - 1, v_conta, -40, 'estorno', 'sessao', 'sess-T98', v_a, 30, 'T98 ontem: estorno');
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, medido_em, nota)
+  values (public.painel_dia_operador() - 1, v_conta, 40, 'medido', 'sessao', 'sess-T98', 30, now(), 'T98 ontem: 40');
+
+  perform public.painel_caixa_lancar('sessao', 'sess-T98', v_conta, 50::numeric, 'medido',
+                                     null::uuid, 'sess-T98', now(), 'T98 hoje: 50');
+
+  select count(*) into v_excede
+    from public.painel_caixa_lancamentos e
+    join public.painel_caixa_lancamentos r on r.id = e.estorna_id
+   where e.entidade_id = 'sess-T98' and -e.valor_usd > r.valor_usd;
+  v_hoje := public.painel_fila_consumo_hoje(v_conta);
+
+  if v_excede = 0 and v_hoje = 10 then
+    raise exception 'RESULTADO: ok — T98 nenhum estorno passa do lançamento que referencia; hoje recebe % (a diferença 40→50)', v_hoje;
+  end if;
+  raise exception 'FALHA: T98 esperado 0 estornos maiores que o referenciado e hoje = 10 — obteve excedentes=% hoje=%',
+    v_excede, v_hoje;
 end $$;
