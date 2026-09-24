@@ -5735,3 +5735,48 @@ begin
   raise exception 'FALHA: T96 esperado o item fora de % (no limite) e em % — obteve %',
     v_cheia, v_contas[2], v_r;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T97 · P2 do Codex (PR #42, 7ª rodada) — COM TODAS AS CONTAS NO LIMITE DE
+-- VOO, O ENFILEIRAMENTO DIZ QUE O ITEM VAI ESPERAR
+-- Cada conta da casa com o limite cheio de sessões em voo. A escolha
+-- automática volta a ser entre todas (alguma recebe o item), mas a resposta
+-- agora traz `todas_sem_vaga=true` — sem ela, a frase de sucesso dizia "é a
+-- conta com maior espaço livre" e omitia que nada sai até uma sessão fechar.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar `todas_sem_vaga` do retorno de
+-- `fila_prompts_enfileirar` (0029).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_contas text[] := public.painel_contas_da_casa();
+  v_c text;
+  v_i int;
+  v_r jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = any (v_contas);
+  delete from public.painel_fila_prompts where conta = any (v_contas);
+  delete from public.painel_caixa_lancamentos where conta = any (v_contas);
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta = any (v_contas);
+
+  foreach v_c in array v_contas loop
+    for v_i in 1..public.painel_fila_maximo_em_voo_por_conta() loop
+      insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, estado,
+                                              worker_id, pego_em, heartbeat_em, custo_estimado_usd)
+      values (v_c, format('T97 %s em voo %s', v_c, v_i), 'baixa', 'Haiku', 'pega',
+              format('w-T97-%s-%s', v_c, v_i), now(), now(), 5);
+    end loop;
+  end loop;
+
+  v_r := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T97 item novo', 'complexidade', 'alta'));
+
+  if v_r->>'conta' is not null
+     and (v_r->>'todas_sem_vaga')::boolean is true
+     and (v_r->>'puladas_sem_vaga')::int = 0 then
+    raise exception 'RESULTADO: ok — T97 todas no limite: o item foi para % e a resposta avisa (todas_sem_vaga=%)',
+      v_r->>'conta', v_r->>'todas_sem_vaga';
+  end if;
+  raise exception 'FALHA: T97 esperado todas_sem_vaga=true e puladas_sem_vaga=0 — obteve %', v_r;
+end $$;

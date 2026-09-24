@@ -512,6 +512,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
   let autoCabeHoje = false;
   let autoTodasRecusadas = false;
   let autoPuladasSemVaga = 0;
+  let autoTodasSemVaga = false;
 
   if (input.conta) {
     if (!contaValida(input.conta)) {
@@ -543,6 +544,7 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     autoCabeHoje = escolha.cabeHoje;
     autoTodasRecusadas = escolha.todasRecusadas;
     autoPuladasSemVaga = escolha.puladasSemVaga;
+    autoTodasSemVaga = escolha.todasSemVaga;
   }
 
   const c = consumos.find((x) => x.conta === conta) as ConsumoConta;
@@ -575,7 +577,10 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
       : recusaPorMedicao
         ? "manual_medicao_velha"
         : "manual_nao_cabe_hoje"
-    : autoCabeHoje
+    : // P2 do Codex (PR #42, 7ª rodada): TODAS as contas no limite de voo.
+      autoTodasSemVaga && !autoTodasRecusadas
+      ? "auto_sem_vaga"
+      : autoCabeHoje
       ? autoPuladasSemVaga > 0
         ? "auto_maior_espaco_com_vaga"
         : "auto_maior_espaco"

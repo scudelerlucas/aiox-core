@@ -423,6 +423,7 @@ export async function enfileirarPrompt(payload: {
       itens_na_frente?: number;
       todas_recusadas?: boolean;
       puladas_sem_vaga?: number;
+      todas_sem_vaga?: boolean;
     };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
@@ -441,10 +442,15 @@ export async function enfileirarPrompt(payload: {
     // P2 do Codex (PR #42, 6ª rodada): a escolha pulou conta no limite de
     // sessões em voo — a frase diz "entre as que têm vaga".
     const pulouSemVaga = numeroOu(body.puladas_sem_vaga, 0) > 0;
+    const autoSemVaga =
+      body.todas_sem_vaga === true &&
+      (body.motivo_codigo === "auto_maior_espaco" || body.motivo_codigo === "auto_nao_cabe_hoje");
     const codigo =
       body.motivo_codigo === "auto_nao_cabe_hoje" && body.todas_recusadas === true
         ? "auto_medicao_velha"
-        : pulouSemVaga && body.motivo_codigo === "auto_maior_espaco"
+        : autoSemVaga
+          ? "auto_sem_vaga"
+          : pulouSemVaga && body.motivo_codigo === "auto_maior_espaco"
           ? "auto_maior_espaco_com_vaga"
           : pulouSemVaga && body.motivo_codigo === "auto_nao_cabe_hoje"
             ? "auto_nao_cabe_hoje_com_vaga"

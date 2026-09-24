@@ -838,6 +838,9 @@ export const MOTIVOS_ENFILEIRAR = [
   // de ser verdade — a mais folgada pode ser justamente a que ficou de fora.
   "auto_maior_espaco_com_vaga",
   "auto_nao_cabe_hoje_com_vaga",
+  // P2 do Codex (PR #42, 7ª rodada): TODAS as contas estão no limite de
+  // sessões em voo. O item entra, mas não sai agora — a frase diz a espera.
+  "auto_sem_vaga",
 ] as const;
 export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
 
@@ -902,6 +905,14 @@ export function fraseDoEnfileiramento(
         `livres para uma tarefa ${complexidade} contando a fila parada — a mais folgada entre elas tem ` +
         `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. As contas no limite ` +
         `de sessões em voo ficaram de fora. Entra na fila e roda quando houver espaço.`
+      );
+    case "auto_sem_vaga":
+      return (
+        `Enfileirado para ${conta}: todas as contas estão no limite de sessões em voo agora, ` +
+        `então o item só sai quando uma sessão fechar. ${conta} é a de maior espaço livre ` +
+        `(${formatarUsd(espaco)} para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})` +
+        `${detalheDaFila}` +
+        (espaco >= n.custoEstimadoUsd ? "." : ", e o dia ainda precisa ter espaço para ele.")
       );
     case "manual_cabe":
       return (

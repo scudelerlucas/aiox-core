@@ -921,7 +921,12 @@ begin
     -- escolha manual não houve disputa. O cliente troca o código da frase
     -- quando é maior que zero (mesmo padrão de `todas_recusadas`).
     'puladas_sem_vaga', case when nullif(p_payload->>'conta','') is null
-                             then coalesce((v_escolha->>'puladas_sem_vaga')::integer, 0) else 0 end
+                             then coalesce((v_escolha->>'puladas_sem_vaga')::integer, 0) else 0 end,
+    -- P2 do Codex (PR #42, 7ª rodada): TODAS as contas no limite — o item
+    -- entra, mas só sai quando uma sessão fechar. Sem este campo, o cliente
+    -- mantinha `auto_maior_espaco` e a frase de sucesso omitia a espera.
+    'todas_sem_vaga', nullif(p_payload->>'conta','') is null
+                      and coalesce((v_escolha->>'todas_sem_vaga')::boolean, false)
   );
 end;
 $$;comment on function public.fila_prompts_enfileirar(text, jsonb) is
