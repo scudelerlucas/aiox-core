@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { escolherConta } from "@/core/prompts/roteador";
 import type { Complexidade, ConsumoConta } from "@/core/prompts/tipos";
-import { CONTAS, custoEstimadoParaComplexidade } from "@/core/prompts/tipos";
+import { CONTAS, custoEstimadoParaComplexidade, fraseDoEnfileiramento } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — MÉDIO 1 (rodada 9): A PARIDADE DO CHOOSER É PROVADA,
@@ -42,6 +42,8 @@ interface ContaDoCaso {
   na_fila_usd: number;
   defasagem_horas: number | null;
   exige_medicao_recente: boolean;
+  em_voo?: number;
+  limite_em_voo?: number | null;
 }
 
 interface CasoDeParidade {
@@ -55,6 +57,7 @@ interface CasoDeParidade {
     todas_recusadas: boolean;
     nunca_cabe: boolean;
     espaco_livre_usd: number;
+    todas_sem_vaga?: boolean;
   };
 }
 
@@ -86,6 +89,8 @@ function paraConsumo(c: ContaDoCaso): ConsumoConta {
     defasagemHoras: c.defasagem_horas,
     exigeMedicaoRecente: c.exige_medicao_recente,
     historico: null,
+    ...(c.em_voo === undefined ? {} : { emVoo: c.em_voo }),
+    ...(c.limite_em_voo === undefined ? {} : { limiteEmVoo: c.limite_em_voo }),
   };
 }
 
@@ -97,6 +102,10 @@ describe("MÉDIO 1 — o chooser do TS e o do SQL escolhem a mesma conta", () =>
     const nomes = casos.map((c) => c.nome).join(" | ");
     expect(nomes).toContain("MEDIO 1");
     expect(nomes).toContain("BAIXO 4");
+    // P2 do Codex (PR #42): o limite de sessões em voo entra na escolha.
+    expect(nomes).toContain("LIMITE DE VOO");
+    // P2 do Codex (PR #42, 12ª rodada): conta sem medição nenhuma fora do fallback.
+    expect(nomes).toContain("NUNCA MEDIU FORA DO FALLBACK");
     // Cada caso lista as TRÊS contas da casa, na ordem de `CONTAS` — é essa
     // ordem que desempata dos dois lados.
     for (const caso of casos) {
@@ -126,8 +135,30 @@ describe("MÉDIO 1 — o chooser do TS e o do SQL escolhem a mesma conta", () =>
       if (!caso.esperado.nunca_cabe) {
         expect(escolha.espacoLivreUsd, "espaço livre").toBe(caso.esperado.espaco_livre_usd);
       }
+      if (caso.esperado.todas_sem_vaga !== undefined) {
+        expect(escolha.todasSemVaga, "todas sem vaga").toBe(caso.esperado.todas_sem_vaga);
+      }
     });
   }
+
+  it("P2 do Codex (PR #42): com conta cheia pulada, a frase diz 'entre as contas com vaga'", () => {
+    const caso = casos.find((c) => c.nome.startsWith("LIMITE DE VOO: a mais folgada"));
+    expect(caso, "a tabela precisa ter o caso da conta cheia pulada").toBeDefined();
+    const escolha = escolherConta(
+      (caso as CasoDeParidade).contas.map(paraConsumo),
+      (caso as CasoDeParidade).complexidade,
+      Date.now(),
+    );
+    expect(escolha.puladasSemVaga).toBe(1);
+    expect(escolha.motivo).toContain("entre as contas com vaga de sessão");
+    expect(escolha.motivo).toContain("ficaram de fora");
+    expect(
+      fraseDoEnfileiramento("auto_maior_espaco_com_vaga", {
+        conta: "lsgpandora@gmail.com", complexidade: "alta", headroomUsd: 200,
+        espacoLivreUsd: 200, custoEstimadoUsd: 50, naFilaUsd: 0, itensNaFrente: 0,
+      }),
+    ).toContain("maior espaço livre hoje entre as que têm vaga de sessão");
+  });
 
   it("o caso 'todas recusadas' produz a frase que diz por que ninguém foi convidado", () => {
     const caso = casos.find((c) => c.esperado.todas_recusadas);

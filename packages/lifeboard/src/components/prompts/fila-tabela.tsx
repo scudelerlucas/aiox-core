@@ -18,13 +18,17 @@ import { formatRelativeTime } from "@/lib/format-relative-time";
 import { hojeNoFusoDoOperador } from "@/lib/fuso";
 import type { ItemFilaPrompt } from "@/core/prompts/tipos";
 import {
+  POSTO_ESTIMATIVA,
+  POSTO_OPERADOR,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
+  custoAoCancelarUsd,
+  custoNaTela,
   descricaoExecucao,
   formatarUsd,
+  livroAceita,
   origemDoCusto,
   semSinal,
-  textoOrigemDoCusto,
   textoSemAjuste,
 } from "@/core/prompts/tipos";
 
@@ -88,16 +92,16 @@ function podeCancelar(item: ItemFilaPrompt): boolean {
 
 /**
  * MÉDIO 6 (rodada 9): quanto o cancelamento DESTE item vai lançar no gasto de
- * hoje. Espelho literal de `fila_prompts_cancelar` (0019 §13, cláusula D12):
- * item que JÁ TEVE DONO — está em execução, ou voltou para a fila depois de
- * pelo menos uma tentativa — lança o custo estimado, limitado a 500. Item que
- * nunca foi pego não lança nada; item que já tem custo gravado também não.
+ * hoje. Espelho de `fila_prompts_cancelar` (0027 §10, cláusula D12).
+ *
+ * MÉDIO 3 (rodada 13): a regra inteira mudou de casa — ela vive em
+ * `custoAoCancelarUsd`, junto da leitura do livro, porque a metade que faltava
+ * aqui era justamente a do livro: a estimativa da casa tem posto 10 e é
+ * RECUSADA quando a entidade do item já guarda medição. Esta função continua
+ * existindo como o nome que a linha chama.
  */
 function custoAoCancelar(item: ItemFilaPrompt): number {
-  const jaTeveDono = item.estado === "pega" || item.tentativas > 0;
-  if (!jaTeveDono) return 0;
-  if (item.custoUsd !== null) return 0;
-  return Math.min(item.custoEstimadoUsd, 500);
+  return custoAoCancelarUsd(item);
 }
 
 /**
@@ -120,6 +124,13 @@ function custoAoCancelar(item: ItemFilaPrompt): number {
  * deixou de ser a porta dos fundos que reabria tudo.
  */
 export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
+  // MÉDIO 3 (rodada 13): A PRIMEIRA PERGUNTA É A DO BANCO. `fila_prompts_
+  // ajustar_custo` recusa quando o lançamento ATIVO da entidade tem posto
+  // acima do operador (D53) — e a coluna do item não sabe disso. Medido: item
+  // `cancelada`, `custo_origem=estimativa`, sessão com US$ 300 publicados; o
+  // botão aparecia e a RPC respondia "Este custo já foi medido pela sessão".
+  // Nenhuma superfície convida para o que o banco vai recusar.
+  if (!livroAceita(item, POSTO_OPERADOR)) return false;
   const origem = origemDoCusto(item);
   if (origem !== "estimativa" && origem !== "medido-zero" && origem !== "ajustado") return false;
   if (item.estado !== "falhou" && item.estado !== "cancelada") return false;
@@ -134,13 +145,14 @@ export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
  * "medido pela sessão" é uma frase, não um silêncio.
  */
 function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
-  if (item.custoUsd === null) return <span className="text-bone-400">—</span>;
-  const origem = origemDoCusto(item);
-  const nota = textoOrigemDoCusto(item);
-  const atencao = origem === "estimativa" || origem === "medido-zero";
+  // MÉDIO 3 (rodada 13): o número impresso é o que o DIA cobra — o do livro
+  // quando ele discorda da coluna do item. O travessão em `bone-400` é a P5:
+  // `bone-500` sobre o painel dava 4,01:1, abaixo da régua.
+  const { valorUsd, nota, atencao } = custoNaTela(item);
+  if (valorUsd === null) return <span className="text-bone-400">—</span>;
   return (
     <span className={atencao ? "text-state-progress" : undefined}>
-      {formatarUsd(item.custoUsd)}
+      {formatarUsd(valorUsd)}
       {nota ? (
         <span
           className={`block text-[11px] ${atencao ? "text-state-progress" : "text-bone-400"}`}
@@ -176,6 +188,44 @@ interface RespostasDaLinha {
 
 const AJUSTE_VAZIO: EstadoDoAjuste = { aberto: false, valor: "", sessao: "" };
 
+/**
+ * O estado com que o painel de "ajustar custo" NASCE para um item.
+ *
+ * O valor de partida é o custo atual do item — e ele NÃO entra no mapa de
+ * estados até o operador mexer, para o `router.refresh()` não sobrescrever o
+ * que ele acabou de digitar.
+ *
+ * CRÍTICO 2 (rodada 12): a SESSÃO de partida é a que o item JÁ TEM. O campo
+ * nascia vazio mesmo com sessão vinculada — e um campo de digitação livre que
+ * nasce vazio convida a digitar outra coisa. Foi por essa porta que o crítico
+ * mediu "um item de US$ 30 custando US$ 80 no dia": o ajuste trocava a sessão
+ * e o dinheiro da antiga ficava sem dono. O banco já não deixa mais isso
+ * acontecer (a fusão de entidade da migration 0027 §7 esvazia a entidade
+ * antiga); aqui a tela para de PROPOR a troca.
+ */
+export function estadoInicialDoAjuste(item: ItemFilaPrompt): EstadoDoAjuste {
+  return {
+    ...AJUSTE_VAZIO,
+    valor: item.custoUsd === null ? "" : item.custoUsd.toFixed(2),
+    sessao: item.sessionId ?? "",
+  };
+}
+
+/**
+ * A primeira mexida no painel de ajuste parte do estado INICIAL do item, não
+ * do vazio (P2 do Codex no PR #42). Com o vazio como ponto de partida, o
+ * clique em "ajustar custo" gravava `{ aberto: true }` por cima de um estado
+ * sem nada, e o formulário abria sem a sessão vinculada e sem o custo atual —
+ * desfazendo o CRÍTICO 2 da rodada 12 no primeiro clique.
+ */
+export function aplicarMudancaNoAjuste(
+  mapa: Readonly<Record<string, EstadoDoAjuste>>,
+  item: ItemFilaPrompt,
+  patch: Partial<EstadoDoAjuste>,
+): Record<string, EstadoDoAjuste> {
+  return { ...mapa, [item.id]: { ...(mapa[item.id] ?? estadoInicialDoAjuste(item)), ...patch } };
+}
+
 function temTexto(estado: EstadoAcaoPrompt | undefined): boolean {
   return Boolean(estado && (estado.mensagem || estado.erro));
 }
@@ -195,7 +245,7 @@ function AcoesDaLinha({
   respostas: RespostasDaLinha | undefined;
   aoResponder: (id: string, qual: "cancelar" | "ajustar", estado: EstadoAcaoPrompt) => void;
   ajuste: EstadoDoAjuste;
-  aoMudarAjuste: (id: string, patch: Partial<EstadoDoAjuste>) => void;
+  aoMudarAjuste: (item: ItemFilaPrompt, patch: Partial<EstadoDoAjuste>) => void;
   /** BAIXO 2 (rodada 8): a confirmação de cancelar também mora na LINHA. */
   confirmandoCancelar: boolean;
   aoMudarConfirmarCancelar: (id: string, armado: boolean) => void;
@@ -220,7 +270,7 @@ function AcoesDaLinha({
   const acaoAjustar = useAcaoPrompt(
     ajustarCustoPromptAction,
     () => {
-      aoMudarAjuste(item.id, { aberto: false });
+      aoMudarAjuste(item, { aberto: false });
       setPedidoDeFocoAjuste((n) => n + 1);
     },
     (estado) => {
@@ -277,6 +327,7 @@ function AcoesDaLinha({
         emExecucao={item.estado === "pega"}
         podeCancelar={podeCancelar(item)}
         custoAoCancelarUsd={custoAoCancelar(item)}
+        jaMedidoPelaSessao={!livroAceita(item, POSTO_ESTIMATIVA)}
         pendente={acaoCancelar.pendente}
         confirmando={confirmandoCancelar}
         aoMudarConfirmando={aoMudarConfirmarCancelar}
@@ -287,7 +338,7 @@ function AcoesDaLinha({
         podeAjustar={ajustavel}
         pendente={acaoAjustar.pendente}
         estado={ajuste}
-        aoMudarEstado={(patch) => aoMudarAjuste(item.id, patch)}
+        aoMudarEstado={(patch) => aoMudarAjuste(item, patch)}
         aoSalvar={dispararAjuste}
         fraseSemAjuste={ajustavel ? null : textoSemAjuste(item)}
         refDaMensagem={mensagemRef}
@@ -348,16 +399,13 @@ export function FilaTabela({
   function mudarConfirmarCancelar(id: string, armado: boolean): void {
     setConfirmandoCancelar((atual) => ({ ...atual, [id]: armado }));
   }
-  function mudarAjuste(id: string, patch: Partial<EstadoDoAjuste>): void {
-    setAjustes((atual) => ({ ...atual, [id]: { ...(atual[id] ?? AJUSTE_VAZIO), ...patch } }));
+  function mudarAjuste(item: ItemFilaPrompt, patch: Partial<EstadoDoAjuste>): void {
+    setAjustes((atual) => aplicarMudancaNoAjuste(atual, item, patch));
   }
   function ajusteDe(item: ItemFilaPrompt): EstadoDoAjuste {
     const guardado = ajustes[item.id];
     if (guardado) return guardado;
-    // O valor de partida é o custo atual do item — e ele NÃO entra no mapa até
-    // o operador mexer, para o `router.refresh()` não sobrescrever o que ele
-    // acabou de digitar.
-    return { ...AJUSTE_VAZIO, valor: item.custoUsd === null ? "" : item.custoUsd.toFixed(2) };
+    return estadoInicialDoAjuste(item);
   }
 
   const limite = limiteAtual ?? 50;
@@ -485,9 +533,9 @@ export function FilaTabela({
             </div>
             <div className="mt-2 flex items-start justify-between gap-2">
               <p className="text-xs text-bone-400">
-                {item.custoUsd !== null
-                  ? `${formatarUsd(item.custoUsd)}${
-                      textoOrigemDoCusto(item) ? ` (${textoOrigemDoCusto(item)})` : ""
+                {custoNaTela(item).valorUsd !== null
+                  ? `${formatarUsd(custoNaTela(item).valorUsd as number)}${
+                      custoNaTela(item).nota ? ` (${custoNaTela(item).nota})` : ""
                     }`
                   : "sem custo ainda"}
                 {item.sessaoUrl ? (
