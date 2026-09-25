@@ -25,6 +25,7 @@ vi.mock("@/lib/supabase/user-server", () => ({
 
 import { cancelarPromptFila, enfileirarPrompt } from "@/lib/supabase/live-client";
 import * as fixtureStore from "@/lib/repositories/prompts-fila.fixture-store";
+import { CONTAS, CUSTO_MAXIMO_POR_ITEM_USD, ROTULO_CONTA } from "@/core/prompts/tipos";
 import {
   ajustarCustoPromptAction,
   cancelarPromptAction,
@@ -158,15 +159,129 @@ describe("prompts/actions — validação", () => {
     expect(await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "doze" }))).toEqual({
       erro: "O custo precisa ser um número (ex.: 12,30).",
     });
-    expect(await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "900" }))).toEqual({
-      erro: "O custo precisa ficar entre 0 e 500.",
+    expect(await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "-1" }))).toEqual({
+      erro: `O custo precisa ficar entre 0 e ${CUSTO_MAXIMO_POR_ITEM_USD}.`,
     });
+    expect(
+      await ajustarCustoPromptAction({}, form({ id: "x", custo_usd: "1000000000" })),
+    ).toEqual({ erro: `O custo precisa ficar entre 0 e ${CUSTO_MAXIMO_POR_ITEM_USD}.` });
     nenhumaChamadaFoiFeita();
+  });
+
+  /**
+   * ALTO 2 (crítico da rodada 13): a tela recusava qualquer correção acima de
+   * 500 — o MESMO número do teto do dia. Uma sessão que custou 620 não podia
+   * ser relatada: o item morria valendo a estimativa (120) e o pull lia 380 de
+   * headroom que não existiam. Agora o número real passa; quem barra despacho
+   * é o pull, não a porta que registra o que já aconteceu.
+   */
+  it("ajustarCustoPromptAction: custo ACIMA do teto do dia passa (é medição, não despacho)", async () => {
+    const r = await ajustarCustoPromptAction({}, form({ id: "fila-x", custo_usd: "620" }));
+    expect(r).toMatchObject({ ok: true });
+    expect(fixtureStore.ajustarCustoFixture).toHaveBeenCalledWith("fila-x", 620, null);
   });
 
   it("ajustarCustoPromptAction: aceita vírgula decimal (o operador digita em português)", async () => {
     const r = await ajustarCustoPromptAction({}, form({ id: "fila-x", custo_usd: "12,34" }));
     expect(r).toMatchObject({ ok: true });
     expect(fixtureStore.ajustarCustoFixture).toHaveBeenCalledWith("fila-x", 12.34, null);
+  });
+});
+
+/**
+ * M7 (rodada 11) — A MUTAÇÃO QUE PASSOU: apagar a troca e-mail → rótulo em
+ * `formatarRecusaFila` (`src/app/prompts/actions.ts`). O crítico aplicou
+ * exatamente isso e os 1350 testes continuaram verdes — a tela voltava a
+ * mostrar `lucasscudeler@gmail.com` cru numa recusa, e o operador não precisa
+ * saber qual e-mail é qual.
+ *
+ * `formatarRecusaFila` não é exportável (o arquivo é `"use server"`: só
+ * função assíncrona sai dele), então a prova é pelo caminho de fora — a recusa
+ * do repositório entra crua e a resposta da action sai traduzida.
+ */
+describe("P2 Codex (PR #42, 11ª rodada) — item que espera vaga de voo não aparece como pronto", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { email: "lucasscudeler@gmail.com" } } });
+  });
+
+  const base = {
+    ok: true,
+    id: "fila-v",
+    conta: "lsgpandora@gmail.com",
+    complexidade: "baixa",
+    cabeHoje: true,
+    headroomUsd: 480,
+    espacoLivreUsd: 480,
+    custoEstimadoUsd: 5,
+    naFilaUsd: 0,
+    itensNaFrente: 0,
+  };
+
+  for (const motivoCodigo of ["manual_sem_vaga", "auto_sem_vaga"] as const) {
+    it(`${motivoCodigo}: dinheiro cabe, mas a tela recebe cabeHoje=false (aviso, não sucesso)`, async () => {
+      vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({ ...base, motivoCodigo } as never);
+      const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+      expect(r.ok).toBe(true);
+      expect(r.cabeHoje).toBe(false);
+    });
+  }
+
+  // P2 do Codex (PR #42, 23ª rodada): o sinal de "todas no limite de voo"
+  // atravessa a action até a frase de medição velha.
+  it("auto_medicao_velha com todas no limite de voo: a frase pede também uma sessão fechar", async () => {
+    vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+      ...base,
+      motivoCodigo: "auto_medicao_velha",
+      cabeHoje: false,
+      esperaVaga: true,
+    } as never);
+    const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+    expect(r.mensagem).toContain("todas as contas estão no limite de sessões em voo");
+    expect(r.mensagem).not.toContain("Não é falta de espaço");
+  });
+
+  it("auto_maior_espaco com dinheiro: continua pronto (cabeHoje=true)", async () => {
+    vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+      ...base,
+      motivoCodigo: "auto_maior_espaco",
+    } as never);
+    const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+    expect(r.cabeHoje).toBe(true);
+  });
+});
+
+describe("M7 — a recusa nunca mostra e-mail cru na tela", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { email: "lucasscudeler@gmail.com" } } });
+  });
+
+  it("novoPromptAction: e-mail da casa vira rótulo, e o ponto decimal vira vírgula", async () => {
+    vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+      erro:
+        "fila: uma tarefa máxima custa cerca de US$ 120.00 e o teto diário da conta " +
+        "lucasscudeler@gmail.com é US$ 100.00 — nunca vai caber.",
+    } as never);
+    const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "maxima" }));
+    expect(r.erro, "o e-mail cru chegou à tela").not.toContain("@gmail.com");
+    expect(r.erro).toContain("Lucas");
+    expect(r.erro).toContain("US$ 120,00");
+    expect(r.erro).not.toContain("fila: ");
+  });
+
+  it("todas as contas da casa têm rótulo — nenhuma escapa", async () => {
+    // Lê a lista do contrato, não uma cópia à mão: a cópia tinha três contas e
+    // a 4ª (arborcactus@) passava sem ser testada (Minor do CodeRabbit, PR #42).
+    expect(CONTAS.length).toBeGreaterThanOrEqual(4);
+    for (const conta of CONTAS) {
+      const rotulo = ROTULO_CONTA[conta];
+      vi.mocked(fixtureStore.enfileirarFixture).mockReturnValueOnce({
+        erro: `fila: a conta ${conta} recusou.`,
+      } as never);
+      const r = await novoPromptAction({}, form({ prompt: "x", complexidade: "baixa" }));
+      expect(r.erro, `${conta} chegou crua à tela`).not.toContain(conta);
+      expect(r.erro).toContain(rotulo);
+    }
   });
 });

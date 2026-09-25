@@ -74,6 +74,7 @@ import {
   headroomUsd,
   horasDeDefasagem,
   seloDaMedicao,
+  semVagaEmVoo,
 } from "@/core/prompts/tipos";
 
 export interface EscolhaDeConta {
@@ -92,6 +93,26 @@ export interface EscolhaDeConta {
    * D29: deixou de decidir `cabeHoje`; virou explicação dentro da frase.
    */
   headroomUsd: number;
+  /**
+   * D36 · A4 (rodada 11): NENHUMA conta candidata está autorizada agora — o
+   * banco recusaria 100% dos disparos de todas elas por medição velha. É
+   * diferente de "não cabe": o veredito já saía certo em `cabeHoje`, mas
+   * quem chamava não tinha como distinguir os dois casos e a tela explicava
+   * falta de dinheiro onde o problema é medição parada. Espelho de
+   * `todas_recusadas` em `painel_fila_escolher_conta` (migration 0019 §15).
+   */
+  todasRecusadas: boolean;
+  /**
+   * P2 do Codex (PR #42): nenhuma conta da disputa tem vaga de sessão em voo
+   * agora. A escolha volta a ser entre todas; `cabeHoje` continua sendo
+   * dinheiro (vaga libera em minutos). Espelho de `todas_sem_vaga` (0030).
+   */
+  todasSemVaga: boolean;
+  /**
+   * P2 do Codex (PR #42, 6ª rodada): quantas contas da disputa ficaram de fora
+   * por estarem no limite de sessões em voo. Espelho de `puladas_sem_vaga`.
+   */
+  puladasSemVaga: number;
 }
 
 
@@ -121,6 +142,9 @@ export function escolherConta(
       cabeHoje: false,
       espacoLivreUsd: 0,
       headroomUsd: 0,
+      todasRecusadas: false,
+      todasSemVaga: false,
+      puladasSemVaga: 0,
     };
   }
 
@@ -144,6 +168,9 @@ export function escolherConta(
       cabeHoje: false,
       espacoLivreUsd: 0,
       headroomUsd: 0,
+      todasRecusadas: false,
+      todasSemVaga: false,
+      puladasSemVaga: 0,
     };
   }
 
@@ -159,8 +186,24 @@ export function escolherConta(
   // ganha o item e não é apresentada como "a mais folgada": espaço livre num
   // saldo que o banco não autoriza a gastar não é espaço livre.
   const autorizadas = candidatas.filter((c) => !bancoRecusaria(c, agora));
-  const disputa = autorizadas.length > 0 ? autorizadas : candidatas;
+  // P2 do Codex (PR #42, 12ª rodada): com todas recusadas, conta que NUNCA
+  // mediu (sem Routine provada — a 4ª conta nasce assim) só disputa se nenhuma
+  // outra já mediu. Com o teto vazio ela seria a mais folgada e ficaria com o
+  // item para sempre. Espelho de `v_alguma_ja_mediu` (0030).
+  const jaMediram = candidatas.filter((c) => horasDeDefasagem(c, agora) !== null);
+  const disputaPorAutorizacao =
+    autorizadas.length > 0 ? autorizadas : jaMediram.length > 0 ? jaMediram : candidatas;
   const todasRecusadas = autorizadas.length === 0;
+  // P2 do Codex (PR #42): dentro da disputa, conta COM VAGA de sessão em voo
+  // vem antes. A conta com o maior espaço mas quatro sessões em voo ganhava o
+  // item, que ficava parado atrás do limite enquanto outra conta tinha vaga.
+  const comVaga = disputaPorAutorizacao.filter((c) => !semVagaEmVoo(c));
+  const todasSemVaga = comVaga.length === 0;
+  const disputa = todasSemVaga ? disputaPorAutorizacao : comVaga;
+  const puladasSemVaga = todasSemVaga ? 0 : disputaPorAutorizacao.length - comVaga.length;
+  const entreComVaga = puladasSemVaga > 0 ? " entre as contas com vaga de sessão" : "";
+  const foraSemVaga =
+    puladasSemVaga > 0 ? " As contas no limite de sessões em voo ficaram de fora." : "";
 
   let melhor = disputa[0] as ConsumoConta;
   let melhorEspaco = espacoLivreUsd(melhor);
@@ -197,6 +240,9 @@ export function escolherConta(
       cabeHoje: false,
       espacoLivreUsd: melhorEspaco,
       headroomUsd: headroom,
+      todasRecusadas: true,
+      todasSemVaga,
+      puladasSemVaga,
     };
   }
 
@@ -219,6 +265,9 @@ export function escolherConta(
   // Empate → ordem de CONTAS, e o operador lê por quê (antes o desempate era
   // silencioso e parecia arbitrário).
   const empate = empatados > 1 ? " Empate no espaço livre; vale a ordem da casa." : "";
+  const semVaga = todasSemVaga
+    ? " Todas as contas estão no limite de sessões em voo; o item sai quando uma vaga abrir."
+    : "";
 
   // D9: frase gramatical, rótulo da conta (nunca o e-mail cru), complexidade
   // por extenso e dinheiro com vírgula. D13: nada de número negativo.
@@ -231,14 +280,14 @@ export function escolherConta(
   // as mesmas palavras — e o operador não tinha como saber qual dos dois lia.
   const selo = ` — ${seloDaMedicao(melhor, agora)}`;
   const motivo = cabeHoje
-    ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje contando a fila parada: ` +
-      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}`
-    : `Nenhuma conta tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
+    ? `${ROTULO_CONTA[melhor.conta]} tem o maior espaço livre hoje${entreComVaga} contando a fila parada: ` +
+      `${formatarUsd(Math.max(0, melhorEspaco))}${detalhe}${selo}.${empate}${semVaga}${foraSemVaga}`
+    : `Nenhuma conta${puladasSemVaga > 0 ? " com vaga de sessão" : ""} tem ${formatarUsd(custoEstimado)} livres para uma tarefa ` +
       `${ROTULO_COMPLEXIDADE[complexidade]} contando a fila parada. A mais folgada ` +
       // Arranhão da rodada 7: saía "A mais folgada (Pandora) tem US$ 30,00" —
       // sem dizer de quê. Toda metade da frase agora termina em "livres".
       `(${ROTULO_CONTA[melhor.conta]}) tem ${melhorEspaco > 0 ? `${formatarUsd(melhorEspaco)} livres` : "0 livres"}` +
-      `${detalhe}${selo}${revelacao}.${empate}`;
+      `${detalhe}${selo}${revelacao}.${empate}${semVaga}${foraSemVaga}`;
 
   return {
     conta: melhor.conta,
@@ -247,6 +296,9 @@ export function escolherConta(
     cabeHoje,
     espacoLivreUsd: melhorEspaco,
     headroomUsd: headroom,
+    todasRecusadas,
+    todasSemVaga,
+    puladasSemVaga,
   };
 }
 
@@ -271,4 +323,55 @@ export function contaTemEspacoPara(
   // operador para o que o banco já tinha recusado.
   if (bancoRecusaria(consumo, agora)) return false;
   return espacoLivreUsd(consumo) >= custoEstimadoParaComplexidade(complexidade);
+}
+
+/**
+ * A prontidão que a tela mostra ANTES do envio — aviso, nunca bloqueio.
+ *
+ * P2 do Codex (PR #42, 17ª rodada): o limite de sessões em voo também é
+ * prontidão. A escolha manual de uma conta com quatro sessões em voo e
+ * dinheiro sobrando não avisava nada antes do envio, e a resposta depois
+ * dizia que o item ia esperar vaga. No automático, `cabeHoje` continua sendo
+ * dinheiro — a espera por vaga vem de `todasSemVaga`, e o motivo automático já
+ * a nomeia. Pura, fora do componente, para ser testada sem montá-lo.
+ */
+export function prontidaoDoEnvio(
+  contaOverrideItem: ConsumoConta | undefined,
+  escolha: Pick<EscolhaDeConta, "cabeHoje" | "todasSemVaga">,
+  complexidade: Complexidade,
+  instante: number,
+): { overrideSemEspaco: boolean; naoCabeHoje: boolean; avisoEspera: string | undefined } {
+  if (contaOverrideItem === undefined) {
+    return {
+      overrideSemEspaco: false,
+      naoCabeHoje: !escolha.cabeHoje || escolha.todasSemVaga,
+      avisoEspera: undefined,
+    };
+  }
+  const overrideSemEspaco = !contaTemEspacoPara(contaOverrideItem, complexidade, instante);
+  const overrideSemVaga = semVagaEmVoo(contaOverrideItem);
+  return {
+    overrideSemEspaco,
+    naoCabeHoje: overrideSemEspaco || overrideSemVaga,
+    avisoEspera:
+      overrideSemVaga && !overrideSemEspaco
+        ? "Esta conta está no limite de sessões em voo agora: o item entra na fila e só sai quando uma delas fechar."
+        : undefined,
+  };
+}
+
+/**
+ * P2 do Codex (PR #42, 23ª rodada): as contas que a casa tem AGORA são as que
+ * o banco devolveu em `consumo` — `painel_fila_consumo_para_tela` filtra por
+ * `painel_contas_da_casa()` desde a 22ª rodada. O seletor manual lia a lista
+ * fixa `CONTAS` e oferecia uma conta já removida, e o envio batia na recusa do
+ * banco. A ordem continua a de `CONTAS` (a de desempate).
+ */
+export function contasAtivas(consumo: readonly ConsumoConta[]): Conta[] {
+  return CONTAS.filter((c) => consumo.some((item) => item.conta === c));
+}
+
+/** A escolha manual que deixou de existir volta a ser "automático" (""). */
+export function contaOverrideAtiva(escolhida: string, consumo: readonly ConsumoConta[]): string {
+  return (contasAtivas(consumo) as readonly string[]).includes(escolhida) ? escolhida : "";
 }

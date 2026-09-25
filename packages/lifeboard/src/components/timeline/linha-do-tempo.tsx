@@ -18,7 +18,11 @@ import {
   rotulosNaJanela,
   tetoMordeu as tetoMordeuAJanela,
 } from "@/core/timeline/eixo-rotulos";
-import { aplicarPlanoDaFolha, planoDaFolhaInferior } from "@/core/timeline/folha-inferior";
+import {
+  aplicarPlanoDaFolha,
+  planoDaFolhaInferior,
+  semRolagem,
+} from "@/core/timeline/folha-inferior";
 import {
   avisoDeOverflow,
   fatorDeOverflow,
@@ -835,40 +839,79 @@ export function LinhaDoTempoView(props: LinhaDoTempoProps): JSX.Element {
    */
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const id = window.requestAnimationFrame(() => {
-      const ancora = ancoraDaLinhaRef.current;
-      const botao = ancora ? botoesLinhaRef.current.get(ancora.chave) : null;
-      const folha = ativaChave
-        ? document.querySelector<HTMLElement>("[data-lb-detalhe]")
-        : null;
-      const rf = folha ? folha.getBoundingClientRect() : null;
-      const plano = planoDaFolhaInferior({
-        folha: rf
-          ? { top: rf.top, left: rf.left, width: rf.width, height: rf.height, bottom: rf.bottom }
-          : null,
-        bottomDoBotao: botao ? botao.getBoundingClientRect().bottom : null,
-        larguraJanela: window.innerWidth,
+    let id = 0;
+    const aplicar = (podeRolar: boolean): void => {
+      window.cancelAnimationFrame(id);
+      id = window.requestAnimationFrame(() => {
+        const ancora = ancoraDaLinhaRef.current;
+        // A linha tocada é a ATIVA — não a âncora, que expira em 1,5s. Sem
+        // isto, um `resize` posterior (girar o telefone, o teclado virtual
+        // abrindo) não tinha mais de quem medir, e a folha voltava a tapar.
+        const botaoAtivo = ativaChave ? botoesLinhaRef.current.get(ativaChave) ?? null : null;
+        const botaoAncora = ancora ? botoesLinhaRef.current.get(ancora.chave) ?? null : null;
+        const folha = ativaChave ? document.querySelector<HTMLElement>("[data-lb-detalhe]") : null;
+        const rf = folha ? folha.getBoundingClientRect() : null;
+        const rb = botaoAtivo ? botaoAtivo.getBoundingClientRect() : null;
+        const espacador = espacoFolhaRef.current;
+        const plano = planoDaFolhaInferior({
+          folha: rf
+            ? { top: rf.top, left: rf.left, width: rf.width, height: rf.height, bottom: rf.bottom }
+            : null,
+          bottomDoBotao: rb ? rb.bottom : null,
+          topoDoBotao: rb ? rb.top : null,
+          larguraJanela: window.innerWidth,
+          alturaJanela: window.innerHeight,
+          scrollY: window.scrollY,
+          alturaDoDocumento: document.documentElement.scrollHeight,
+          espacoAtual: espacador ? espacador.getBoundingClientRect().height : 0,
+          // A âncora do clique é quem repõe a linha ao abrir/fechar; só
+          // quando ela já expirou (um `resize` de verdade) é que a reposição
+          // passa a ser tarefa do plano.
+          manterLinhaVisivel:
+            podeRolar && !(ancora !== null && Date.now() < ancora.expiraEm),
+        });
+        // A ORDEM é a correção: teto de altura → reserva → rolagem. Folha
+        // fechada ou folha-COLUNA (≥768px) não ganham teto nem rolagem, só a
+        // âncora de fechamento — é ela que segura o `ΔscrollY = 0`. Quem
+        // ESCREVE é o módulo puro, com os elementos injetados.
+        aplicarPlanoDaFolha(podeRolar ? plano : semRolagem(plano), {
+          espacador,
+          folha,
+          rolarPagina: (px) => window.scrollBy({ top: px, behavior: "auto" }),
+        });
+        if (plano.ehInferior) {
+          ancoraDaLinhaRef.current = null; // a folha manda; a âncora está consumida
+          return;
+        }
+        // Coluna (≥768) e fechamento: a linha tocada volta exatamente para onde
+        // estava na tela, por mais que a altura da página tenha mudado.
+        if (!ancora || !botaoAncora || Date.now() >= ancora.expiraEm) return;
+        const delta = botaoAncora.getBoundingClientRect().top - ancora.topAntes;
+        if (Math.abs(delta) > 0.5) window.scrollBy({ top: delta, behavior: "auto" });
       });
-      // A RESERVA entra ANTES da rolagem — é ela que faz o `scrollBy` deixar
-      // de ser no-op na última linha. Folha fechada ou folha-COLUNA (≥768px)
-      // devolvem 0 e a página volta ao tamanho de sempre. Quem ESCREVE é o
-      // módulo puro (`aplicarPlanoDaFolha`), com os elementos injetados — o
-      // componente não escreve geometria no DOM em lugar nenhum.
-      aplicarPlanoDaFolha(plano, {
-        espacador: espacoFolhaRef.current,
-        rolarPagina: (px) => window.scrollBy({ top: px, behavior: "auto" }),
-      });
-      if (plano.ehInferior) {
-        ancoraDaLinhaRef.current = null; // a folha manda; a âncora está consumida
-        return;
-      }
-      // Coluna (≥768) e fechamento: a linha tocada volta exatamente para onde
-      // estava na tela, por mais que a altura da página tenha mudado.
-      if (!ancora || !botao || Date.now() >= ancora.expiraEm) return;
-      const delta = botao.getBoundingClientRect().top - ancora.topAntes;
-      if (Math.abs(delta) > 0.5) window.scrollBy({ top: delta, behavior: "auto" });
-    });
-    return () => window.cancelAnimationFrame(id);
+    };
+    aplicar(true);
+    // Rodada 10: a ALTURA da janela também manda. `larguraPainel` só muda
+    // quando a LARGURA muda — girar o telefone (844×390) ou abrir o teclado
+    // virtual (390×844 → 390×500) não re-executava nada, e a folha voltava a
+    // tapar 42.946px² do painel com a linha tocada fora da viewport (medido).
+    // `visualViewport` é quem enxerga o teclado; `window.resize` cobre o resto.
+    const aoRedimensionarJanela = (): void => aplicar(true);
+    window.addEventListener("resize", aoRedimensionarJanela);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", aoRedimensionarJanela);
+    // A reserva ENCOLHE conforme o operador rola de volta para cima — a âncora
+    // de fechamento é um trinco que só afrouxa, nunca aperta.
+    // …e NUNCA rola junto: puxar o operador de volta enquanto ele rola de
+    // propósito seria trocar um defeito por outro.
+    const aoRolar = (): void => aplicar(false);
+    window.addEventListener("scroll", aoRolar, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(id);
+      window.removeEventListener("resize", aoRedimensionarJanela);
+      vv?.removeEventListener("resize", aoRedimensionarJanela);
+      window.removeEventListener("scroll", aoRolar);
+    };
   }, [ativaChave, larguraPainel]);
 
   /**

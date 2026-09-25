@@ -151,7 +151,21 @@ export interface PortaDeEscrita {
 
 export function usarPortaDeEscrita(config: ConfigDaPorta): PortaDeEscrita {
   const [estado, setEstado] = useState<EstadoAcaoTarefa>({});
-  const [pendente, startTransition] = useTransition();
+  const [pendenteDaTransicao, startTransition] = useTransition();
+  /**
+   * [pós-merge, CodeRabbit Major + Codex P2] O `pendente` do `useTransition`
+   * NÃO cobre o `await`. Nesta versão do React (18.3.1) o escopo da transição é
+   * o que a callback faz SINCRONAMENTE; a IIFE assíncrona abaixo é descartada
+   * com `void` e a transição fecha no mesmo tick. Resultado: durante uma
+   * gravação lenta — a única em que isto importa — os controles voltavam a
+   * parecer liberados e, pior, `useAvisoDeSaida` já tinha desarmado: um F5 ou
+   * uma navegação levava a gravação embora sem o navegador perguntar nada.
+   * O `emVooRef` sabia a verdade, mas ref não re-renderiza.
+   * Este estado existe para durar o pedido inteiro, e só ele governa o que a
+   * tela mostra e o aviso de saída.
+   */
+  const [pedidoEmVoo, setPedidoEmVoo] = useState(false);
+  const pendente = pendenteDaTransicao || pedidoEmVoo;
   const router = useRouter();
   const propria = useMensagemSucesso();
   const campo = useCampoDeErro(estado);
@@ -190,13 +204,23 @@ export function usarPortaDeEscrita(config: ConfigDaPorta): PortaDeEscrita {
     campo.aoMudarCampo();
     atual.antesDeGravar?.();
     emVooRef.current = true;
+    setPedidoEmVoo(true);
     const pedido = selar(atual.op, campos);
     startTransition(() => {
       void (async () => {
-        const r = await executarAcaoTarefa(escreverTarefaAction, estadoRef.current, pedido);
-        // Libera ANTES dos callbacks: `aoFalha` pode querer disparar de novo
-        // (é o caso do "Desfazer" que falhou e o operador reclica).
-        emVooRef.current = false;
+        let r: EstadoAcaoTarefa;
+        try {
+          r = await executarAcaoTarefa(escreverTarefaAction, estadoRef.current, pedido);
+        } finally {
+          // `finally` e não depois do `await`: se `executarAcaoTarefa` lançar
+          // (ele trata rejeição, mas isto é uma trava, não uma aposta), a tela
+          // não pode ficar presa em "gravando" e a porta não pode ficar
+          // trancada para sempre. Libera ANTES dos callbacks: `aoFalha` pode
+          // querer disparar de novo (é o caso do "Desfazer" que falhou e o
+          // operador reclica).
+          emVooRef.current = false;
+          setPedidoEmVoo(false);
+        }
         setEstado(r);
         const c = configRef.current;
         if (r.ok === true) {

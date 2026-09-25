@@ -20,7 +20,7 @@ import {
   vencerBackoffFixture,
 } from "@/lib/repositories/prompts-fila.fixture-store";
 import { AGORA_FIXTURE } from "@/lib/repositories/prompts-fila.fixture";
-import type { Conta } from "@/core/prompts/tipos";
+import { CUSTO_MAXIMO_POR_ITEM_USD, MAXIMO_EM_VOO_POR_CONTA, type Conta } from "@/core/prompts/tipos";
 
 /**
  * OS-LIFEBOARD · P7 — o fixture-store é o ESPELHO em memória das RPCs. Se ele
@@ -87,11 +87,40 @@ describe("D1 — posse (fencing) e heartbeat", () => {
     expect(deNovo).toEqual({ ok: true, jaFechado: true, reabertoEFechado: false, estado: "concluida" });
   });
 
-  it("custo fora de 0..500 é recusado (negativo zerava o freio do teto)", () => {
+  it("custo negativo é recusado (negativo zerava o freio do teto)", () => {
     const id = (pegarFixture(LUCAS, "W1", AGORA).item as { id: string }).id;
     expect(
       fecharFixture({ id, conta: LUCAS, workerId: "W1", estado: "concluida", custoUsd: -10 }),
-    ).toEqual({ erro: "custo_usd fora da faixa aceita (0 a 500)." });
+    ).toEqual({
+      erro: `custo_usd fora da faixa de sanidade (0 a ${CUSTO_MAXIMO_POR_ITEM_USD}).`,
+    });
+  });
+
+  /**
+   * ALTO 2 (crítico da rodada 13): a porta de fechamento recusava qualquer
+   * número acima de 500 — o teto do DIA. Sessão de US$ 620 não podia ser
+   * relatada, o item morria valendo a estimativa e o dia abria teto falso.
+   * O fixture espelha o banco: a medição real entra, e o valor absurdo (troca
+   * de unidade) continua barrado pela sanidade.
+   */
+  it("custo ACIMA do teto do dia entra pelo valor real; o absurdo continua barrado", () => {
+    const id = (pegarFixture(LUCAS, "W1", AGORA).item as { id: string }).id;
+    // o absurdo (unidade trocada) continua recusado — e a recusa não fecha o item
+    expect(
+      fecharFixture({
+        id,
+        conta: LUCAS,
+        workerId: "W1",
+        estado: "concluida",
+        custoUsd: 1_000_000_000,
+      }),
+    ).toEqual({
+      erro: `custo_usd fora da faixa de sanidade (0 a ${CUSTO_MAXIMO_POR_ITEM_USD}).`,
+    });
+    // o número REAL, acima do teto do dia, entra
+    expect(
+      fecharFixture({ id, conta: LUCAS, workerId: "W1", estado: "concluida", custoUsd: 620 }),
+    ).toMatchObject({ ok: true });
   });
 });
 
@@ -161,6 +190,27 @@ describe("D2 — expiração com fim", () => {
   });
 });
 
+describe("P2 Codex (PR #42, 17ª rodada) — publicar sessão renova a medição no fixture", () => {
+  it("a 4ª conta nasce travada e destrava quando a Routine dela publica um custo", () => {
+    resetarFilaFixtureStore();
+    const ARBOR: Conta = "arborcactus@gmail.com";
+    enfileirarFixture({ prompt: "para a 4ª", complexidade: "baixa", conta: ARBOR, agora: AGORA });
+
+    const antes = pegarFixture(ARBOR, "W-arbor", AGORA);
+    expect(antes.item).toBeNull();
+    expect(antes.recusadoPorMedicao).toBe(true);
+
+    // custo inválido não conta como medição
+    publicarSessaoFixture(ARBOR, "sess-arbor-lixo", -30, AGORA);
+    expect(pegarFixture(ARBOR, "W-arbor", AGORA).recusadoPorMedicao).toBe(true);
+
+    publicarSessaoFixture(ARBOR, "sess-arbor", 3, AGORA);
+    const depois = pegarFixture(ARBOR, "W-arbor", AGORA);
+    expect(depois.recusadoPorMedicao).toBe(false);
+    expect(depois.item).not.toBeNull();
+  });
+});
+
 describe("D3 — elegibilidade por item, não reserva agregada", () => {
   it("o que está na_fila NÃO reserva orçamento; só o que está em execução com sinal vivo", () => {
     resetarFilaFixtureStore();
@@ -226,10 +276,20 @@ describe("D3 — elegibilidade por item, não reserva agregada", () => {
 describe("D3 — admissão só recusa o impossível", () => {
   it("item que não cabe HOJE é ACEITO e espera espaço", () => {
     resetarFilaFixtureStore();
+    // D51 (pós-merge): este bloco usava a ALMA, que no fixture tem medição
+    // ATRASADA de 13 h E `exigeMedicaoRecente: true` — dois motivos de recusa
+    // ao mesmo tempo. Desde a D46 o pull recusa aquela conta categoricamente,
+    // então o código honesto ali passou a ser `manual_medicao_velha`, e este
+    // bloco deixaria de medir o que o nome dele diz. A Pandora não tem a
+    // trava de medição: com o teto em 150, uma tarefa máxima (US$ 120) não
+    // cabe no headroom de US$ 86,50 e continua sendo admitida — que é
+    // exatamente o desenho D3. A recusa por medição tem bloco próprio em
+    // `pos-merge-fila-e-atomos.test.tsx`.
+    ajustarTetoFixture(PANDORA, 150);
     const r = enfileirarFixture({
       prompt: "não cabe hoje",
       complexidade: "maxima",
-      conta: ALMA, // 150/150 medido
+      conta: PANDORA,
       agora: AGORA,
     });
     expect("ok" in r && r.ok).toBe(true);
@@ -292,6 +352,65 @@ describe("D7 — item `pega` não é beco sem saída", () => {
       ok: false,
       motivo: "cancelado",
     });
+  });
+
+  it("P2 Codex (PR #42, 10ª e 13ª rodadas): cancelar com a conta no limite NÃO abre vaga nem quando o dono ouve", () => {
+    resetarFilaFixtureStore();
+    for (let i = 0; i < MAXIMO_EM_VOO_POR_CONTA + 1; i += 1) {
+      enfileirarFixture({ prompt: `voo ${i}`, complexidade: "baixa", conta: LUCAS, agora: AGORA + i });
+    }
+    const pegos: string[] = [];
+    for (let i = 1; i <= MAXIMO_EM_VOO_POR_CONTA; i += 1) {
+      const pego = pegarFixture(LUCAS, `W${i}`, AGORA).item as { id: string } | null;
+      if (pego) pegos.push(pego.id);
+    }
+    const emVoo = () => listarConsumoFixture(AGORA).find((c) => c.conta === LUCAS)?.emVoo;
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+
+    const cancelado = pegos[0] as string;
+    cancelarFixture(cancelado, AGORA);
+    // a filha pode estar rodando: a vaga continua ocupada e o pull não abre a quinta
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).toBeNull();
+
+    // heartbeat de OUTRO worker sobre o item cancelado não libera nada
+    expect(heartbeatFixture(cancelado, LUCAS, "W-intruso", null, AGORA)).toEqual({
+      ok: false,
+      motivo: "cancelado",
+    });
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+
+    // o dono ouve `cancelado`, mas a filha só é interrompida depois desta
+    // resposta: a vaga continua ocupada (13ª rodada)
+    expect(heartbeatFixture(cancelado, LUCAS, "W1", null, AGORA)).toEqual({
+      ok: false,
+      motivo: "cancelado",
+    });
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).toBeNull();
+  });
+
+  it("P2 Codex (PR #42, 11ª rodada): o dono que FECHA o item cancelado também libera a vaga", () => {
+    resetarFilaFixtureStore();
+    for (let i = 0; i < MAXIMO_EM_VOO_POR_CONTA + 1; i += 1) {
+      enfileirarFixture({ prompt: `voo ${i}`, complexidade: "baixa", conta: LUCAS, agora: AGORA + i });
+    }
+    const pegos: string[] = [];
+    for (let i = 1; i <= MAXIMO_EM_VOO_POR_CONTA; i += 1) {
+      const pego = pegarFixture(LUCAS, `W${i}`, AGORA).item as { id: string } | null;
+      if (pego) pegos.push(pego.id);
+    }
+    const emVoo = () => listarConsumoFixture(AGORA).find((c) => c.conta === LUCAS)?.emVoo;
+    const cancelado = pegos[0] as string;
+    cancelarFixture(cancelado, AGORA);
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA);
+
+    // a filha acabou junto com o cancelamento: o worker vai direto ao fechamento
+    expect(
+      fecharFixture({ id: cancelado, conta: LUCAS, workerId: "W1", estado: "concluida", custoUsd: 3, agora: AGORA }),
+    ).toEqual({ ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" });
+    expect(emVoo()).toBe(MAXIMO_EM_VOO_POR_CONTA - 1);
+    expect(pegarFixture(LUCAS, "W-quinta", AGORA).item).not.toBeNull();
   });
 
   it("heartbeat de outro worker não renova nada", () => {
@@ -792,6 +911,93 @@ describe("D23 — o pull que MATA um item não diz 'fila vazia'", () => {
     expect(morte.motivo).toContain("1 item morreu sem fechar neste disparo e lançou US$ 50,00 no dia");
     expect(morte.motivo?.startsWith("atenção: o gasto medido desta conta é de 13 h atrás; ")).toBe(true);
     expect(morte.motivo).not.toContain("fila vazia");
+  });
+});
+
+describe("P2 do Codex (PR #42) — a morte respeita o posto do livro no fixture", () => {
+  it("item cuja sessão já publicou morre sem lançar a estimativa (mortosUsd 0), como no SQL", () => {
+    resetarFilaFixtureStore();
+    definirExigirMedicaoFixture(ALMA, false);
+    ajustarTetoFixture(ALMA, 800);
+    const novo = enfileirarFixture({
+      prompt: "vai morrer na 3a com sessão publicada",
+      complexidade: "alta",
+      conta: ALMA,
+      agora: AGORA,
+    });
+    const id = (novo as { id: string }).id;
+    for (let tentativa = 1; tentativa <= 3; tentativa += 1) {
+      const worker = pegarAte(ALMA, id, AGORA);
+      if (tentativa === 3) {
+        // a sessão vinculada publica o número real ANTES de o item morrer
+        heartbeatFixture(id, ALMA, worker, "session_JA_PUBLICOU", AGORA);
+        publicarSessaoFixture(ALMA, "session_JA_PUBLICOU", 300);
+      }
+      envelhecerSinalFixture(id, 46, AGORA);
+      if (tentativa < 3) {
+        pegarFixture(ALMA, "W-expira", AGORA);
+        vencerBackoffFixture(id, AGORA);
+      }
+    }
+    const morte = pegarFixture(ALMA, "W-morte", AGORA);
+    expect(morte.mortos).toBe(1);
+    expect(morte.mortosUsd).toBe(0);
+    expect(morte.motivo).toContain(
+      "1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido",
+    );
+    expect(morte.motivo).not.toContain("lançou US$");
+  });
+});
+
+describe("P2 do Codex (PR #42, 3ª rodada) — o ajuste do fixture confere a sessão PROPOSTA", () => {
+  it("propor uma sessão da mesma conta que já publicou recusa, como o banco (T93)", () => {
+    resetarFilaFixtureStore();
+    definirExigirMedicaoFixture(ALMA, false);
+    ajustarTetoFixture(ALMA, 800);
+    const novo = enfileirarFixture({
+      prompt: "cancelado em execução",
+      complexidade: "alta",
+      conta: ALMA,
+      agora: AGORA,
+    });
+    const id = (novo as { id: string }).id;
+    pegarAte(ALMA, id, AGORA);
+    expect(cancelarFixture(id, AGORA)).toMatchObject({ ok: true });
+    publicarSessaoFixture(ALMA, "session_JA_PUBLICADA_SOLTA", 300);
+
+    expect(ajustarCustoFixture(id, 3, "session_JA_PUBLICADA_SOLTA", AGORA)).toEqual({
+      erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.",
+    });
+    const depois = listarFilaFixture(200).find((i) => i.id === id);
+    expect(depois?.sessionId ?? null).toBeNull();
+    expect(depois?.custoOrigem).toBe("estimativa");
+    // sem sessão proposta, o mesmo item continua ajustável
+    expect(ajustarCustoFixture(id, 3, null, AGORA)).toEqual({ ok: true });
+  });
+});
+
+describe("P2 do Codex (PR #42, 6ª rodada) — republicar zero não apaga a medição no fixture", () => {
+  it("sessão publicou 100 e depois zero/nulo: o livro ainda tem o 100 (posto 40) e o ajuste é recusado", () => {
+    resetarFilaFixtureStore();
+    definirExigirMedicaoFixture(ALMA, false);
+    ajustarTetoFixture(ALMA, 800);
+    const novo = enfileirarFixture({ prompt: "sessão que zera", complexidade: "alta", conta: ALMA, agora: AGORA });
+    const id = (novo as { id: string }).id;
+    const worker = pegarAte(ALMA, id, AGORA);
+    heartbeatFixture(id, ALMA, worker, "session_PUBLICA_E_ZERA", AGORA);
+    publicarSessaoFixture(ALMA, "session_PUBLICA_E_ZERA", 100);
+    const consumoAntes = listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd;
+    publicarSessaoFixture(ALMA, "session_PUBLICA_E_ZERA", 0);
+    publicarSessaoFixture(ALMA, "session_PUBLICA_E_ZERA", null);
+    expect(listarConsumoFixture(AGORA).find((c) => c.conta === ALMA)?.consumoHojeUsd).toBe(consumoAntes);
+
+    expect(cancelarFixture(id, AGORA)).toMatchObject({ ok: true, custoLancadoUsd: 0 });
+    const linha = listarFilaFixture(200).find((i) => i.id === id);
+    expect(linha?.livroPrecedencia).toBe(40);
+    expect(linha?.livroLiquidoUsd).toBe(100);
+    expect(ajustarCustoFixture(id, 3, null, AGORA)).toEqual({
+      erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui.",
+    });
   });
 });
 

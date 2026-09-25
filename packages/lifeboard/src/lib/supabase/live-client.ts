@@ -385,6 +385,12 @@ export type MutateFilaResult =
       custoEstimadoUsd?: number;
       naFilaUsd?: number;
       itensNaFrente?: number;
+      /**
+       * P2 do Codex (PR #42, 23ª e 24ª rodadas): o item também espera vaga de
+       * sessão em voo — a conta escolhida à mão (`sem_vaga`) ou todas as contas
+       * no automático (`todas_sem_vaga`).
+       */
+      esperaVaga?: boolean;
       /** #11: código do cancelamento (nunca pego × devolvido × em execução). */
       motivoCancelamento?: string;
       custoLancadoUsd?: number;
@@ -421,22 +427,64 @@ export async function enfileirarPrompt(payload: {
       custo_estimado_usd?: number;
       na_fila_usd?: number;
       itens_na_frente?: number;
+      todas_recusadas?: boolean;
+      puladas_sem_vaga?: number;
+      todas_sem_vaga?: boolean;
+      sem_vaga?: boolean;
     };
     if (!body || body.ok !== true) {
       return { erro: "A operação não confirmou sucesso — tente de novo." };
     }
+    /**
+     * A4 (rodada 11): `todas_recusadas` VOLTAVA DA RPC E NINGUÉM LIA.
+     *
+     * A migration 0025 passou a devolver o campo (ele vem do chooser, §15 da
+     * 0019) e não havia uma ocorrência dele no cliente nem nas actions. Sem
+     * ele, quando as três contas estão travadas por medição velha o código é
+     * `auto_nao_cabe_hoje` — e a frase desse código só sabe falar de dinheiro.
+     * Medido: *"nenhuma conta tem US$ 50,00 livres … — a mais folgada tem
+     * US$ 500,00"*, uma frase que se desmente no meio. O caso tem código e
+     * frase próprios agora, como `manual_medicao_velha` já tinha do outro lado.
+     */
+    // P2 do Codex (PR #42, 6ª rodada): a escolha pulou conta no limite de
+    // sessões em voo — a frase diz "entre as que têm vaga".
+    const pulouSemVaga = numeroOu(body.puladas_sem_vaga, 0) > 0;
+    const autoSemVaga =
+      body.todas_sem_vaga === true &&
+      (body.motivo_codigo === "auto_maior_espaco" || body.motivo_codigo === "auto_nao_cabe_hoje");
+    const manualSemVaga =
+      body.sem_vaga === true &&
+      (body.motivo_codigo === "manual_cabe" || body.motivo_codigo === "manual_nao_cabe_hoje");
+    const codigo =
+      body.motivo_codigo === "auto_nao_cabe_hoje" && body.todas_recusadas === true
+        ? "auto_medicao_velha"
+        : manualSemVaga
+          ? "manual_sem_vaga"
+          : autoSemVaga
+          ? "auto_sem_vaga"
+          : pulouSemVaga && body.motivo_codigo === "auto_maior_espaco"
+          ? "auto_maior_espaco_com_vaga"
+          : pulouSemVaga && body.motivo_codigo === "auto_nao_cabe_hoje"
+            ? "auto_nao_cabe_hoje_com_vaga"
+            : body.motivo_codigo;
     return {
       ok: true,
       id: body.id,
       conta: body.conta,
       complexidade: body.complexidade,
-      motivoCodigo: body.motivo_codigo,
+      motivoCodigo: codigo,
       cabeHoje: body.cabe_hoje !== false,
       headroomUsd: numeroOu(body.headroom_usd, 0),
       espacoLivreUsd: numeroOu(body.espaco_livre_usd, 0),
       custoEstimadoUsd: numeroOu(body.custo_estimado_usd, 0),
       naFilaUsd: numeroOu(body.na_fila_usd, 0),
       itensNaFrente: numeroOu(body.itens_na_frente, 0),
+      // P2 do Codex (PR #42, 23ª e 24ª rodadas): a medição velha pode vir
+      // junto do limite de voo — `sem_vaga` na escolha manual, `todas_sem_vaga`
+      // no automático. A frase precisa saber para dizer.
+      esperaVaga: body.motivo_codigo?.startsWith("manual_")
+        ? body.sem_vaga === true
+        : body.todas_sem_vaga === true,
     };
   } catch (error) {
     return { erro: traduzirErroFila(error) };

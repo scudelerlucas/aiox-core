@@ -1,20 +1,30 @@
 /**
- * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as 3 contas).
+ * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as 4 contas).
  *
  * Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`
  * (linhas R1/R2/R6, transferências T1/T2) + o contrato exato de
  * `supabase/migrations/0007…` → `0009…` → `0011…` → `0012_lifeboard_v3_fila_
  * posse_e_tentativas.sql` (rodada 3: posse, heartbeat, tentativas,
- * elegibilidade por item). Espelha literalmente as 3 contas da casa e a
+ * elegibilidade por item). Espelha literalmente as contas da casa — hoje QUATRO,
+ * e a fonte no banco é `public.painel_contas_da_casa()` (0029 §1) — e a
  * tabela de roteamento de modelo (`Lucas-Contexto-Geral/.claude/rules/
  * model-routing.md`) — mudar aqui sem mudar lá (ou vice-versa) quebra o
  * "porquê" que a tela mostra.
  */
 
+/**
+ * MÉDIO 3 (rodada 12): a QUARTA conta. Medido em produção em 21/09/2026 —
+ * `painel_teto_diario` tem quatro linhas, `arborcactus@gmail.com` entre elas
+ * com teto 500, e nenhuma função da fila a citava: ela tinha orçamento e não
+ * podia receber um item sequer. Esta lista e a lista das funções da
+ * migration 0027 são o MESMO contrato; a ordem aqui é a ordem de desempate
+ * lá (`prompts-espelho-sql.test.ts` confere as duas).
+ */
 export const CONTAS = [
   "lucasscudeler@gmail.com",
   "lsgpandora@gmail.com",
   "almapetra.ltda@gmail.com",
+  "arborcactus@gmail.com",
 ] as const;
 
 export type Conta = (typeof CONTAS)[number];
@@ -24,6 +34,7 @@ export const ROTULO_CONTA: Record<Conta, string> = {
   "lucasscudeler@gmail.com": "Lucas",
   "lsgpandora@gmail.com": "Pandora",
   "almapetra.ltda@gmail.com": "Alma Petra",
+  "arborcactus@gmail.com": "Arbor Cactus",
 };
 
 export function contaValida(valor: string): valor is Conta {
@@ -152,6 +163,28 @@ export interface ItemFilaPrompt {
    * banco anterior à migration 0018.
    */
   custoOrigem?: OrigemGravada;
+  /**
+   * MÉDIO 3 (rodada 13) · O QUE O LIVRO DIZ DESTE ITEM — a origem do
+   * lançamento ATIVO da entidade canônica dele (a sessão vinculada quando
+   * existe; senão o próprio item).
+   *
+   * A CAUSA que estes três campos matam: a tela decidia pela COLUNA
+   * `custoOrigem` do item e o banco decide pelo LANÇAMENTO VIVO da entidade.
+   * Desde a precedência (D53) as duas divergem — a coluna diz `estimativa` (a
+   * casa lançou quando o item morreu) enquanto a sessão vinculada já publicou
+   * US$ 300 medidos. Daí saíam os três sintomas medidos pelo crítico: o botão
+   * de ajuste aparecendo para um item que a RPC recusa, o aviso do
+   * cancelamento prometendo dinheiro que não entra, e a célula imprimindo
+   * US$ 50,00 para um item que pesa 300 no dia.
+   *
+   * Opcionais: banco anterior à 0028 não manda, e a tela degrada para a
+   * dedução pela coluna — a mesma que valia antes.
+   */
+  livroOrigem?: OrigemGravada | null;
+  /** MÉDIO 3: o POSTO do lançamento ativo (D53: 10/20/30/40). */
+  livroPrecedencia?: number | null;
+  /** MÉDIO 3: quanto essa entidade pesa no livro — a contribuição real ao dia. */
+  livroLiquidoUsd?: number | null;
   /** D20: quando o operador corrigiu o custo pela tela (ISO) — null se nunca. */
   custoAjustadoEm: string | null;
   /** D19: item devolvido só volta a ser elegível a partir deste instante (ISO). */
@@ -192,6 +225,13 @@ export interface ConsumoConta {
   exigeMedicaoRecente?: boolean;
   /** D32d: a faixa real dos últimos dias MEDIDOS, para o teto ser comparável. */
   historico?: HistoricoMedido | null;
+  /**
+   * P2 do Codex (PR #42): quantas sessões desta conta estão em voo agora e o
+   * limite por conta (`painel_fila_em_voo` / `painel_fila_maximo_em_voo_por_conta`).
+   * Opcionais: banco anterior à 0030 não manda, e a escolha é a de antes.
+   */
+  emVoo?: number;
+  limiteEmVoo?: number | null;
 }
 
 /**
@@ -216,6 +256,82 @@ export interface HistoricoMedido {
  * prompts-espelho-sql.test.ts` lê o .sql do disco e compara com esta constante.
  */
 export const LIMITE_DEFASAGEM_HORAS = 12;
+
+/**
+ * M3 (rodada 11): o TETO DIÁRIO POR CONTA — 500, por decisão do operador em
+ * 14/09/2026 (régua da casa `teto-de-gasto-diario`).
+ *
+ * Ele existia em três lugares e em nenhum deles era conferível: o schema tinha
+ * `default 150` (migration 0007 §42), o fixture tinha 500 escrito à mão, e o
+ * número da decisão só vivia como PROSA no `DEPLOY.md` ("depois o `alter …
+ * teto_usd set default 500`") — um passo manual que some na primeira
+ * implantação feita com pressa. Agora o número mora aqui, a migration 0027 o
+ * declara no banco e `tests/unit/prompts-ultima-palavra-sql.test.ts` compara
+ * os dois.
+ *
+ * O valor é calibragem provisória: nos 9 dias com dado em
+ * `painel_consumo_por_conta_dia`, 9 de 9 ficaram acima de 150 (mediana ~2,6×
+ * o teto). Reavaliar com 14 dias de dado real nas quatro contas — a 0027 §4
+ * semeia QUATRO (`arborcactus@gmail.com` entrou pela 0026), então o orçamento
+ * despachável da casa é 4 × 500 = US$ 2.000/dia.
+ */
+export const TETO_DIARIO_PADRAO_USD = 500;
+
+/**
+ * ALTO 2 (crítico da rodada 13): O LIMITE POR ITEM NÃO É O TETO DO DIA.
+ *
+ * O limite `0..500` por item nasceu na migration 0009, quando o teto do dia
+ * era 150 — um item nunca chegava perto. A decisão de 14/09 subiu o teto para
+ * 500 e ninguém revisitou o limite por item: os dois números viraram o mesmo,
+ * e a porta de FECHAMENTO passou a recusar a medição real. Medido: item com
+ * estimativa de 120 que custou 620 era recusado ao fechar, morria valendo 120
+ * no livro e abria US$ 380 de teto que não existiam.
+ *
+ * A régua agora: quem REGISTRA custo já gasto aceita o número real; quem
+ * recusa é o PULL, que não despacha nada novo enquanto o dia não couber. Este
+ * número é só sanidade (unidade trocada, dedo escorregado) e espelha
+ * `public.painel_custo_maximo_por_item()` (0027 §0).
+ */
+export const CUSTO_MAXIMO_POR_ITEM_USD = 100000;
+
+/**
+ * CRÍTICO (crítico/coordenador da rodada 15): O PISO NÃO É O NÚMERO ZERO.
+ *
+ * A rodada 14 trocou `usd >= 0` por `usd > 0` em três paredes e fechou o
+ * NÚMERO que o crítico daquela rodada usou. A CLASSE ficou aberta: com
+ * `painel_custo_estimado.usd = 0.0001` o coordenador despachou 40 sessões em
+ * voo na mesma conta contra US$ 1,00 de espaço no dia, reserva total de
+ * US$ 0,0040 — e US$ 1,00 admitiria dez mil sessões.
+ *
+ * `ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR` é o ÚNICO número da derivação: quantos
+ * itens simultâneos o teto de um dia pode admitir só pelo VALOR antes de a
+ * reserva por item deixar de ser freio. O piso é `teto / esse número` — 1% de
+ * US$ 500 — e é igual à complexidade mais barata que a casa declara
+ * (`baixa` = 5), então nada que o painel declara hoje é recusado.
+ *
+ * Espelha `public.painel_fila_itens_simultaneos_maximos_por_valor()` e
+ * `public.painel_custo_minimo_por_item()` (migration 0030 §1);
+ * `tests/unit/prompts-ultima-palavra-sql.test.ts` amarra os dois lados.
+ */
+export const ITENS_SIMULTANEOS_MAXIMOS_POR_VALOR = 100;
+
+/** Piso de valor por item — irmão de `CUSTO_MAXIMO_POR_ITEM_USD`. */
+export const CUSTO_MINIMO_POR_ITEM_USD = 5;
+
+/**
+ * CRÍTICO (rodada 15): QUANTAS SESSÕES A MESMA CONTA PODE TER EM VOO.
+ *
+ * O dano do achado é de CONTAGEM, não de soma: o que fere a casa é quantas
+ * sessões caras rodam ao mesmo tempo na mesma conta. Uma sessão real custa da
+ * ordem de US$ 200 (12/09/2026: US$ 2.513,29 em 12 sessões) contra um teto de
+ * US$ 500 — duas medianas já comem o dia. Quatro é o que o teto paga na
+ * complexidade mais cara declarada (`maxima` = 120), então esta parede não
+ * tira nada que a parede de valor já permitia a preço cheio: tira só a compra
+ * de concorrência por estimativa barata.
+ *
+ * Espelha `public.painel_fila_maximo_em_voo_por_conta()` (migration 0030 §1).
+ */
+export const MAXIMO_EM_VOO_POR_CONTA = 4;
 
 export interface FilaPromptsState {
   fila: ItemFilaPrompt[];
@@ -250,15 +366,25 @@ export function tetoAtingido(
   reservadoUsd: number,
   tetoUsd: number,
 ): boolean {
-  return consumoHojeUsd + reservadoUsd >= tetoUsd;
+  // CRÍTICO 1 (rodada 13): mesmo piso de `headroomUsd` — um dia negativo não
+  // pode desfazer um teto já atingido pelo que está em execução.
+  return Math.max(0, consumoHojeUsd) + reservadoUsd >= tetoUsd;
 }
 
 /**
  * D3: o que o PULL realmente checa — `medido + em_execucao + estimado <= teto`.
  * A fila parada (`naFilaUsd`) NÃO entra: ela não gastou nada ainda.
+ *
+ * CRÍTICO 1 (rodada 13): o gasto entra COM PISO ZERO, exatamente como
+ * `fila_prompts_pegar_interno` (migration 0027 §1) passou a fazer. É a raiz de
+ * "US$ 843,50 livres" num teto de 500, medida no Chromium: com
+ * `consumoHojeUsd = -358,50` esta subtração devolvia MAIS teto do que existe, e
+ * tudo o que deriva dela — a frase "livres", a previsão com a fila, a escolha
+ * automática de conta — herdava o número inflado. Gasto negativo é crédito de
+ * um dia fechado; crédito não vira teto, aqui nem no banco.
  */
 export function headroomUsd(consumo: ConsumoConta): number {
-  return consumo.tetoUsd - consumo.consumoHojeUsd - consumo.reservadoUsd;
+  return consumo.tetoUsd - Math.max(0, consumo.consumoHojeUsd) - consumo.reservadoUsd;
 }
 
 /**
@@ -425,6 +551,16 @@ export function textoDaMedicao(consumo: ConsumoConta, agora: number): string {
  * "sem medição nenhuma". É a extensão de D9 ("teto atingido não convida") ao
  * estado novo — nenhuma superfície convida para o que o banco vai recusar.
  */
+/**
+ * P2 do Codex (PR #42): a conta está no limite de sessões em voo — o pull
+ * não despacha nada dela até uma fechar. Espelho de `v_sem_vaga` em
+ * `painel_fila_escolher_conta` (0030).
+ */
+export function semVagaEmVoo(consumo: ConsumoConta): boolean {
+  const limite = consumo.limiteEmVoo ?? null;
+  return limite !== null && limite > 0 && (consumo.emVoo ?? 0) >= limite;
+}
+
 export function bancoRecusaria(consumo: ConsumoConta, agora: number): boolean {
   if (consumo.exigeMedicaoRecente !== true) return false;
   const horas = horasDeDefasagem(consumo, agora);
@@ -478,6 +614,86 @@ export function origemGravadaValida(v: string): v is OrigemGravada {
   return (ORIGEM_GRAVADA as readonly string[]).includes(v);
 }
 
+// ── MÉDIO 3 (rodada 13) · A RÉGUA DO BANCO, LIDA PELA TELA ───────────────────
+//
+// Uma raiz, não três remendos. O banco aceita ou recusa uma escrita comparando
+// POSTOS (D53, migration 0027 §5): um lançamento de posto menor não derruba um
+// de posto maior. A tela passa a fazer a MESMA pergunta, com a MESMA régua e
+// sobre o MESMO dado — o lançamento vivo da entidade, que `fila_prompts_listar`
+// agora manda junto com o item (migration 0028 §2).
+//
+// Tudo o que a tela decide sobre dinheiro deriva daqui: se o botão de ajuste
+// aparece, quanto o cancelamento lança, e qual número a célula imprime.
+
+/** D53: o posto PADRÃO de cada origem gravada. A publicação da sessão é 40. */
+export const POSTO_POR_ORIGEM: Record<OrigemGravada, number> = {
+  estimativa: 10,
+  operador: 20,
+  medido: 30,
+};
+
+/** O posto de quem escreve pela TELA — o operador. */
+export const POSTO_OPERADOR = POSTO_POR_ORIGEM.operador;
+/** O posto da ESTIMATIVA DA CASA — o que um cancelamento tenta lançar. */
+export const POSTO_ESTIMATIVA = POSTO_POR_ORIGEM.estimativa;
+
+export interface LeituraDoLivro {
+  /** A origem do lançamento ATIVO da entidade canônica do item. */
+  origem: OrigemGravada;
+  /** O posto dele (10/20/30/40) — a régua literal da D53. */
+  posto: number;
+  /** Quanto essa entidade pesa no livro: a contribuição REAL do item ao dia. */
+  liquidoUsd: number;
+}
+
+/**
+ * O que o livro diz deste item, ou `null` quando não há lançamento vivo (item
+ * que nunca custou nada — e banco antigo, que não manda os campos).
+ */
+export function leituraDoLivro(item: ItemFilaPrompt): LeituraDoLivro | null {
+  const origem = item.livroOrigem;
+  if (typeof origem !== "string" || !origemGravadaValida(origem)) return null;
+  const posto =
+    typeof item.livroPrecedencia === "number" && Number.isFinite(item.livroPrecedencia)
+      ? item.livroPrecedencia
+      : POSTO_POR_ORIGEM[origem];
+  const liquidoUsd =
+    typeof item.livroLiquidoUsd === "number" && Number.isFinite(item.livroLiquidoUsd)
+      ? item.livroLiquidoUsd
+      : 0;
+  return { origem, posto, liquidoUsd };
+}
+
+/**
+ * O banco aceitaria uma escrita de `posto` sobre este item? Sem lançamento
+ * vivo não há nada a derrubar — aceita. Com ele, vale a D53.
+ */
+export function livroAceita(item: ItemFilaPrompt, posto: number): boolean {
+  const livro = leituraDoLivro(item);
+  return livro === null || posto >= livro.posto;
+}
+
+/**
+ * Quanto este item pesa no gasto de HOJE, do jeito que o livro conta. É o
+ * número que a célula imprime quando ele discorda da coluna — a coluna é o que
+ * o item diz de si, o livro é o que o dia cobra.
+ */
+export function contribuicaoNoDia(item: ItemFilaPrompt): number | null {
+  const livro = leituraDoLivro(item);
+  if (livro === null) return item.custoUsd;
+  return livro.liquidoUsd;
+}
+
+/**
+ * A frase que explica por que a tela não oferece a correção: o número que o
+ * dia cobra não veio deste item, veio da sessão que o banco considera dona.
+ */
+export function textoLivroManda(item: ItemFilaPrompt): string | null {
+  const livro = leituraDoLivro(item);
+  if (livro === null || livro.posto <= POSTO_OPERADOR) return null;
+  return "a sessão já publicou o número deste item — quem manda no gasto de hoje é ela";
+}
+
 /**
  * MÉDIO 4 (rodada 8): a origem vem do BANCO quando o banco a manda.
  *
@@ -525,10 +741,74 @@ export function textoOrigemDoCusto(item: ItemFilaPrompt): string | null {
  * número foi medido. Só nesse caso: item de outro dia, ou item que ainda não
  * fechou, não ganham frase nenhuma (ali o botão nunca fez sentido).
  */
+/**
+ * MÉDIO 3 (rodada 13) · O QUE A CÉLULA DE CUSTO IMPRIME — um número só, e ele
+ * é o que o DIA cobra.
+ *
+ * Medido pelo crítico: a célula dizia "US$ 50,00 · estimativa da casa" para um
+ * item cuja contribuição real ao dia era US$ 300 — porque lia a coluna do item
+ * e o dia é cobrado pelo livro. Quando os dois discordam, quem fala é o livro,
+ * e a nota diz o que a casa estimava, para o número de antes não sumir sem
+ * explicação.
+ */
+export interface CustoNaTela {
+  valorUsd: number | null;
+  nota: string | null;
+  /** Palpite da casa ou medição que falhou — a tela marca em cor de atenção. */
+  atencao: boolean;
+}
+
+export function custoNaTela(item: ItemFilaPrompt): CustoNaTela {
+  const livro = leituraDoLivro(item);
+  // P2 do Codex (PR #42, 2ª rodada): o livro manda sempre que tem posto acima
+  // do operador — não só quando o VALOR difere. Com a condição antiga, uma
+  // sessão que publicava exatamente os US$ 50 que a casa estimava deixava a
+  // célula dizendo "estimativa da casa", em cor de atenção, ao lado da frase
+  // "a sessão já publicou o número deste item". O "(a casa estimava …)" só
+  // aparece quando há um número diferente para lembrar.
+  if (livro !== null && livro.posto > POSTO_OPERADOR) {
+    return {
+      valorUsd: livro.liquidoUsd,
+      nota:
+        item.custoUsd === null || item.custoUsd === livro.liquidoUsd
+          ? "medido pela sessão"
+          : `medido pela sessão (a casa estimava ${formatarUsd(item.custoUsd)})`,
+      atencao: false,
+    };
+  }
+  const origem = origemDoCusto(item);
+  return {
+    valorUsd: item.custoUsd,
+    nota: textoOrigemDoCusto(item),
+    atencao: origem === "estimativa" || origem === "medido-zero",
+  };
+}
+
+/**
+ * MÉDIO 3 (rodada 13) · QUANTO O CANCELAMENTO DESTE ITEM LANÇA DE VERDADE.
+ * Espelho de `fila_prompts_cancelar` (0027 §10), inclusive da parte que a tela
+ * não via: a estimativa da casa tem posto 10 e o livro a RECUSA quando a
+ * entidade já tem medição. Medido pelo crítico: a tela prometia "US$ 50,00
+ * entram no gasto de hoje … dá para ajustar na linha depois" e entravam
+ * US$ 0,00, sobre a única pergunta destrutiva da página.
+ */
+export function custoAoCancelarUsd(item: ItemFilaPrompt): number {
+  const jaTeveDono = item.estado === "pega" || item.tentativas > 0;
+  if (!jaTeveDono) return 0;
+  if (item.custoUsd !== null) return 0;
+  if (!livroAceita(item, POSTO_ESTIMATIVA)) return 0;
+  return Math.min(item.custoEstimadoUsd, CUSTO_MAXIMO_POR_ITEM_USD);
+}
+
 export function textoSemAjuste(item: ItemFilaPrompt): string | null {
   // MÉDIO 4 (rodada 8): "ajustado" SAIU desta lista. O número que o operador
   // digitou continua sendo dele enquanto o dia está aberto — só o que uma
   // SESSÃO mediu é que não se reescreve pela tela.
+  // MÉDIO 3 (rodada 13): o livro fala primeiro. A coluna do item pode dizer
+  // `estimativa` enquanto a entidade dele já guarda a medição publicada — e
+  // era exatamente aí que o botão aparecia para algo que a RPC recusa.
+  const doLivro = textoLivroManda(item);
+  if (doLivro !== null) return doLivro;
   return origemDoCusto(item) === "medido"
     ? "valores medidos pela sessão não são ajustados aqui"
     : null;
@@ -542,11 +822,44 @@ export const MOTIVOS_ENFILEIRAR = [
   "auto_nao_cabe_hoje",
   "manual_cabe",
   "manual_nao_cabe_hoje",
+  // D51 (pós-merge, CodeRabbit): a conta manual recusada por MEDIÇÃO VELHA
+  // devolvia `manual_nao_cabe_hoje`, cuja frase fala de espaço livre — a tela
+  // explicava falta de dinheiro onde o problema é medição parada.
+  "manual_medicao_velha",
+  // A4 (rodada 11): a RPC já devolvia `todas_recusadas` (migration 0025) e
+  // ninguém lia. Quando TODAS as contas estão recusadas por medição velha, o
+  // roteamento automático caía em `auto_nao_cabe_hoje`, cuja frase fala de
+  // dinheiro — e saía se contradizendo: "nenhuma conta tem US$ 50,00 livres …
+  // — a mais folgada tem US$ 500,00". O problema ali não é espaço; é medição
+  // parada. Mesmo remédio de `manual_medicao_velha`, do lado automático.
+  "auto_medicao_velha",
+  // P2 do Codex (PR #42, 6ª rodada): a escolha automática PULOU conta que
+  // está no limite de sessões em voo. "A conta com maior espaço livre" deixava
+  // de ser verdade — a mais folgada pode ser justamente a que ficou de fora.
+  "auto_maior_espaco_com_vaga",
+  "auto_nao_cabe_hoje_com_vaga",
+  // P2 do Codex (PR #42, 7ª rodada): TODAS as contas estão no limite de
+  // sessões em voo. O item entra, mas não sai agora — a frase diz a espera.
+  "auto_sem_vaga",
+  // P2 do Codex (PR #42, 8ª rodada): a conta escolhida À MÃO está no limite
+  // de sessões em voo. Entra na fila, mas não sai agora.
+  "manual_sem_vaga",
 ] as const;
 export type MotivoEnfileirar = (typeof MOTIVOS_ENFILEIRAR)[number];
 
 export function motivoEnfileirarValido(v: string): v is MotivoEnfileirar {
   return (MOTIVOS_ENFILEIRAR as readonly string[]).includes(v);
+}
+
+/**
+ * P2 do Codex (PR #42, 11ª rodada): o item entrou na fila, mas a conta dele
+ * está no limite de sessões em voo — ele ESPERA uma fechar. `cabe_hoje` é a
+ * resposta do DINHEIRO e pode continuar `true` nesse caso; quem decide se a
+ * tela pinta sucesso ou aviso tem de olhar também este código, senão a frase
+ * "sai quando uma vaga abrir" aparece em verde, como pronta.
+ */
+export function motivoEsperaVagaDeVoo(codigo: string | undefined): boolean {
+  return codigo === "manual_sem_vaga" || codigo === "auto_sem_vaga";
 }
 
 export interface NumerosDoEnfileiramento {
@@ -557,6 +870,13 @@ export interface NumerosDoEnfileiramento {
   custoEstimadoUsd: number;
   naFilaUsd: number;
   itensNaFrente: number;
+  /**
+   * P2 do Codex (PR #42, 23ª e 24ª rodadas): o item também espera vaga de
+   * sessão em voo — a conta escolhida à mão, ou todas no automático. Só as
+   * frases de medição velha leem isto; os outros códigos já nascem com a vaga
+   * dentro deles (`auto_sem_vaga`, `manual_sem_vaga`, `_com_vaga`).
+   */
+  esperaVaga?: boolean;
 }
 
 /**
@@ -572,6 +892,53 @@ export interface NumerosDoEnfileiramento {
  * a frase diz `contando a fila parada` — o headroom aparece ao lado, como
  * explicação, nunca como o veredito.
  */
+/**
+ * P2 do Codex (PR #42, 23ª e 24ª rodadas): a medição parada NÃO é sempre o
+ * único bloqueio. A resposta da fila pode trazer, junto dela, falta de
+ * dinheiro e o limite de sessões em voo — e as duas frases de medição velha
+ * (automática e manual) diziam "não é falta de espaço" e prometiam rodar
+ * "quando a medição voltar". Agora só negam o espaço quando o espaço existe, e
+ * a condição de saída lista TUDO o que precisa acontecer.
+ */
+function fraseDeMedicaoVelha(
+  escolha: "manual" | "automatica",
+  inicio: string,
+  n: NumerosDoEnfileiramento,
+  espaco: number,
+  complexidade: string,
+  detalheDaFila: string,
+): string {
+  const faltaEspaco = espaco < n.custoEstimadoUsd;
+  const semVaga = n.esperaVaga === true;
+  if (!faltaEspaco && !semVaga) {
+    return (
+      `${inicio} Não é falta de espaço (há ${formatarUsd(espaco)} livres para uma tarefa ` +
+      `${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. Entra na fila e roda ` +
+      `quando a medição voltar.`
+    );
+  }
+  const alem: string[] = [];
+  const condicoes = ["a medição voltar"];
+  if (faltaEspaco) {
+    alem.push(
+      `o dia também não tem espaço — ${espaco > 0 ? `só ${formatarUsd(espaco)} livres` : "nenhum espaço livre"} ` +
+        `para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)}${detalheDaFila}`,
+    );
+    condicoes.push("houver espaço");
+  }
+  if (semVaga) {
+    alem.push(
+      escolha === "manual"
+        ? "esta conta está no limite de sessões em voo"
+        : "todas as contas estão no limite de sessões em voo",
+    );
+    condicoes.push("uma sessão fechar");
+  }
+  const juntar = (partes: string[]): string =>
+    partes.length <= 1 ? partes.join("") : `${partes.slice(0, -1).join(", ")} e ${partes[partes.length - 1]}`;
+  return `${inicio} E não é só a medição: ${juntar(alem)}. Entra na fila e roda quando ${juntar(condicoes)}.`;
+}
+
 export function fraseDoEnfileiramento(
   codigo: MotivoEnfileirar,
   n: NumerosDoEnfileiramento,
@@ -593,6 +960,35 @@ export function fraseDoEnfileiramento(
         `parada (${formatarUsd(espaco)} para uma tarefa ${complexidade} de ` +
         `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}.`
       );
+    case "auto_maior_espaco_com_vaga":
+      return (
+        `Enfileirado para ${conta}: é a conta com maior espaço livre hoje entre as que têm vaga de ` +
+        `sessão, contando a fila parada (${formatarUsd(espaco)} para uma tarefa ${complexidade} de ` +
+        `${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}. As contas no limite de sessões em voo ` +
+        `ficaram de fora.`
+      );
+    case "auto_nao_cabe_hoje_com_vaga":
+      return (
+        `Enfileirado para ${conta}: nenhuma conta com vaga de sessão tem ${formatarUsd(n.custoEstimadoUsd)} ` +
+        `livres para uma tarefa ${complexidade} contando a fila parada — a mais folgada entre elas tem ` +
+        `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. As contas no limite ` +
+        `de sessões em voo ficaram de fora. Entra na fila e roda quando houver espaço.`
+      );
+    case "auto_sem_vaga":
+      return (
+        `Enfileirado para ${conta}: todas as contas estão no limite de sessões em voo agora, ` +
+        `então o item só sai quando uma sessão fechar. ${conta} é a de maior espaço livre ` +
+        `(${formatarUsd(espaco)} para uma tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})` +
+        `${detalheDaFila}` +
+        (espaco >= n.custoEstimadoUsd ? "." : ", e o dia ainda precisa ter espaço para ele.")
+      );
+    case "manual_sem_vaga":
+      return (
+        `Enfileirado para ${conta} (escolha manual): esta conta está no limite de sessões em voo ` +
+        `agora, então o item só sai quando uma delas fechar (${formatarUsd(espaco)} livres para uma ` +
+        `tarefa ${complexidade} de ${formatarUsd(n.custoEstimadoUsd)})${detalheDaFila}` +
+        (espaco >= n.custoEstimadoUsd ? "." : ", e o dia ainda precisa ter espaço para ele.")
+      );
     case "manual_cabe":
       return (
         `Enfileirado para ${conta} (escolha manual): cabe hoje contando a fila parada — ` +
@@ -605,6 +1001,26 @@ export function fraseDoEnfileiramento(
         `para uma tarefa ${complexidade} contando a fila parada — a mais folgada tem ` +
         `${espaco > 0 ? formatarUsd(espaco) : "nenhum espaço livre"}${detalheDaFila}. ` +
         `Entra na fila e roda quando houver espaço.`
+      );
+    case "auto_medicao_velha":
+      return fraseDeMedicaoVelha(
+        "automatica",
+        `Enfileirado para ${conta}: nenhuma conta autoriza gasto agora — elas exigem medição de ` +
+          `menos de ${LIMITE_DEFASAGEM_HORAS} h e a medição está parada.`,
+        n,
+        espaco,
+        complexidade,
+        detalheDaFila,
+      );
+    case "manual_medicao_velha":
+      return fraseDeMedicaoVelha(
+        "manual",
+        `Enfileirado para ${conta} (escolha manual): esta conta está com a medição parada há mais de ` +
+          `${LIMITE_DEFASAGEM_HORAS} h, e enquanto ela não for medida de novo o disparo é recusado.`,
+        n,
+        espaco,
+        complexidade,
+        detalheDaFila,
       );
     case "manual_nao_cabe_hoje":
       return (
@@ -634,6 +1050,22 @@ export function fraseDoCancelamento(
   custoLancadoUsd: number,
   tentativas: number,
 ): string {
+  // P2 do Codex (PR #42): o cancelamento de item que JÁ RODOU pode não lançar
+  // nada — o item já tinha custo registrado, ou a sessão vinculada já
+  // publicou a medição e o livro recusou a estimativa pelo posto (D53). O
+  // banco devolve `custo_lancado_usd = 0`, e as duas frases abaixo diziam
+  // "US$ 0,00 entram no gasto de hoje" e mandavam ajustar na linha — ajuste
+  // que a tela, com razão, já não oferece nesse caso.
+  if (codigo !== "cancelado_nunca_pego" && !(custoLancadoUsd > 0)) {
+    const inicio =
+      codigo === "cancelado_em_execucao"
+        ? "Cancelado durante a execução."
+        : `Cancelado. Ele já tinha sido pego ${tentativas === 1 ? "1 vez" : `${tentativas} vezes`}.`;
+    return (
+      `${inicio} Este cancelamento não soma nada ao gasto de hoje: o custo deste item já estava ` +
+      `registrado (medido pela sessão ou lançado antes), e é esse número que conta.`
+    );
+  }
   switch (codigo) {
     case "cancelado_nunca_pego":
       return "Cancelado. Este prompt nunca chegou a rodar, então não entrou no gasto de hoje.";
@@ -691,6 +1123,22 @@ export interface NumerosDoPull {
   defasagemHoras?: number | null;
   /** D32c: a conta recusa o pull contra saldo velho (coluna do teto). */
   exigeMedicaoRecente?: boolean;
+  /**
+   * CRÍTICO (rodada 15): quantas sessões desta conta estão em voo agora, e o
+   * limite. O headroom sozinho anunciava US$ 1,00 de espaço com 40 sessões
+   * gastando dinheiro naquele instante — aritmeticamente correto, factualmente
+   * falso. `limiteEmVoo` ausente ou nulo = a oração não existe, e toda frase
+   * anterior à rodada 15 sai idêntica, letra por letra.
+   */
+  emVoo?: number;
+  limiteEmVoo?: number | null;
+  /**
+   * CRÍTICO (rodada 15): quantos itens DISPONÍVEIS estão abaixo do piso. Sem
+   * esta oração o pull dizia "nada cabe agora: o mais barato disponível custa
+   * US$ 0,01 e há US$ 500,00 livres" — autocontraditório. O não é do piso, e
+   * quem precisa ouvir isso é quem pode consertar a estimativa.
+   */
+  abaixoDoPiso?: number;
 }
 
 /**
@@ -706,6 +1154,10 @@ export interface NumerosDoPull {
 export function montarMotivoDoPull(n: NumerosDoPull): string {
   const frases: string[] = [];
   const defasagem = n.defasagemHoras ?? null;
+  // CRÍTICO (rodada 15): a conta está cheia de sessões, não sem dinheiro.
+  const limiteEmVoo = n.limiteEmVoo ?? null;
+  const noLimite = limiteEmVoo !== null && limiteEmVoo > 0 && (n.emVoo ?? 0) >= limiteEmVoo;
+  const abaixoDoPiso = n.abaixoDoPiso ?? 0;
 
   // D32c (rodada 7): a RECUSA é a frase inteira. Não adianta listar o que
   // caberia num saldo que a casa acabou de declarar velho demais para
@@ -724,7 +1176,19 @@ export function montarMotivoDoPull(n: NumerosDoPull): string {
     frases.push(`atenção: o gasto medido desta conta é de ${Math.round(defasagem)} h atrás`);
   }
 
-  if (n.mortos === 1) {
+  // CRÍTICO 1 (rodada 12): `mortosUsd` é o que o LIVRO aceitou, não o que a
+  // casa tentou lançar. Quando a sessão vinculada já publicou o número real, a
+  // estimativa da morte é recusada por posto (D53) e o dia não anda — e a
+  // frase diz isso, em vez de anunciar um lançamento de "US$ 0,00".
+  if (n.mortos === 1 && n.mortosUsd === 0) {
+    frases.push(
+      "1 item morreu sem fechar neste disparo e não mudou o gasto do dia: o número real dele já estava medido",
+    );
+  } else if (n.mortos > 1 && n.mortosUsd === 0) {
+    frases.push(
+      `${n.mortos} itens morreram sem fechar neste disparo e não mudaram o gasto do dia: os números reais deles já estavam medidos`,
+    );
+  } else if (n.mortos === 1) {
     frases.push(
       `1 item morreu sem fechar neste disparo e lançou ${formatarUsd(n.mortosUsd)} no dia`,
     );
@@ -734,12 +1198,40 @@ export function montarMotivoDoPull(n: NumerosDoPull): string {
     );
   }
 
+  // CRÍTICO (rodada 15): a oração das SESSÕES EM VOO vem antes da oração do
+  // item, porque quando ela aparece ela é a RAZÃO de nada ter sido pego.
+  if (noLimite) {
+    frases.push(
+      (n.emVoo ?? 0) === 1
+        ? `1 sessão desta conta está em voo (limite ${limiteEmVoo}): não despacho outra até ela fechar`
+        : `${n.emVoo} sessões desta conta estão em voo (limite ${limiteEmVoo}): ` +
+          "não despacho outra até uma delas fechar",
+    );
+  }
+
+  // CRÍTICO (rodada 15): o item abaixo do piso tem frase própria.
+  if (abaixoDoPiso === 1) {
+    frases.push(
+      `1 item da fila está com estimativa abaixo do piso de ${formatarUsd(CUSTO_MINIMO_POR_ITEM_USD)} ` +
+        "e não entra em despacho: corrija a estimativa da complexidade dele",
+    );
+  } else if (abaixoDoPiso > 1) {
+    frases.push(
+      `${abaixoDoPiso} itens da fila estão com estimativa abaixo do piso de ` +
+        `${formatarUsd(CUSTO_MINIMO_POR_ITEM_USD)} e não entram em despacho: ` +
+        "corrija a estimativa da complexidade deles",
+    );
+  }
+
   if (n.custoEscolhidoUsd !== null) {
     frases.push(
       `peguei o item mais antigo que cabe: ${formatarUsd(n.custoEscolhidoUsd)} de ` +
         `${formatarUsd(n.headroomUsd)} livres`,
     );
-  } else if (n.menorDisponivelUsd !== null && n.elegiveis === 0) {
+  } else if (n.menorDisponivelUsd !== null && n.elegiveis === 0 && !noLimite) {
+    // `!noLimite`: sem ele a frase saía autocontraditória — "nada cabe agora: o
+    // mais barato disponível custa US$ 5,00 e há US$ 480,00 livres" — porque com
+    // a conta no limite `elegiveis` é zero por CONTAGEM, não por preço.
     // Só é honesto dizer "nada cabe" quando NADA cabe; e headroom negativo
     // nunca vira número (o crítico mediu "so ha US$ -3.00 livres").
     const folga =

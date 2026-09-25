@@ -194,8 +194,84 @@ function resolveCor(nome) {
   return T[nome] ?? RESOLVIDAS[nome];
 }
 
+/**
+ * MÉDIO 3 (crítico da rodada 14): ESTE PORTÃO CONTAVA A SI MESMO.
+ *
+ * A mensagem final era `${PARES.length} pares verificados` — o número que
+ * servia de prova saía do PRÓPRIO array auditado. Apagar um par baixava os
+ * dois lados da conta e o portão dizia verde, com a contagem já ajustada para
+ * não chamar atenção. O crítico apagou as NOVE linhas de `PARES` que dizem
+ * `(P7` — todas as medições de acessibilidade da tela desta peça, o
+ * `role=alert` da recusa da fila entre elas — e o portão devolveu
+ * `55 pares verificados, todos dentro da régua`, saída 0, com os outros quatro
+ * portões verdes.
+ *
+ * É o MESMO defeito que a rodada 13 matou em `rodar-suite-sql.sh`
+ * (`ESPERADOS="$(grep -c … "$SUITE")"`), vivo e intacto em outro arquivo,
+ * porque ninguém generalizou. O remédio é o mesmo da rodada 13, nas duas
+ * formas que ele tem:
+ *
+ *   · PISO NUMÉRICO — um número escrito à mão. Encolher a régua passa a exigir
+ *     baixar o piso num diff de uma linha, que é uma frase em voz alta ("a
+ *     régua encolheu"). Acrescentar par não pede nada aqui.
+ *   · LISTA NOMINAL — as medições que não podem desaparecer, cada uma pelo que
+ *     ela mede, fora do array. Piso sozinho se atravessa: apagar os 9 pares do
+ *     P7 e acrescentar 9 pares triviais mantém a contagem. É por isso que são
+ *     duas guardas e não uma.
+ *
+ * O par ausente não é o que `resolveCor` pega: token inexistente REPROVA
+ * (`token ausente` → `falhou++`). O que não reprovava é o par que simplesmente
+ * deixa de existir.
+ */
+const PISO_DE_PARES = 64;
+
+/**
+ * As MEDIÇÕES que não podem sair da régua, identificadas pelo que elas medem —
+ * não pelo par de tokens. Medido: `texto|fundo` não serve de chave, porque
+ * `bone-400 sobre navy-850` aparece em três linhas diferentes; apagar as nove
+ * do P7 deixava oito das chaves ainda "presentes" por causa de linhas de outra
+ * tela, e a lista nominal acusava uma só. A chave é um trecho da DESCRIÇÃO,
+ * que é única por medição.
+ */
+const MEDICOES_EXIGIDAS = [
+  // o texto e o fundo da app, que toda tela usa
+  "texto principal sobre o fundo da app",
+  "texto principal sobre painel",
+  "texto secundário do cartão",
+  // P7 · a tela da fila de prompts (as 9 que o crítico apagou)
+  "placeholder do textarea de novo prompt",
+  "legenda de complexidades no rodapé do formulário",
+  "trilho da barra de progresso do cartão de conta",
+  "'sem medição nenhuma' no cartão de conta",
+  "'última medição há N h' no cartão de conta",
+  "teto × faixa real dos dias medidos no cartão",
+  "aviso 'isto entrou no gasto de hoje' na linha da fila",
+  "sucesso mudo da fila (cancelamento sem custo)",
+  "recusa em português da fila, role=alert",
+];
+
 let falhou = 0;
 const linhas = [];
+
+if (PARES.length < PISO_DE_PARES) {
+  console.error(
+    `a régua encolheu: ${PARES.length} pares, piso ${PISO_DE_PARES}. ` +
+      "Se a remoção é de propósito, baixe o PISO_DE_PARES no mesmo commit e diga por quê.",
+  );
+  falhou++;
+}
+
+{
+  const descricoes = PARES.map(([, , , onde]) => onde);
+  const ausentes = MEDICOES_EXIGIDAS.filter((k) => !descricoes.some((d) => d.includes(k)));
+  if (ausentes.length > 0) {
+    console.error(
+      `medição(ões) exigida(s) que saíram da régua:\n  - ${ausentes.join("\n  - ")}`,
+    );
+    falhou += ausentes.length;
+  }
+}
+
 for (const [t, f, min, onde] of PARES) {
   const corT = resolveCor(t);
   const corF = resolveCor(f);
@@ -215,7 +291,8 @@ for (const [t, f, min, onde] of PARES) {
 console.log(linhas.join("\n"));
 console.log(
   falhou === 0
-    ? `\n${PARES.length} pares verificados, todos dentro da régua.`
-    : `\n${falhou} par(es) abaixo da régua.`,
+    ? `\n${PARES.length} pares verificados (piso ${PISO_DE_PARES}, ` +
+        `${MEDICOES_EXIGIDAS.length} exigidas por nome), todos dentro da régua.`
+    : `\n${falhou} problema(s) na régua de contraste.`,
 );
 process.exit(falhou === 0 ? 0 : 1);

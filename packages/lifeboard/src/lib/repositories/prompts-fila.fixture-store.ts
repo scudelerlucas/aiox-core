@@ -77,10 +77,18 @@ import type {
 import {
   BACKOFF_POR_TENTATIVA_MIN,
   CONTAS,
+  CUSTO_MAXIMO_POR_ITEM_USD,
+  CUSTO_MINIMO_POR_ITEM_USD,
   JANELA_HEARTBEAT_MS,
+  MAXIMO_EM_VOO_POR_CONTA,
   MAX_TENTATIVAS,
+  POSTO_ESTIMATIVA,
+  POSTO_OPERADOR,
+  POSTO_POR_ORIGEM,
   ROTULO_COMPLEXIDADE,
   ROTULO_CONTA,
+  TETO_DIARIO_PADRAO_USD,
+  bancoRecusaria,
   contaValida,
   custoEstimadoParaComplexidade,
   formatarUsd,
@@ -89,12 +97,20 @@ import {
   montarMotivoDoPull,
   origemDoCusto,
   semSinal,
+  semVagaEmVoo,
 } from "@/core/prompts/tipos";
 import { FIXTURE_CONSUMO, FIXTURE_FILA } from "@/lib/repositories/prompts-fila.fixture";
 
 const LIMITE_PROMPT_RPC = 300;
 const MINUTO_MS = 60_000;
-const TETO_CUSTO_USD = 500;
+/**
+ * ALTO 2 (rodada 13): era 500 — o MESMO número do teto do dia, e por isso a
+ * porta de fechamento recusava a medição real de uma sessão que custou mais
+ * que o teto. Agora é o limite de SANIDADE por item, espelho de
+ *  (0027 §0). Quem barra despacho é o
+ * pull, não a porta que registra o que já aconteceu.
+ */
+const TETO_CUSTO_USD = CUSTO_MAXIMO_POR_ITEM_USD;
 
 export interface ResultadoEnfileirarFixture {
   ok: true;
@@ -108,6 +124,8 @@ export interface ResultadoEnfileirarFixture {
   custoEstimadoUsd: number;
   naFilaUsd: number;
   itensNaFrente: number;
+  /** P2 do Codex (PR #42, 23ª e 24ª rodadas): espelho de `sem_vaga` (manual) e `todas_sem_vaga` (automático). */
+  esperaVaga: boolean;
 }
 
 export interface ResultadoCancelarFixture {
@@ -153,6 +171,14 @@ interface EstadoFilaFixture {
    * listagem (que não devolve, e não precisa devolver, essa coluna).
    */
   ultimoDono: Map<string, string>;
+  /**
+   * P2 do Codex (PR #42, 10ª rodada): espelho de `parada_pendente_desde` — o
+   * último sinal de vida (ms) de um item cancelado DURANTE a execução cujo
+   * dono ainda não confirmou a parada fechando o item. Enquanto estiver na janela, o item
+   * ocupa vaga em `emVooDe`. Fora de `ItemFilaPrompt` pelo mesmo motivo de
+   * `ultimoDono`: é dado de worker, não da tela.
+   */
+  paradaPendente: Map<string, number>;
   contador: number;
 }
 
@@ -177,6 +203,7 @@ function estadoNovo(): EstadoFilaFixture {
     ),
     sessoesPublicadas: new Map<string, { conta: Conta; custoUsd: number | null }>(),
     ultimoDono: new Map<string, string>(),
+    paradaPendente: new Map<string, number>(),
     contador: 0,
   };
 }
@@ -320,6 +347,25 @@ function emEsperaDe(conta: Conta, agora: number): number {
 }
 
 /** D3: reservado = SÓ o que está em execução com sinal vivo. */
+/**
+ * CRÍTICO (rodada 15): a MESMA definição de `reservadoDe` — item `pega` com
+ * sinal vivo —, contada em vez de somada. Espelho de `painel_fila_em_voo`.
+ * P2 do Codex (PR #42, 10ª rodada): mais o item cancelado cujo dono ainda
+ * não confirmou a parada — a sessão filha pode estar rodando. A reserva de
+ * dinheiro não ganha este ramo: o cancelamento já lançou a estimativa.
+ */
+function emVooDe(conta: Conta, agora: number): number {
+  const pendentes = loja().paradaPendente;
+  return itens().filter(
+    (i) =>
+      i.conta === conta &&
+      ((i.estado === "pega" && !semSinal(i, agora)) ||
+        (i.estado === "cancelada" &&
+          pendentes.has(i.id) &&
+          agora - (pendentes.get(i.id) as number) <= JANELA_HEARTBEAT_MS)),
+  ).length;
+}
+
 function reservadoDe(conta: Conta, agora: number): number {
   return itens()
     .filter((i) => i.conta === conta && i.estado === "pega" && !semSinal(i, agora))
@@ -340,7 +386,7 @@ export function listarConsumoFixture(agora: number = Date.now()): ConsumoConta[]
     const estimativa = estimativaDe(conta, agora);
     return {
       conta,
-      tetoUsd: base?.tetoUsd ?? 150,
+      tetoUsd: base?.tetoUsd ?? TETO_DIARIO_PADRAO_USD,
       consumoHojeUsd: medidoDe(conta, agora),
       reservadoUsd: reservadoDe(conta, agora),
       naFilaUsd: naFilaDe(conta),
@@ -351,6 +397,10 @@ export function listarConsumoFixture(agora: number = Date.now()): ConsumoConta[]
       defasagemHoras: base?.defasagemHoras ?? null,
       exigeMedicaoRecente: base?.exigeMedicaoRecente === true,
       historico: base?.historico ?? null,
+      // P2 do Codex (PR #42): o mesmo par que a RPC manda — a escolha de
+      // conta passa a conhecer o limite de sessões em voo.
+      emVoo: emVooDe(conta, agora),
+      limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
     };
   });
 }
@@ -368,6 +418,45 @@ function antesDoCursor(item: ItemFilaPrompt, antesDe: string, antesId: string | 
   return antesId !== null && item.id < antesId;
 }
 
+/**
+ * MÉDIO 3 (rodada 13) · O ESPELHO DO LIVRO, no fixture.
+ *
+ * A RPC `fila_prompts_listar` passou a mandar, por item, a origem e o POSTO do
+ * lançamento ATIVO da entidade canônica dele (migration 0028 §2) — é isso que
+ * a tela usa para não oferecer o que o banco recusa. O fixture não tem
+ * livro-razão; tem `sessoesPublicadas`, que é o mesmo fato em outra forma:
+ * sessão vinculada que publicou custo É o lançamento vivo, com posto 40 (a
+ * medição publicada pela rotina da conta). Sem sessão publicada, quem responde
+ * é a coluna do próprio item.
+ *
+ * Espelhar é obrigação, não conveniência: o modo fixture é o que entra em
+ * screenshot e o que o Chromium mede.
+ */
+function livroDoItemFixture(item: ItemFilaPrompt): Pick<
+  ItemFilaPrompt,
+  "livroOrigem" | "livroPrecedencia" | "livroLiquidoUsd"
+> {
+  if (item.sessionId !== null) {
+    const publicada = loja().sessoesPublicadas.get(item.sessionId);
+    if (publicada !== undefined && publicada.custoUsd !== null && publicada.custoUsd !== 0) {
+      return { livroOrigem: "medido", livroPrecedencia: 40, livroLiquidoUsd: publicada.custoUsd };
+    }
+  }
+  // D40: zero é AUSÊNCIA de medição — o banco não grava lançamento para ele
+  // (`painel_caixa_lancar` sai cedo com alvo 0), e a listagem manda o livro
+  // vazio. Tratar zero como lançamento dava posto 30 a um "medido-zero" e
+  // sumia com o botão de ajuste que o SQL oferece (Minor do CodeRabbit, PR #42).
+  if (item.custoUsd === null || item.custoUsd === 0) {
+    return { livroOrigem: null, livroPrecedencia: null, livroLiquidoUsd: null };
+  }
+  const origem = item.custoOrigem ?? (item.custoEEstimativa ? "estimativa" : "medido");
+  return {
+    livroOrigem: origem,
+    livroPrecedencia: POSTO_POR_ORIGEM[origem],
+    livroLiquidoUsd: item.custoUsd,
+  };
+}
+
 /** D15: mesma paginação KEYSET e o MESMO truncamento em 300 caracteres da RPC. */
 export function listarFilaFixture(
   limite = 50,
@@ -377,7 +466,11 @@ export function listarFilaFixture(
   const elegiveis = itens().filter((i) => (antesDe === null ? true : antesDoCursor(i, antesDe, antesId)));
   return ordenadaDesc(elegiveis)
     .slice(0, Math.min(Math.max(limite, 1), 200))
-    .map((i) => ({ ...i, prompt: i.prompt.slice(0, LIMITE_PROMPT_RPC) }));
+    .map((i) => ({
+      ...i,
+      ...livroDoItemFixture(i),
+      prompt: i.prompt.slice(0, LIMITE_PROMPT_RPC),
+    }));
 }
 
 export function filaTemMaisFixture(
@@ -429,10 +522,27 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
 
   let conta: Conta;
   let manual: boolean;
+  /**
+   * A2 (rodada 11): O VEREDITO DO ROTEADOR, que era jogado fora.
+   * `escolherConta` devolve `cabeHoje` já contando a recusa por medição velha
+   * (D36) — e este arquivo o descartava para recalcular `cabeHoje` por conta
+   * própria, com outra régua. Medido: com as três contas travadas por medição
+   * velha, o roteador dizia `cabeHoje:false` e a loja respondia
+   * `auto_maior_espaco` + `cabeHoje:true`. O SQL faz o contrário — quando a
+   * conta veio do chooser, o veredito é o DELE (migration 0025 §2).
+   */
+  let autoCabeHoje = false;
+  let autoTodasRecusadas = false;
+  let autoPuladasSemVaga = 0;
+  let autoTodasSemVaga = false;
 
   if (input.conta) {
     if (!contaValida(input.conta)) {
-      return { erro: "conta precisa ser uma das 3 contas da casa." };
+      // Varredura de generalização (rodada 14): a frase dizia "3 contas" desde
+      // que a casa tinha 3, e a casa tem 4 desde 21/09 — número de contas em
+      // texto literal é a mesma cópia à mão que a 0029 §1 tirou do SQL. Agora
+      // ele vem de `CONTAS`, como a validação que o produziu.
+      return { erro: `conta precisa ser uma das ${CONTAS.length} contas da casa.` };
     }
     conta = input.conta;
     manual = true;
@@ -446,24 +556,68 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
       };
     }
   } else {
-    const escolha = escolherConta(consumos, input.complexidade);
+    // B2 (rodada 11): `agora` é parâmetro desta função e não chegava a decisão
+    // de tempo nenhuma — o roteador caía no default `Date.now()`, e um teste
+    // que finge o relógio media outra coisa do que pediu.
+    const escolha = escolherConta(consumos, input.complexidade, agora);
     if (escolha.conta === null) return { erro: escolha.motivo };
     conta = escolha.conta;
     manual = false;
+    autoCabeHoje = escolha.cabeHoje;
+    autoTodasRecusadas = escolha.todasRecusadas;
+    autoPuladasSemVaga = escolha.puladasSemVaga;
+    autoTodasSemVaga = escolha.todasSemVaga;
   }
 
   const c = consumos.find((x) => x.conta === conta) as ConsumoConta;
-  // D13: uma régua só — `headroom` decide `cabeHoje`; `espacoLivre` é previsão.
   const headroom = headroomUsd(c);
-  const cabeHoje = custoEstimado <= headroom;
+  /**
+   * A1 (rodada 11) · A MESMA RÉGUA DOS DOIS LADOS.
+   * Aqui era `custoEstimado <= headroom` — o headroom CRU, sem descontar a
+   * fila parada. O SQL decide por ESPAÇO LIVRE (`v_espaco := v_headroom -
+   * v_na_fila`, migration 0025 §2; e o veredito do chooser em 0019 §15).
+   * Medido no navegador com as duas réguas convivendo: a tela dizia
+   * "cabe hoje contando a fila parada — US$ 0,00 livres", uma frase que se
+   * contradiz sozinha. D29 já tinha mandado o NÚMERO da frase ser o espaço
+   * livre; faltava o VEREDITO vir do mesmo lugar.
+   */
+  const espacoLivre = headroom - c.naFilaUsd;
+  const cabeNoEspaco = custoEstimado <= espacoLivre;
   const itensNaFrente = itens().filter((i) => i.conta === conta && i.estado === "na_fila").length;
+  // D46 + D51 (pós-merge): a escolha MANUAL passa pela mesma trava de medição
+  // que `fila_prompts_pegar_interno` aplica, e a recusa por medição velha tem
+  // código próprio — `manual_nao_cabe_hoje` fala de espaço livre, e o problema
+  // aqui não é dinheiro. Espelho de `fila_prompts_enfileirar` (migration 0025).
+  // B2 (rodada 11): `agora`, nunca `Date.now()` — ver o comentário acima.
+  const recusaPorMedicao = manual && bancoRecusaria(c, agora);
+  const manualCabe = cabeNoEspaco && !recusaPorMedicao;
+  // A2: no automático quem vereditou foi o ROTEADOR (ele já conta D36).
+  const cabeHoje = manual ? manualCabe : autoCabeHoje;
+  // P2 do Codex (PR #42, 8ª rodada): conta escolhida à mão no limite de voo.
+  const manualSemVaga = manual && !recusaPorMedicao && semVagaEmVoo(c);
   const motivoCodigo: MotivoEnfileirar = manual
-    ? cabeHoje
+    ? manualSemVaga
+      ? "manual_sem_vaga"
+      : manualCabe
       ? "manual_cabe"
-      : "manual_nao_cabe_hoje"
-    : cabeHoje
-      ? "auto_maior_espaco"
-      : "auto_nao_cabe_hoje";
+      : recusaPorMedicao
+        ? "manual_medicao_velha"
+        : "manual_nao_cabe_hoje"
+    : // P2 do Codex (PR #42, 7ª rodada): TODAS as contas no limite de voo.
+      autoTodasSemVaga && !autoTodasRecusadas
+      ? "auto_sem_vaga"
+      : autoCabeHoje
+      ? autoPuladasSemVaga > 0
+        ? "auto_maior_espaco_com_vaga"
+        : "auto_maior_espaco"
+      : // A4 (rodada 11): quando NENHUMA conta autoriza gasto, o problema não é
+        // dinheiro — e `auto_nao_cabe_hoje` só sabe falar de dinheiro. Mesmo
+        // remédio que `manual_medicao_velha` recebeu do outro lado.
+        autoTodasRecusadas
+        ? "auto_medicao_velha"
+        : autoPuladasSemVaga > 0
+          ? "auto_nao_cabe_hoje_com_vaga"
+          : "auto_nao_cabe_hoje";
 
   const id = novoId();
   estado.fila.set(id, {
@@ -500,12 +654,15 @@ export function enfileirarFixture(input: EnfileirarFixtureInput): ResultadoFilaF
     conta,
     complexidade: input.complexidade,
     motivoCodigo,
+    // D46: a trava de medição também derruba o `cabe_hoje` da escolha manual —
+    // o SQL faz `v_cabe_hoje := false` no mesmo caso.
     cabeHoje,
     headroomUsd: headroom,
-    espacoLivreUsd: headroom - c.naFilaUsd,
+    espacoLivreUsd: espacoLivre,
     custoEstimadoUsd: custoEstimado,
     naFilaUsd: c.naFilaUsd,
     itensNaFrente,
+    esperaVaga: manual ? semVagaEmVoo(c) : autoTodasSemVaga,
   };
 }
 
@@ -530,7 +687,24 @@ export function cancelarFixture(id: string, agora: number = Date.now()): Resulta
         : "cancelado_nunca_pego";
   // D26: o cancelamento também é uma perda de posse — a memória fica.
   if (item.workerId !== null) estado.ultimoDono.set(id, item.workerId);
-  const lanca = motivoCancelamento !== "cancelado_nunca_pego" && item.custoUsd === null;
+  // P2 do Codex (PR #42, 10ª rodada): a vaga fica ocupada até o dono fechar
+  // o item — espelho do gatilho `painel_fila_marca_parada_pendente` (0030 §1e').
+  if (item.estado === "pega") {
+    const ultimoSinal = Date.parse(item.heartbeatEm ?? item.pegoEm ?? "");
+    if (!Number.isNaN(ultimoSinal)) estado.paradaPendente.set(id, ultimoSinal);
+  }
+  // MÉDIO 3 (rodada 13): o livro RECUSA a estimativa da casa (posto 10) quando
+  // a entidade do item já guarda medição publicada (posto 40) — é o que
+  // `fila_prompts_cancelar` devolve como `custo_lancado_usd = 0` com
+  // `recusado_por_precedencia = true`. Sem isto o fixture continuava lançando
+  // US$ 50 sobre um item cuja sessão já tinha publicado US$ 300.
+  const livro = livroDoItemFixture(item);
+  const livroAceitaEstimativa =
+    livro.livroPrecedencia === null || livro.livroPrecedencia === undefined
+      ? true
+      : POSTO_ESTIMATIVA >= livro.livroPrecedencia;
+  const lanca =
+    motivoCancelamento !== "cancelado_nunca_pego" && item.custoUsd === null && livroAceitaEstimativa;
   const custoLancadoUsd = lanca ? Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD) : 0;
 
   estado.fila.set(id, {
@@ -566,7 +740,7 @@ export function ajustarCustoFixture(
   const item = estado.fila.get(id);
   if (!item) return { erro: "Item não encontrado." };
   if (custoUsd < 0 || custoUsd > TETO_CUSTO_USD) {
-    return { erro: "O custo precisa ser um número entre 0 e 500." };
+    return { erro: `O custo precisa ser um número entre 0 e ${TETO_CUSTO_USD}.` };
   }
   if (item.estado !== "falhou" && item.estado !== "cancelada") {
     return { erro: "Só dá para ajustar o custo de item que falhou ou foi cancelado." };
@@ -599,6 +773,21 @@ export function ajustarCustoFixture(
     const recusa = recusaDeContaDaSessao(sess, item.conta);
     if (recusa) return { erro: recusa };
   }
+  // MÉDIO 3 (rodada 13): a MESMA guarda, olhando o LIVRO. A coluna do item
+  // pode dizer `estimativa` enquanto a entidade dele já guarda a medição
+  // publicada pela sessão — e é essa a recusa que o banco devolve
+  // (`fila_prompts_ajustar_custo`, 0027 §10). P2 do Codex (PR #42, 3ª rodada):
+  // como no banco, confere a entidade ATUAL e a da sessão PROPOSTA, depois das
+  // checagens da sessão (outro item, outra conta) para elas manterem o motivo.
+  const postosDoAjuste = [
+    livroDoItemFixture(item),
+    livroDoItemFixture({ ...item, sessionId: sess ?? item.sessionId }),
+  ]
+    .map((l) => l.livroPrecedencia)
+    .filter((p): p is number => typeof p === "number");
+  if (postosDoAjuste.some((posto) => POSTO_OPERADOR < posto)) {
+    return { erro: "Este custo já foi medido pela sessão — não dá para corrigi-lo aqui." };
+  }
   estado.fila.set(id, {
     ...item,
     custoUsd,
@@ -620,6 +809,7 @@ export function publicarSessaoFixture(
   conta: Conta,
   sessionId: string,
   custoUsd: number | null,
+  agora: number = Date.now(),
 ): void {
   const estado = loja();
   const jaPublicada = estado.sessoesPublicadas.get(sessionId);
@@ -631,15 +821,34 @@ export function publicarSessaoFixture(
   // testes chamam esta função e todos reusam a mesma conta, então o alcance é
   // o setup de fixture — mas o espelho tem de espelhar.
   if (jaPublicada !== undefined && jaPublicada.conta !== conta) return;
+  // P2 do Codex (PR #42, 6ª rodada): republicar com custo nulo ou zero NÃO
+  // apaga a medição anterior. No banco, o gatilho `painel_frentes_sessoes_lancar`
+  // trata zero/nulo como AUSÊNCIA de medição (D40) e não toca no livro — o
+  // último número diferente de zero continua sendo o lançamento de posto 40.
+  // O fixture sobrescrevia o mapa, esquecia o 40 e deixava cancelar/ajustar
+  // passarem onde o banco recusa.
+  const semMedicao = custoUsd === null || custoUsd === 0;
+  if (semMedicao && jaPublicada !== undefined && jaPublicada.custoUsd !== null && jaPublicada.custoUsd !== 0) {
+    return;
+  }
+  // P2 do Codex (PR #42, 17ª rodada): fora da faixa de sanidade não é medição
+  // — espelho da guarda de `painel_frentes_sessoes_lancar` (0027 §7b).
+  if (custoUsd !== null && (custoUsd < 0 || custoUsd > TETO_CUSTO_USD)) return;
   estado.sessoesPublicadas.set(sessionId, { conta, custoUsd });
   const base = estado.base.get(conta);
   if (!base) return;
   // A sessão publicada entra no "medido" das sessões, como a view do SQL.
   // Republicar com outro custo troca o valor, não soma duas vezes.
   const antes = jaPublicada?.custoUsd ?? 0;
+  // P2 do Codex (PR #42, 17ª rodada): publicação com custo é MEDIÇÃO — renova
+  // a idade da medição, como o SQL (`painel_fila_medido_ate` lê o livro). Sem
+  // isto a trava de medição recente (a 4ª conta nasce com ela) nunca soltava no
+  // fixture, e o caminho real de destravar não tinha como ser exercitado.
+  const mediu = !semMedicao;
   estado.base.set(conta, {
     ...base,
     publicadasUsd: base.publicadasUsd - antes + (custoUsd ?? 0),
+    ...(mediu ? { medidoAteEm: new Date(agora).toISOString(), defasagemHoras: null } : {}),
   });
 }
 
@@ -671,6 +880,22 @@ export interface ResultadoPegarFixture {
   estimativaItens: number;
   /** D27 (rodada 6): a frase ADITIVA, presente TAMBÉM quando um item foi pego. */
   motivo: string;
+  /**
+   * A3 (rodada 11): o pull foi RECUSADO porque a conta exige medição recente e
+   * a medição está velha. Espelho de `recusado_por_medicao` em
+   * `fila_prompts_pegar_interno` (migration 0019 §17).
+   */
+  recusadoPorMedicao: boolean;
+  /** D32a: quão velho é o número medido desta conta (`null` = nunca mediu). */
+  defasagemHoras: number | null;
+  /**
+   * CRÍTICO (rodada 15): quantas sessões desta conta estão em voo depois deste
+   * disparo, e o limite. Espelho de `em_voo`/`limite_em_voo` em
+   * `fila_prompts_pegar_interno` (migration 0030 §8). O headroom sozinho
+   * anunciava US$ 1,00 de espaço com 40 sessões gastando dinheiro.
+   */
+  emVoo: number;
+  limiteEmVoo: number;
 }
 
 /**
@@ -704,6 +929,16 @@ function expirar(
       });
       devolvidos.push(item.id);
     } else {
+      // P2 do Codex (PR #42): o livro é consultado ANTES de a coluna virar
+      // estimativa. Se a sessão vinculada já publicou (posto 40), o SQL recusa
+      // a estimativa da morte pelo posto (D53) e `mortos_usd` não anda — o
+      // fixture somava a estimativa mesmo assim, e a frase do pull anunciava
+      // um lançamento que o banco real não faz.
+      const livroAntes = livroDoItemFixture(item);
+      const livroAceitaEstimativa =
+        livroAntes.livroPrecedencia === null || livroAntes.livroPrecedencia === undefined
+          ? true
+          : POSTO_ESTIMATIVA >= livroAntes.livroPrecedencia;
       estado.fila.set(item.id, {
         ...item,
         estado: "falhou",
@@ -719,7 +954,7 @@ function expirar(
         concluidoEm: new Date(agora).toISOString(),
       });
       mortos.push(item.id);
-      mortosUsd += Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD);
+      if (livroAceitaEstimativa) mortosUsd += Math.min(item.custoEstimadoUsd, TETO_CUSTO_USD);
     }
   }
   return { devolvidos, mortos, mortosUsd };
@@ -731,10 +966,73 @@ export function pegarFixture(
   agora: number = Date.now(),
 ): ResultadoPegarFixture {
   const estado = loja();
+
+  /**
+   * A3 (rodada 11) · A PORTA DE RECUSA, E ELA VEM ANTES DE QUALQUER ESCRITA.
+   *
+   * O fixture já montava a frase certa — `montarMotivoDoPull` recebia
+   * `defasagemHoras`/`exigeMedicaoRecente` e devolvia *"não autorizo contra
+   * saldo de 37 h atrás: esta conta exige medição recente"* — e depois
+   * ENTREGAVA O ITEM ASSIM MESMO. Não havia porta nenhuma: só a frase.
+   * O SQL recusa de verdade, e recusa antes de expirar/devolver/matar nada
+   * (migration 0019 §17, `if v_exigir and (v_defasagem is null or
+   * v_defasagem > 12) then return …`). Por isso esta guarda está acima do
+   * `expirar()`: recusar depois de já ter escrito na fila não é recusar.
+   */
+  const contaMedida = listarConsumoFixture(agora).find((x) => x.conta === conta);
+  const baseAntes = estado.base.get(conta);
+  const defasagemHoras = baseAntes?.defasagemHoras ?? null;
+  if (contaMedida !== undefined && bancoRecusaria(contaMedida, agora)) {
+    const tetoDeclarado = baseAntes?.tetoUsd ?? TETO_DIARIO_PADRAO_USD;
+    const estimativaAgora = estimativaDe(conta, agora);
+    return {
+      item: null,
+      devolvidos: 0,
+      mortos: 0,
+      mortosUsd: 0,
+      pulados: 0,
+      travados: 0,
+      menorCustoFilaUsd: null,
+      menorCustoElegivelAgoraUsd: null,
+      emEspera: emEsperaDe(conta, agora),
+      // BAIXO 5: o headroom nunca sai negativo de ramo nenhum do pull.
+      headroomUsd: Math.max(
+        0,
+        tetoDeclarado - medidoDe(conta, agora) - reservadoDe(conta, agora),
+      ),
+      estimativaUsd: estimativaAgora.usd,
+      estimativaItens: estimativaAgora.itens,
+      recusadoPorMedicao: true,
+      defasagemHoras,
+      emVoo: emVooDe(conta, agora),
+      limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
+      // D32c: a RECUSA é a frase inteira — a mesma função pura do SQL.
+      motivo: montarMotivoDoPull({
+        mortos: 0,
+        mortosUsd: 0,
+        custoEscolhidoUsd: null,
+        headroomUsd: 0,
+        menorDisponivelUsd: null,
+        elegiveis: 0,
+        emEspera: 0,
+        menorEmEsperaUsd: null,
+        voltaEmMin: null,
+        devolvidos: 0,
+        travados: 0,
+        estimativaUsd: 0,
+        estimativaItens: 0,
+        defasagemHoras,
+        exigeMedicaoRecente: true,
+        emVoo: emVooDe(conta, agora),
+        limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
+      }),
+    };
+  }
+
   const { devolvidos, mortos, mortosUsd } = expirar(conta, agora);
 
   const base = estado.base.get(conta);
-  const teto = base?.tetoUsd ?? 150;
+  const teto = base?.tetoUsd ?? TETO_DIARIO_PADRAO_USD;
   const medido = medidoDe(conta, agora);
   const emExecucao = reservadoDe(conta, agora);
   const emEspera = emEsperaDe(conta, agora);
@@ -763,11 +1061,33 @@ export function pegarFixture(
     // #12: desempate explícito por id, como no `order by criado_em, id` do SQL.
     a.criadoEm === b.criadoEm ? a.id.localeCompare(b.id) : a.criadoEm.localeCompare(b.criadoEm),
   );
-  const escolhido = ordenados.find((i) => i.custoEstimadoUsd <= headroom) ?? null;
-  const naoCabem = disponiveis.filter((i) => i.custoEstimadoUsd > headroom);
+  /**
+   * CRÍTICO 5 (rodada 14) + CRÍTICO (rodada 15): as paredes que o `.sql` tem e
+   * este espelho não tinha. `headroom > 0` (dia sem espaço não despacha),
+   * `custoEstimadoUsd >= CUSTO_MINIMO_POR_ITEM_USD` (o piso: `> 0` fechava o
+   * número zero e deixava a classe aberta — com 0,0001 saíram 40 sessões contra
+   * US$ 1,00 de espaço) e o TETO DE SESSÕES EM VOO por conta, que é a parede
+   * que fecha o dano sem depender do valor da estimativa.
+   */
+  const emVooAntes = emVooDe(conta, agora);
+  const noLimiteEmVoo = emVooAntes >= MAXIMO_EM_VOO_POR_CONTA;
+  const cabe = (i: ItemFilaPrompt): boolean =>
+    headroom > 0 &&
+    i.custoEstimadoUsd <= headroom &&
+    i.custoEstimadoUsd >= CUSTO_MINIMO_POR_ITEM_USD;
+  const escolhido = noLimiteEmVoo ? null : (ordenados.find(cabe) ?? null);
+  const naoCabem = disponiveis.filter((i) => noLimiteEmVoo || !cabe(i));
   const pulados = naoCabem.length;
+  // CRÍTICO (rodada 15): `menorDisponivel` só olha item que PASSA DO PISO — é
+  // ele que a frase "nada cabe agora: o mais barato custa X" nomeia. Item
+  // abaixo do piso não é barato demais para o dia; é inválido para o
+  // mecanismo, e tem oração própria.
+  const acimaDoPiso = disponiveis.filter(
+    (i) => i.custoEstimadoUsd >= CUSTO_MINIMO_POR_ITEM_USD,
+  );
+  const abaixoDoPiso = disponiveis.length - acimaDoPiso.length;
   const menorDisponivel =
-    disponiveis.length === 0 ? null : Math.min(...disponiveis.map((i) => i.custoEstimadoUsd));
+    acimaDoPiso.length === 0 ? null : Math.min(...acimaDoPiso.map((i) => i.custoEstimadoUsd));
   const naFilaToda = itens().filter((i) => i.conta === conta && i.estado === "na_fila");
   const menorCustoFilaUsd =
     naFilaToda.length === 0 ? null : Math.min(...naFilaToda.map((i) => i.custoEstimadoUsd));
@@ -808,6 +1128,9 @@ export function pegarFixture(
     // pura (tests/unit/prompts-motivo-do-pull.test.ts).
     defasagemHoras: loja().base.get(conta)?.defasagemHoras ?? null,
     exigeMedicaoRecente: loja().base.get(conta)?.exigeMedicaoRecente === true,
+    emVoo: emVooAntes,
+    limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
+    abaixoDoPiso,
   });
 
   const comum = {
@@ -823,6 +1146,10 @@ export function pegarFixture(
     estimativaUsd: estimativa.usd,
     estimativaItens: estimativa.itens,
     motivo,
+    recusadoPorMedicao: false,
+    defasagemHoras,
+    emVoo: emVooAntes + (escolhido === null ? 0 : 1),
+    limiteEmVoo: MAXIMO_EM_VOO_POR_CONTA,
   };
 
   if (escolhido !== null) {
@@ -863,6 +1190,9 @@ export function heartbeatFixture(
   }
   const item = estado.fila.get(id);
   if (!item || item.conta !== conta) return { ok: false, motivo: "inexistente" };
+  // P2 do Codex (PR #42, 13ª rodada): ouvir `cancelado` NÃO libera a vaga — a
+  // filha só é interrompida depois desta resposta. Quem libera é o fechamento
+  // do dono (`fecharFixture`) ou a janela. Espelho do §10 da 0030.
   if (item.estado === "cancelada") return { ok: false, motivo: "cancelado" };
   if (item.workerId !== workerId) return { ok: false, motivo: "outro worker" };
   if (item.estado !== "pega") return { ok: false, motivo: `item esta ${item.estado}` };
@@ -900,7 +1230,7 @@ export function fecharFixture(input: {
     return { erro: "Item não encontrado ou não pertence à conta informada." };
   }
   if (input.custoUsd < 0 || input.custoUsd > TETO_CUSTO_USD) {
-    return { erro: "custo_usd fora da faixa aceita (0 a 500)." };
+    return { erro: `custo_usd fora da faixa de sanidade (0 a ${TETO_CUSTO_USD}).` };
   }
   const sessionId = input.sessionId ?? null;
   if (sessionId !== null && sessionId === input.workerId) {
@@ -955,6 +1285,12 @@ export function fecharFixture(input: {
   // D12: item cancelado pelo operador — a medição real SUBSTITUI a estimativa,
   // mas a decisão do operador não é revogada (o estado continua `cancelada`).
   if (item.estado === "cancelada") {
+    // P2 do Codex (PR #42, 21ª rodada): já medido pelo dono = já fechado. A
+    // segunda chamada não troca o número nem relança — espelho da 0030.
+    if (item.custoOrigem === "medido" && !item.custoEEstimativa && item.custoUsd !== null) {
+      loja_.paradaPendente.delete(item.id);
+      return { ok: true, jaFechado: true, reabertoEFechado: false, estado: "cancelada" };
+    }
     loja_.fila.set(item.id, {
       ...item,
       custoUsd: input.custoUsd,
@@ -963,6 +1299,10 @@ export function fecharFixture(input: {
       sessionId: sessionId ?? item.sessionId,
       concluidoEm: item.concluidoEm ?? new Date(agora).toISOString(),
     });
+    // P2 do Codex (PR #42, 11ª e 13ª rodadas): o dono que fecha o cancelado
+    // confirma a parada — é o único ato que libera a vaga antes da janela.
+    // Espelho do §1e'' da 0030.
+    loja_.paradaPendente.delete(item.id);
     return { ok: true, jaFechado: false, reabertoEFechado: false, estado: "cancelada" };
   }
   loja_.fila.set(item.id, {
