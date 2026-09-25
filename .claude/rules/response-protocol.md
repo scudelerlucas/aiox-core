@@ -7,6 +7,17 @@
 >
 > Se precisar mudar o formato, mude **só este arquivo, no hub** `Lucas-Contexto-Geral` — os espelhos são regravados pelo `sync-rules`. Não duplicar em CLAUDE.md.
 
+## 🕒 Carimbo de hora — linha 2 de toda resposta (ordem do operador, 25/09/2026)
+
+Palavras dele: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
+Toda resposta substantiva abre com **duas** linhas fixas: a 1ª é o gate de modelo (`model-routing`); a 2ª é
+`🕒 AAAA-MM-DD HH:MM (São Paulo)`. A hora **é medida no mesmo turno, nunca lembrada**: no hub, o hook
+`.claude/hooks/carimbo-de-hora.sh` (UserPromptSubmit) imprime a linha pronta no contexto; fora do hub, onde os
+hooks não carregam, o agente roda `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` antes de responder. Ambiente sem
+relógio (sem shell) escreve `🕒 sem relógio nesta sessão` — a ausência é declarada, não preenchida.
+Confirmação trivial de 1 linha dispensa. Violação: hora de memória (erro classe A, dado inventado) · carimbo em
+UTC · carimbo ausente em resposta substantiva · carimbo inventado onde não há relógio.
+
 Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:
 
