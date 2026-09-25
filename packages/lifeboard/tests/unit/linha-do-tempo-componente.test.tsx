@@ -44,7 +44,7 @@ import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import { montarLinhaDoTempo } from "@/core/timeline/linha-do-tempo";
 import { desenhaBarraDeDuracao } from "@/core/timeline/periodo-da-tarefa";
 import type { Pr } from "@/lib/frentes/types";
-import type { HierarqScore, Source, Task } from "@/types/canonical";
+import type { HierarqScore, Task } from "@/types/canonical";
 import type { LinhaDoTempoProps, LinhaDoTempoTarefaRow } from "@/types/linha-do-tempo";
 
 import { LinhaDoTempoView, PainelDetalheTarefa } from "@/components/timeline/linha-do-tempo";
@@ -126,10 +126,6 @@ function tarefa(input: {
   };
 }
 
-const FONTES: Source[] = [
-  { id: "src-calendar", kind: "calendar", label: "Agenda", authMode: "api", lastSyncAt: null },
-];
-
 function assunto(numero: number, titulo: string, criadoEm: string): Pr {
   return {
     repo: "org/repo",
@@ -166,7 +162,6 @@ function props(): LinhaDoTempoProps {
       assunto(2, "Assunto de setembro", "2026-09-18T12:00:00.000Z"),
       assunto(1, "Assunto de agosto", "2026-08-02T12:00:00.000Z"),
     ],
-    FONTES,
     cpm,
     HOJE,
   );

@@ -26,7 +26,7 @@ import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import type { Pr } from "@/lib/frentes/types";
 import { limparTitulo } from "@/lib/frentes/compose";
 import { diaNoFusoDoOperador } from "@/lib/fuso";
-import type { Source, SourceKind, Task, TaskEdge } from "@/types/canonical";
+import type { Task, TaskEdge } from "@/types/canonical";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoGrupo,
@@ -157,14 +157,6 @@ function montaAssunto(pr: Pr, hoje: string): LinhaDoTempoAssuntoRow {
   };
 }
 
-/** [id da tarefa] → `SourceKind`, mesma convenção de `dashboard-client.tsx`. */
-function mapaFontePorTask(tasks: readonly Task[], sources: readonly Source[]): Map<string, SourceKind> {
-  const kindPorSourceId = new Map(sources.map((s) => [s.id, s.kind] as const));
-  const mapa = new Map<string, SourceKind>();
-  for (const t of tasks) mapa.set(t.id, kindPorSourceId.get(t.sourceId) ?? "notes");
-  return mapa;
-}
-
 function estimativaValida(t: Task): number | null {
   return typeof t.estimativaDias === "number" && Number.isFinite(t.estimativaDias) && t.estimativaDias > 0
     ? t.estimativaDias
@@ -235,7 +227,6 @@ function pontoDeConclusao(t: Task): string | null {
 function montaTarefa(
   t: Task,
   cpm: ResultadoCPM,
-  fontePorTask: ReadonlyMap<string, SourceKind>,
   predecessores: ReadonlyMap<string, Set<string>>,
   sucessores: ReadonlyMap<string, Set<string>>,
   scores: ReadonlyMap<string, number | null | undefined> | undefined,
@@ -245,7 +236,6 @@ function montaTarefa(
   const sucs = [...(sucessores.get(t.id) ?? [])].sort();
   const scoreValor = scores?.get(t.id);
   const janela = cpm.janelas.get(t.id);
-  const fonteKind = fontePorTask.get(t.id) ?? "notes";
   const dueDate = dueDateValida(t);
   /**
    * P5h (achado ALTO 3, rodada 10): a estimativa DIGITADA viaja até a tela,
@@ -262,7 +252,6 @@ function montaTarefa(
     predecessores: preds,
     sucessores: sucs,
     ...(typeof scoreValor === "number" ? { score: scoreValor } : {}),
-    fonteKind,
     status: t.status,
     dueDate,
   };
@@ -380,7 +369,6 @@ export function montarLinhaDoTempo(
   tasks: readonly Task[],
   edges: readonly TaskEdge[],
   prs: readonly Pr[],
-  sources: readonly Source[],
   cpm: ResultadoCPM,
   hoje: string,
   scores?: ReadonlyMap<string, number | null | undefined>,
@@ -421,11 +409,10 @@ export function montarLinhaDoTempo(
     });
 
   const { predecessores, sucessores } = precedenciaDeclarada(tasks, edges);
-  const fontePorTask = mapaFontePorTask(tasks, sources);
   const ranks = calcularRanks(predecessores);
 
   const tarefasOrdenaveis = tasks.map((t) =>
-    montaTarefa(t, cpm, fontePorTask, predecessores, sucessores, scores, hoje),
+    montaTarefa(t, cpm, predecessores, sucessores, scores, hoje),
   );
   tarefasOrdenaveis.sort((a, b) => {
     if (a.es !== b.es) return a.es - b.es;
@@ -445,6 +432,5 @@ export function montarLinhaDoTempo(
     hoje: diaNoCalendarioDoOperador(hoje),
     grupos,
     goalId: cpm.goalId,
-    duracaoTotal: cpm.duracaoTotal,
   };
 }

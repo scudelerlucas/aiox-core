@@ -2683,6 +2683,17 @@ function Conector({
   return (
     <g
       className="lb-tl-connector"
+      /*
+       * P5 rodada 14 (achado ALTO 3): as duas pontas, POR ID, no desenho. Sem
+       * isto a única coisa mensurável sobre precedência era a CONTAGEM de
+       * conectores — e contagem é o que deixou `void edges` passar: os 5
+       * conectores viravam 4, a guarda imprimia o número novo e aprovava,
+       * porque o universo esperado era o que o próprio desenho entregou.
+       * Com os ids aqui, o conjunto desenhado é comparável, par a par, com o
+       * conjunto que sai da MESMA fonte de dado que alimenta o CPM.
+       */
+      data-lb-origem={c.origemId}
+      data-lb-destino={c.destinoId}
       data-critico={c.critico}
       data-conflito={c.conflito}
       data-indefinido={c.indefinido}

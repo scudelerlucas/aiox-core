@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import { montarLinhaDoTempo } from "@/core/timeline/linha-do-tempo";
 import type { Pr } from "@/lib/frentes/types";
-import type { HierarqScore, Source, Task, TaskStatus } from "@/types/canonical";
+import type { HierarqScore, Task, TaskStatus } from "@/types/canonical";
 import type { LinhaDoTempoTarefaRow } from "@/types/linha-do-tempo";
 
 /**
@@ -60,10 +60,6 @@ function task(input: TaskInput): Task {
   };
 }
 
-const SOURCES: Source[] = [
-  { id: "src-calendar", kind: "calendar", label: "Agenda", authMode: "api", lastSyncAt: null },
-];
-
 function pr(overrides: Partial<Pr> & Pick<Pr, "repo" | "numero" | "estado" | "titulo">): Pr {
   return {
     branch: "b",
@@ -99,12 +95,11 @@ describe("montarLinhaDoTempo — exemplo CANÔNICO de livro-texto (A→D→F→G
     task({ id: "G", predecessorIds: ["E", "F"], estimativaDias: 2, isGoal: true }),
   ];
   const cpm = caminhoCritico(tasks, []);
-  const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+  const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
 
-  it("goalId e duracaoTotal batem com o CPM", () => {
+  it("goalId bate com o CPM", () => {
     expect(props.goalId).toBe("G");
-    expect(props.duracaoTotal).toBe(12);
-    expect(props.hoje).toBe(HOJE);
+        expect(props.hoje).toBe(HOJE);
   });
 
   it("datas de cada tarefa = hoje + es/ef/lf do CPM", () => {
@@ -170,7 +165,7 @@ describe("montarLinhaDoTempo — assuntos: aberto vs mergeado", () => {
     }),
   ];
   const cpm = caminhoCritico([], []);
-  const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+  const props = montarLinhaDoTempo([], [], prs, cpm, HOJE);
   const grupo = props.grupos.find((g) => g.titulo === "Assuntos");
 
   it("assunto aberto termina em HOJE (nunca fica sem fim)", () => {
@@ -205,7 +200,7 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
       task({ id: "GOAL", predecessorIds: ["X"], estimativaDias: 2, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const x = tarefaPorId(props, "X");
     expect(x.semDuracao).toBe(true);
     expect(x.foraDoCpm).toBe(false);
@@ -214,7 +209,7 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
   it("fora do CPM (sem goal nenhum): nasce de iniciadoEm/hoje e é sinalizada foraDoCpm", () => {
     const tasks = [task({ id: "SOLTA" })];
     const cpm = caminhoCritico(tasks, []); // sem isGoal → goalId null → CPM roda no DAG inteiro
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const solta = tarefaPorId(props, "SOLTA");
     // Sem goal, o CPM cobre o DAG inteiro — "SOLTA" TEM janela (é terminal virtual).
     // O teste que isola "fora do CPM de verdade" precisa de um goal que não a alcança:
@@ -227,7 +222,7 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const lateral = tarefaPorId(props, "LATERAL");
     expect(lateral.foraDoCpm).toBe(true);
     expect(lateral.semDuracao).toBe(false);
@@ -244,7 +239,7 @@ describe("montarLinhaDoTempo — tarefa sem estimativa é sinalizada", () => {
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const semInicio = tarefaPorId(props, "SEM-INICIO");
     expect(semInicio.foraDoCpm).toBe(true);
     expect(semInicio.semDuracao).toBe(false);
@@ -261,7 +256,7 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "DONE-SOLTA");
     expect(linha.foraDoCpm).toBe(true);
     expect(linha.semBarra).toBe(true);
@@ -280,7 +275,7 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "MEIO-DIA");
     expect(linha.foraDoCpm).toBe(true);
     expect(linha.inicio).toBe(linha.fim); // datas de calendário iguais (sub-dia) — mas...
@@ -294,7 +289,7 @@ describe("montarLinhaDoTempo — done fora do CPM nunca fabrica barra no futuro 
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "SOLTA-SEM-ESTIMATIVA");
     expect(linha.semDuracao).toBe(true);
     expect(linha.foraDoCpm).toBe(true);
@@ -314,7 +309,7 @@ describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
       task({ id: "GOAL", predecessorIds: ["DONE-NO-CPM"], estimativaDias: 2, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "DONE-NO-CPM");
     expect(linha.foraDoCpm).toBe(false);
     expect(linha.marco).toBe(false);
@@ -331,7 +326,7 @@ describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
       task({ id: "GOAL", predecessorIds: ["task-setup"], estimativaDias: 3, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "task-setup");
     expect(cpm.critico.has("task-setup")).toBe(true); // pré-condição do fixture: é de fato crítica
     expect(linha.critico).toBe(true);
@@ -349,7 +344,7 @@ describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "ATRASADA");
     expect(linha.atrasada).toBe(true);
     expect(linha.dueDate).toBe("2026-09-01");
@@ -361,7 +356,7 @@ describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "ENTREGUE-TARDE");
     expect(linha.atrasada).toBe(false);
   });
@@ -372,8 +367,8 @@ describe("montarLinhaDoTempo — marco e atraso (achado ALTO #4/#8)", () => {
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    expect(() => montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE)).not.toThrow();
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    expect(() => montarLinhaDoTempo(tasks, [], [], cpm, HOJE)).not.toThrow();
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const linha = tarefaPorId(props, "DUE-PODRE");
     expect(linha.dueDate).toBeNull();
     expect(linha.atrasada).toBe(false);
@@ -393,8 +388,8 @@ describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes 
       }),
     ];
     const cpm = caminhoCritico([], []);
-    expect(() => montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE)).not.toThrow();
-    const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+    expect(() => montarLinhaDoTempo([], [], prs, cpm, HOJE)).not.toThrow();
+    const props = montarLinhaDoTempo([], [], prs, cpm, HOJE);
     const linha = props.grupos.find((g) => g.titulo === "Assuntos")?.linhas[0];
     expect(linha?.kind).toBe("assunto");
     if (linha?.kind === "assunto") {
@@ -416,7 +411,7 @@ describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes 
       }),
     ];
     const cpm = caminhoCritico([], []);
-    const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo([], [], prs, cpm, HOJE);
     const linha = props.grupos.find((g) => g.titulo === "Assuntos")?.linhas[0];
     expect(linha?.kind).toBe("assunto");
     if (linha?.kind === "assunto") {
@@ -437,7 +432,7 @@ describe("montarLinhaDoTempo — assuntos: data inválida, datas inconsistentes 
       }),
     ];
     const cpm = caminhoCritico([], []);
-    const props = montarLinhaDoTempo([], [], prs, SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo([], [], prs, cpm, HOJE);
     const linha = props.grupos.find((g) => g.titulo === "Assuntos")?.linhas[0];
     expect(linha?.kind).toBe("assunto");
     if (linha?.kind === "assunto") {
@@ -457,7 +452,7 @@ describe("montarLinhaDoTempo — ordenação por rank em empate de ES (achado AL
       task({ id: "GOAL", estimativaDias: 1, isGoal: true }),
     ];
     const cpm = caminhoCritico(tasks, []);
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     const grupo = props.grupos.find((g) => g.titulo === "Tarefas");
     const ordem = (grupo?.linhas ?? [])
       .map((l) => l.id)
@@ -469,16 +464,16 @@ describe("montarLinhaDoTempo — ordenação por rank em empate de ES (achado AL
 describe("montarLinhaDoTempo — nunca lança", () => {
   it("entrada vazia → grupos vazios, sem erro", () => {
     const cpm = caminhoCritico([], []);
-    expect(() => montarLinhaDoTempo([], [], [], [], cpm, HOJE)).not.toThrow();
-    const props = montarLinhaDoTempo([], [], [], [], cpm, HOJE);
+    expect(() => montarLinhaDoTempo([], [], [], cpm, HOJE)).not.toThrow();
+    const props = montarLinhaDoTempo([], [], [], cpm, HOJE);
     expect(props.grupos.every((g) => g.linhas.length === 0)).toBe(true);
   });
 
   it("predecessor apontando para tarefa inexistente → ignorado, nunca lança", () => {
     const tasks = [task({ id: "ORFAO", predecessorIds: ["fantasma"] })];
     const cpm = caminhoCritico(tasks, []);
-    expect(() => montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE)).not.toThrow();
-    const props = montarLinhaDoTempo(tasks, [], [], SOURCES, cpm, HOJE);
+    expect(() => montarLinhaDoTempo(tasks, [], [], cpm, HOJE)).not.toThrow();
+    const props = montarLinhaDoTempo(tasks, [], [], cpm, HOJE);
     expect(tarefaPorId(props, "ORFAO").predecessores).toEqual([]);
   });
 });
@@ -501,7 +496,6 @@ describe("o dia de um item é o dia do operador, nunca o dia em UTC", () => {
       [],
       [],
       [pr({ repo: "o/r", numero: 1, estado: "aberto", titulo: "tarde da noite", criado_em: VINTE_E_UM_AS_23H })],
-      SOURCES,
       caminhoCritico([], [], HOJE_SP),
       HOJE_SP,
     );
@@ -527,7 +521,6 @@ describe("o dia de um item é o dia do operador, nunca o dia em UTC", () => {
           mergeado_em: "2026-09-19T01:00:00.000Z",
         }),
       ],
-      SOURCES,
       caminhoCritico([], [], HOJE_SP),
       HOJE_SP,
     );
@@ -543,7 +536,6 @@ describe("o dia de um item é o dia do operador, nunca o dia em UTC", () => {
       tasks,
       [],
       [],
-      SOURCES,
       caminhoCritico(tasks, [], HOJE_SP),
       HOJE_SP,
     );
@@ -558,7 +550,6 @@ describe("o dia de um item é o dia do operador, nunca o dia em UTC", () => {
       tasks,
       [],
       [],
-      SOURCES,
       caminhoCritico([], [], HOJE_SP),
       HOJE_SP,
     );

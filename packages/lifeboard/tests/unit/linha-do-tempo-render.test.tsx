@@ -62,7 +62,6 @@ function tarefa(parcial: Partial<LinhaDoTempoTarefaRow> = {}): LinhaDoTempoTaref
     estimativaDias: 3,
     predecessores: [],
     sucessores: [],
-    fonteKind: "calendar",
     status: "open",
     foraDoCpm: false,
     marco: false,
@@ -80,7 +79,6 @@ function props(): LinhaDoTempoProps {
   return {
     hoje: HOJE,
     goalId: "G",
-    duracaoTotal: 12,
     grupos: [
       {
         titulo: "Assuntos",
@@ -106,7 +104,6 @@ function props(): LinhaDoTempoProps {
             fimComFolga: "2026-09-21",
             folga: 3,
             predecessores: ["A"],
-            fonteKind: "drive",
           }),
         ],
       },
@@ -182,7 +179,6 @@ describe("LinhaDoTempoView — render", () => {
     const vazio: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         { titulo: "Tarefas", linhas: [] },
@@ -210,7 +206,6 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -237,7 +232,6 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -274,7 +268,6 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -304,7 +297,6 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -337,7 +329,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: "G",
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -354,7 +345,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -371,7 +361,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -398,7 +387,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -418,7 +406,6 @@ describe("LinhaDoTempoView — fechado sem merge e legenda (achado ALTO #9)", ()
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -460,7 +447,6 @@ describe("LinhaDoTempoView — fechado sem merge e legenda (achado ALTO #9)", ()
     const vazio: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         { titulo: "Tarefas", linhas: [] },
@@ -489,7 +475,6 @@ describe("LinhaDoTempoView — conectores (achados ALTO #5, #6, #17)", () => {
     return {
       hoje: HOJE,
       goalId: "B",
-      duracaoTotal: 5,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -591,7 +576,6 @@ describe("LinhaDoTempoView — acessibilidade (achado ALTO #11)", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         { titulo: "Tarefas", linhas: [tarefa({ id: "SOLTA", titulo: "Tarefa solta" })] },
@@ -634,7 +618,6 @@ describe("LinhaDoTempoView — atrasada é aditiva sobre crítico (achado ALTO #
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: "G",
-      duracaoTotal: 5,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -668,7 +651,6 @@ describe("LinhaDoTempoView — marcador de prazo fora da barra vira seta (achado
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -703,7 +685,6 @@ describe("LinhaDoTempoView — sub-dia vira barra curta, não diamante (achado B
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -743,7 +724,6 @@ describe("LinhaDoTempoView — conflito exige datas reais dos dois lados (achado
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -834,7 +814,6 @@ describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTI
     return {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -935,7 +914,6 @@ describe("LinhaDoTempoView — rodada 5", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -988,7 +966,6 @@ describe("LinhaDoTempoView — rodada 5", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -1051,7 +1028,6 @@ describe("LinhaDoTempoView — rodada 6", () => {
     return {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 400,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {

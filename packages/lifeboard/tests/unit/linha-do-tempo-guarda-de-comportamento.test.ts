@@ -23,7 +23,7 @@ import {
   rolarESincronizar,
 } from "@/core/timeline/sincronizacao-painel";
 import type { Pr } from "@/lib/frentes/types";
-import type { HierarqScore, Source, Task, TaskStatus } from "@/types/canonical";
+import type { HierarqScore, Task, TaskStatus } from "@/types/canonical";
 
 /**
  * OS-LIFEBOARD · P5 — rodada 10. A GUARDA DA P5, por COMPORTAMENTO.
@@ -300,10 +300,6 @@ function tarefa(input: {
   };
 }
 
-const FONTES: Source[] = [
-  { id: "src-calendar", kind: "calendar", label: "Agenda", authMode: "api", lastSyncAt: null },
-];
-
 function assuntoPr(numero: number, titulo: string): Pr {
   return {
     repo: "org/repo",
@@ -334,7 +330,6 @@ function montar(): ReturnType<typeof montarLinhaDoTempo> {
     tarefas,
     [],
     [assuntoPr(1, "Primeiro assunto"), assuntoPr(2, "Segundo assunto")],
-    FONTES,
     cpm,
     HOJE,
   );

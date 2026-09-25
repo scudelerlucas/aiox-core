@@ -32,8 +32,24 @@ import { describe, expect, it } from "vitest";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-/** As duas portas de entrada da tela: a montagem pura e o componente. */
-const ENTRADAS = ["src/core/timeline/linha-do-tempo.ts", "src/components/timeline/linha-do-tempo.tsx"];
+/**
+ * As portas de entrada da tela. Rodada 14 (achado BAIXO 6): eram DUAS — a
+ * montagem pura e o componente — e faltava justamente **a rota**, que é onde
+ * `hoje` NASCE (`hojeNoFusoDoOperador()` em `src/app/linha-do-tempo/page.tsx`)
+ * e de onde ele desce para todo o resto. A varredura seguia os `import` a
+ * partir das entradas, e a rota importa as entradas, não o contrário: o
+ * arquivo que origina a data ficava fora do universo da medida que existe
+ * para proteger a data. Um `slice(0, 10)` na rota — exatamente o defeito
+ * original, no lugar mais provável dele — passava em silêncio.
+ *
+ * Entrando a rota, todo o caminho do servidor entra junto (CPM, repositórios,
+ * `lib/frentes`), porque o fecho transitivo os puxa.
+ */
+const ENTRADAS = [
+  "src/app/linha-do-tempo/page.tsx",
+  "src/core/timeline/linha-do-tempo.ts",
+  "src/components/timeline/linha-do-tempo.tsx",
+];
 
 /** `@/x/y` → o arquivo real, testando as extensões que o projeto usa. */
 function resolver(spec: string): string | null {
@@ -121,6 +137,9 @@ describe("nenhum caminho de data da linha do tempo corta um ISO por `slice`", ()
     expect(arquivos.length).toBeGreaterThan(10);
     expect(arquivos).toContain("src/lib/fuso.ts");
     expect(arquivos).toContain("src/core/timeline/eixo-rotulos.ts");
+    /* A rota está DENTRO do universo — é lá que `hoje` nasce (achado BAIXO 6). */
+    expect(arquivos).toContain("src/app/linha-do-tempo/page.tsx");
+    expect(arquivos).toContain("src/core/prioritize/caminho-critico.ts");
     expect(relative(RAIZ, join(RAIZ, arquivos[0] ?? ""))).toBe(arquivos[0]);
   });
 

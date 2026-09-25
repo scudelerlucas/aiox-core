@@ -1,5 +1,5 @@
 import type { EstadoPr } from "@/lib/frentes/types";
-import type { SourceKind, TaskStatus } from "@/types/canonical";
+import type { TaskStatus } from "@/types/canonical";
 
 /**
  * OS-LIFEBOARD · P5 — Contrato server → client da Linha do Tempo (Gantt).
@@ -92,8 +92,6 @@ export interface LinhaDoTempoTarefaRow {
   sucessores: string[];
   /** Score de assimetria (`ScoreAssimetria.valor`), quando declarado. */
   score?: number;
-  /** Fonte da tarefa — mesma cor do grafo (`corDaFonte`), para o olho ligar as duas telas. */
-  fonteKind: SourceKind;
   status: TaskStatus;
   /**
    * `true` quando a tarefa não é ancestral do goal do CPM (fora do caminho
@@ -137,11 +135,23 @@ export interface LinhaDoTempoGrupo {
   linhas: LinhaDoTempoRow[];
 }
 
+/*
+ * P5 rodada 14 (achado BAIXO 7): DOIS campos saíram deste contrato —
+ * `fonteKind` (na linha de tarefa) e `duracaoTotal` (aqui). Os dois eram peso
+ * morto: atravessavam servidor → cliente em toda resposta e NINGUÉM os lia. O
+ * comentário de `fonteKind` chegava a prometer o que ele faria ("mesma cor do
+ * grafo, para o olho ligar as duas telas") — promessa que nenhuma linha de
+ * código cumpria.
+ *
+ * Campo que ninguém lê é pior que campo ausente: ele dá a impressão de que a
+ * tela usa aquilo, e o próximo leitor gasta o tempo dele procurando onde.
+ * `tests/unit/linha-do-tempo-contrato-sem-peso-morto.test.ts` fecha a classe —
+ * deriva os campos DESTE arquivo e exige que cada um seja lido por quem
+ * consome o contrato.
+ */
 export interface LinhaDoTempoProps {
   /** ISO `AAAA-MM-DD` usado como dia 0 do CPM — a linha vertical "hoje". */
   hoje: string;
   grupos: LinhaDoTempoGrupo[];
   goalId: string | null;
-  /** Duração total do caminho crítico, em dias (`ResultadoCPM.duracaoTotal`). */
-  duracaoTotal: number;
 }
