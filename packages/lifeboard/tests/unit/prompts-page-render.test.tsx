@@ -27,6 +27,8 @@ vi.mock("next/navigation", async (importarOriginal) => {
 });
 
 const { default: PaginaPrompts } = await import("@/app/prompts/page");
+const { PromptsClient } = await import("@/components/prompts/prompts-client");
+const { contaOverrideAtiva, contasAtivas } = await import("@/core/prompts/roteador");
 
 /**
  * OS-LIFEBOARD · P7 — render test de `/prompts` em modo FIXTURE (mesmo
@@ -121,5 +123,48 @@ describe("PaginaPrompts — a parcela de estimativa (D20)", () => {
     // desktop e a de cartões do mobile). Se um item MEDIDO ganhasse o botão,
     // este número saltaria para 4.
     expect((html.match(/ajustar custo/g) ?? []).length).toBe(2);
+  });
+});
+
+/**
+ * P2 do Codex (PR #42, 23ª rodada): o seletor manual de conta seguia a lista
+ * fixa `CONTAS` do TypeScript. Removida uma conta pela migration de
+ * `painel_contas_da_casa()`, o cartão sumia (a tela já filtra desde a 22ª) mas
+ * o formulário continuava oferecendo a conta — e o envio batia na recusa do
+ * banco. Agora o seletor oferece só o que o banco devolveu, e uma escolha que
+ * deixou de existir volta a ser "automático".
+ */
+describe("23ª rodada — o seletor manual oferece só as contas que o banco devolveu", () => {
+  const consumoDe = (conta: string) =>
+    ({
+      conta,
+      tetoUsd: 500,
+      consumoHojeUsd: 0,
+      reservadoUsd: 0,
+      naFilaUsd: 0,
+      estimativaUsd: 0,
+      estimativaItens: 0,
+      emEspera: 0,
+      medidoAteEm: null,
+      defasagemHoras: null,
+      historico: null,
+    }) as never;
+  const tresContas = ["lucasscudeler@gmail.com", "lsgpandora@gmail.com", "almapetra.ltda@gmail.com"].map(consumoDe);
+
+  it("conta fora do `consumo` não vira opção do seletor", () => {
+    const html = renderToStaticMarkup(<PromptsClient consumo={tresContas} tarefas={[]} agora={Date.now()} />);
+    expect(html).toContain('value="almapetra.ltda@gmail.com"');
+    expect(html).not.toContain('value="arborcactus@gmail.com"');
+  });
+
+  it("escolha que deixou de existir volta a ser automática; a que existe fica", () => {
+    expect(contasAtivas(tresContas)).toEqual([
+      "lucasscudeler@gmail.com",
+      "lsgpandora@gmail.com",
+      "almapetra.ltda@gmail.com",
+    ]);
+    expect(contaOverrideAtiva("arborcactus@gmail.com", tresContas)).toBe("");
+    expect(contaOverrideAtiva("lsgpandora@gmail.com", tresContas)).toBe("lsgpandora@gmail.com");
+    expect(contaOverrideAtiva("", tresContas)).toBe("");
   });
 });

@@ -32,6 +32,7 @@ jobs:
       config: ${{ steps.filter.outputs.config }}
       stories: ${{ steps.filter.outputs.stories }}
       ci: ${{ steps.filter.outputs.ci }}
+      lifeboard_sql: ${{ steps.filter.outputs.lifeboard_sql }}
     steps:
       # NOTE: No 'submodules' parameter — pro/ submodule is intentionally
       # NOT checked out. aiox-core MUST work standalone without pro/.
@@ -59,6 +60,14 @@ jobs:
               - 'eslint.config.*'
             stories:
               - 'docs/stories/**'
+            # MÉDIO 1 (rodada 12): o caminho do DINHEIRO do lifeboard. A
+            # guarda de comportamento dele é SQL rodado contra um Postgres de
+            # verdade (`lifeboard-sql` abaixo) — o vitest lê a GRAFIA do .sql e
+            # passa mesmo quando o comportamento muda. O que a suíte cobre, e o
+            # que ela ainda NÃO cobre, está escrito no cabeçalho do job.
+            lifeboard_sql:
+              - 'packages/lifeboard/supabase/**'
+              - 'packages/lifeboard/scripts/rodar-suite-sql.sh'
             # Mudança no próprio CI precisa reexecutar o que valida o CI.
             # Sem isto, um PR que só mexe neste arquivo pula os jobs e entra
             # sem nunca ter sido exercido — foi o que aconteceu no PR #34.
@@ -239,6 +248,15 @@ jobs:
       - name: lifeboard - type checking
         run: npm run typecheck --workspace=@aiox/lifeboard
 
+      # MÉDIO 1 (crítico da rodada 13): `checar-contraste.mjs` era a guarda da
+      # régua de contraste (kernel-inicio item 6, >= 4,5:1) e NENHUMA automação
+      # a chamava — ela aparecia só em três comentários, um deles o deste
+      # arquivo, afirmando que ela guarda a tela. Agora ela roda aqui, no mesmo
+      # job que roda o vitest e o tsc da tela, e falha o job quando um par de
+      # cores cai abaixo da régua.
+      - name: lifeboard - contraste da tela (>= 4,5:1)
+        run: npm run contraste --workspace=@aiox/lifeboard
+
       - name: idea-forge - tests (node --test)
         run: npm test --workspace=@aiox/idea-forge
 
@@ -354,6 +372,89 @@ jobs:
           echo "playwright-core: $MODULO"
           echo "chromium: $CHROME"
           PLAYWRIGHT_MODULO="$MODULO" PLAYWRIGHT_CHROMIUM="$CHROME" npm run guarda:navegador
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # MÉDIO 1 (rodada 12) — A GUARDA DE COMPORTAMENTO DO DINHEIRO RODA EM CI.
+  #
+  # `packages/lifeboard/supabase/tests/fila_prompts.test.sql` existe desde a
+  # rodada 5 e não era executada por job nenhum: para o lifeboard o CI rodava
+  # só `npm test` e `npm run typecheck`. O crítico da rodada 11 mediu o buraco
+  # com uma linha — trocar `and f.custo_estimado_usd <= v_headroom` por
+  # `… <= v_headroom + 100000` na migration faz o pull ignorar o teto do dia, e
+  # os 1387 testes do vitest ficam VERDES, porque eles conferem a GRAFIA do
+  # .sql, não o que o banco faz.
+  #
+  # O QUE ESTE JOB NÃO GARANTE (ALTO 2 da rodada 12 — a frase de antes prometia
+  # cobertura que não existe). A suíte cobre o que os blocos dela NOMEIAM, e
+  # nada mais. O crítico provou isso apagando `- v_execucao` do cálculo do
+  # headroom: 68/68 blocos verdes, e seis pulls despachando US$ 720 contra um
+  # teto de 500. Esse caso ganhou bloco (T69) na rodada 13; os buracos que
+  # SOBRAM, medidos e nomeados, são:
+  #   · parte das 44 funções do esquema não é chamada por bloco nenhum — o
+  #     extrato do dia (`fila_prompts_extrato_do_dia`), `lifeboard_load`,
+  #     `lifeboard_mutate`, `painel_fila_em_espera`, `painel_fila_na_fila` e os
+  #     gatilhos, que só são conferidos por permissão (T19/T73).
+  #     MÉDIO 4 (rodada 13): este parágrafo citava `fila_prompts_pegar` e
+  #     `fila_prompts_fechar` como "as portas com segredo que embrulham as
+  #     `_interno`" — as duas não existem desde a 0009 (linhas 518-519, `drop
+  #     function if exists`), e nada as recriou. Quem chama as `_interno` é a
+  #     Routine da conta, como papel `postgres`, sem porta intermediária;
+  #   · nenhum bloco abre uma conexão como `anon`: as permissões são lidas por
+  #     `has_function_privilege`, não exercidas;
+  #   · a TELA não passa por aqui — quem a guarda é o vitest, o `tsc` e o
+  #     `npm run contraste` (`scripts/checar-contraste.mjs`), os três no job
+  #     `package-tests` acima;
+  #   · o ambiente é um Postgres 16 com os stubs de `00-ambiente-de-teste.sql`,
+  #     não o esquema completo do Supabase.
+  # Em uma frase: este job pega mudança de comportamento no caminho que os
+  # blocos percorrem, e é o único que pega. Ele não é prova de que o resto está
+  # certo — é prova de que os casos do manifesto `supabase/tests/BLOCOS.txt`
+  # continuam valendo. CRÍTICO 1 (rodada 13): o esperado vem desse manifesto,
+  # por NOME; antes saía de um `grep -c` sobre o próprio arquivo da suíte, e
+  # apagar um bloco deixava o job verde.
+  #
+  # Este job aplica as migrations `0001` … `NNNN` EM ORDEM num Postgres 16
+  # limpo — o mesmo caminho do DEPLOY.md, que é o que pega migration fora de
+  # ordem — e roda a suíte. Nada aqui toca produção: o banco é o serviço
+  # efêmero do runner.
+  # ───────────────────────────────────────────────────────────────────────────
+  lifeboard-sql:
+    name: Lifeboard SQL (comportamento do dinheiro)
+    needs: changes
+    if: ${{ needs.changes.outputs.lifeboard_sql == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lifeboard_teste
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Migrations em ordem + suíte de comportamento
+        env:
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/lifeboard_teste
+          # O banco do serviço acima é criado para este job e morre com ele.
+          LIFEBOARD_SUITE_SQL_BANCO_DESCARTAVEL: sim
+          # E o servidor inteiro também: o contêiner do serviço cria os papéis
+          # de teste (anon/authenticated/service_role) e morre com o job.
+          LIFEBOARD_SUITE_SQL_CLUSTER_DESCARTAVEL: sim
+        run: packages/lifeboard/scripts/rodar-suite-sql.sh
 
   story-validation:
     name: Story Checkbox Validation
@@ -485,7 +586,7 @@ jobs:
   validation-summary:
     name: Validation Summary
     runs-on: ubuntu-latest
-    needs: [changes, security-audit, lint, typecheck, test, package-tests, story-validation, manifest-validation, ide-sync-validation, installer-smoke-test, compatibility-parity-gate, dependency-validation, brownfield-install-test]
+    needs: [changes, security-audit, lint, typecheck, test, package-tests, lifeboard-sql, story-validation, manifest-validation, ide-sync-validation, installer-smoke-test, compatibility-parity-gate, dependency-validation, brownfield-install-test]
     if: always()
 
     steps:
@@ -505,6 +606,7 @@ jobs:
           echo "  TypeCheck: ${{ needs.typecheck.result }}"
           echo "  Tests: ${{ needs.test.result }}"
           echo "  Package Tests: ${{ needs.package-tests.result }}"
+          echo "  Lifeboard SQL: ${{ needs.lifeboard-sql.result }}"
           echo "  Story Validation: ${{ needs.story-validation.result }}"
           echo "  Manifest Validation: ${{ needs.manifest-validation.result }}"
           echo "  IDE Sync Validation: ${{ needs.ide-sync-validation.result }}"
@@ -545,6 +647,18 @@ jobs:
             echo "❌ Package tests failed (lifeboard / idea-forge / idea-inbox)"
             FAILED=true
           fi
+
+          # Lifeboard SQL: fail on ANY result other than success or an
+          # intentional skip. P2 do Codex (PR #42): with `== "failure"` only, a
+          # run that timed out or was cancelled (`cancelled`) left the summary
+          # green although the money-path suite never finished.
+          case "${{ needs.lifeboard-sql.result }}" in
+            success|skipped) ;;
+            *)
+              echo "❌ Lifeboard SQL behaviour suite did not succeed (${{ needs.lifeboard-sql.result }}) — o caminho do dinheiro"
+              FAILED=true
+              ;;
+          esac
 
           # Story Validation: fail if ran and didn't succeed
           if [ "${{ needs.story-validation.result }}" == "failure" ]; then
