@@ -24,7 +24,9 @@ está escrita, por extenso, **dentro de 4 funções** do banco:
 | `fila_prompts_fechar_interno` | guarda `p_conta not in (…)` |
 
 Com só o `CHECK` ampliado, a 4ª conta é **aceita pela tabela e recusada pela função** — um
-meio-caminho que confunde quem for depurar. Por isso a 0026 foi revertida em produção no mesmo dia.
+meio-caminho que confunde quem for depurar. A 0026 desta pasta **não foi aplicada** em produção; a
+0026 de produção (`0026_lifeboard_v3_fila_quarta_conta_arborcactus`, de uma branch irmã) foi aplicada
+em 21/09/2026 às 12:32 UTC e revertida em 24/09/2026 às 01:29 UTC por este mesmo motivo.
 
 ## O nó de verdade: o teste-guarda
 
@@ -48,7 +50,7 @@ que isso não é afrouxamento.
 ## Estado atual da branch `claude/chat-regent-pull-4fvbzq`
 
 - ✅ TypeScript com a 4ª conta (`tipos.ts`, `compose.ts`, `types.ts`, `conta-chip.tsx`) — `tsc --noEmit` limpo
-- ✅ Migration 0026 escrita, **não aplicada** (revertida em produção)
+- ✅ Migration 0026 escrita, **nunca aplicada** (a 0026 que produção viu e reverteu era a irmã)
 - ❌ As 4 funções do banco: **não tocadas**
 - ❌ **8 testes vermelhos**, todos por este motivo — e eles estão certos em falhar
 
