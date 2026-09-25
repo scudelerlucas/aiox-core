@@ -199,6 +199,11 @@ escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a su�
 **(5)** nunca escrever na `main`, nunca aplicar migration em produção; **(6)** dizer no PR o que rodou e o que não
 conseguiu rodar — a validação por fora é do Claude, e ela decide se a thread fecha. Modelo: GPT-6 Astra Pro, esforço
 `max`, escolhido pelo operador nas configurações do Codex. Um autor por branch enquanto a tarefa estiver aberta.
+Onde uma constituição de framework reservar o `git push` a um agente (no `aiox-core`, o `@devops` — Constitution
+Art. II), o push do Codex **não** é um agente AIOX assumindo autoridade alheia: é o executor externo escolhido pelo
+operador, na ordem de 24/09, empurrando na branch de PR que ele mesmo mandou corrigir. A `main` continua fora do
+alcance de qualquer um deles. Contradição declarada, não escondida — mesma classe da nota sobre story obrigatória
+no `CLAUDE.md` do `aiox-core`; se a constituição for revista pelo caminho dela, esta frase cai.
 
 **Norma completa** — no hub, não neste repositório:
 [`.claude/rules/codex-corrige-claude-valida.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md).

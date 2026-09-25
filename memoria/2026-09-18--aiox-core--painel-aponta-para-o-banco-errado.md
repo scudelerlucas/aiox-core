@@ -35,10 +35,14 @@ seguir. 11 testes novos, com falsificação (removi a detecção → vermelho; d
 ## Vetos aceitos: 0
 
 ## Pendências / próximos passos
-- [ ] **Apontar a Vercel para `hciiilopyivjaekaxfqp` e ligar o Google lá** — dono: Lucas. Ordem
-      completa (as 4 variáveis juntas, `LIFEBOARD_LOAD_SECRET` incluído, `DATA_MODE` por último)
-      em `packages/lifeboard/DEPLOY.md` §"Ordem para migrar de projeto". **É o que destrava.**
-- [ ] Revisar e mergear o PR #36 — dono: Lucas.
+- **Achado, não item de frente** (regra `item-so-entra-com-dono`: sem data e sem quem cobra, não
+      entra; corrigido em 25/09 por achado do Codex no PR #36): **apontar a Vercel para
+      `hciiilopyivjaekaxfqp` e ligar o Google lá** é ato do Lucas. Ordem completa (as 4 variáveis
+      juntas, `LIFEBOARD_LOAD_SECRET` incluído, `DATA_MODE` por último) em
+      `packages/lifeboard/DEPLOY.md` §"Ordem para migrar de projeto". **É o que destrava.** Vira
+      frente no dia em que ele der a data e nomear quem cobra.
+- [x] Revisar e mergear o PR #36 — passou a ser dirigido pela sessão `01GygEsmt2…` em 25/09
+      (decisão 1-A do operador, 24/09); fecha quando a última thread do Codex for corrigida.
 - [ ] `Jest Tests (Node 25)` falhou na `main` depois do merge do #35, em
       `tests/integration/pipeline-memory-integration.test.js` (1 teste em 7.870, pacote sem
       relação com lifeboard). **Passou verde no PR #36, mesmo código** → era instabilidade do
