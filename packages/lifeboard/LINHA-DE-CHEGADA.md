@@ -47,8 +47,8 @@ Dos 5 FALTA, **A1 destrava A7, D1 e metade do D8.** É a única caixa grande.
 | # | Fonte | Já existe | Falta | Dono |
 |---|---|---|---|---|
 | A1a | **Google** (agenda, Gmail, Drive) | adaptadores `normalize` prontos; conectores ligados na conta `lsgpandora@` | rota `POST /api/ingest/google` (protegida pelo segredo) + Routine diária que lê os conectores e envia o bruto | rota: **Codex** · Routine: Lucas aprova 1× |
-| A1b | **GitHub** (PRs e branches dos 14 repos) | espelho vivo: `painel_frentes_prs` (866) e `painel_frentes_branches` (338), Action do hub a cada 6 h, última 25/09 04:54; o LifeBoard já lê na aba Assuntos | virar **tarefa/nó no grafo** (`frentes → tasks`), hoje é quadro separado | **Codex** |
-| A1c | **Sessões das 4 contas Claude** | `painel_frentes_sessoes`: `lucasscudeler@` 222 (22/09) · `almapetra.ltda@` 55 (23/09) · `lsgpandora@` 67 (24/09) · `arborcactus@` **nunca publicou** | as Routines diárias das 3 contas secundárias (checklist §5.2 da foto de 22/09 — só quem entra na conta cria) + a mesma junção `frentes → tasks` do A1b | Routines: **Lucas** · junção: Codex |
+| A1b | **GitHub** (PRs e branches dos 14 repos) | espelho vivo: `painel_frentes_prs` (866) e `painel_frentes_branches` (338), Action do hub a cada 6 h, última 25/09 04:54; o LifeBoard já lê na aba Assuntos. **Junção feita em 25/09 (Tarefa Codex 01, executada pelo Claude nesta sessão):** `src/lib/frentes/materializar.ts` + `no-grafo.ts`, 32 testes novos, migration `0031` (kind `github`) | aplicar a `0031` em produção (opcional — a junção roda na leitura, sem gravar) e conferir o grafo com ≥1 aresta conversa → branch → mudança | migration + print: **Lucas** |
+| A1c | **Sessões das 4 contas Claude** | `painel_frentes_sessoes`: `lucasscudeler@` 222 (22/09) · `almapetra.ltda@` 55 (23/09) · `lsgpandora@` 67 (24/09) · `arborcactus@` **nunca publicou**. **Junção feita em 25/09** (mesmo materializador do A1b: conversa não encerrada → tarefa, kind `claude_chat`) | as Routines diárias das 3 contas secundárias (checklist §5.2 da foto de 22/09 — só quem entra na conta cria) | Routines: **Lucas** |
 | A1d | **Conta do Codex** (tarefas pendentes na nuvem) | nada. Da nuvem, `auth.openai.com` dá 403 | descobrir **no iMac** se o `codex` CLI lista as tarefas da nuvem; se listar, script local que envia para `POST /api/ingest/manual` (já existe); se não, continua colagem manual (A3) | medir: **Lucas + Claude no iMac** |
 | A1e | **Obsidian** (vault vivo) | por decisão 1-A (12/09) o vault **é** o clone do hub — tudo que está nele já está no git; contrato `docs/decisoes/*.md` (v0.1, 13/09) com 3 decisões escritas | leitor do frontmatter `DECISÃO` → tarefa/nó (a tabela `painel_decisoes` do contrato **não existe**). Nota escrita só no Obsidian e não commitada continua invisível — regra 1-A, não bug | **Codex** |
 
@@ -62,9 +62,26 @@ A1d só depois de medido no iMac.
 2. **D6 nº 2 e nº 5 — teto de custo de infra e tier.** Não há infra paga nem volume.
 3. **Inferência automática de dependências** — já era v2 no PRD §5(3); só registrando.
 
+### O que sobrou da Tarefa Codex 01 (25/09) — itens da v2, sem 3ª rodada
+
+4. **Gravar as frentes em `tasks`** (hoje a junção é só na leitura). Sem gravar, o cartão de uma
+   conversa/mudança abre `/tarefa/<id>` como "não existe" (404 verdadeiro): não dá para pôr nota,
+   duração p80 nem átomos nela. Quando gravar, a linha do banco já vence a materializada pela chave
+   `(source_id, external_ref)` — o código de hoje foi escrito para isso.
+5. **Fonte própria para conversas.** Elas usam `claude_chat` (kind que já existia, o mesmo dos chats
+   colados). Se o frescor das duas coisas precisar ser lido separado, nasce um kind `claude_session`
+   — migration + `SourceKind` no mesmo ato (lição de 13/09).
+6. **Prioridade das frentes no HIERARQ.** Toda tarefa materializada entra com o score neutro (1×1×1);
+   a lista "hoje" ordena as frentes só pela precedência declarada, não por importância.
+7. **Volume.** A regra que segura as ~300 branches é declarada em `JANELA_BRANCH_DIAS = 30` (+ conversa
+   ligada ou mudança aberta). Se o grafo ficar cheio mesmo assim, o número muda ali, com teste.
+
 ## Ordem daqui para a frente
 
 1. Lucas, no iMac: liga o plugin do Codex e faz `codex login`; mede A1d.
-2. Codex (`/codex:rescue`): 1ª tarefa = junção `frentes → tasks` (A1b + A1c), com teste que falha antes e passa depois.
-3. Claude: confere, abre o PR, ≤2 rodadas; D3 (chc-verify como script) vai no mesmo PR ou no seguinte.
-4. Lucas: Routines das contas secundárias (§5.2) · aprova a Routine Google · 1 rollback de teste (D8).
+2. ~~Codex (`/codex:rescue`): 1ª tarefa = junção `frentes → tasks` (A1b + A1c)~~ **FEITA em 25/09 pelo Claude**
+   (o `/codex:rescue` não existia na sessão remota; o Claude executou a tarefa e conferiu): teste (a)
+   falha antes / passa depois, `tsc` limpo, vitest 1520/1520, contraste ok. Revisão: ≤2 rodadas no PR.
+3. Claude: D3 (chc-verify como script) vai no PR seguinte.
+4. Lucas: aplica a migration `0031` (SQL Editor) · Routines das contas secundárias (§5.2) · aprova a Routine
+   Google · 1 rollback de teste (D8) · print do grafo com a 1ª aresta real.

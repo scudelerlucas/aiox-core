@@ -26,11 +26,15 @@ import type {
 import { unirBranches, unirPrs } from "@/lib/frentes/unir-leituras";
 import { createSupabaseUserClient } from "@/lib/supabase/user-server";
 
-/** Colunas que a tela realmente lê — nada de `select("*")`. */
+/**
+ * Colunas que a tela realmente lê — nada de `select("*")`. `sessao_ids` entrou
+ * em 25/09 porque a junção frentes → tarefas (`materializar.ts`) declara a
+ * aresta conversa → branch/mudança a partir dele; sem a coluna, a aresta some.
+ */
 const COLUNAS_PR =
-  "repo,numero,titulo,estado,rascunho,branch,url,atualizado_em,fechado_em,mergeado_em,checks,sincronizado_em";
+  "repo,numero,titulo,estado,rascunho,branch,url,criado_em,atualizado_em,fechado_em,mergeado_em,checks,sessao_ids,sincronizado_em";
 const COLUNAS_BRANCH =
-  "repo,branch,ultimo_commit_em,ultimo_commit_msg,tem_pr,sincronizado_em";
+  "repo,branch,ultimo_commit_em,ultimo_commit_msg,tem_pr,sessao_ids,sincronizado_em";
 const COLUNAS_SESSAO =
   "sessao_id,conta,titulo,estado,estado_detalhe,precisa_de,branches,repos,url,criado_em,atualizado_em";
 const COLUNAS_SYNC = "fonte,executado_em,ok,itens,erro";

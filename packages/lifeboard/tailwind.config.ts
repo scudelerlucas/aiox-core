@@ -76,6 +76,8 @@ const config: Config = {
           notes: "#B69BFF",
           chat: "#7CE38B",
           lms: "#FF9B54",
+          /** GitHub (25/09/2026): mudanças e branches vindas de `painel_frentes_*`. */
+          github: "#5CD6C8",
           neutra: "#9AA8C4",
         },
         /**
