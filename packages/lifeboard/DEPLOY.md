@@ -112,6 +112,7 @@ os passos abaixo.
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | chave anon/publishable do projeto |
    | `LIFEBOARD_LOAD_SECRET` | segredo da RPC `lifeboard_load` |
    | `LIFEBOARD_ALLOWED_EMAILS` | `lucas.scudeler@pandoratreinamentos.com.br,lucasscudeler@gmail.com` (opcional — já é o default) |
+   | `LIFEBOARD_FRENTES_NO_GRAFO` | (opcional, padrão ligado) `off` tira do grafo as mudanças, branches e conversas lidas de `painel_frentes_*` — é o caminho de volta em runtime da junção de 25/09/2026, sem redeploy de código. |
 
    > **⚠️ TROCAR DE PROJETO SUPABASE NÃO É TROCAR UMA VARIÁVEL (achado de 15/09/2026).**
    >
