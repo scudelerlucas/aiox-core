@@ -1,5 +1,43 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { duracaoCanonica } from "@/components/task/duracao-form";
+
+/**
+ * ═══════════════════════════════════════════════════════ ALTO #1, rodada 18 ═
+ * OS QUATRO STATUS, DERIVADOS DO FONTE — NÃO SÓ `"done"`.
+ *
+ * Os dois testes de `statusSetAction` (modo live e modo fixture) exerciam
+ * `"done"` e mais nada. `blocked` não era gravado por teste nenhum desta base
+ * nem por medida nenhuma da guarda de navegador (lá ele só aparece como o 2º
+ * clique de uma corrida, e é exigido RECUSADO). A sabotagem de uma linha
+ * `status: status === "blocked" ? "done" : status` passava por tudo.
+ *
+ * A lista sai do fonte do produto — `STATUS_VALIDOS` em `actions.ts` — e não
+ * de uma cópia escrita aqui: status novo entra nos dois testes sozinho. E há
+ * piso, escrito à mão: se a leitura quebrar e devolver menos que isto, o teste
+ * falha em vez de voltar a exercer o caso fácil.
+ */
+const PISO_DE_STATUS = 4;
+
+function statusDoProduto(): string[] {
+  const fonte = readFileSync(
+    new URL("../../src/app/tarefa/actions.ts", import.meta.url),
+    "utf8",
+  );
+  const bloco = /const STATUS_VALIDOS[^=]*=\s*\[([^\]]*)\]/.exec(fonte);
+  const lidos = [...(bloco?.[1] ?? "").matchAll(/"([^"\n]+)"/g)].map((m) => m[1] ?? "");
+  if (lidos.length < PISO_DE_STATUS) {
+    throw new Error(
+      `li ${String(lidos.length)} status em actions.ts, piso escrito à mão ${String(
+        PISO_DE_STATUS,
+      )} — derivação quebrada é cegueira, não aprovação`,
+    );
+  }
+  return lidos;
+}
+
+const STATUS_DO_PRODUTO = statusDoProduto();
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -631,12 +669,12 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
 
-  it("statusSetAction", async () => {
-    const r = await statusSetAction({}, form({ task_id: "task-build", status: "done" }));
+  it.each(STATUS_DO_PRODUTO)("statusSetAction — %s chega ao servidor como foi pedido", async (status) => {
+    const r = await statusSetAction({}, form({ task_id: "task-build", status }));
     expect(r).toEqual({ ok: true });
     expect(mutateLifeboard).toHaveBeenCalledWith("status_set", {
       task_id: "task-build",
-      status: "done",
+      status,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
@@ -771,10 +809,10 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
 
-  it("statusSetAction", async () => {
-    const r = await statusSetAction({}, form({ task_id: "task-build", status: "done" }));
+  it.each(STATUS_DO_PRODUTO)("statusSetAction — %s chega ao store como foi pedido", async (status) => {
+    const r = await statusSetAction({}, form({ task_id: "task-build", status }));
     expect(r).toEqual({ ok: true });
-    expect(fixtureStore.statusSetFixture).toHaveBeenCalledWith("task-build", "done");
+    expect(fixtureStore.statusSetFixture).toHaveBeenCalledWith("task-build", status);
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });

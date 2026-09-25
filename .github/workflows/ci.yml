@@ -297,7 +297,10 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.config == 'true' || needs.changes.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # [P6, rodada 23] 25 → 32: o teto da corrida da guarda subiu de 18 para 25
+    # min (`TETO_DA_CORRIDA_MS`, com a medição escrita lá), e a folga de 7 min
+    # entre o teto da guarda e o do job continua a mesma.
+    timeout-minutes: 32
     container:
       image: mcr.microsoft.com/playwright:v1.55.1-noble
       options: --ipc=host

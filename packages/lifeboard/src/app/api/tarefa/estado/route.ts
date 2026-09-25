@@ -54,9 +54,23 @@ function foraDoFixture(): Response | null {
   return json({ error: "not_found" }, 404);
 }
 
+/**
+ * [ALTO #2, rodada 18] `sources` entrou na fotografia.
+ *
+ * Dois motivos, e o segundo é o que obrigou:
+ *
+ * 1. a fotografia é o universo contra o qual o ALCANCE de cada escrita é
+ *    conferido — uma coleção de fora do universo é uma coleção onde um estrago
+ *    não aparece;
+ * 2. a guarda passou a conferir os CAMPOS de toda entidade que nasce, e uma
+ *    subtarefa nasce com `sourceId` da fonte "Notas". Sem `sources` na
+ *    fotografia, a guarda teria de trazer aquele id escrito à mão — que é
+ *    justamente a "grafia literal" de que esta peça já saiu três vezes. Com
+ *    ele aqui, a expectativa é DERIVADA: a fonte cujo `kind` é `notes`.
+ */
 export async function GET(): Promise<Response> {
   const barrado = foraDoFixture();
   if (barrado !== null) return barrado;
-  const { tasks, edges, notes } = await carregarEstado();
-  return json({ tasks, edges, notes });
+  const { tasks, edges, notes, sources } = await carregarEstado();
+  return json({ tasks, edges, notes, sources });
 }

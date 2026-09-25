@@ -327,7 +327,9 @@ describe("CRÍTICO — o vigia do contrato, o canário e as sentinelas continuam
       `nome exigido na lista sem nenhuma medida que o produza: ${semConferir.join(", ")}`,
     ).toEqual([]);
     // E as medidas que nasceram nas rodadas 14 e 15 estão entre elas.
-    for (const nova of ["C2 · ", "L · ", "E2 · ", "E3 · ", "E4 · ", "G2 · ", "M · ", "P0 · "]) {
+    // Rodada 22: entra `N3-0 · ` — o fecho da 2ª vez com a frase da anterior
+    // ainda na tela (a janela que a rodada 21 só declarava no limite da Z).
+    for (const nova of ["C2 · ", "L · ", "E2 · ", "E3 · ", "E4 · ", "G2 · ", "M · ", "P0 · ", "N3-0 · "]) {
       expect(nomes, `a medida ${nova} saiu da lista nominal`).toContain(nova);
     }
     /*
@@ -506,7 +508,9 @@ describe("todo passo de CI que usa bash declara bash", () => {
   it("PRONTO QUANDO: a guarda fala enquanto mede — veredito e nome saem na hora", () => {
     const texto = guarda();
     const corpoDoConferir = texto.slice(
-      texto.indexOf("function conferir(nome, ok, detalhe)"),
+      // Rodada 22: o `conferir` ganhou um 4º parâmetro (o veredito "não medido",
+      // código 2) — o começo da assinatura é o que se procura.
+      texto.indexOf("function conferir(nome, ok, detalhe"),
       texto.indexOf("async function medir(nome, fn)"),
     );
     expect(
