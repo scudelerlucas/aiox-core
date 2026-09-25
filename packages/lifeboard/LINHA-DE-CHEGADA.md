@@ -35,11 +35,11 @@ Claude, o que ele **não alcança**. Por isso as fontes estão paradas desde 09/
 | D4 | maxTierTested declarado (1k tarefas) | **CORTADO PARA v2** (proposta) | nenhum teste com 1.000 tarefas; volume real hoje ≈ 18 cartões | — |
 | D5 | Não-regressão da normalização | FEITO | `tests/unit/normalize.manual.test.ts` (diferença com LLM × sem LLM = 0) | — |
 | D6 | Kill-switches presentes | FEITO nos que se aplicam; **2 e 5 CORTADOS PARA v2** (proposta) | nº 3 `server-only`; nº 6 `/api/health`; nº 1: migração só roda à mão no SQL Editor (gate humano). Nº 2 (teto de custo de infra) e nº 5 (tier) não têm infra paga nem volume que os justifique | — |
-| D7 | PR revisado + merge | FEITO | PRs #21, #24, #30, #41, #42 mergeados | — |
+| D7 | PR revisado + merge | **FALTA** (3 abertos) | mergeados: #21, #24, #30, #41, #42 · **abertos: #43, #44, #45** (ver seção abaixo) | Codex (Tarefa 00) → Lucas decide |
 | D8 | Produção + health ok + rollback testado | **FALTA** | produção no ar e login ok (24/09); health = `degraded` até A1; rollback nunca exercitado | **Lucas**: 1 rollback de teste na Vercel (e voltar) |
 | D9 | Não duplica IP existente | FEITO | declaração do PRD, conferida: nada no `aiox-core` faz agregação multi-fonte pessoal | — |
 
-**Contagem (17):** 11 FEITO (o D6 com parte cortada) · 5 FALTA (A1, A7, D1, D3, D8) · 1 CORTADO PARA v2 (D4), ainda como proposta.
+**Contagem (17):** 10 FEITO (o D6 com parte cortada) · 6 FALTA (A1, A7, D1, D3, D7, D8) · 1 CORTADO PARA v2 (D4), aprovado.
 Dos 5 FALTA, **A1 destrava A7, D1 e metade do D8.** É a única caixa grande.
 
 ## D-A1 decidida: caminho A, com 5 fontes — o que já existe e o que falta (medido 25/09)
@@ -62,9 +62,19 @@ A1d só depois de medido no iMac.
 2. **D6 nº 2 e nº 5 — teto de custo de infra e tier.** Não há infra paga nem volume.
 3. **Inferência automática de dependências** — já era v2 no PRD §5(3); só registrando.
 
+## PRs abertos que a linha de chegada não via (achado de 25/09, passagem do gauntlet)
+
+A conta `lucasscudeler@` deixou **três PRs abertos** no pacote — #44 (P4 grafo), #45 (P5 linha do tempo),
+#43 (P6 página da tarefa) — somando **42 mil linhas** e entre 9 e 24 rodadas de correção cada, sem merge.
+Passagem: `Lucas-Contexto-Geral/docs/ops/LIFEBOARD-GAUNTLET-PASSAGEM-2026-09-25.md`. O item **D7** desta
+página estava incompleto: "PR revisado + merge" só valia para os mergeados. Eles encostam nas fixtures e no
+grafo que a Tarefa 01 usa, então **vêm antes dela**: `docs/lifeboard/TAREFA-CODEX-00-revisao-final-P4-P5-P6.md`
+(uma revisão adversarial por PR, ≤1 correção, e o Lucas decide mergear/mergear com pendências/fechar).
+
 ## Ordem daqui para a frente
 
 1. Lucas, no iMac: liga o plugin do Codex e faz `codex login`; mede A1d.
-2. Codex (`/codex:rescue`): 1ª tarefa = junção `frentes → tasks` (A1b + A1c), com teste que falha antes e passa depois.
-3. Claude: confere, abre o PR, ≤2 rodadas; D3 (chc-verify como script) vai no mesmo PR ou no seguinte.
-4. Lucas: Routines das contas secundárias (§5.2) · aprova a Routine Google · 1 rollback de teste (D8).
+2. **Tarefa 00** (`/codex:adversarial-review`, 1 rodada por PR): #45, #43, #44 → Lucas decide o destino de cada um.
+3. Codex (`/codex:rescue`): **Tarefa 01** = junção `frentes → tasks` (A1b + A1c), a partir da `main` já com os merges.
+4. Claude: confere, abre o PR, ≤2 rodadas; D3 (chc-verify como script) vai no mesmo PR ou no seguinte.
+5. Lucas: Routines das contas secundárias (§5.2) · aprova a Routine Google · 1 rollback de teste (D8).
