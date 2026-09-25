@@ -187,4 +187,12 @@ que a veja é item que tem tudo no papel e não anda.
 **Norma completa** — no hub, não neste repositório:
 [`.claude/rules/item-so-entra-com-dono.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/item-so-entra-com-dono.md).
 
+## Carimbo de hora na linha 2 de toda resposta (25/09/2026)
+
+Ordem do operador: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
+Toda resposta substantiva traz na **2ª linha** `🕒 AAAA-MM-DD HH:MM (São Paulo)`, com a hora **medida no mesmo
+turno** — `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` — nunca de memória. Sem relógio no ambiente, escreve-se
+`🕒 sem relógio nesta sessão`. Norma completa, no hub:
+[`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
+
 <!-- HUB-INVARIANTES-END -->
