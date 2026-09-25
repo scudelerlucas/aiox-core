@@ -85,7 +85,9 @@ describe("D51 — conta recusada por medição parada não é 'sem espaço'", ()
     const frase = fraseDoEnfileiramento("manual_medicao_velha", numeros);
     expect(frase).toContain("medição parada");
     expect(frase).toContain(`${LIMITE_DEFASAGEM_HORAS} h`);
-    expect(frase).toContain("não é falta de espaço");
+    // 24ª rodada: a frase manual passou a usar a mesma construção da automática
+    // ("… recusado. Não é falta de espaço"); o que se afirma é a negação, não a caixa.
+    expect(frase).toMatch(/não é falta de espaço/i);
     // O defeito era ESTE texto, da `manual_nao_cabe_hoje`, aparecendo aqui.
     expect(frase).not.toContain("sem espaço livre agora");
     expect(frase).not.toContain("não cabe hoje");

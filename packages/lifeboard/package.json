@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "guarda:navegador": "node scripts/guarda-no-navegador.mjs"
+    "guarda:navegador": "node scripts/guarda-no-navegador.mjs",
+    "contraste": "node scripts/checar-contraste.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
