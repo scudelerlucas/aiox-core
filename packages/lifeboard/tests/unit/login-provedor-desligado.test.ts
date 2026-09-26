@@ -12,7 +12,7 @@
  * seguir como antes.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   consultarProvedorGoogle,
@@ -28,6 +28,10 @@ function respostaFake(corpo: unknown, ok = true): Response {
 }
 
 describe("consultarProvedorGoogle", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("diz 'desligado' quando o Supabase responde que o Google está off — o caso de 17/09", async () => {
     const buscar = vi.fn(async () => respostaFake({ external: { google: false } }));
 
@@ -63,9 +67,54 @@ describe("consultarProvedorGoogle", () => {
       buscar as unknown as typeof fetch,
     );
 
-    expect(buscar).toHaveBeenCalledWith("https://abc.supabase.co/auth/v1/settings", {
-      headers: { apikey: "chave-anon" },
+    expect(buscar).toHaveBeenCalledWith(
+      "https://abc.supabase.co/auth/v1/settings",
+      expect.objectContaining({
+        headers: { apikey: "chave-anon" },
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("cancela e degrada quando a requisição não termina dentro do prazo", async () => {
+    vi.useFakeTimers();
+    let sinal: AbortSignal | undefined;
+    const buscar = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      sinal = init?.signal ?? undefined;
+      return new Promise<Response>(() => undefined);
     });
+
+    const consulta = consultarProvedorGoogle(
+      "https://abc.supabase.co",
+      "chave-anon",
+      buscar as typeof fetch,
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(consulta).resolves.toBe("indeterminado");
+    expect(sinal?.aborted).toBe(true);
+  });
+
+  it("cancela e degrada quando a leitura do corpo não termina dentro do prazo", async () => {
+    vi.useFakeTimers();
+    let sinal: AbortSignal | undefined;
+    const buscar = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      sinal = init?.signal ?? undefined;
+      return {
+        ok: true,
+        json: () => new Promise<unknown>(() => undefined),
+      } as Response;
+    });
+
+    const consulta = consultarProvedorGoogle(
+      "https://abc.supabase.co",
+      "chave-anon",
+      buscar as typeof fetch,
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(consulta).resolves.toBe("indeterminado");
+    expect(sinal?.aborted).toBe(true);
   });
 
   // ── Degrada, nunca derruba ────────────────────────────────────────────────
