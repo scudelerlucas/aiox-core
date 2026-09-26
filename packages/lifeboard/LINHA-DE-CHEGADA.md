@@ -78,6 +78,10 @@ A1d só depois de medido no iMac.
    de uma conversa, viva ou morta. Regra de agora: conversa só com movimento em `JANELA_SESSAO_DIAS = 21` dias;
    branch só com mudança aberta ou conversa viva ligada. Mesmo banco: ~74 conversas, ~78 branches, 33 mudanças.
    Se ainda ficar cheio, a próxima alavanca é esconder conversa sem ligação nenhuma (43 das 74 têm ligação).
+   **Medido de novo em 26/09 19:19 SP, já com o #49 em produção:** 183 cartões de frentes (74 conversas · 77 branches ·
+   32 mudanças) + 18 do dono, 92 ligações; **46 das 74 conversas estão soltas** (grau 0). Decisão A do operador:
+   a alavanca vira a `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` (Codex executa,
+   Claude valida). Esperado depois dela: ~137 cartões de frentes.
 
 ## Ordem daqui para a frente
 
