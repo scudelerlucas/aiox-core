@@ -1,0 +1,87 @@
+diff --git a/packages/lifeboard/src/components/frentes/conta-chip.tsx b/packages/lifeboard/src/components/frentes/conta-chip.tsx
+index 0c06766c..d3e20c15 100644
+--- a/packages/lifeboard/src/components/frentes/conta-chip.tsx
++++ b/packages/lifeboard/src/components/frentes/conta-chip.tsx
+@@ -3,7 +3,7 @@ import type { CorConta } from "@/lib/frentes/types";
+ /**
+  * PAINEL DE ASSUNTOS — etiqueta do cartão.
+  *
+- * Com conversa, mostra a conta (Lucas · Pandora · Alma Petra). Sem conversa,
++ * Com conversa, mostra a conta (Lucas · Pandora · Alma Petra · Arbor). Sem conversa,
+  * mostra o repositório em cinza — dizer "conta não identificada" não informava
+  * nada e aparecia em 295 dos cartões reais.
+  *
+@@ -15,6 +15,7 @@ const CORES: Record<CorConta, string> = {
+   lucas: "border-gold-500/70 text-gold-300",
+   pandora: "border-state-success/70 text-state-success-fg",
+   almapetra: "border-state-warning/70 text-state-warning",
++  arbor: "border-state-open/70 text-state-open",
+   neutra: "border-state-neutral/60 text-bone-300",
+ };
+ 
+diff --git a/packages/lifeboard/src/core/prompts/tipos.ts b/packages/lifeboard/src/core/prompts/tipos.ts
+index 0456cbee..8f331156 100644
+--- a/packages/lifeboard/src/core/prompts/tipos.ts
++++ b/packages/lifeboard/src/core/prompts/tipos.ts
+@@ -1,5 +1,5 @@
+ /**
+- * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as 3 contas).
++ * OS-LIFEBOARD · P7 — contratos da fila de prompts (pull entre as contas da casa).
+  *
+  * Fonte: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`
+  * (linhas R1/R2/R6, transferências T1/T2) + o contrato exato de
+@@ -15,6 +15,10 @@ export const CONTAS = [
+   "lucasscudeler@gmail.com",
+   "lsgpandora@gmail.com",
+   "almapetra.ltda@gmail.com",
++  // 4ª conta, 2026-09-21. O banco já a aceitava em `painel_teto_diario` e passou
++  // a aceitá-la na fila pela migration 0026 — sem esta linha ela existe no banco
++  // e some da tela, que é pior que não existir.
++  "arborcactus@gmail.com",
+ ] as const;
+ 
+ export type Conta = (typeof CONTAS)[number];
+@@ -24,6 +28,7 @@ export const ROTULO_CONTA: Record<Conta, string> = {
+   "lucasscudeler@gmail.com": "Lucas",
+   "lsgpandora@gmail.com": "Pandora",
+   "almapetra.ltda@gmail.com": "Alma Petra",
++  "arborcactus@gmail.com": "Arbor",
+ };
+ 
+ export function contaValida(valor: string): valor is Conta {
+diff --git a/packages/lifeboard/src/lib/frentes/compose.ts b/packages/lifeboard/src/lib/frentes/compose.ts
+index 259be2ab..b35f8699 100644
+--- a/packages/lifeboard/src/lib/frentes/compose.ts
++++ b/packages/lifeboard/src/lib/frentes/compose.ts
+@@ -82,10 +82,11 @@ const CONTAS: Record<string, { rotulo: string; cor: CorConta }> = {
+   "lucasscudeler@gmail.com": { rotulo: "Lucas", cor: "lucas" },
+   "lsgpandora@gmail.com": { rotulo: "Pandora", cor: "pandora" },
+   "almapetra.ltda@gmail.com": { rotulo: "Alma Petra", cor: "almapetra" },
++  "arborcactus@gmail.com": { rotulo: "Arbor", cor: "arbor" },
+ };
+ 
+-/** As três contas da casa, na ordem em que aparecem nos filtros. */
+-export const CONTAS_CONHECIDAS = ["Lucas", "Pandora", "Alma Petra"];
++/** As contas da casa, na ordem em que aparecem nos filtros. */
++export const CONTAS_CONHECIDAS = ["Lucas", "Pandora", "Alma Petra", "Arbor"];
+ 
+ /** Rótulo curto da conta; e-mail desconhecido vira a parte antes do "@". */
+ export function rotuloDaConta(email: string | null | undefined): {
+diff --git a/packages/lifeboard/src/lib/frentes/types.ts b/packages/lifeboard/src/lib/frentes/types.ts
+index e85c3d48..1a13e311 100644
+--- a/packages/lifeboard/src/lib/frentes/types.ts
++++ b/packages/lifeboard/src/lib/frentes/types.ts
+@@ -107,7 +107,12 @@ export interface DadosFrentes {
+ export type ColunaId = "esperando" | "andando" | "parado" | "fechado";
+ 
+ /** Chave de cor da etiqueta — 3 contas conhecidas + cinza (repositório). */
+-export type CorConta = "lucas" | "pandora" | "almapetra" | "neutra";
++export type CorConta =
++  | "lucas"
++  | "pandora"
++  | "almapetra"
++  | "arbor"
++  | "neutra";
+ 
+ /** Um link do cartão, já com o texto que a pessoa lê. */
+ export interface LinkAssunto {

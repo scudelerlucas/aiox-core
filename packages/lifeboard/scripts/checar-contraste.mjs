@@ -89,6 +89,7 @@ const PARES = [
   ["fonte-notes", "navy-850", 4.5, "rótulo da fonte Notas"],
   ["fonte-chat", "navy-850", 4.5, "rótulo da fonte Chats"],
   ["fonte-lms", "navy-850", 4.5, "rótulo da fonte Cativa"],
+  ["fonte-github", "navy-850", 4.5, "rótulo da fonte GitHub (frentes → tarefas, 25/09)"],
   ["fonte-neutra", "navy-850", 4.5, "rótulo de fonte desconhecida"],
   ["navy-700", "navy-950", 3, "borda de cartão (só borda: 3:1)"],
   ["navy-600", "navy-850", 3, "borda forte (só borda: 3:1)"],
