@@ -4,7 +4,7 @@ import { detectCycleIds } from "@/core/prioritize/dag";
 import { buildTodayList } from "@/core/prioritize/today";
 import { fixtureFrentes } from "@/lib/frentes/fixture";
 import {
-  JANELA_BRANCH_DIAS,
+  JANELA_SESSAO_DIAS,
   KIND_CONVERSA,
   KIND_GITHUB,
   idDaFontePadrao,
@@ -237,39 +237,71 @@ describe("(b) o que fechou não aparece", () => {
 });
 
 describe("(c) branch velha sem conversa não aparece", () => {
-  it(`fora da janela de ${JANELA_BRANCH_DIAS} dias e sem conversa → nada`, () => {
-    const velha = branch({
-      branch: "claude/antiga",
-      tem_pr: false,
-      sessao_ids: [],
-      ultimo_commit_em: d(JANELA_BRANCH_DIAS + 1),
-    });
-    expect(materializarFrentes(dados({ branches: [velha] }), { agora: AGORA }).tasks).toEqual([]);
-  });
-
-  it("dentro da janela entra, mesmo sem conversa e sem mudança", () => {
+  it("branch sem conversa viva e sem mudança aberta → nada, mesmo com commit de ontem", () => {
     const recente = branch({
       branch: "claude/recente",
       tem_pr: false,
       sessao_ids: [],
-      ultimo_commit_em: d(JANELA_BRANCH_DIAS - 1),
+      ultimo_commit_em: d(1),
     });
-    const { tasks } = materializarFrentes(dados({ branches: [recente] }), { agora: AGORA });
-    expect(tasks.map((t) => t.externalRef)).toEqual([`${HUB}:claude/recente`]);
-    expect(tasks[0]?.status).toBe("open");
+    expect(materializarFrentes(dados({ branches: [recente] }), { agora: AGORA }).tasks).toEqual([]);
   });
 
-  it("velha, mas com conversa ligada → entra (a conversa é o que a mantém viva)", () => {
+  it("o defeito medido em produção (26/09): `sessao_ids` de conversa morta NÃO segura a branch", () => {
+    // 285 das 339 branches reais carregam o id de alguma conversa. Antes desta
+    // correção, qualquer id bastava — e o grafo recebia ~290 branches paradas.
+    const deConversaMorta = branch({
+      branch: "claude/antiga",
+      tem_pr: false,
+      sessao_ids: ["sessao_encerrada_ou_que_nao_veio"],
+      ultimo_commit_em: d(200),
+    });
+    const encerrada = sessao({ sessao_id: "sessao_encerrada_ou_que_nao_veio", estado: "done", branches: [] });
+    const { tasks } = materializarFrentes(
+      dados({ branches: [deConversaMorta], sessoes: [encerrada] }),
+      { agora: AGORA },
+    );
+    expect(tasks).toEqual([]);
+  });
+
+  it("velha, mas produzida por conversa VIVA → entra (a conversa é o que a mantém viva)", () => {
     const velhaComConversa = branch({
       branch: "claude/antiga",
       tem_pr: false,
-      sessao_ids: ["sess_x"],
+      sessao_ids: ["session_01ABC"],
       ultimo_commit_em: d(200),
     });
-    const { tasks } = materializarFrentes(dados({ branches: [velhaComConversa] }), {
-      agora: AGORA,
+    const { tasks } = materializarFrentes(
+      dados({ branches: [velhaComConversa], sessoes: [sessao({ branches: [] })] }),
+      { agora: AGORA },
+    );
+    expect(tasks.map((t) => t.externalRef).sort()).toEqual([`${HUB}:claude/antiga`, "session_01ABC"].sort());
+  });
+
+  it("branch com mudança aberta entra mesmo sem conversa", () => {
+    const { tasks } = materializarFrentes(
+      dados({ branches: [branch({ sessao_ids: [], ultimo_commit_em: d(200) })], prs: [pr()] }),
+      { agora: AGORA },
+    );
+    expect(tasks).toHaveLength(2);
+  });
+
+  it(`conversa parada há mais de ${JANELA_SESSAO_DIAS} dias não vira tarefa — e leva a branch junto`, () => {
+    const parada = sessao({
+      estado: "blocked",
+      criado_em: d(JANELA_SESSAO_DIAS + 20),
+      atualizado_em: d(JANELA_SESSAO_DIAS + 1),
     });
-    expect(tasks).toHaveLength(1);
+    const { tasks } = materializarFrentes(
+      dados({ sessoes: [parada], branches: [branch({ tem_pr: false, sessao_ids: ["session_01ABC"] })] }),
+      { agora: AGORA },
+    );
+    expect(tasks).toEqual([]);
+  });
+
+  it(`conversa com movimento dentro dos ${JANELA_SESSAO_DIAS} dias entra`, () => {
+    const recente = sessao({ estado: "blocked", atualizado_em: d(JANELA_SESSAO_DIAS - 1) });
+    expect(materializarFrentes(dados({ sessoes: [recente] }), { agora: AGORA }).tasks).toHaveLength(1);
   });
 
   it("branch genérica (main, develop…) nunca vira tarefa", () => {
