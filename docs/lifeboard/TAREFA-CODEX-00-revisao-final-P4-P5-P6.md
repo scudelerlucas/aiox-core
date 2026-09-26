@@ -9,7 +9,7 @@
 
 | PR | Peça | Linhas | Rodadas já feitas | Estado no GitHub | O gauntlet pedia |
 |---|---|---|---|---|---|
-| [#44](https://github.com/scudelerlucas/aiox-core/pull/44) | P4 grafo (arestas por camada, caminho crítico, guarda no Chromium) | +12.032 | 9 correções + 17 rodadas de revisor | aberto, `main` dentro, **uma verificação pendente** | revisor independente, rodada 17 |
+| [#44](https://github.com/scudelerlucas/aiox-core/pull/44) | P4 grafo (arestas por camada, caminho crítico, guarda no Chromium) | +12.032 | 9 correções + 17 rodadas de revisor | aberto, `main` dentro; o vermelho é `Jest Tests (Node 24)` do núcleo, que estava vermelho na `main` (7cac88e) no mesmo dia e passou verde no head seguinte da `main` — não é da P4 | revisor independente, rodada 17 |
 | [#45](https://github.com/scudelerlucas/aiox-core/pull/45) | P5 linha do tempo (Gantt) | +11.083 | 21 correções | aberto, limpo | conferência do coordenador da correção 21 |
 | [#43](https://github.com/scudelerlucas/aiox-core/pull/43) | P6 página da tarefa | +19.077 | 24 correções | aberto, limpo | terminar a conferência da correção 24 (sabotagem FT1 nunca entrou no arquivo) |
 | #42 | P7 fila de prompts | mergeado 24/09 | 15 correções + 25 rodadas do Codex | na `main` | revisor rodada 16 |
@@ -34,7 +34,7 @@ Para **cada** um dos três PRs, nesta ordem — #45, #43, #44 (do mais limpo ao 
    `VEREDITO: reprovado — <n> CRÍTICO, <n> ALTO, <n> MÉDIO`, dizendo qual das **cinco formas viciadas de
    guarda** apareceu, se apareceu (conta a si mesma · aprova sem ver · mede só o nome · mede um instante ·
    confere o caso, não a classe).
-3. **Uma** rodada de correção por PR, só para CRÍTICO e ALTO. MÉDIO vira lista na `LINHA-DE-CHEGADA.md` (v2).
+3. **Uma** rodada de correção por PR, só para CRÍTICO e ALTO, **pelo Codex via comentário `@codex`** (um por achado); o Claude valida por fora e mescla. MÉDIO vira lista na `LINHA-DE-CHEGADA.md` (v2).
 4. Relatório de 1 página em `docs/lifeboard/CODEX-00-relatorio.md`: tabela PR × veredito × custo do limite ×
    o que ficou para o Lucas.
 
