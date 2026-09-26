@@ -1,98 +1,230 @@
-import type { CSSProperties } from "react";
+"use client";
+import { useEffect, useState, type RefObject } from "react";
 
 /**
- * OS-LIFEBOARD · P4h — a altura do canvas do grafo, em números (achados MÉDIO
- * #4 e BAIXO #7 do crítico hostil ROUND 8).
+ * OS-LIFEBOARD · P4i — a altura do canvas do grafo, MEDIDA, não adivinhada
+ * (achado ALTO #3 do crítico hostil ROUND 8: *a faixa "Hoje" tem 0 px
+ * visíveis*, nas quatro larguras de desktop).
  *
- * O que ele mediu: `1280×800 → canvas 1280×354` (44% da janela) contra
- * `768×800 → canvas 768×534` (67%). O TABLET mostrava **12 cartões a mais** que
- * o desktop com 200 nós (32/200 contra 20/200) e 2 a mais com 40. Um painel
- * que encolhe quando a tela CRESCE é um defeito de layout, não uma escolha.
+ * A rodada 8 prometeu 43 px de "Hoje" acima da dobra e escreveu a promessa
+ * assim: `altura da seção = 100dvh − 96px`, com 96 saindo de dois números
+ * fixos no código (cabeçalho 53 + respiro). Medido no Chromium em 21/09:
  *
- * A causa: no desktop a faixa de baixo ("Fontes" + "Hoje") levava `lg:h-[38%]`
- * da altura do corpo — 284px numa janela de 800 — e o grafo ficava com o
- * resto. No tablet a faixa de baixo está `hidden` quando a aba "Grafo" está
- * aberta: o grafo fica com o corpo INTEIRO, menos as abas.
+ * | largura × altura | topo real da seção | seção | fundo da seção | "Hoje" visível |
+ * |---|---|---|---|---|
+ * | 1024×800  | 151 | 704 | 855  | **0 px** |
+ * | 1280×800  | 151 | 704 | 855  | **0 px** |
+ * | 1440×900  | 151 | 804 | 955  | **0 px** |
+ * | 1920×1080 | 151 | 984 | 1135 | **0 px** |
  *
- * Decisão fixa da rodada 8: **o canvas do desktop nunca é proporcionalmente
- * menor que o do tablet.** Como no desktop os três painéis existem ao mesmo
- * tempo, o único jeito de honrar isso sem espremer "Hoje" é o que o próprio
- * comentário do arquivo já prometia — o grafo fica com a dobra, e "Hoje"
- * continua a UM ROLAR de distância (a página rola a partir de 1024px).
+ * Os 96 px eram três erros somados: o cabeçalho mede **65** px e não 53; o
+ * `<nav>` global do `layout.tsx` (P5, `sticky top-0`) come **45** px que esta
+ * conta nunca soube que existiam; e a linha de "fontes desatualizadas" come
+ * mais **41** px — que aparecem ou não conforme o DADO do dia. Nenhum número
+ * fixo poderia acertar isso, porque um dos três é dinâmico.
  *
- * Todo número abaixo é px de CSS e mora só aqui; `dashboard-client.tsx` lê
- * daqui, inclusive as classes. `tests/unit/altura-do-canvas.test.ts` mede a
- * desigualdade nas três larguras.
+ * Decisão da rodada 9: **a seção do grafo mede onde ela mesma começa.** O
+ * componente lê `getBoundingClientRect().top` da própria seção e a altura vira
+ * `janela − topo − TEASER`. Não sobra constante para errar: o que muda acima
+ * da seção entra na conta sozinho.
+ *
+ * O teste de unidade aqui só pode provar a ARITMÉTICA. Quem prova o PIXEL é
+ * `scripts/guarda-no-navegador.mjs`, que abre a página real no Chromium e
+ * reprova se "Hoje" tiver menos que o teaser visível.
  */
 
-/** Cabeçalho (ALMA PETRA + ações), `py-2.5` + conteúdo. */
-export const ALTURA_DO_CABECALHO_PX = 53;
-/** Abas "Hoje/Grafo/Fontes" — existem só abaixo de 1024px (`lg:hidden`). */
-export const ALTURA_DAS_ABAS_PX = 49;
 /** Título "Grafo — como as tarefas se puxam" + borda. */
 export const ALTURA_DO_TITULO_DO_GRAFO_PX = 45;
 
 /**
  * A BARRA de controle do grafo (Legenda · Camadas · zoom · enquadrar · chip).
  *
- * Achado BAIXO #7: a 390px o chip descia para uma segunda linha e a barra
- * engordava 50px — **o chip encolhia o canvas que ele mede** (`pane=541` com
- * chip, `591` sem). Altura FIXA aqui + o chip preso na mesma linha
- * (`basis-0`, ver `CLASSES_DO_CHIP_FORA_DA_TELA`) fecham a realimentação: o
- * canvas não muda de tamanho por causa do que a barra tem dentro.
+ * Achado BAIXO #7 da rodada 8: a 390px o chip descia para uma segunda linha e
+ * a barra engordava 50px — **o chip encolhia o canvas que ele mede**
+ * (`pane=541` com chip, `591` sem). Altura FIXA aqui + o chip preso na mesma
+ * linha (`basis-0`, ver `CLASSES_DO_CHIP_FORA_DA_TELA`) fecham a
+ * realimentação.
  */
 export const ALTURA_DA_BARRA_DO_GRAFO_PX = 52;
 
+/** O cromo DENTRO da seção do grafo, acima do canvas. */
+export const CROMO_DENTRO_DA_SECAO_PX =
+  ALTURA_DO_TITULO_DO_GRAFO_PX + ALTURA_DA_BARRA_DO_GRAFO_PX;
+
 /**
- * O que o desktop cede ACIMA do canvas — o cabeçalho e um respiro. Tem de
- * ficar ABAIXO de `ALTURA_DO_CABECALHO_PX + ALTURA_DAS_ABAS_PX` (102px), que é
- * o que o tablet gasta antes do grafo: é essa diferença que faz o canvas do
- * desktop empatar ou ganhar do tablet.
+ * Quanto da faixa de baixo ("Fontes + Hoje") fica acima da dobra. É o sinal de
+ * que há mais tela abaixo — sem ele o operador não tem por que rolar, e foi
+ * exatamente isso que o crítico mediu em 0. 44 px é o alvo de toque da régua
+ * da casa: menos que isso não é uma faixa, é uma sombra.
  */
-export const RESERVA_DO_GRAFO_PX = 96;
+export const TEASER_DA_FAIXA_DE_BAIXO_PX = 44;
+
+/**
+ * A borda de cima da faixa (`lg:border-t` em `CLASSES_DA_FAIXA_DE_BAIXO`) fica
+ * ENTRE a seção do grafo e "Hoje" — mede 1px e não é "Hoje". Sem descontá-la a
+ * medição no Chromium dá 43px onde o contrato pede 44.
+ */
+export const BORDA_DA_FAIXA_DE_BAIXO_PX = 1;
 
 /** Altura da faixa "Fontes + Hoje" no desktop — fixa, e logo abaixo da dobra. */
 export const ALTURA_DA_FAIXA_DE_BAIXO_PX = 352;
 
+/** Piso da seção do grafo: abaixo disto o canvas deixa de ser um grafo. */
+export const ALTURA_MINIMA_DA_SECAO_DO_GRAFO_PX = 416;
+
 export const LARGURA_DO_DESKTOP_PX = 1024;
 
-/** `height` da seção do grafo no desktop, como CSS. */
-export function alturaDaSecaoDoGrafoCss(): string {
-  return `calc(100dvh - ${RESERVA_DO_GRAFO_PX}px)`;
+/**
+ * A altura da seção do grafo no desktop, a partir do que foi MEDIDO: a janela,
+ * e onde a seção começa. O teaser é o que sobra para a faixa de baixo.
+ */
+export function alturaDaSecaoDoGrafo(params: {
+  alturaDaJanela: number;
+  topoDaSecao: number;
+}): number {
+  const disponivel =
+    params.alturaDaJanela -
+    params.topoDaSecao -
+    TEASER_DA_FAIXA_DE_BAIXO_PX -
+    BORDA_DA_FAIXA_DE_BAIXO_PX;
+  // `floor`, nunca `round`: arredondar para cima devolve 43px de teaser onde
+  // o contrato pede 44 (o topo da seção quase nunca é inteiro).
+  return Math.max(ALTURA_MINIMA_DA_SECAO_DO_GRAFO_PX, Math.floor(disponivel));
 }
 
-/** Altura do CANVAS (o retângulo do ReactFlow) na largura e janela dadas. */
-export function alturaDoCanvasDoGrafo(params: {
-  larguraDaJanela: number;
-  alturaDaJanela: number;
-}): number {
-  const cromo = ALTURA_DO_TITULO_DO_GRAFO_PX + ALTURA_DA_BARRA_DO_GRAFO_PX;
-  if (params.larguraDaJanela >= LARGURA_DO_DESKTOP_PX) {
-    return params.alturaDaJanela - RESERVA_DO_GRAFO_PX - cromo;
-  }
-  // Abaixo de 1024 a aba "Grafo" deixa a faixa de baixo `hidden` e sem
-  // `flex-1` — o corpo inteiro, menos as abas, é do grafo.
-  return (
-    params.alturaDaJanela - ALTURA_DO_CABECALHO_PX - ALTURA_DAS_ABAS_PX - cromo
-  );
+/** Altura do CANVAS (o retângulo do ReactFlow) dentro de uma seção dada. */
+export function alturaDoCanvasDoGrafo(params: { alturaDaSecao: number }): number {
+  return params.alturaDaSecao - CROMO_DENTRO_DA_SECAO_PX;
 }
 
 /** As variáveis CSS que o corpo do painel publica para as classes lerem. */
-export function estiloDasAlturasDoCorpo(): CSSProperties {
-  return {
-    "--lb-altura-do-grafo": alturaDaSecaoDoGrafoCss(),
-    "--lb-altura-da-faixa": `${ALTURA_DA_FAIXA_DE_BAIXO_PX}px`,
-  } as CSSProperties;
+export function estiloDasAlturasDoCorpo(): Record<string, string> {
+  return { "--lb-altura-da-faixa": `${ALTURA_DA_FAIXA_DE_BAIXO_PX}px` };
 }
 
 /**
- * Classes da SEÇÃO do grafo no desktop. `lg:h-[var(--lb-altura-do-grafo)]` é
- * string literal de propósito: o JIT do Tailwind só compila classe que aparece
- * escrita no código-fonte (o mesmo motivo de `ALTURA_DO_CARTAO` ir por
- * `style`), e `tailwind.config.ts` varre `./src/**` — este arquivo incluso.
+ * Tudo o que fica ACIMA da seção, no fluxo — derivado da árvore, nunca de uma
+ * lista escrita à mão: para cada ancestral da seção (até o `<body>`), os
+ * irmãos ANTERIORES dele. São exatamente os elementos cuja altura entra em
+ * `topoDaSecao`, e nenhum deles muda de tamanho quando a seção muda de altura
+ * — por isso observar este conjunto não realimenta.
+ *
+ * Exportada porque é a decisão inteira do conserto da rodada 10, e o teste de
+ * unidade a exercita contra uma árvore montada à mão.
+ */
+export function elementosAcimaDaSecao(secao: Element): Element[] {
+  const acima: Element[] = [];
+  let atual: Element | null = secao;
+  while (atual && atual.parentElement) {
+    let irmao = atual.previousElementSibling;
+    while (irmao) {
+      acima.push(irmao);
+      irmao = irmao.previousElementSibling;
+    }
+    atual = atual.parentElement;
+  }
+  return acima;
+}
+
+/**
+ * Mede o topo da seção do grafo e devolve a altura que ela deve ter para
+ * deixar `TEASER_DA_FAIXA_DE_BAIXO_PX` de "Hoje" visível acima da dobra.
+ * Devolve `null` fora do desktop (abaixo de 1024 a seção é `flex-1` e o
+ * navegador já resolve) e antes da primeira medição.
+ *
+ * Não há realimentação: mudar a ALTURA da seção não muda o TOPO dela — ela
+ * está no fluxo normal, abaixo de tudo o que a conta usa.
+ *
+ * **Rodada 10 (achados ALTO 1 e ALTO 2 do crítico hostil).** A versão anterior
+ * só remedia em `resize` da janela. O que fica acima da seção, porém, muda
+ * SEM resize nenhum: UM CLIQUE no aviso "5 fontes desatualizadas" abre a lista
+ * de chips e empurra a seção ~33 px para baixo. Medido no Chromium em 22/09,
+ * com o aviso aberto e nenhum resize: a faixa "Hoje" caiu de 44 px para
+ * **0 px** a 1024, 1280 e 1440, e para 10 px a 1920 — o mesmo defeito da
+ * rodada 8, que a correção de então fechou só para o estado INICIAL da tela.
+ *
+ * E a dívida ficava guardada: como a altura só era recalculada no `resize`, o
+ * primeiro resize — **2 px bastavam** — cobrava os 33 px de uma vez. O pane
+ * caía de 507 px para 443 px (64 px ≥ `LIMIAR_DE_REENQUADRAMENTO_PX`), o
+ * reenquadramento automático entendia aquilo como mudança material e desfazia
+ * o zoom do operador: 1,8 → 0,849 a 1280 e a 1440. Era a mesma classe do
+ * achado da rodada 9, medida no estado FECHADO e aberta no estado ABERTO.
+ *
+ * O conserto não é um caso a mais: é medir **quando o que está acima muda de
+ * tamanho**, qualquer que seja a causa. Um `ResizeObserver` sobre
+ * `elementosAcimaDaSecao` (derivado da árvore) fecha a classe — aviso aberto,
+ * aviso fechado, banner novo que ninguém previu, fonte que carrega tarde.
+ */
+export function useAlturaDaSecaoDoGrafo(
+  ref: RefObject<HTMLElement>,
+): number | null {
+  const [altura, setAltura] = useState<number | null>(null);
+
+  useEffect(() => {
+    const medir = (): void => {
+      const el = ref.current;
+      if (!el) return;
+      if (window.innerWidth < LARGURA_DO_DESKTOP_PX) {
+        setAltura(null);
+        return;
+      }
+      const topoNoDocumento = el.getBoundingClientRect().top + window.scrollY;
+      const nova = alturaDaSecaoDoGrafo({
+        alturaDaJanela: window.innerHeight,
+        topoDaSecao: topoNoDocumento,
+      });
+      setAltura((anterior) => (anterior !== null && Math.abs(anterior - nova) <= 1 ? anterior : nova));
+    };
+    medir();
+    window.addEventListener("resize", medir);
+
+    /*
+     * O conjunto observado é DERIVADO (ver `elementosAcimaDaSecao`) e
+     * re-derivado quando a árvore acima muda: a linha de avisos só existe
+     * quando há fonte desatualizada, então o conjunto não é fixo. O
+     * `MutationObserver` cobre "nasceu/morreu um bloco"; o `ResizeObserver`
+     * cobre "um bloco que já existia mudou de altura".
+     */
+    const el = ref.current;
+    let observadorDeTamanho: ResizeObserver | null = null;
+    let observadorDeArvore: MutationObserver | null = null;
+    if (el && typeof ResizeObserver !== "undefined") {
+      observadorDeTamanho = new ResizeObserver(medir);
+      const religar = (): void => {
+        if (!observadorDeTamanho) return;
+        observadorDeTamanho.disconnect();
+        for (const acima of elementosAcimaDaSecao(el)) observadorDeTamanho.observe(acima);
+        medir();
+      };
+      religar();
+      if (typeof MutationObserver !== "undefined") {
+        observadorDeArvore = new MutationObserver(religar);
+        let no: Element | null = el;
+        while (no?.parentElement) {
+          observadorDeArvore.observe(no.parentElement, { childList: true });
+          no = no.parentElement;
+        }
+      }
+    }
+
+    return () => {
+      window.removeEventListener("resize", medir);
+      observadorDeTamanho?.disconnect();
+      observadorDeArvore?.disconnect();
+    };
+  }, [ref]);
+
+  return altura;
+}
+
+/**
+ * Classes da SEÇÃO do grafo no desktop. A ALTURA não está aqui de propósito —
+ * ela é medida em runtime (`useAlturaDaSecaoDoGrafo`) e entra por `style`,
+ * porque depende de coisas que o CSS não sabe somar: o `<nav>` global e a
+ * linha de fontes desatualizadas, que aparece conforme o dado do dia.
  */
 export const CLASSES_DA_SECAO_DO_GRAFO =
-  "lg:h-[var(--lb-altura-do-grafo)] lg:min-h-[26rem] lg:flex-none";
+  "lg:min-h-[26rem] lg:flex-none";
 
 /** Classes da faixa "Fontes + Hoje" no desktop — altura fixa, abaixo da dobra. */
 export const CLASSES_DA_FAIXA_DE_BAIXO =

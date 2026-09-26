@@ -2,13 +2,11 @@ import Link from "next/link";
 
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { buildTodayList } from "@/core/prioritize/server-only";
-import { caminhoCritico } from "@/core/prioritize/caminho-critico";
-import { scoreAssimetriaLote } from "@/core/prioritize/assimetria";
+import { montarGrafoDoDia } from "@/core/prioritize/grafo-do-dia";
 import {
   getSourcesRepository,
   getTasksRepository,
 } from "@/lib/repositories/factory";
-import { serializaGrafoV3 } from "@/lib/serializa-grafo-v3";
 import { computeSourceStatuses } from "@/lib/source-status";
 import type { Source, SyncLog, Task, TaskEdge } from "@/types/canonical";
 import type { TodayResponse } from "@/types/dashboard";
@@ -55,17 +53,13 @@ export default async function Page(): Promise<JSX.Element> {
     hoje = buildTodayList(tasks);
 
     // v3 (P4) — caminho crítico + score de assimetria (camada O, server-only).
-    // Goal: a primeira tarefa `isGoal`, por ordem determinística de id (nunca a
-    // ordem de chegada do repositório) — mesma escolha que `caminhoCritico`
-    // faria sozinho quando `goalId` não é informado, só que explícita aqui
-    // para o goal usado no CPM e o `goalId` de `GrafoV3Props` NUNCA divergirem.
-    const goalId =
-      [...tasks]
-        .filter((t) => t.isGoal === true)
-        .sort((a, b) => a.id.localeCompare(b.id))[0]?.id ?? null;
-    const cpm = caminhoCritico(tasks, edges, goalId);
-    const scores = scoreAssimetriaLote(tasks, edges, cpm);
-    grafoV3 = serializaGrafoV3(edges, cpm, scores);
+    // A conta mora em `montarGrafoDoDia` (`core/prioritize/grafo-do-dia.ts`),
+    // que é a MESMA função de `GET /api/grafo-bruto` — a rota que a guarda de
+    // navegador lê para derivar, por caminho independente do componente que
+    // desenha, quais arestas o canvas deve pintar (achado ALTO 1, rodada 13).
+    // Duas contas de goal em dois lugares fariam a comparação medir a
+    // divergência entre elas, não o produto.
+    grafoV3 = montarGrafoDoDia(tasks, edges).grafoV3;
   } catch (erro) {
     console.error("[home] falha ao ler o estado do dia:", erro);
     return <NaoConsegui />;
