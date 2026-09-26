@@ -60,8 +60,11 @@ Consequências que precisam continuar verdadeiras:
 1. **Proveniência, sem mudar `listAll()` nem o tipo `Task`.** `materializarFrentes` já sabe quais tarefas são
    conversa (`idDaSessao`): o retorno `Materializacao` ganha **um campo aditivo**, `idsDeConversa: Set<string>` —
    nada mais muda nesse arquivo, e os testes (a)–(e) continuam intactos. `unirFrentesAoGrafo` (`no-grafo.ts`)
-   remapeia esse conjunto por `mapaId` e guarda só o que **não** foi substituído pela linha do banco
-   (`mapaId.get(id) === id`) em `GrafoUnido.conversasMaterializadas: Set<string>`; o repositório da união expõe
+   guarda em `GrafoUnido.conversasMaterializadas: Set<string>` só as conversas cuja chave `(sourceId, externalRef)`
+   **não casou com nenhuma linha do banco** — a decisão vem do casamento da chave (o `existente` que a união já
+   consulta), **nunca de comparar ids** (`mapaId.get(id) === id` falha quando a linha do banco foi gravada com o
+   mesmo UUID determinístico da materialização, que é exatamente o que o item 4 da v2, "gravar as frentes em
+   `tasks`", vai produzir); o repositório da união expõe
    `listConversasMaterializadas(): Promise<Set<string>>` — método **opcional** em `TasksRepository`
    (`tasks.fixture.ts`; a fixture devolve conjunto vazio). A união em si, as arestas e o remapeamento **não mudam**.
 2. **A função pura da poda**, `src/lib/frentes/podar-soltas.ts`:
@@ -85,10 +88,11 @@ Consequências que precisam continuar verdadeiras:
    - em `frentes-materializar.test.ts` **nada muda**; o campo novo `idsDeConversa` é coberto num teste **novo** em
      `frentes-podar-soltas.test.ts` (fixture 1 conversa → 1 branch → 1 mudança devolve exatamente o id da conversa);
    - **a proveniência da conversa persistida é exercitada pela união, não presumida** (v4.1, achado da 4ª revisão):
-     em `tests/unit/frentes-no-grafo.test.ts` (o arquivo de testes da união; criar se não existir), um caso em que a
-     base traz uma tarefa do banco com a mesma chave `(sourceId, externalRef)` de uma conversa materializada, e
-     `listConversasMaterializadas()` **não** contém o id persistido — e, passando esse conjunto pela projeção com a
-     tarefa de grau zero, ela **fica**. Se a união remapear errado, este é o teste que fica vermelho;
+     em `tests/unit/frentes-no-grafo.test.ts` (o arquivo de testes da união; criar se não existir), **dois** casos em
+     que a base traz uma tarefa do banco com a mesma chave `(sourceId, externalRef)` de uma conversa materializada —
+     um com **id diferente** e um com **o mesmo UUID determinístico** (v4.2, achado da 5ª revisão) — e, nos dois,
+     `listConversasMaterializadas()` **não** contém o id persistido e, passando esse conjunto pela projeção com a
+     tarefa de grau zero, ela **fica**. Se a união decidir por id em vez de por chave, o segundo caso fica vermelho;
    - `tests/unit/frentes-grafo-da-home.test.ts`: a projeção devolve `tasksDoGrafo` sem a conversa solta, e o
      `grafoV3` (caminho crítico e scores) é calculado **sobre a lista podada**, não sobre a inteira;
    - **guarda de fiação** no mesmo arquivo (no estilo de `tarefa-escritas-varredura.test.ts`): lê
@@ -113,8 +117,9 @@ Consequências que precisam continuar verdadeiras:
 - [ ] conversa com aresta para branch ou mudança continua no grafo, com a aresta
 - [ ] branch e mudança materializadas nunca são podadas
 - [ ] **linha do banco nunca é podada**, mesmo com `externalRef` de sessão e grau zero (proveniência) — provado
-      **pela união** (`frentes-no-grafo.test.ts`: chave igual à de uma conversa materializada → id persistido fora de
-      `listConversasMaterializadas()` e presente no grafo), não só pela poda com conjunto montado à mão
+      **pela união** (`frentes-no-grafo.test.ts`: chave igual à de uma conversa materializada, com id diferente **e**
+      com o mesmo UUID → id persistido fora de `listConversasMaterializadas()` e presente no grafo), não só pela poda
+      com conjunto montado à mão
 - [ ] o caminho crítico e os scores do `grafoV3` são calculados sobre a lista podada
 - [ ] guarda de fiação: `page.tsx` passa ao grafo só o que sai de `montarGrafoDaHome`, a lista inteira a `buildTodayList`,
       e `listConversasMaterializadas()` chega à projeção como `conversasMaterializadas`
@@ -137,7 +142,7 @@ Consequências que precisam continuar verdadeiras:
 | `packages/lifeboard/src/app/page.tsx` | chama `montarGrafoDaHome`; `buildTodayList` segue com a lista inteira |
 | `packages/lifeboard/tests/unit/frentes-podar-soltas.test.ts` | **novo** — testes do item 4, 1º bloco |
 | `packages/lifeboard/tests/unit/frentes-grafo-da-home.test.ts` | **novo** — projeção + guarda de fiação |
-| `packages/lifeboard/tests/unit/frentes-no-grafo.test.ts` | caso da conversa persistida: chave igual → fora da proveniência, presente no grafo |
+| `packages/lifeboard/tests/unit/frentes-no-grafo.test.ts` | conversa persistida com chave igual (id diferente e id igual) → fora da proveniência, presente no grafo |
 | `packages/lifeboard/LINHA-DE-CHEGADA.md` | item 7, medição antes → depois |
 | `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` | esta página (checklist marcado) |
 
