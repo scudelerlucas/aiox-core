@@ -208,4 +208,12 @@ no `CLAUDE.md` do `aiox-core`; se a constituição for revista pelo caminho dela
 **Norma completa** — no hub, não neste repositório:
 [`.claude/rules/codex-corrige-claude-valida.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md).
 
+## Carimbo de hora na linha 2 de toda resposta (25/09/2026)
+
+Ordem do operador: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
+Toda resposta substantiva traz na **2ª linha** `🕒 AAAA-MM-DD HH:MM (São Paulo)`, com a hora **medida no mesmo
+turno** — `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` — nunca de memória. Sem relógio no ambiente, escreve-se
+`🕒 sem relógio nesta sessão`. Norma completa, no hub:
+[`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
+
 <!-- HUB-INVARIANTES-END -->
