@@ -263,6 +263,119 @@ jobs:
       - name: idea-inbox - tests (node --test)
         run: npm test --workspace=@aiox/idea-inbox
 
+  # ────────────────────────────────────────────────────────────────────────
+  # A GUARDA NO NAVEGADOR DA P6 — ligada em 22/09/2026 (P6, rodada 14, ALTO #2)
+  #
+  # Medição do coordenador nas três branches do painel: NENHUMA das três
+  # guardas de navegador desta base rodava sozinha.
+  #
+  #   P6 (`tests/navegador/guarda-p6.mjs`)     0 passos de CI, 0 em package.json
+  #   P5 (`tests/navegador/guarda-p5.mjs`)     0 passos de CI, 0 em package.json
+  #   P4 (`scripts/guarda-no-navegador.mjs`)   0 passos de CI, 1 atalho só
+  #
+  # Guarda que só roda quando alguém lembra não é guarda; é documentação. Este
+  # job liga a da P6 — P4 e P5 são outras branches, e o coordenador as liga nas
+  # rodadas próprias delas.
+  #
+  # POR QUE UM JOB SEPARADO, COM IMAGEM DE CONTAINER, e não um passo dentro de
+  # `package-tests`: a guarda precisa de `playwright-core` e de um Chromium, e
+  # **este repositório não depende do Playwright** — nenhuma dependência nova
+  # entrou para ligar isto. A imagem oficial do Playwright já traz os dois, e é
+  # o único jeito de rodar a guarda sem mexer no `package.json` das dependências.
+  #
+  # O QUE NÃO ESTÁ PROVADO, dito por extenso: a sessão que escreveu este job não
+  # tem rede nem Actions — ele foi escrito e NUNCA EXECUTADO. Duas coisas
+  # dependem da primeira corrida real: a tag da imagem e o caminho do
+  # `playwright-core` dentro dela. As duas fazem o job FALHAR ALTO se estiverem
+  # erradas (`exit 1` com mensagem) — nunca `skip`, nunca `continue-on-error`,
+  # nunca `|| true`. Enquanto não houver uma corrida verde aqui, o gatilho que se
+  # pode afirmar é `npm run guarda:navegador --workspace=@aiox/lifeboard` e a
+  # saída colada no relatório da rodada. Não há, neste arquivo nem no cabeçalho
+  # da guarda, nenhuma frase dizendo que ela já protege algo automaticamente.
+  lifeboard-navegador:
+    name: Lifeboard - guarda no navegador (P6)
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.config == 'true' || needs.changes.outputs.ci == 'true' }}
+    runs-on: ubuntu-latest
+    # [P6, rodada 23] 25 → 32: o teto da corrida da guarda subiu de 18 para 25
+    # min (`TETO_DA_CORRIDA_MS`, com a medição escrita lá), e a folga de 7 min
+    # entre o teto da guarda e o do job continua a mesma.
+    timeout-minutes: 32
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.1-noble
+      options: --ipc=host
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A VERSAO DO PACOTE SAI DA TAG DA IMAGEM — as duas TEM de casar.
+      # Segunda corrida deste job (22/09, PR #43): depois de consertar o
+      # interpretador, ele reprovou em `playwright-core nao foi encontrado
+      # nesta imagem`. A premissa estava errada, e estava escrita em dois
+      # lugares: a imagem do Playwright traz os NAVEGADORES em /ms-playwright,
+      # nao o pacote npm. Este repo nao depende do Playwright (e um teste de
+      # unidade confere que continua nao dependendo), entao nao havia nada a
+      # achar — procurar melhor nunca resolveria.
+      # `--no-save` e o ponto: instala no node_modules do runner e NAO toca em
+      # package.json nem no lock, nao muda o que o pacote publica.
+      - name: Instalar playwright-core na versao da imagem
+        shell: bash
+        run: |
+          set -uo pipefail
+          VERSAO="$(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/ci.yml | head -1 | sed 's/.*:v//')"
+          if [ -z "$VERSAO" ]; then
+            echo "::error::nao consegui ler a versao da tag da imagem no ci.yml — sem ela o pacote e os navegadores podem divergir."
+            exit 1
+          fi
+          echo "versao lida da tag da imagem: $VERSAO"
+          npm install --no-save --no-audit --no-fund "playwright-core@$VERSAO"
+
+      - name: lifeboard - guarda no navegador (P6, Chromium)
+        working-directory: packages/lifeboard
+        # `shell: bash` e obrigatorio aqui, nao e preferencia: a imagem do
+        # Playwright entrega `sh` (dash) como interpretador padrao, e o bloco
+        # abaixo comeca com `set -uo pipefail`, que e bash. Na estreia deste
+        # job (22/09, PR #43) a saida foi exatamente `set: Illegal option -o
+        # pipefail`, exit 2 — o job reprovou ALTO, como foi escrito para fazer,
+        # mas reprovou por causa do interpretador, sem chegar a medir nada.
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+        run: |
+          set -uo pipefail
+          # Nada aqui engole o codigo de saida de nada, e ha um teste de
+          # unidade que confere que este bloco nao ganhou silenciador.
+          # O modulo se RESOLVE, nao se procura: quem sabe onde o pacote caiu e
+          # o resolvedor do Node, e a resposta dele nao depende do desenho
+          # interno da imagem.
+          MODULO="$(node -e 'process.stdout.write(require.resolve("playwright-core"))' 2>/dev/null)"
+          if [ -z "$MODULO" ] || [ ! -f "$MODULO" ]; then
+            echo "::error::playwright-core nao resolveu — o passo de instalacao acima falhou ou instalou fora do alcance. A guarda de navegador da P6 NAO rodou; nao transforme isto em skip."
+            exit 1
+          fi
+          CHROME=""
+          if [ -d /ms-playwright ]; then
+            CHROME="$(find /ms-playwright -maxdepth 3 -name chrome -type f -print -quit 2>/dev/null)"
+          fi
+          if [ -z "$CHROME" ]; then
+            echo "::error::o Chromium nao foi encontrado em /ms-playwright — a guarda de navegador da P6 NAO rodou."
+            exit 1
+          fi
+          echo "playwright-core: $MODULO"
+          echo "chromium: $CHROME"
+          PLAYWRIGHT_MODULO="$MODULO" PLAYWRIGHT_CHROMIUM="$CHROME" npm run guarda:navegador
+
   # ───────────────────────────────────────────────────────────────────────────
   # MÉDIO 1 (rodada 12) — A GUARDA DE COMPORTAMENTO DO DINHEIRO RODA EM CI.
   #

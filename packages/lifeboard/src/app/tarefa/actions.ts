@@ -72,8 +72,44 @@ const ASSIMETRIA_BYTES_MAX = 2_048;
  * leis diferentes. As duas chamam esta função agora; `DURACAO_MINIMA_DIAS`
  * vem de `tipos-v3.ts` — mesmo valor usado pela migration 0010.
  */
-function estimativaValidaOuErro(n: number): string | null {
-  if (!Number.isFinite(n) || n < DURACAO_MINIMA_DIAS) {
+/**
+ * [BAIXO #10, rodada 13] O CLIENTE ACEITAVA MAIS CASAS DO QUE A COLUNA GUARDA.
+ *
+ * `tasks.estimativa_dias` é `numeric(6,2)` e `task_edges.peso` é
+ * `numeric(4,3)`. Em modo fixture o JavaScript guardava `1.005` e `0.5555`
+ * inteiros, a tela confirmava "Duração salva." e o número continuava lá; em
+ * modo live o Postgres ARREDONDA na hora de gravar (1.01 e 0.556) — os dois
+ * modos passavam a discordar sobre a mesma entrada, e no modo que vale o
+ * operador via na volta um número que nunca digitou.
+ *
+ * A régua é a da coluna, aplicada ao TEXTO que a pessoa escreveu (depois da
+ * conversão a informação já se perdeu): recusa em português antes de gravar,
+ * como todo o resto deste arquivo.
+ */
+function casasDecimais(bruto: string): number {
+  // [BAIXO #2, rodada 15] a vírgula conta como separador aqui também: sem
+  // isto `0,1255` passaria pelo limite de casas e o Postgres arredondaria em
+  // silêncio — o defeito que o BAIXO #10 da rodada 13 fechou para o ponto.
+  const canonico = comDecimalCanonico(bruto);
+  const ponto = canonico.indexOf(".");
+  return ponto === -1 ? 0 : canonico.length - ponto - 1;
+}
+
+/** `tasks.estimativa_dias` é `numeric(6,2)` (migration 0004). */
+const ESTIMATIVA_CASAS_MAX = 2;
+/** `task_edges.peso` é `numeric(4,3)` (migration 0004). */
+const PESO_CASAS_MAX = 3;
+
+function estimativaValidaOuErro(n: number, bruta: string): string | null {
+  // [CRÍTICO, rodada 11] `NaN` é o caminho do que a caixa mostra e o
+  // `Number()` não converte (`2e`, `1,5`, `--`): `NaN < x` e `NaN > y` são
+  // AMBOS falsos, então sem este ramo o valor atravessaria a régua inteira e
+  // chegaria à RPC. Ramo próprio, e não `||`, para a frase dizer a coisa
+  // certa: o problema não é ser pequeno demais, é não ser número.
+  if (!Number.isFinite(n)) {
+    return "A duração precisa ser um número em dias, com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5).";
+  }
+  if (n < DURACAO_MINIMA_DIAS) {
     // Vírgula decimal (pt-BR), não o ponto do `toString()` do JS — mesmo
     // formato que a mensagem já tinha antes desta função existir.
     const minimoFormatado = String(DURACAO_MINIMA_DIAS).replace(".", ",");
@@ -81,6 +117,9 @@ function estimativaValidaOuErro(n: number): string | null {
   }
   if (n > ESTIMATIVA_DIAS_MAXIMA) {
     return `A duração não pode passar de ${ESTIMATIVA_DIAS_MAXIMA} dias.`;
+  }
+  if (casasDecimais(bruta) > ESTIMATIVA_CASAS_MAX) {
+    return `A duração guarda no máximo ${ESTIMATIVA_CASAS_MAX} casas depois do ponto (ex.: 1.5 ou 1.25).`;
   }
   return null;
 }
@@ -94,6 +133,91 @@ function revalidar(taskId: string): void {
 function textoOu(campos: CamposDeEscrita, campo: string): string {
   const v = campos[campo];
   return typeof v === "string" ? v : "";
+}
+
+/**
+ * [CRÍTICO, rodada 11] O NÚMERO QUE O OPERADOR DIGITOU — ou `NaN`.
+ *
+ * `Number()` sozinho é generoso demais para ser a régua de um campo que a
+ * pessoa preenche: `Number("0x10")` é 16, `Number("1e3")` é 1000,
+ * `Number("Infinity")` é infinito, `Number(" ")` é 0. Com o campo virando
+ * texto (`campo-numerico.tsx`), essas formas passam a CHEGAR aqui — e
+ * gravar 16 dias porque alguém escreveu `0x10` é a mesma família de defeito
+ * que apagar a duração porque alguém escreveu `2e`: o banco fica com um
+ * número que a tela nunca mostrou.
+ *
+ * A régua é a forma que o campo promete: dígitos, com um ponto decimal
+ * opcional. Tudo que não é isso vira `NaN` e cai na frase em português.
+ */
+function numeroDigitado(bruto: string): number {
+  const comPonto = comDecimalCanonico(bruto);
+  return /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(comPonto) ? Number(comPonto) : Number.NaN;
+}
+
+/**
+ * ═══════════════════════════════════════════════════════ BAIXO #2, rodada 15 ═
+ * O TECLADO OFERECIA A VÍRGULA E A PÁGINA RECUSAVA A VÍRGULA.
+ *
+ * Os três campos numéricos declaram `inputMode="decimal"`, e num celular em
+ * português esse teclado entrega **vírgula**. Medido pelo crítico:
+ *
+ *   P2 inputMode do campo: decimal
+ *   P2 mensagens: "A duração precisa ser um número em dias, com ponto no
+ *                  decimal (ex.: 1.5)."
+ *   P2 caixa depois: "1,5"
+ *
+ * Não perdia dado e recusava em português, no campo — por isso BAIXO. Mas é a
+ * tela pedindo uma coisa e recusando a mesma coisa. Desde a rodada 11 o campo
+ * é de TEXTO, então a vírgula CHEGA aqui e dá para tratá-la: **uma vírgula
+ * decimal vira ponto**, e só uma. `1,5` passa a valer 1.5; `1,5,5` continua
+ * recusado; `1.234,5` continua recusado (duas grafias misturadas não são um
+ * número que alguém quis escrever).
+ */
+function comDecimalCanonico(bruto: string): string {
+  if (bruto.indexOf(",") === -1) return bruto;
+  // Vírgula E ponto na mesma caixa, ou mais de uma vírgula: não é uma grafia
+  // decidida. Devolve como veio e a régua recusa, com a frase em português.
+  if (bruto.indexOf(".") !== -1) return bruto;
+  if (bruto.indexOf(",") !== bruto.lastIndexOf(",")) return bruto;
+  return bruto.replace(",", ".");
+}
+
+/** O campo VEIO no pedido? (vazio é diferente de ausente — ver `arestaAdd`.) */
+function temCampo(campos: CamposDeEscrita, campo: string): boolean {
+  return Object.prototype.hasOwnProperty.call(campos, campo);
+}
+
+/**
+ * [BAIXO #1, rodada 12] `" "` NÃO É CAMPO VAZIO.
+ *
+ * A duração só é REMOVIDA quando a caixa está de fato vazia. Antes, o
+ * `.trim()` acontecia antes da pergunta "veio alguma coisa?", e um espaço em
+ * branco — uma caixa que parece preenchida — virava `""`, que virava
+ * `estimativa_dias: null`: a tela dizia "Duração removida." e o banco
+ * apagava o número. Medido no Chromium em `/tarefa/task-docs` (duração 2):
+ * digitar um espaço, "Salvar duração" → banco `null`.
+ *
+ * É a mesma família do CRÍTICO da rodada 11 (o campo que apaga o dado
+ * dizendo que salvou). As outras entradas ilegíveis (`2e`, `1,5`) já
+ * recusavam; esta passava porque o branco desaparece antes de ser visto.
+ *
+ * Devolve `{ bruta }` (já aparada, para `  4  ` continuar gravando 4) ou
+ * `{ erro }` quando havia texto e ele era só espaço.
+ */
+function duracaoBrutaOuErro(
+  campos: CamposDeEscrita,
+  campo: string,
+): { bruta: string } | { erro: string } {
+  const cru = textoOu(campos, campo);
+  const bruta = cru.trim();
+  if (bruta.length === 0 && cru.length > 0) {
+    return {
+      erro:
+        "A duração precisa ser um número em dias, com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5) — " +
+        "só espaço em branco não remove nada. Para remover a duração, deixe a caixa vazia.",
+    };
+  }
+  return { bruta };
 }
 
 function textoOuNulo(campos: CamposDeEscrita, campo: string): string | null {
@@ -159,7 +283,10 @@ async function notaDel(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
 async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> {
   const parentId = textoOu(campos, "parent_id");
   const title = textoOu(campos, "title");
-  const estimativaBruta = textoOu(campos, "estimativa_dias").trim();
+  // [BAIXO #1, rodada 12] mesma régua do campo da tarefa — ver `duracaoBrutaOuErro`.
+  const lidaDaCaixa = duracaoBrutaOuErro(campos, "estimativa_dias");
+  if ("erro" in lidaDaCaixa) return { erro: lidaDaCaixa.erro };
+  const estimativaBruta = lidaDaCaixa.bruta;
 
   if (parentId.length === 0) return { erro: "Tarefa mãe não identificada." };
   if (title.trim().length === 0) return { erro: "O título da subtarefa não pode ficar vazio." };
@@ -170,8 +297,8 @@ async function subtarefaAdd(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa> 
 
   let estimativaDias: number | null = null;
   if (estimativaBruta.length > 0) {
-    const n = Number(estimativaBruta);
-    const erro = estimativaValidaOuErro(n);
+    const n = numeroDigitado(estimativaBruta);
+    const erro = estimativaValidaOuErro(n, estimativaBruta);
     if (erro) return { erro };
     estimativaDias = n;
   }
@@ -252,12 +379,15 @@ async function estimativaSet(campos: CamposDeEscrita): Promise<EstadoAcaoTarefa>
   const taskId = textoOu(campos, "task_id");
   if (taskId.length === 0) return { erro: "Tarefa não identificada." };
 
-  const bruta = textoOu(campos, "estimativa_dias").trim();
+  // [BAIXO #1, rodada 12] `" "` não apaga a duração — ver `duracaoBrutaOuErro`.
+  const lida = duracaoBrutaOuErro(campos, "estimativa_dias");
+  if ("erro" in lida) return { erro: lida.erro };
+  const bruta = lida.bruta;
   let estimativaDias: number | null = null;
   if (bruta.length > 0) {
-    const n = Number(bruta);
+    const n = numeroDigitado(bruta);
     // [BAIXO #10, rodada 2] mesma função de `subtarefaAddAction` — uma só régua.
-    const erro = estimativaValidaOuErro(n);
+    const erro = estimativaValidaOuErro(n, bruta);
     if (erro) return { erro };
     estimativaDias = n;
   }
@@ -303,10 +433,26 @@ async function arestaAdd(
   if (!TIPOS_DE_ARESTA.includes(tipo)) {
     return { erro: "O tipo de relação precisa ser um de: predecessor, correlação, sinergia, obsolescência." };
   }
+  // [ALTO A2, rodada 11] `peso` AUSENTE e `peso` VAZIO não são a mesma coisa.
+  // Ausente = a relação não é de sinergia e o desconto não se aplica (1, o
+  // neutro). Vazio/ilegível = o operador tinha algo na caixa e o programa não
+  // entendeu — e o `let peso = 1` de antes gravava calado o EXTREMO OPOSTO da
+  // escala que a tela mostrava (0.5 na caixa, 1 no banco), direto na conta do
+  // HIERARQ, com "Relação criada." anunciado.
   let peso = 1;
-  if (pesoBruto.length > 0) {
-    peso = Number(pesoBruto);
+  if (temCampo(campos, "peso")) {
+    if (pesoBruto.length === 0) {
+      return { erro: "O desconto precisa ser um número entre 0 e 1." };
+    }
+    peso = numeroDigitado(pesoBruto);
     if (!pesoValido(peso)) return { erro: "O desconto precisa ser um número entre 0 e 1." };
+    // [BAIXO #10, rodada 13] `numeric(4,3)`: acima de 3 casas o Postgres
+    // arredonda em silêncio e o fixture não — ver `casasDecimais`.
+    if (casasDecimais(pesoBruto) > PESO_CASAS_MAX) {
+      return {
+        erro: `O desconto guarda no máximo ${PESO_CASAS_MAX} casas depois do ponto (ex.: 0.5 ou 0.125).`,
+      };
+    }
   }
   if (nota !== null && nota.length > ARESTA_NOTA_MAX) {
     return { erro: `A nota da relação não pode passar de ${ARESTA_NOTA_MAX} caracteres.` };
@@ -419,5 +565,10 @@ export async function escreverTarefaAction(
       return atomosSet(campos, false);
     case "atomos_limpar":
       return atomosSet(campos, true);
+    // [ALTO #2, rodada 14] o desfazer da limpeza é a MESMA gravação do salvar
+    // (os três números voltam), com operação própria para o anúncio e a
+    // auditoria distinguirem "salvei" de "desfiz".
+    case "atomos_desfazer_limpeza":
+      return atomosSet(campos, false);
   }
 }

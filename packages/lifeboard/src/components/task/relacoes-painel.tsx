@@ -11,6 +11,8 @@ import {
 } from "react";
 
 import { CampoErro } from "@/components/task/campo-erro";
+import { AvisoNaoSalvo, AVISO_COM_RASCUNHO } from "@/components/task/aviso-nao-salvo";
+import { CampoNumerico } from "@/components/task/campo-numerico";
 import { ControleSegmentado, type OpcaoSegmentada } from "@/components/task/controle-segmentado";
 import {
   anuncioComDesfazerPerdido,
@@ -21,6 +23,11 @@ import {
 import type { Focavel } from "@/components/task/foco";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita, type RegiaoViva } from "@/components/task/porta-de-escrita";
+import {
+  CAMPOS_COM_RASCUNHO,
+  gravarRascunho,
+  lerRascunho,
+} from "@/components/task/rascunho";
 import type { EdgeTipo, TaskEdge } from "@/types/canonical";
 
 const ROTULO_TIPO: Record<EdgeTipo, string> = {
@@ -43,6 +50,27 @@ const JANELA_DESFAZER_MS = 10_000;
 export interface OpcaoTarefaRelacao {
   id: string;
   title: string;
+  /**
+   * [MÉDIO A6, rodada 11] Os tipos de relação que o SERVIDOR recusaria contra
+   * esta candidata — porque já existe uma relação daquele tipo entre as duas,
+   * ou porque um `predecessor` daqui para lá fecharia um ciclo. Prevenir
+   * antes de avisar (F5 da régua): o `<select>` não oferece o que vai voltar
+   * com erro. Calculado no servidor, em `page.tsx`, com a MESMA régua da
+   * gravação.
+   */
+  bloqueadaPara: readonly EdgeTipo[];
+}
+
+/**
+ * [ALTO A5, rodada 11] Um elo de precedência que o CRONOGRAMA usa e que esta
+ * tela não consegue editar: ele nasce dos campos `predecessorIds`/
+ * `successorIds` da própria tarefa, não de uma aresta. Antes esses elos
+ * simplesmente não apareciam — o caminho crítico `task-setup → task-build →
+ * task-deploy` era invisível na mesma tela que estampava "folga 0 · crítico".
+ */
+export interface EloDerivado {
+  origem: string;
+  destino: string;
 }
 
 export interface RelacoesPainelProps {
@@ -51,17 +79,35 @@ export interface RelacoesPainelProps {
   saindo: readonly TaskEdge[];
   /** Arestas em que esta tarefa é o DESTINO (apontam para cá). */
   entrando: readonly TaskEdge[];
+  /** Os elos de precedência desta tarefa que não vêm de uma aresta (A5). */
+  elosDerivados: readonly EloDerivado[];
   /** Candidatas a destino — o chamador já exclui a própria tarefa. */
   opcoesDestino: readonly OpcaoTarefaRelacao[];
   tituloPorId: ReadonlyMap<string, string>;
 }
 
-/** O payload que recria uma aresta idêntica (achado BAIXO #5, rodada 5). */
+/**
+ * O payload que recria uma aresta idêntica (achado BAIXO #5, rodada 5).
+ *
+ * [CRÍTICO, rodada 12] `nota` ENTROU AQUI. Antes a janela guardava cinco
+ * campos e a nota da relação não era um deles: `arestaAdd` lê `nota` de
+ * `campos`, o campo não chegava, `textoOuNulo` devolvia `null` — e a relação
+ * renascia SEM a nota, com a tela dizendo "Relação restaurada.". Medido no
+ * Chromium em `/tarefa/task-docs`: a aresta `edge-docs-correlaciona-build`
+ * voltou com `"nota": null` no lugar de *"Documentação e motor andam juntos,
+ * sem ordem."*. O gêmeo em `notas-painel.tsx` já carregava texto, autor E
+ * data — era a relação que esquecia um campo que o modelo (`TaskEdge.nota`),
+ * a semente (as 6 arestas têm nota) e o servidor (`ARESTA_NOTA_MAX`) tratam
+ * como dado de verdade. **Campo do modelo que o desfazer não carrega é campo
+ * que o botão "Desfazer" apaga.**
+ */
 interface ArestaExcluida {
   origem: string;
   destino: string;
   tipo: EdgeTipo;
   peso: number;
+  /** A nota da relação — `null` quando a relação não tinha nota. */
+  nota: string | null;
   /** [MÉDIO #4, rodada 7] a data ORIGINAL — devolve a relação à sua posição. */
   criadoEm: string;
 }
@@ -105,6 +151,7 @@ export function RelacoesPainel({
   taskId,
   saindo,
   entrando,
+  elosDerivados,
   opcoesDestino,
   tituloPorId,
 }: RelacoesPainelProps): JSX.Element {
@@ -181,6 +228,7 @@ export function RelacoesPainel({
         destino: aresta.destino,
         tipo: aresta.tipo,
         peso: aresta.peso,
+        nota: aresta.nota,
         criadoEm: aresta.createdAt,
       },
     });
@@ -198,23 +246,46 @@ export function RelacoesPainel({
 
   function desfazerExclusao(): void {
     const janela = desfazerRef.current;
-    portaDesfazer.escrever(
-      {
-        origem: janela?.aresta.origem ?? "",
-        destino: janela?.aresta.destino ?? "",
-        tipo: janela?.aresta.tipo ?? "",
-        peso: String(janela?.aresta.peso ?? ""),
-        // [MÉDIO #4, rodada 7] a data original volta junto (migration 0017) —
-        // a lista de relações ordena por `created_at`, então a posição também.
-        criado_em: janela?.aresta.criadoEm ?? "",
-      },
-      { valido: janela !== null },
-    );
+    if (janela === null) {
+      // Sem janela não há o que restaurar. `valido: false` NUNCA grava; o que
+      // a porta ainda faz neste clique é falar se houver gravação em voo.
+      portaDesfazer.escrever({}, { valido: false });
+      return;
+    }
+    const a = janela.aresta;
+    const campos: Record<string, string> = {
+      origem: a.origem,
+      destino: a.destino,
+      tipo: a.tipo,
+      // [CRÍTICO, rodada 12] a nota volta junto — ver `ArestaExcluida`.
+      nota: a.nota ?? "",
+      // [MÉDIO #4, rodada 7] a data original volta junto (migration 0017) —
+      // a lista de relações ordena por `created_at`, então a posição também.
+      criado_em: a.criadoEm,
+    };
+    // [ALTO A2, rodada 11 + revisão da rodada 12] `peso` AUSENTE é o neutro 1;
+    // `peso` VAZIO é recusa. `String(peso ?? "")` mandava a string vazia para
+    // qualquer peso que não fosse um número — e o desfazer virava uma recusa
+    // que o operador não pediu. Aqui só se manda o peso quando ele É um
+    // número; do contrário o campo não vai, e o servidor usa o neutro.
+    if (Number.isFinite(a.peso)) campos.peso = String(a.peso);
+    const decisao = portaDesfazer.escrever(campos, { valido: true });
+    /*
+     * [ALTO #1, rodada 15] A QUARTA JANELA — a que o crítico não nomeou.
+     *
+     * O achado dele cobria três painéis; este é o quarto desfazer da página, no
+     * mesmo arquivo e com o mesmo desenho, e fechar só os três nomeados seria a
+     * 5ª forma viciada desta base ("confere o caso, não a classe"). Aqui a
+     * aresta inteira — tipo, peso, nota e a data original — existe num lugar
+     * só, `desfazer.aresta`, e o relógio de 10 s a descartava no meio da
+     * chamada. O relógio para no despacho, como nos outros três.
+     */
+    if (decisao === "gravar") limparTimer();
   }
 
   return (
     <div className="space-y-3">
-      {linhas.length === 0 ? (
+      {linhas.length === 0 && elosDerivados.length === 0 ? (
         <p className="text-sm text-bone-400">Nenhuma relação ainda.</p>
       ) : (
         <ul className="space-y-2">
@@ -241,6 +312,16 @@ export function RelacoesPainel({
               aoCancelarConfirmacao={cancelarConfirmacao}
               aoConfirmarExecutado={confirmacaoExecutada}
               aoExcluir={aoExcluirComSucesso}
+            />
+          ))}
+          {/* [ALTO A5] os elos que o CRONOGRAMA usa e esta tela não edita —
+              visíveis, com o motivo escrito, em vez de ausentes. */}
+          {elosDerivados.map((elo) => (
+            <LinhaEloDerivado
+              key={`derivado:${elo.origem}:${elo.destino}`}
+              elo={elo}
+              taskId={taskId}
+              tituloPorId={tituloPorId}
             />
           ))}
         </ul>
@@ -286,6 +367,48 @@ export function RelacoesPainel({
         botaoAdicionarRef={botaoAdicionarRef}
       />
     </div>
+  );
+}
+
+/**
+ * [ALTO A5, rodada 11] Uma linha SOMENTE-LEITURA: o elo existe no cronograma,
+ * a tela mostra, e diz em português por que o botão "excluir" não está aqui.
+ * Um elo invisível é pior do que um elo que a tela declara não editar — era
+ * esse o achado.
+ */
+function LinhaEloDerivado({
+  elo,
+  taskId,
+  tituloPorId,
+}: {
+  elo: EloDerivado;
+  taskId: string;
+  tituloPorId: ReadonlyMap<string, string>;
+}): JSX.Element {
+  const saindo = elo.origem === taskId;
+  const outraPontaId = saindo ? elo.destino : elo.origem;
+  const rotulo = tituloPorId.get(outraPontaId) ?? outraPontaId;
+  return (
+    <li className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-navy-700 bg-navy-850 p-3">
+      <div className="min-w-0 flex-1">
+        <span className="mr-2 rounded-full bg-navy-800 px-2 py-0.5 font-mono text-xs font-semibold text-bone-300">
+          predecessor
+        </span>
+        <span className="text-xs text-bone-400">{saindo ? "→" : "←"}</span>{" "}
+        <Link
+          href={`/tarefa/${outraPontaId}`}
+          prefetch={false}
+          className="inline-flex min-h-[44px] items-center text-sm text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
+        >
+          {rotulo}
+        </Link>
+        <p className="mt-1 text-xs text-bone-400">
+          O cronograma usa esta ordem, mas ela não se edita aqui: ela vem da lista de
+          tarefas anteriores/seguintes da própria tarefa, e esta tela só edita relações
+          criadas no formulário abaixo.
+        </p>
+      </div>
+    </li>
   );
 }
 
@@ -344,8 +467,13 @@ function LinhaAresta({
 
   function excluir(): void {
     if (confirmando) {
-      aoConfirmarExecutado();
-      porta.escrever({ id: aresta.id, task_id: taskId });
+      // [CRÍTICO #1/#2, varredura de gêmeos, rodada 13] A SAÍDA DA CONFIRMAÇÃO
+      // também é estado, e também só acontece depois do veredito: com uma
+      // gravação em voo a porta recusa ("Aguarde…") e o 2º clique NÃO apaga —
+      // sair da confirmação ali deixava a linha de volta em "excluir", como se
+      // o clique tivesse sido cancelado, e o operador tinha de recomeçar os
+      // dois cliques sem nada explicar por quê.
+      if (porta.escrever({ id: aresta.id, task_id: taskId }) === "gravar") aoConfirmarExecutado();
       return;
     }
     // `valido: false` nunca grava; o que a porta ainda faz neste clique é
@@ -367,12 +495,25 @@ function LinhaAresta({
           href={`/tarefa/${outraPontaId}`}
           prefetch={false}
           // [BAIXO #6, rodada 6] alvo de toque de 44 px sem quebrar a linha.
-          className="inline-flex min-h-[44px] items-center text-sm text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
+          // [ALTO #5, rodada 13] e o título da outra ponta quebra palavra —
+          // no `<span>`, que é quem de fato contém o texto.
+          className="inline-flex min-h-[44px] min-w-0 items-center text-sm text-bone-100 underline-offset-2 hover:text-gold-300 hover:underline"
         >
-          {rotuloOutraPonta}
+          <span className="min-w-0 break-words">{rotuloOutraPonta}</span>
         </Link>
         {aresta.tipo === "sinergia" ? (
           <span className="ml-2 font-mono text-xs text-bone-400">desconto {aresta.peso}</span>
+        ) : null}
+        {/* [CRÍTICO, rodada 12] A NOTA DA RELAÇÃO, NA TELA. Ela existia no
+            modelo, na semente e na validação do servidor, e não era
+            desenhada em lugar nenhum do app — então o operador não tinha como
+            perceber que o "Desfazer" a apagava. Mesmo tratamento que a nota
+            da tarefa já recebe em `notas-painel.tsx`: o texto, em uma linha
+            abaixo, sem enfeite. */}
+        {aresta.nota !== null && aresta.nota.length > 0 ? (
+          // [ALTO #5, rodada 13] a nota da relação nasceu na rodada 12 sem
+          // quebra de palavra — mesmo e-mail, mesmo estouro.
+          <p className="mt-1 whitespace-pre-line break-words text-xs text-bone-400">{aresta.nota}</p>
         ) : null}
       </div>
       <button
@@ -430,8 +571,39 @@ function FormularioNovaAresta({
   // uma aresta de verdade contra a 1ª tarefa da lista.
   const [destino, setDestino] = useState("");
   const [tipo, setTipo] = useState<EdgeTipo>("predecessor");
+  /**
+   * [MÉDIO A6, rodada 11] AS CANDIDATAS QUE ESTE TIPO ACEITA. O `<select>`
+   * oferecia as que o servidor recusaria — escolher uma ia à rede e voltava
+   * com "Essa aresta criaria um ciclo de dependências" ou "Já existe uma
+   * aresta desse tipo…". A régua pede prevenir antes de avisar: a lista não
+   * mostra o que não dá, e uma linha embaixo diz quantas ficaram de fora e
+   * por quê (sumir em silêncio seria o outro defeito).
+   */
+  const disponiveis = opcoesDestino.filter((o) => !o.bloqueadaPara.includes(tipo));
+  const ocultas = opcoesDestino.length - disponiveis.length;
   const [peso, setPeso] = useState("0.5");
+  /**
+   * [BAIXO #12, rodada 13] A NOTA DA RELAÇÃO GANHA ONDE SER ESCRITA.
+   *
+   * A rodada 12 pôs a nota na lista e o servidor sempre a validou
+   * (`ARESTA_NOTA_MAX`), mas nenhuma relação criada pela tela podia ter uma:
+   * não havia campo. Um dado que o modelo guarda, a semente traz e o
+   * "Desfazer" restaura, e que a tela só sabia ler.
+   */
+  const [nota, setNota] = useState("");
   const [criada, setCriada] = useState<JanelaDeDesfazerCriacao | null>(null);
+  /**
+   * [MÉDIO #1, rodada 14] O RASCUNHO CHEGA AOS DOIS CAMPOS DESTE FORMULÁRIO.
+   * A "Nota da relação" nasceu na rodada 13 sem a proteção que a nota da tarefa
+   * tem desde a rodada 5 — e cada linha da lista acima é um link para outra
+   * tarefa. Restaurado no EFEITO: `sessionStorage` não existe no servidor.
+   */
+  useEffect(() => {
+    const n = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoNota);
+    if (n.length > 0) setNota(n);
+    const d = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoDesconto);
+    if (d.length > 0) setPeso(d);
+  }, [taskId]);
   /**
    * [BAIXO #8, rodada 7] A verdade sobre "já existe um Desfazer pendente" no
    * instante em que o sucesso roda (depois do `await`) — o estado lido pela
@@ -520,13 +692,45 @@ function FormularioNovaAresta({
       }, JANELA_DESFAZER_MS);
     },
     aoSucesso: (estado) => {
-      setDestino("");
+      // [ALTO #4, rodada 13] só esvazia a escolha se ela ainda for a que foi
+      // enviada — trocar de destino durante a gravação não pode ser desfeito
+      // pela resposta que chega depois.
+      if (naCaixaRef.current === enviadoRef.current) setDestino("");
+      if (naNotaRef.current === notaEnviadaRef.current) {
+        setNota("");
+        // O rascunho daquele campo sai junto — senão volta como fantasma.
+        gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoNota, "");
+      }
       idDoSucessoRef.current =
         typeof estado.id === "string" && estado.id.length > 0 ? estado.id : null;
     },
   });
 
-  const podeEnviar = destino !== "";
+  /**
+   * ════════════════════════════════════════════════════════ MÉDIO #7, rodada 13 ═
+   * O `<select>` NÃO PODE MENTIR SOBRE O QUE VAI ENVIAR.
+   *
+   * `destino` é estado local; `disponiveis` vem do servidor e muda sozinho a
+   * cada `router.refresh()` (toda escrita da página dispara um). Quando a
+   * candidata escolhida deixava de estar disponível por causa de OUTRA escrita,
+   * o `<select>` voltava a exibir "Escolha a tarefa…" — porque o valor não
+   * casa com opção nenhuma —, mas `destino` continuava preenchido: a dica
+   * sumia, `podeEnviar` seguia `true` e o botão disparava contra um alvo que a
+   * tela não mostrava. A troca de TIPO já zerava o campo; a troca vinda do
+   * servidor, não.
+   *
+   * Aqui o valor exibido, o valor enviado e a guarda saem do MESMO lugar: a
+   * escolha só existe enquanto ela estiver na lista.
+   */
+  const destinoEfetivo = disponiveis.some((o) => o.id === destino) ? destino : "";
+  const naCaixaRef = useRef(destinoEfetivo);
+  naCaixaRef.current = destinoEfetivo;
+  const enviadoRef = useRef<string | null>(null);
+  const naNotaRef = useRef(nota);
+  naNotaRef.current = nota;
+  const notaEnviadaRef = useRef<string | null>(null);
+
+  const podeEnviar = destinoEfetivo !== "";
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
@@ -535,19 +739,46 @@ function FormularioNovaAresta({
     // em vez de um botão cinza que não responde.
     const campos: Record<string, string> = {
       origem: taskId,
-      destino,
+      destino: destinoEfetivo,
       tipo,
     };
     if (tipo === "sinergia") campos.peso = peso;
-    porta.escrever(campos, { valido: podeEnviar });
+    // [BAIXO #12, rodada 13] a nota da relação, quando há uma. Ausente é
+    // diferente de vazia só no `peso`; para a nota, `textoOuNulo` no servidor
+    // já trata vazio como "sem nota".
+    if (nota.trim().length > 0) campos.nota = nota;
+    const decisao = porta.escrever(campos, { valido: podeEnviar });
+    if (decisao === "gravar") {
+      enviadoRef.current = destinoEfetivo;
+      notaEnviadaRef.current = nota;
+    }
   }
 
   function desfazer(): void {
     const janela = criadaRef.current;
-    portaDesfazerCriacao.escrever(
+    const decisao = portaDesfazerCriacao.escrever(
       { id: janela?.id ?? "", task_id: taskId },
       { valido: janela !== null },
     );
+    /*
+     * ══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+     * O RELÓGIO DA JANELA PARA NO INSTANTE EM QUE O DESFAZER É DESPACHADO.
+     *
+     * O texto, o botão e o DADO A RESTAURAR saíam todos do mesmo valor, e o
+     * `setTimeout(JANELA_DESFAZER_MS)` apagava esse valor sozinho aos 10 s —
+     * inclusive com uma chamada de desfazer EM VOO. Medido pelo crítico da
+     * rodada 15, com a rota segurando o POST 3 s e abortando, clique aos
+     * 8,5 s: a tela dizia "Não foi possível desfazer…", havia ZERO botões de
+     * Desfazer, e a nota do operador — cujo texto existia num lugar só — tinha
+     * ido embora. O `aoFalha` que promete "não esconde o botão" chegava tarde:
+     * não havia o que não esconder.
+     *
+     * A correção é uma linha e uma ordem: quem clica em Desfazer FECHA a
+     * janela, e só depois a chamada parte. A partir daí o valor só sai da tela
+     * por decisão — sucesso, ou uma limpeza/criação nova que o substitua.
+     * Falhar deixa botão, texto e dado exatamente onde estavam.
+     */
+    if (decisao === "gravar") limparDesfazer();
   }
 
   if (opcoesDestino.length === 0) {
@@ -565,7 +796,8 @@ function FormularioNovaAresta({
         Destino
         <select
           ref={selectDestinoRef}
-          value={destino}
+          // [MÉDIO #7] o que se vê é o que se envia — ver `destinoEfetivo`.
+          value={destinoEfetivo}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => {
             setDestino(e.target.value);
             porta.aoMudarCampo();
@@ -573,37 +805,85 @@ function FormularioNovaAresta({
           className="min-h-[44px] w-56 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
         >
           <option value="">Escolha a tarefa…</option>
-          {opcoesDestino.map((t) => (
+          {disponiveis.map((t) => (
             <option key={t.id} value={t.id}>
               {t.title}
             </option>
           ))}
         </select>
       </label>
+      {ocultas > 0 ? (
+        <p className="text-xs text-bone-400">
+          {ocultas === 1
+            ? "1 tarefa está fora desta lista"
+            : `${String(ocultas)} tarefas estão fora desta lista`}
+          : já existe uma relação deste tipo com ela, ou a ordem criaria um ciclo (A
+          depende de B e B depende de A).
+        </p>
+      ) : null}
       <ControleSegmentado
         rotuloGrupo="Tipo de relação"
         opcoes={OPCOES_TIPO}
         valorAtual={tipo}
-        aoMudar={setTipo}
+        // Trocar o tipo pode tirar da lista a tarefa que já estava escolhida
+        // (um `predecessor` que fecharia ciclo, por exemplo). Nesse caso o
+        // campo volta a "Escolha a tarefa…" em vez de ficar com um valor que
+        // não está mais entre as opções — um `<select>` mentindo sobre o que
+        // vai enviar.
+        aoMudar={(novoTipo) => {
+          setTipo(novoTipo);
+          if (opcoesDestino.some((o) => o.id === destino && o.bloqueadaPara.includes(novoTipo))) {
+            setDestino("");
+          }
+          porta.aoMudarCampo();
+        }}
         desabilitado={porta.pendente}
       />
+      {/* [BAIXO #12, rodada 13] a nota da relação — opcional, e a única
+          adição de funcionalidade desta rodada. A lista já mostrava a nota
+          (rodada 12) e o servidor já a validava; faltava onde escrevê-la. */}
+      <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
+        Nota da relação (opcional)
+        <textarea
+          value={nota}
+          onChange={(e) => {
+            setNota(e.target.value);
+            porta.aoMudarCampo();
+            gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoNota, e.target.value);
+          }}
+          rows={2}
+          placeholder="ex.: Documentação e motor andam juntos, sem ordem."
+          className="w-full rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm font-normal text-bone-100 outline-none focus:border-gold-500"
+        />
+      </label>
       <div className="flex flex-wrap items-end gap-2">
         {tipo === "sinergia" ? (
-          <label className="flex flex-col gap-1 text-xs font-semibold text-bone-300">
-            Desconto (0–1)
-            <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              value={peso}
-              onChange={(e) => {
-                setPeso(e.target.value);
-                porta.aoMudarCampo();
-              }}
-              className="min-h-[44px] w-24 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
-            />
-          </label>
+          <>
+          {/* [CRÍTICO + ALTO A2, rodada 11] aqui o estrago era o pior dos
+             três: com `0.5e` na caixa o programa recebia `""` e gravava o
+             DEFAULT `1` — o extremo oposto da escala — e isso entrava na
+             conta do HIERARQ com a tela anunciando "Relação criada.". */}
+          <CampoNumerico
+            rotulo="Desconto (0–1 — quanto a sinergia barateia a outra tarefa)"
+            descricaoId="relacao-desconto-nao-salvo"
+            valor={peso}
+            aoMudar={(texto) => {
+              setPeso(texto);
+              porta.aoMudarCampo();
+              gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.relacaoDesconto, texto);
+            }}
+            classeDoCampo="min-h-[44px] w-24 rounded-lg border border-navy-700 bg-navy-900 px-2.5 py-2 text-sm text-bone-100 outline-none focus:border-gold-500"
+          />
+          {/* [MÉDIO #1, rodada 15] o terceiro campo numérico da página. Ele
+              guarda rascunho, e a frase diz isso — a régua derivada exige um
+              aviso em TODO arquivo com `<CampoNumerico>`, para o quarto campo
+              não nascer mudo. */}
+          <AvisoNaoSalvo
+            id="relacao-desconto-nao-salvo"
+            mostrar={peso.trim().length > 0}
+            texto={AVISO_COM_RASCUNHO}
+          />
+          </>
         ) : null}
         <button
           ref={botaoAdicionarRef}

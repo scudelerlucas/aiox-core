@@ -63,6 +63,7 @@ export const ANUNCIO_DE_SUCESSO: Record<OperacaoDeEscrita, string> = {
   duracao: "Duração salva.",
   atomos_salvar: "Átomos salvos.",
   atomos_limpar: "Átomos limpos.",
+  atomos_desfazer_limpeza: "Átomos restaurados.",
 };
 
 /**
@@ -111,6 +112,24 @@ export const ANUNCIO_DE_CONFIRMACAO: Record<
 export const MENSAGEM_AGUARDE = "Aguarde: a gravação anterior ainda está em andamento.";
 
 /**
+ * [BAIXO, rodada 11] O TEXTO QUE FALTAVA DURANTE A GRAVAÇÃO.
+ *
+ * Medido: numa gravação de 2,5 s a tela mudava `aria-busy`, `aria-disabled` e
+ * a opacidade do botão — e as regiões `role="status"` ficavam com ZERO texto.
+ * Quem usa leitor de tela não recebe opacidade: só descobria que tinha
+ * acontecido alguma coisa no fim, quando "Duração salva." chegava. Entre o
+ * clique e a resposta havia silêncio.
+ *
+ * É `persistente` (sem relógio de 4 s): enquanto a gravação não volta, a
+ * frase é verdade. Quem a apaga é a própria porta, no instante em que a
+ * resposta chega — e é esse apagamento que também tirou da tela o par
+ * contraditório *"Excluída. Desfazer"* + *"Confirme: clique de novo em
+ * excluir…"*, que ficava 2,6 s junto porque o pedido de confirmação só sumia
+ * por relógio.
+ */
+export const MENSAGEM_GRAVANDO = "Salvando…";
+
+/**
  * [ALTO #1, rodada 6] O que substitui o `disabled` por validade: o botão
  * continua clicável (e focável — `disabled` é justamente o que tirava o foco
  * dele), o handler recusa, e ESTA frase explica por quê. Antes, um clique no
@@ -121,6 +140,32 @@ export const MENSAGEM_INVALIDO: Partial<Record<OperacaoDeEscrita, string>> = {
   subtarefa_criar: "Dê um título à subtarefa antes de adicionar.",
   relacao_criar: "Escolha a tarefa de destino antes de adicionar a relação.",
   atomos_salvar: "Escolha os três átomos antes de salvar.",
+  /*
+   * ══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+   * AS TRÊS RECUSAS DE DESFAZER ERAM MUDAS.
+   *
+   * `desfazerLimpeza()`, `desfazerExclusao()` e `desfazer()` (da relação)
+   * mandam `{ valido: janela !== null }`. Quando a janela já tinha fechado, a
+   * porta devolvia `"invalido"` e `MENSAGEM_INVALIDO` não tinha frase para
+   * estas três `op` — a recusa era SILENCIOSA: o operador clicava no botão e
+   * não acontecia nada, nem explicação. Com a janela parando no despacho
+   * (ver os três painéis) este caminho ficou raro; raro não é motivo para ser
+   * mudo. Cada uma diz o que aconteceu e o que continua valendo.
+   */
+  atomos_desfazer_limpeza:
+    "A janela de desfazer fechou — os átomos continuam limpos. Declare-os de novo nos três grupos acima.",
+  nota_desfazer:
+    "A janela de desfazer fechou — a nota continua excluída. Escreva-a de novo no campo acima.",
+  relacao_desfazer_criacao:
+    "A janela de desfazer fechou — a relação continua. Use o botão excluir na lista ao lado.",
+  /*
+   * A QUARTA, que o crítico não nomeou e a varredura achou. Este caminho já
+   * existia escrito (`portaDesfazer.escrever({}, { valido: false })` em
+   * `relacoes-painel.tsx`): a porta era chamada de propósito para falar, e
+   * não tinha o que dizer.
+   */
+  relacao_desfazer_exclusao:
+    "A janela de desfazer fechou — a relação continua excluída. Crie-a de novo no formulário abaixo.",
 };
 
 /**

@@ -1,4 +1,43 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { duracaoCanonica } from "@/components/task/duracao-form";
+
+/**
+ * ═══════════════════════════════════════════════════════ ALTO #1, rodada 18 ═
+ * OS QUATRO STATUS, DERIVADOS DO FONTE — NÃO SÓ `"done"`.
+ *
+ * Os dois testes de `statusSetAction` (modo live e modo fixture) exerciam
+ * `"done"` e mais nada. `blocked` não era gravado por teste nenhum desta base
+ * nem por medida nenhuma da guarda de navegador (lá ele só aparece como o 2º
+ * clique de uma corrida, e é exigido RECUSADO). A sabotagem de uma linha
+ * `status: status === "blocked" ? "done" : status` passava por tudo.
+ *
+ * A lista sai do fonte do produto — `STATUS_VALIDOS` em `actions.ts` — e não
+ * de uma cópia escrita aqui: status novo entra nos dois testes sozinho. E há
+ * piso, escrito à mão: se a leitura quebrar e devolver menos que isto, o teste
+ * falha em vez de voltar a exercer o caso fácil.
+ */
+const PISO_DE_STATUS = 4;
+
+function statusDoProduto(): string[] {
+  const fonte = readFileSync(
+    new URL("../../src/app/tarefa/actions.ts", import.meta.url),
+    "utf8",
+  );
+  const bloco = /const STATUS_VALIDOS[^=]*=\s*\[([^\]]*)\]/.exec(fonte);
+  const lidos = [...(bloco?.[1] ?? "").matchAll(/"([^"\n]+)"/g)].map((m) => m[1] ?? "");
+  if (lidos.length < PISO_DE_STATUS) {
+    throw new Error(
+      `li ${String(lidos.length)} status em actions.ts, piso escrito à mão ${String(
+        PISO_DE_STATUS,
+      )} — derivação quebrada é cegueira, não aprovação`,
+    );
+  }
+  return lidos;
+}
+
+const STATUS_DO_PRODUTO = statusDoProduto();
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -186,6 +225,256 @@ describe("tarefa/actions — validação", () => {
     );
     expect(r.erro).toMatch(/^Átomos inválidos/);
     nenhumaChamadaFoiFeita();
+  });
+
+  /**
+   * ═════════════════════════════════════════════ CRÍTICO + MUTAÇÃO 2, rodada 11 ═
+   * `NaN` é o caminho do que a caixa mostra e o `Number()` não converte —
+   * `2e`, `1,5`, `--`. `NaN < x` e `NaN > y` são AMBOS falsos: trocar
+   * `if (!Number.isFinite(n) || n < MIN)` por `if (n < MIN)` faz o valor
+   * atravessar a régua inteira e chegar à RPC, que é exatamente o caminho do
+   * CRÍTICO desta rodada. Cada forma tem o seu caso — uma só deixaria o ramo
+   * meio provado.
+   */
+  /*
+   * [BAIXO #2, rodada 15] `"1,5"` SAIU DESTA LISTA e ganhou caso próprio mais
+   * abaixo: o teclado `inputMode="decimal"` de um celular em português entrega
+   * vírgula, e recusar o que o próprio campo oferece era a tela brigando com
+   * ela mesma. O que entrou no lugar são as grafias AMBÍGUAS — `1.234,5` e
+   * `1,5,5` —, que continuam recusadas de propósito.
+   */
+  for (const bruto of ["2e", "--", "abc", "e", "Infinity", "0x10", "1.234,5", "1,5,5", ","]) {
+    it(`estimativaSetAction: "${bruto}" não é número — recusa em português, sem tocar a rede`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: bruto }),
+      );
+      expect(r.erro, `"${bruto}" passou pela régua`).toBeDefined();
+      expect(r.ok).toBeUndefined();
+      nenhumaChamadaFoiFeita();
+    });
+  }
+
+  it('estimativaSetAction: "2e" diz que o problema é NÃO SER NÚMERO, não ser pequeno', async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "2e" }));
+    expect(r.erro).toBe(
+      "A duração precisa ser um número em dias, com ponto ou vírgula no decimal (ex.: 1.5 ou 1,5).",
+    );
+  });
+
+  /**
+   * ══════════════════════════════════════════════════════ BAIXO #2, rodada 15 ═
+   * A VÍRGULA QUE O TECLADO OFERECE PASSA A SER ACEITA.
+   *
+   * Medido pelo crítico: o campo declara `inputMode="decimal"`, o teclado pt-BR
+   * entrega vírgula, e a página respondia "precisa ser um número em dias, com
+   * ponto no decimal". Desde a rodada 11 o campo é de TEXTO, então a vírgula
+   * CHEGA ao servidor e dá para tratá-la. Uma vírgula decimal, e só uma.
+   */
+  for (const [bruto, esperado] of [
+    ["1,5", 1.5],
+    ["0,5", 0.5],
+    ["  2,25  ", 2.25],
+  ] as const) {
+    it(`estimativaSetAction: "${bruto}" é aceito e grava ${String(esperado)}`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: bruto }),
+      );
+      expect(r.erro, `"${bruto}" foi recusado`).toBeUndefined();
+      expect(r.ok).toBe(true);
+    });
+  }
+
+  it("estimativaSetAction: a vírgula NÃO escapa do limite de casas decimais", async () => {
+    // `0,1255` tem 4 casas: sem contar a vírgula como separador, o limite
+    // passava batido e o Postgres arredondaria em silêncio (BAIXO #10, rodada 13).
+    const r = await estimativaSetAction(
+      {},
+      form({ task_id: "task-build", estimativa_dias: "0,1255" }),
+    );
+    expect(r.erro, "0,1255 passou pelo limite de casas").toBeDefined();
+  });
+
+  /**
+   * ══════════════════════════════════════════════ BAIXO #1, rodada 12 ═
+   * `" "` (SÓ ESPAÇO) NA DURAÇÃO ERA TRATADO COMO REMOÇÃO.
+   *
+   * Medido no Chromium em `/tarefa/task-docs` (duração 2): apagar o número,
+   * digitar um espaço, "Salvar duração" → a tela diz "Duração removida." e o
+   * banco fica `null`. Mesma família do CRÍTICO da rodada 11 — um campo que
+   * PARECE preenchido apaga o dado. As outras entradas ilegíveis (`2e`,
+   * `1,5`) já recusavam; esta passava porque o `.trim()` acontecia antes da
+   * pergunta "veio alguma coisa?".
+   *
+   * MUTAÇÃO: voltar `duracaoBrutaOuErro` a `textoOu(...).trim()`.
+   */
+  for (const branco of [" ", "   ", "\t", "\n", " \t "]) {
+    it(`estimativaSetAction: ${JSON.stringify(branco)} NÃO remove a duração — recusa`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: branco }),
+      );
+      expect(r.erro, `${JSON.stringify(branco)} apagou a duração`).toBeDefined();
+      expect(r.ok).toBeUndefined();
+      nenhumaChamadaFoiFeita();
+    });
+  }
+
+  /**
+   * ══════════════════════════════════════════════════ BAIXO #10, rodada 13 ═
+   * O CLIENTE ACEITAVA MAIS CASAS DO QUE A COLUNA GUARDA.
+   *
+   * `tasks.estimativa_dias` é `numeric(6,2)` e `task_edges.peso` é
+   * `numeric(4,3)` (migration 0004). Em fixture o JavaScript guardava `1.005`
+   * e `0.5555` inteiros e a tela confirmava "Duração salva."; em live o
+   * Postgres ARREDONDA na gravação. Os dois modos discordavam sobre a mesma
+   * entrada, e no modo que vale o operador via na volta um número que nunca
+   * digitou.
+   *
+   * MUTAÇÃO: tirar a checagem de `casasDecimais`.
+   */
+  for (const [bruto, casas] of [
+    ["1.005", 3],
+    ["0.333333", 6],
+    ["2.129", 3],
+  ] as const) {
+    it(`estimativaSetAction: "${bruto}" (${String(casas)} casas) é recusado — a coluna guarda 2`, async () => {
+      const r = await estimativaSetAction(
+        {},
+        form({ task_id: "task-build", estimativa_dias: bruto }),
+      );
+      expect(r.erro, `"${bruto}" passou`).toContain("2 casas");
+      expect(r.ok).toBeUndefined();
+      nenhumaChamadaFoiFeita();
+    });
+  }
+
+  for (const bom of ["1", "1.5", "1.25", "0.25", "9999.99"]) {
+    it(`estimativaSetAction: "${bom}" continua passando`, async () => {
+      const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: bom }));
+      expect(r.erro, `"${bom}" foi recusado por engano`).toBeUndefined();
+      expect(r.ok).toBe(true);
+    });
+  }
+
+  it("arestaAddAction: desconto com 4 casas é recusado — `peso` é numeric(4,3)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "0.5555" }),
+    );
+    expect(r.erro).toContain("3 casas");
+    expect(r.ok).toBeUndefined();
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("arestaAddAction: desconto com 3 casas continua passando", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "0.125" }),
+    );
+    expect(r.erro).toBeUndefined();
+    expect(r.ok).toBe(true);
+  });
+
+  it("subtarefaAddAction: a duração da subtarefa segue a MESMA régua de casas", async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: "1.005" }),
+    );
+    expect(r.erro).toContain("2 casas");
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("estimativaSetAction: a recusa do branco ensina como REMOVER de verdade", async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: " " }));
+    expect(r.erro).toContain("deixe a caixa vazia");
+  });
+
+  it('estimativaSetAction: a caixa VAZIA de verdade continua removendo', async () => {
+    const r = await estimativaSetAction({}, form({ task_id: "task-build", estimativa_dias: "" }));
+    expect(r.ok).toBe(true);
+    expect(fixtureStore.estimativaSetFixture).toHaveBeenCalledWith("task-build", null);
+  });
+
+  it('estimativaSetAction: "  4  " continua gravando 4 (o branco em volta não estorva)', async () => {
+    const r = await estimativaSetAction(
+      {},
+      form({ task_id: "task-build", estimativa_dias: "  4  " }),
+    );
+    expect(r.ok).toBe(true);
+    expect(fixtureStore.estimativaSetFixture).toHaveBeenCalledWith("task-build", 4);
+  });
+
+  it('subtarefaAddAction: " " na duração recusa — a subtarefa não nasce sem duração por um espaço', async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: " " }),
+    );
+    expect(r.erro).toBeDefined();
+    nenhumaChamadaFoiFeita();
+  });
+
+  it('subtarefaAddAction: "2e" na duração recusa — a subtarefa NÃO nasce sem duração', async () => {
+    const r = await subtarefaAddAction(
+      {},
+      form({ parent_id: "task-build", title: "algo", estimativa_dias: "2e" }),
+    );
+    expect(r.erro).toBeDefined();
+    nenhumaChamadaFoiFeita();
+  });
+
+  /**
+   * [ALTO A2, rodada 11] O desconto VAZIO não é o desconto AUSENTE. Com
+   * `let peso = 1; if (pesoBruto.length > 0)`, a tela mostrando `0.5` e o
+   * programa recebendo `""` gravava **1** — o extremo oposto da escala —
+   * dentro da conta do HIERARQ, anunciando "Relação criada.".
+   */
+  it("arestaAddAction: `peso` presente e VAZIO é recusado (nunca vira o default 1)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "" }),
+    );
+    expect(r.erro).toBe("O desconto precisa ser um número entre 0 e 1.");
+    nenhumaChamadaFoiFeita();
+  });
+
+  it("arestaAddAction: `peso` ilegível é recusado (0.5e, 0,5,5, abc)", async () => {
+    // [BAIXO #2, rodada 15] `0,5` saiu daqui: passou a ser aceito, como no
+    // campo de duração. O que ficou são as grafias ambíguas.
+    for (const bruto of ["0.5e", "0,5,5", "abc", "0.5,5"]) {
+      vi.clearAllMocks();
+      const r = await arestaAddAction(
+        {},
+        form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: bruto }),
+      );
+      expect(r.erro, `"${bruto}" passou`).toBe("O desconto precisa ser um número entre 0 e 1.");
+      nenhumaChamadaFoiFeita();
+    }
+  });
+
+  it("arestaAddAction: `peso` com vírgula decimal é aceito (teclado pt-BR)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "sinergia", peso: "0,5" }),
+    );
+    expect(r.erro, '"0,5" foi recusado no desconto').toBeUndefined();
+  });
+
+  it("arestaAddAction: `peso` AUSENTE continua valendo 1 (relação que não é sinergia)", async () => {
+    const r = await arestaAddAction(
+      {},
+      form({ origem: "task-build", destino: "task-docs", tipo: "predecessor" }),
+    );
+    expect(r.ok).toBe(true);
+    expect(fixtureStore.arestaAddFixture).toHaveBeenCalledWith(
+      "task-build",
+      "task-docs",
+      "predecessor",
+      1,
+      null,
+      null,
+    );
   });
 
   it("estimativaSetAction: abaixo do mínimo (0,25)", async () => {
@@ -380,12 +669,12 @@ describe("tarefa/actions — sucesso (modo live: mutateLifeboard com op+payload 
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
 
-  it("statusSetAction", async () => {
-    const r = await statusSetAction({}, form({ task_id: "task-build", status: "done" }));
+  it.each(STATUS_DO_PRODUTO)("statusSetAction — %s chega ao servidor como foi pedido", async (status) => {
+    const r = await statusSetAction({}, form({ task_id: "task-build", status }));
     expect(r).toEqual({ ok: true });
     expect(mutateLifeboard).toHaveBeenCalledWith("status_set", {
       task_id: "task-build",
-      status: "done",
+      status,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
@@ -520,10 +809,10 @@ describe("tarefa/actions — sucesso (modo fixture: tasks.fixture-store com args
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
 
-  it("statusSetAction", async () => {
-    const r = await statusSetAction({}, form({ task_id: "task-build", status: "done" }));
+  it.each(STATUS_DO_PRODUTO)("statusSetAction — %s chega ao store como foi pedido", async (status) => {
+    const r = await statusSetAction({}, form({ task_id: "task-build", status }));
     expect(r).toEqual({ ok: true });
-    expect(fixtureStore.statusSetFixture).toHaveBeenCalledWith("task-build", "done");
+    expect(fixtureStore.statusSetFixture).toHaveBeenCalledWith("task-build", status);
     nenhumaChamadaLiveFoiFeita();
     expect(revalidatePath).toHaveBeenCalledWith("/tarefa/task-build");
   });
@@ -670,4 +959,33 @@ describe("tarefa/actions — `criado_em` só no desfazer (P2 do Codex, rodada 10
       expect.objectContaining({ criado_em: DATA }),
     );
   });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════ BAIXO #2, rodada 15 ═
+ * A CAIXA E O BANCO NA MESMA GRAFIA, TAMBÉM COM VÍRGULA.
+ *
+ * `duracaoCanonica` é o que faz a caixa passar a mostrar o que o servidor
+ * guardou (`007` → `7`). Com a vírgula agora aceita, ela precisa da MESMA
+ * régua do servidor: sem isso, salvar `1,5` gravaria 1.5 no banco e deixaria
+ * `1,5` na caixa — a tela numa grafia, o dado em outra, que é o BAIXO #11 da
+ * rodada 13 de volta.
+ */
+describe("BAIXO #2 — duracaoCanonica e a vírgula do teclado pt-BR", () => {
+  for (const [bruta, esperado] of [
+    ["1,5", "1.5"],
+    ["0,5", "0.5"],
+    ["  2,25  ", "2.25"],
+    ["007", "7"],
+    ["1.5", "1.5"],
+    ["", ""],
+    // Ambíguas: seguem intocadas, e a recusa em português é quem fala.
+    ["1.234,5", "1.234,5"],
+    ["1,5,5", "1,5,5"],
+    ["2e", "2e"],
+  ] as const) {
+    it(`duracaoCanonica(${JSON.stringify(bruta)}) === ${JSON.stringify(esperado)}`, () => {
+      expect(duracaoCanonica(bruta)).toBe(esperado);
+    });
+  }
 });
