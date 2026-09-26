@@ -187,6 +187,29 @@ que a veja é item que tem tudo no papel e não anda.
 **Norma completa** — no hub, não neste repositório:
 [`.claude/rules/item-so-entra-com-dono.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/item-so-entra-com-dono.md).
 
+## Codex corrige, Claude valida — codificação avançada e projeto longo (24/09/2026)
+
+Ordem do operador, válida em **qualquer repo**: em código avançado (banco, dinheiro, migration, concorrência,
+segurança, ou PR já revisado por robô) e em projeto longo (mais de uma sessão ou PRs encadeados), **o Codex corrige o
+achado de revisão e o Claude valida, resolve e mergeia**. O Codex é chamado por um comentário `@codex` no PR, um por
+achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
+suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
+escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
+**(4)** commit em português dizendo o achado e a correção, sobre o head atual da branch do PR, e a entrega é um **PR
+publicado pela tarefa** (o ambiente do Codex não tem credencial de escrita para empurrar direto — decisão A do operador,
+26/09/2026; o Claude re-aponta a base para a branch do PR original e mescla depois de validar);
+**(5)** nunca escrever na `main`, nunca aplicar migration em produção; **(6)** dizer no PR o que rodou e o que não
+conseguiu rodar — a validação por fora é do Claude, e ela decide se a thread fecha. Modelo: GPT-6 Astra Pro, esforço
+`max`, escolhido pelo operador nas configurações do Codex. Um autor por branch enquanto a tarefa estiver aberta.
+Onde uma constituição de framework reservar o `git push` a um agente (no `aiox-core`, o `@devops` — Constitution
+Art. II), o push do Codex **não** é um agente AIOX assumindo autoridade alheia: é o executor externo escolhido pelo
+operador, na ordem de 24/09, empurrando na branch de PR que ele mesmo mandou corrigir. A `main` continua fora do
+alcance de qualquer um deles. Contradição declarada, não escondida — mesma classe da nota sobre story obrigatória
+no `CLAUDE.md` do `aiox-core`; se a constituição for revista pelo caminho dela, esta frase cai.
+
+**Norma completa** — no hub, não neste repositório:
+[`.claude/rules/codex-corrige-claude-valida.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md).
+
 ## Carimbo de hora na linha 2 de toda resposta (25/09/2026)
 
 Ordem do operador: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
