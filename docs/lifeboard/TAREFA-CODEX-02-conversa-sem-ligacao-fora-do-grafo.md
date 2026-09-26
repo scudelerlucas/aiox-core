@@ -64,7 +64,10 @@ Consequências que precisam continuar verdadeiras:
    **não casou com nenhuma linha do banco** — a decisão vem do casamento da chave (o `existente` que a união já
    consulta), **nunca de comparar ids** (`mapaId.get(id) === id` falha quando a linha do banco foi gravada com o
    mesmo UUID determinístico da materialização, que é exatamente o que o item 4 da v2, "gravar as frentes em
-   `tasks`", vai produzir); o repositório da união expõe
+   `tasks`", vai produzir). **E, por cima disso, id que já exista em `base.tasks` nunca entra na proveniência**, seja
+   qual for a chave (v4.3: colisão de id com chave diferente é improvável, mas a guarda custa uma linha e a união
+   também não deve anexar uma tarefa materializada com id já ocupado pelo banco — hoje anexa; corrigir junto, com
+   teste); o repositório da união expõe
    `listConversasMaterializadas(): Promise<Set<string>>` — método **opcional** em `TasksRepository`
    (`tasks.fixture.ts`; a fixture devolve conjunto vazio). A união em si, as arestas e o remapeamento **não mudam**.
 2. **A função pura da poda**, `src/lib/frentes/podar-soltas.ts`:
@@ -90,7 +93,9 @@ Consequências que precisam continuar verdadeiras:
    - **a proveniência da conversa persistida é exercitada pela união, não presumida** (v4.1, achado da 4ª revisão):
      em `tests/unit/frentes-no-grafo.test.ts` (o arquivo de testes da união; criar se não existir), **dois** casos em
      que a base traz uma tarefa do banco com a mesma chave `(sourceId, externalRef)` de uma conversa materializada —
-     um com **id diferente** e um com **o mesmo UUID determinístico** (v4.2, achado da 5ª revisão) — e, nos dois,
+     um com **id diferente** e um com **o mesmo UUID determinístico** (v4.2, achado da 5ª revisão) — mais um terceiro
+     caso, **id igual e chave diferente** (v4.3): a linha do banco fica, nada é anexado em dobro e o id fica fora da
+     proveniência — e, em todos,
      `listConversasMaterializadas()` **não** contém o id persistido e, passando esse conjunto pela projeção com a
      tarefa de grau zero, ela **fica**. Se a união decidir por id em vez de por chave, o segundo caso fica vermelho;
    - `tests/unit/frentes-grafo-da-home.test.ts`: a projeção devolve `tasksDoGrafo` sem a conversa solta, e o
