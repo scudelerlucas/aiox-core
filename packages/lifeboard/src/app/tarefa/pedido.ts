@@ -24,7 +24,7 @@
  * confere lendo o fonte inteiro, `src/app/api/**` incluído.
  */
 
-/** As 14 escritas da página, por extenso — nenhuma amostra. */
+/** As 15 escritas da página, por extenso — nenhuma amostra. */
 export type OperacaoDeEscrita =
   | "nota_criar"
   | "nota_excluir"
@@ -39,7 +39,15 @@ export type OperacaoDeEscrita =
   | "meta"
   | "duracao"
   | "atomos_salvar"
-  | "atomos_limpar";
+  | "atomos_limpar"
+  /**
+   * [ALTO #2, rodada 14] "Limpar átomos" era 1 clique sem volta. Na mesma
+   * página, apagar uma relação ou uma nota custa 2 cliques e abre 10 s de
+   * "Desfazer"; apagar os TRÊS números que alimentam o score de prioridade
+   * custava um clique, e o sucesso ainda zerava os controles na tela — nem de
+   * memória dava para reconstruir. Esta operação é o caminho de volta.
+   */
+  | "atomos_desfazer_limpeza";
 
 export const OPERACOES_DE_ESCRITA: readonly OperacaoDeEscrita[] = [
   "nota_criar",
@@ -56,6 +64,7 @@ export const OPERACOES_DE_ESCRITA: readonly OperacaoDeEscrita[] = [
   "duracao",
   "atomos_salvar",
   "atomos_limpar",
+  "atomos_desfazer_limpeza",
 ];
 
 export function ehOperacaoDeEscrita(v: unknown): v is OperacaoDeEscrita {
