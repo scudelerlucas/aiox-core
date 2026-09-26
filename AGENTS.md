@@ -195,7 +195,9 @@ achado de revisão e o Claude valida, resolve e mergeia**. O Codex é chamado po
 achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
 suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
 escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
-**(4)** empurrar na **mesma branch** do PR, com mensagem de commit em português dizendo o achado e a correção;
+**(4)** commit em português dizendo o achado e a correção, sobre o head atual da branch do PR, e a entrega é um **PR
+publicado pela tarefa** (o ambiente do Codex não tem credencial de escrita para empurrar direto — decisão A do operador,
+26/09/2026; o Claude re-aponta a base para a branch do PR original e mescla depois de validar);
 **(5)** nunca escrever na `main`, nunca aplicar migration em produção; **(6)** dizer no PR o que rodou e o que não
 conseguiu rodar — a validação por fora é do Claude, e ela decide se a thread fecha. Modelo: GPT-6 Astra Pro, esforço
 `max`, escolhido pelo operador nas configurações do Codex. Um autor por branch enquanto a tarefa estiver aberta.
