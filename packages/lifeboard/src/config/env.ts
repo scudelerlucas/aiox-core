@@ -47,6 +47,12 @@ export interface LifeboardEnv {
   readonly LIFEBOARD_LOAD_SECRET: string;
   /** Emails autorizados a logar (lowercase, sem espaços). */
   readonly ALLOWED_EMAILS: string[];
+  /**
+   * As frentes (mudanças, branches, conversas) entram no grafo como tarefas?
+   * Ligado por padrão; `LIFEBOARD_FRENTES_NO_GRAFO=off` desliga — é o caminho de
+   * volta em runtime se a junção atrapalhar (`versionamento-e-rollback`).
+   */
+  readonly FRENTES_NO_GRAFO: boolean;
 }
 
 export const env: LifeboardEnv = {
@@ -73,6 +79,9 @@ export const env: LifeboardEnv = {
       "LIFEBOARD_LOAD_SECRET",
       process.env.LIFEBOARD_LOAD_SECRET ?? "",
     );
+  },
+  get FRENTES_NO_GRAFO(): boolean {
+    return (process.env.LIFEBOARD_FRENTES_NO_GRAFO ?? "").trim().toLowerCase() !== "off";
   },
   get ALLOWED_EMAILS(): string[] {
     return firstNonEmpty(process.env.LIFEBOARD_ALLOWED_EMAILS, DEFAULT_ALLOWED_EMAILS)
