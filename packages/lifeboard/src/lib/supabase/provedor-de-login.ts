@@ -28,6 +28,8 @@
 
 export type EstadoDoProvedor = "ligado" | "desligado" | "indeterminado";
 
+const PRAZO_DA_CONSULTA_MS = 5_000;
+
 /**
  * Pergunta ao Supabase se o login com Google está ligado neste projeto.
  * `buscar` é injetável para teste; em produção é o `fetch` do browser.
@@ -39,23 +41,39 @@ export async function consultarProvedorGoogle(
 ): Promise<EstadoDoProvedor> {
   if (url === "" || anonKey === "") return "indeterminado";
 
+  const controlador = new AbortController();
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+
   try {
     const base = url.replace(/\/+$/, "");
-    const resposta = await buscar(`${base}/auth/v1/settings`, {
-      headers: { apikey: anonKey },
-    });
-    if (!resposta.ok) return "indeterminado";
+    const consulta = (async (): Promise<EstadoDoProvedor> => {
+      const resposta = await buscar(`${base}/auth/v1/settings`, {
+        headers: { apikey: anonKey },
+        signal: controlador.signal,
+      });
+      if (!resposta.ok) return "indeterminado";
 
-    const corpo: unknown = await resposta.json();
-    const externo = (corpo as { external?: Record<string, unknown> } | null)?.external;
-    if (externo === undefined || externo === null || typeof externo !== "object") {
+      const corpo: unknown = await resposta.json();
+      const externo = (corpo as { external?: Record<string, unknown> } | null)?.external;
+      if (externo === undefined || externo === null || typeof externo !== "object") {
+        return "indeterminado";
+      }
+      if (externo.google === true) return "ligado";
+      if (externo.google === false) return "desligado";
       return "indeterminado";
-    }
-    if (externo.google === true) return "ligado";
-    if (externo.google === false) return "desligado";
-    return "indeterminado";
+    })();
+    const expiracao = new Promise<never>((_resolve, reject) => {
+      temporizador = setTimeout(() => {
+        controlador.abort();
+        reject(new Error("prazo da consulta do provedor expirou"));
+      }, PRAZO_DA_CONSULTA_MS);
+    });
+
+    return await Promise.race([consulta, expiracao]);
   } catch {
     return "indeterminado";
+  } finally {
+    if (temporizador !== undefined) clearTimeout(temporizador);
   }
 }
 
