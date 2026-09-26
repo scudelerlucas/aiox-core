@@ -4,6 +4,13 @@
 > `Lucas-Contexto-Geral/docs/ops/LIFEBOARD-GAUNTLET-PASSAGEM-2026-09-25.md` (conta `lucasscudeler@`, que
 > bateu o limite semanal). Vem **antes** da Tarefa 01: os três PRs tocam o grafo, a linha do tempo, a página da
 > tarefa e as fixtures que a 01 vai usar. Roda no **iMac**, via `/codex:adversarial-review`, **uma rodada por PR**.
+>
+> **Emenda de 26/09** (regra *Codex corrige, Claude valida*, 24/09, espelhada neste repo em `.claude/rules/model-routing.md`):
+> o revisor pode ser o Codex no iMac **ou** um revisor Claude de contexto limpo (subagente novo, que não viu a construção).
+> Em 26/09 o Lucas mandou executar, e o revisor do #45 rodou como subagente Claude na sessão web. Correção de achado
+> CRÍTICO/ALTO **não é do Claude**: vira um comentário `@codex` por achado, com o bloco padrão da regra, e o Codex entrega
+> um PR que o Claude valida por fora. Ordem decidida pelo Lucas: **#45 → #43 → #44**. A Tarefa 01, que esta página dizia
+> vir depois, **já foi feita** (PR #47 mergeado em 25/09; emenda no PR #49).
 
 ## O que está aberto (medido 25/09, 19h UTC)
 
