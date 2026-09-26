@@ -21,11 +21,12 @@ partir de `tasks` (`src/components/graph/dependency-graph.tsx`). **Nada novo de 
 
 1. **Um materializador server-side** (`src/lib/frentes/materializar.ts` ou nome melhor, puro e testável) que, a
    partir de `DadosFrentes`, produz tarefas canônicas (`src/types/canonical.ts`) com estas regras:
-   - **sessão não encerrada** → 1 tarefa · `external_ref = sessao_id` · título = `titulo` (ou `sessao_id` curto) ·
+   - **sessão não encerrada** *(emenda 26/09: e com movimento nos últimos 21 dias, ver §Emenda)* → 1 tarefa · `external_ref = sessao_id` · título = `titulo` (ou `sessao_id` curto) ·
      notas = `precisa_de` / `estado_detalhe` · status pelo `estado` (`blocked`/`need_input` = esperando o Lucas).
    - **PR aberto** → 1 tarefa · `external_ref = repo#numero` · título = `titulo` · status por `checks` e `rascunho`.
-   - **branch sem PR** → 1 tarefa · `external_ref = repo:branch` · **só se** tiver `sessao_ids` **ou** commit nos
-     últimos 30 dias (senão 304 cartões afogam o grafo; a regra fica declarada em constante, com teste).
+   - **branch sem PR** → 1 tarefa · `external_ref = repo:branch` · ~~**só se** tiver `sessao_ids` **ou** commit nos
+     últimos 30 dias~~ *(substituída em 26/09, ver §Emenda)* **só se** tiver PR aberto ou sessão viva ligada
+     (senão os cartões afogam o grafo; a regra fica declarada em constante, com teste).
    - **Arestas, declaradas a partir do dado, não inferidas:** sessão → branch (`sessoes.branches` ∋ branch ou
      `branches.sessao_ids` ∋ sessão) · branch → PR (`prs.branch = branch` no mesmo repo) · sessão → PR
      (`prs.sessao_ids` ∋ sessão). Sentido: quem produziu vem antes.
@@ -55,3 +56,24 @@ partir de `tasks` (`src/components/graph/dependency-graph.tsx`). **Nada novo de 
 
 - PR aberto a partir da branch da sessão, testes (a)–(e) verdes, e o print do grafo em produção **depois do
   merge e da migration aplicada pelo Lucas** mostra ao menos 1 aresta sessão → branch → PR real.
+
+## Emenda de 26/09/2026 — regra de entrada medida em produção
+
+O 1º deploy (PR #47) seguiu a regra acima ao pé da letra e o grafo recebeu ~530 cartões: 285 das 339 branches têm
+`sessao_ids` (de sessões vivas **ou mortas**) e 210 sessões "não encerradas" dos últimos 90 dias. A regra passou a ser
+(PR #49, `src/lib/frentes/materializar.ts`):
+
+- [x] **sessão** entra se não está encerrada **e** se mexeu nos últimos `JANELA_SESSAO_DIAS = 21` dias (a mesma janela
+      das colunas vivas do quadro Assuntos);
+- [x] **branch** entra só com PR aberto **ou** sessão que entrou ligada a ela (`sessao_ids` de sessão morta e commit
+      recente sozinho não contam mais);
+- [x] testes em `tests/unit/frentes-materializar.test.ts` §(c): os 3 novos falham com a regra antiga.
+
+Mesmo banco, regra nova: ~74 sessões, ~78 branches, 33 PRs. O teste (c) "branch velha sem sessão não aparece" continua
+valendo e ficou mais forte.
+
+**Arquivos da tarefa (01 + emenda):** `src/lib/frentes/materializar.ts` · `src/lib/frentes/no-grafo.ts` ·
+`src/lib/repositories/factory.ts` · `src/lib/frentes/repository.ts` · `src/types/canonical.ts` ·
+`supabase/migrations/0031_sources_kind_registra_github.sql` · `tests/unit/frentes-materializar.test.ts` ·
+`tests/unit/frentes-no-grafo.test.ts`.
+
