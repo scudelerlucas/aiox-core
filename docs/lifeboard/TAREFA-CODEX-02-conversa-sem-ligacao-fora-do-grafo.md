@@ -49,62 +49,87 @@ Consequências que precisam continuar verdadeiras:
 
 ## O que entregar
 
-1. **Uma função pura nova**, `src/lib/frentes/podar-soltas.ts` (ou nome melhor, no mesmo estilo de `materializar.ts`):
-   `podarConversasSoltas(tasks, edges)` devolve as tarefas **sem** as conversas de grau zero (nenhuma aresta de
-   origem nem de destino em `edges`). Conversa = tarefa cujo `externalRef` é um `sessao_id` (a mesma chave que
-   `materializar.ts` usa; exportar o predicado de lá se ajudar, sem mudar comportamento). Branch, mudança e tarefa do
-   dono (`tasks` do banco) **nunca** são podadas. Constante declarada e comentada com a medição desta página.
-2. **Aplicada só onde o grafo nasce**: em `src/app/page.tsx`, o que vai para `DashboardClient` como `tasks` (a prop
-   documentada como *"Universo de tarefas (grafo)"*) e para `caminhoCritico`/`scoreAssimetriaLote`/`serializaGrafoV3`
-   passa a ser a lista podada. **`hoje = buildTodayList(tasks)` continua com a lista inteira.** Se `DashboardClient`
-   usar a prop `tasks` para algo além do grafo (conferir `dashboard-client.tsx` antes), separar em duas props em vez
-   de podar a lista inteira. `materializar.ts`, `no-grafo.ts`, `compose.ts`, `/api/today`, linha do tempo, prompts e
-   página da tarefa: **intocados**.
-3. **Testes** (vitest): arquivo novo `tests/unit/frentes-podar-soltas.test.ts`:
-   - conversa viva sem aresta → **sai** (**é o teste que falha antes e passa depois**: sem a função, a lista volta
-     igual);
-   - conversa com aresta para branch ou para mudança → fica, e a aresta continua válida (as duas pontas existem);
-   - branch, mudança e tarefa do dono sem aresta → **ficam** (a poda é só de conversa);
-   - `tests/unit/frentes-materializar.test.ts` (a)–(e): **sem alteração nenhuma** (nem de expectativa) — se algum
-     ficar vermelho, a poda vazou para o lugar errado.
-4. `LINHA-DE-CHEGADA.md`, item 7: acrescentar a linha da medição do PR (cartões do grafo antes → depois, no banco de
+> **v3 (26/09 20:2x — três achados da 2ª revisão automática do Codex, aceitos):** a poda precisa de **proveniência**
+> (uma linha do banco pode ter `externalRef = sessao_id` e nunca pode ser podada), a projeção do grafo vira uma
+> função **testável** (senão `page.tsx` pode esquecer de usá-la e tudo fica verde), e o **build** entra nos gates.
+
+1. **Proveniência, sem mudar `listAll()` nem o tipo `Task`.** `unirFrentesAoGrafo` (`no-grafo.ts`) já sabe quais
+   tarefas vieram das frentes e **não** foram substituídas pela linha do banco (`mapaId.get(id) === id` para as
+   materializadas). Expor isso: `GrafoUnido` ganha `idsMaterializados: Set<string>`, e o repositório da união ganha
+   `listIdsMaterializados(): Promise<Set<string>>` — método **opcional** em `TasksRepository`
+   (`tasks.fixture.ts`; a fixture devolve conjunto vazio). A união em si, as arestas e o remapeamento **não mudam**.
+2. **A função pura da poda**, `src/lib/frentes/podar-soltas.ts`: `podarConversasSoltas(tasks, edges, materializadas)`
+   devolve as tarefas **sem** as que são, ao mesmo tempo, (i) materializadas (id ∈ `materializadas`), (ii) conversa
+   (`externalRef` é um `sessao_id`, o mesmo predicado de `materializar.ts`, exportado de lá sem mudar comportamento)
+   e (iii) de grau zero em `edges`. **Linha do banco nunca é podada, por construção** — ela não está no conjunto.
+   Branch e mudança materializadas também não (falham em ii). Constante declarada e comentada com a medição desta
+   página.
+3. **A projeção do grafo vira função**, `src/lib/frentes/grafo-da-home.ts`: `montarGrafoDaHome({ tasks, edges,
+   materializadas })` faz, nesta ordem, a poda → o `goalId` (mesma regra determinística de hoje) → `caminhoCritico`
+   → `scoreAssimetriaLote` → `serializaGrafoV3`, e devolve `{ tasksDoGrafo, grafoV3 }`. `src/app/page.tsx` passa a
+   chamar só ela para o que vai ao `DashboardClient` como `tasks` e `grafoV3`. **`hoje = buildTodayList(tasks)`
+   continua com a lista inteira.** `materializar.ts`, `compose.ts`, `/api/today`, `/api/health`, linha do tempo,
+   prompts e página da tarefa: **intocados**.
+4. **Testes** (vitest):
+   - `tests/unit/frentes-podar-soltas.test.ts`: conversa materializada sem aresta → **sai** (**o teste que falha
+     antes e passa depois**: sem a função, a lista volta igual) · conversa com aresta para branch ou mudança → fica,
+     e a aresta continua válida · branch e mudança materializadas sem aresta → ficam · **tarefa do banco com
+     `externalRef` de sessão e grau zero → fica** (não está em `materializadas`) · conjunto vazio → nada muda;
+   - `tests/unit/frentes-grafo-da-home.test.ts`: a projeção devolve `tasksDoGrafo` sem a conversa solta, e o
+     `grafoV3` (caminho crítico e scores) é calculado **sobre a lista podada**, não sobre a inteira;
+   - **guarda de fiação** no mesmo arquivo (no estilo de `tarefa-escritas-varredura.test.ts`): lê
+     `src/app/page.tsx` como texto e exige que `DashboardClient` receba `tasks={tasksDoGrafo}` e
+     `grafoV3` **vindos de `montarGrafoDaHome`**, e que `buildTodayList` receba a lista inteira — se alguém voltar a
+     passar `tasks` cru ao grafo, este teste fica vermelho com o nome do arquivo;
+   - `tests/unit/frentes-materializar.test.ts` (a)–(e): **sem alteração nenhuma** (`git diff` vazio).
+5. `LINHA-DE-CHEGADA.md`, item 7: acrescentar a linha da medição do PR (cartões do grafo antes → depois, no banco de
    produção, só leitura) e marcar `[x]` nos critérios abaixo que a entrega cumprir.
-5. Checagens do repo, em `packages/lifeboard`: `npx tsc --noEmit` · `npx vitest run` (hoje 1536/1536) ·
-   `npm run contraste` · eslint nos arquivos tocados.
+6. Checagens do repo, em `packages/lifeboard`: `npx tsc --noEmit` · `npx vitest run` (hoje 1536/1536) ·
+   `npm run contraste` · eslint nos arquivos tocados · **`npm run build`** (é `next build`; erro de fronteira
+   servidor/cliente ou de rota passa pelos quatro anteriores e derruba o deploy).
 
 ## Critérios de aceite (checklist da story — o PR do Codex marca o que cumpriu)
 
-- [ ] conversa viva sem aresta não aparece no grafo (teste vermelho antes, verde depois)
+- [ ] conversa materializada sem aresta não aparece no grafo (teste vermelho antes, verde depois)
 - [ ] conversa com aresta para branch ou mudança continua no grafo, com a aresta
-- [ ] branch, mudança e tarefa do dono nunca são podadas
+- [ ] branch e mudança materializadas nunca são podadas
+- [ ] **linha do banco nunca é podada**, mesmo com `externalRef` de sessão e grau zero (proveniência)
+- [ ] o caminho crítico e os scores do `grafoV3` são calculados sobre a lista podada
+- [ ] guarda de fiação: `page.tsx` passa ao grafo só o que sai de `montarGrafoDaHome`, e a lista inteira a `buildTodayList`
 - [ ] `getTasksRepository().listAll()`, `/api/today`, `/api/health`, linha do tempo, prompts e página da tarefa
       continuam mostrando a conversa solta (nada muda fora do grafo)
 - [ ] `frentes-materializar.test.ts` (a)–(e) intactos e verdes
 - [ ] item 7 da linha de chegada com a medição antes → depois
-- [ ] `tsc` · `vitest` · `contraste` · eslint verdes
+- [ ] `tsc` · `vitest` · `contraste` · eslint · **`npm run build`** verdes
 
 ## Lista de arquivos (File List — o PR do Codex a mantém)
 
 | Arquivo | O quê |
 |---|---|
-| `packages/lifeboard/src/lib/frentes/podar-soltas.ts` | **novo** — a função pura e a constante comentada |
-| `packages/lifeboard/src/app/page.tsx` | aplica a poda só ao que alimenta o grafo |
-| `packages/lifeboard/src/components/dashboard/dashboard-client.tsx` | só se a prop `tasks` precisar virar duas |
-| `packages/lifeboard/tests/unit/frentes-podar-soltas.test.ts` | **novo** — os testes do item 3 |
+| `packages/lifeboard/src/lib/frentes/no-grafo.ts` | só a proveniência: `idsMaterializados` em `GrafoUnido` + `listIdsMaterializados()` no repositório da união |
+| `packages/lifeboard/src/lib/repositories/tasks.fixture.ts` | método opcional `listIdsMaterializados?()` na interface; fixture devolve conjunto vazio |
+| `packages/lifeboard/src/lib/frentes/podar-soltas.ts` | **novo** — a função pura da poda e a constante comentada |
+| `packages/lifeboard/src/lib/frentes/grafo-da-home.ts` | **novo** — a projeção do grafo (poda → goal → CPM → scores → v3) |
+| `packages/lifeboard/src/app/page.tsx` | chama `montarGrafoDaHome`; `buildTodayList` segue com a lista inteira |
+| `packages/lifeboard/tests/unit/frentes-podar-soltas.test.ts` | **novo** — testes do item 4, 1º bloco |
+| `packages/lifeboard/tests/unit/frentes-grafo-da-home.test.ts` | **novo** — projeção + guarda de fiação |
 | `packages/lifeboard/LINHA-DE-CHEGADA.md` | item 7, medição antes → depois |
 | `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` | esta página (checklist marcado) |
 
 ## Como a entrega é validada por fora (Claude)
 
-Merge local do PR do Codex com a base · as quatro checagens · o teste da poda rodado sem a função aplicada
-(tem que ficar vermelho) · `frentes-materializar.test.ts` idêntico ao da base (`git diff` vazio) · a mesma medição desta página refeita sobre o head do Codex (esperado ≈ 137 cartões de
+Merge local do PR do Codex com a base · as cinco checagens (tsc, vitest, contraste, eslint, **build**) · o teste da poda rodado
+sem a função aplicada (tem que ficar vermelho) · o teste da linha do banco com `externalRef` de sessão (tem que ficar) ·
+a guarda de fiação com `page.tsx` sabotado para passar `tasks` cru (tem que ficar vermelha) · `frentes-materializar.test.ts`
+idêntico ao da base (`git diff` vazio) · a mesma medição desta página refeita sobre o head do Codex (esperado ≈ 137 cartões de
 frentes com o dado de 26/09; o número do dia pode variar com a sincronização). Verde → merge commit na branch deste
 doc, thread resolvida com o resultado escrito; o operador mergeia na `main`.
 
 ## Não faça
 
 - Não mexer na regra de branch (#49) nem em `JANELA_SESSAO_DIAS`.
-- Não tocar em `materializar.ts`, `no-grafo.ts`, `compose.ts`/quadro Assuntos nem nos testes (a)–(e): a conversa
-  solta continua em toda lista; só o grafo a esconde.
+- Não tocar em `materializar.ts`, `compose.ts`/quadro Assuntos nem nos testes (a)–(e): a conversa solta continua em
+  toda lista; só o grafo a esconde. Em `no-grafo.ts`, só a proveniência — a união, as arestas e o remapeamento ficam.
+- Não decidir "é conversa" só pelo `externalRef`: sem a proveniência, uma linha do banco seria podada.
 - Não inferir ligação por texto (título, mensagem de commit).
 - Não aplicar nada em produção; não empurrar na `main`; não fazer rebase/força na branch base.
