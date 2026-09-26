@@ -10,7 +10,7 @@
 |---|---|---|---|---|---|---|
 | [#45](https://github.com/scudelerlucas/aiox-core/pull/45) | P5 linha do tempo | **reprovado — 1 CRÍTICO, 1 ALTO, 1 MÉDIO** | verde (94 medidas) | RV1 "sai pela barra e volta": **não pegou** (formas viciadas 3 e 5) | ~264 mil | aprovar 2 comentários `@codex` (crítico + alto); médio → v2 |
 | [#43](https://github.com/scudelerlucas/aiox-core/pull/43) | P6 página da tarefa | **reprovado — 0 CRÍTICO, 0 ALTO, 2 MÉDIO** = sem rodada | verde (173 medidas) | FT1 **pegou** · duração e relação no sucesso: **pegou** | ~291 mil | **mergear** com os 2 médios na v2 (recomendado) |
-| [#44](https://github.com/scudelerlucas/aiox-core/pull/44) | P4 grafo | **reprovado — 0 CRÍTICO, 1 ALTO, 0 MÉDIO** | verde (1440 e 390) | SX1 **pegou** · SN1 "Ver tudo" pós-zoom: pegou por efeito colateral (forma 3) | (a medir) | aprovar 1 comentário `@codex` (alto) |
+| [#44](https://github.com/scudelerlucas/aiox-core/pull/44) | P4 grafo | **reprovado — 0 CRÍTICO, 1 ALTO, 0 MÉDIO** | verde (1440 e 390) | SX1 **pegou** · SN1 "Ver tudo" pós-zoom: pegou por efeito colateral (forma 3) | ~273 mil | aprovar 1 comentário `@codex` (alto) |
 
 Vereditos completos: `CODEX-00-veredito-PR45.md` · `CODEX-00-veredito-PR43.md` · `CODEX-00-veredito-PR44.md`.
 
