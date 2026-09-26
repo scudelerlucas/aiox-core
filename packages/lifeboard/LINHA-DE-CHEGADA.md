@@ -80,8 +80,10 @@ A1d só depois de medido no iMac.
    Se ainda ficar cheio, a próxima alavanca é esconder conversa sem ligação nenhuma (43 das 74 têm ligação).
    **Medido de novo em 26/09 19:19 SP, já com o #49 em produção:** 183 cartões de frentes (74 conversas · 77 branches ·
    32 mudanças) + 18 do dono, 92 ligações; **46 das 74 conversas estão soltas** (grau 0). Decisão A do operador:
-   a alavanca vira a `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` (Codex executa,
-   Claude valida). Esperado depois dela: ~137 cartões de frentes.
+   a alavanca vira a `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` — a poda vive **só no
+   caminho do grafo** (`page.tsx`); Hoje, linha do tempo, prompts e página da tarefa continuam vendo a conversa.
+   Esperado depois dela: ~137 cartões de frentes no grafo. **Dono: Lucas · data proposta: 28/09 10h · quem cobra:
+   Lucas** (executor é o operador; evento no calendário LS; registro no hub, `docs/audit/AGENDA-FALSIFICACAO.md`).
 
 ## Ordem daqui para a frente
 
