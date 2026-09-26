@@ -9,11 +9,18 @@
  * zero ligações. Nada aqui é fonte nova: é junção do que existe.
  *
  * Regras (do doc `docs/lifeboard/TAREFA-CODEX-01-frentes-para-tarefas.md`):
- *  • conversa NÃO encerrada → 1 tarefa (`external_ref = sessao_id`);
+ *  • conversa NÃO encerrada e que se mexeu nos últimos `JANELA_SESSAO_DIAS` dias
+ *    → 1 tarefa (`external_ref = sessao_id`);
  *  • mudança ABERTA → 1 tarefa (`external_ref = repo#numero`);
- *  • branch → 1 tarefa (`external_ref = repo:branch`) SÓ se tiver conversa ligada,
- *    mudança aberta ou commit nos últimos `JANELA_BRANCH_DIAS` dias — senão as
- *    ~300 branches paradas afogariam o grafo;
+ *  • branch → 1 tarefa (`external_ref = repo:branch`) SÓ se tiver mudança aberta ou
+ *    uma conversa que ENTROU ligada a ela.
+ *
+ *    Medido em produção em 26/09/2026, depois do 1º deploy: a regra do doc da
+ *    tarefa ("tem `sessao_ids` OU commit em 30 dias") deixava entrar 285 das 339
+ *    branches, porque quase toda branch carrega o id de uma conversa — viva ou
+ *    morta há meses. Somadas às 210 conversas "não encerradas" dos últimos 90 dias,
+ *    eram ~530 cartões e o grafo virou uma parede de linhas. A regra de agora
+ *    (medida no mesmo banco): 74 conversas, ~78 branches, 33 mudanças;
  *  • arestas DECLARADAS a partir do dado, nunca inferidas por texto:
  *      conversa → branch  (`sessoes.branches` ∋ branch  ou  `branches.sessao_ids` ∋ conversa)
  *      branch   → mudança (`prs.branch = branch`, mesmo repositório)
@@ -34,6 +41,7 @@
 import { deterministicId } from "@/adapters/id";
 import {
   ENCERRADAS,
+  JANELA_ATIVA_DIAS,
   TEXTO_ESTADO,
   branchUtil,
   limparTitulo,
@@ -52,8 +60,12 @@ import {
 
 const DIA = 86_400_000;
 
-/** Branch sem conversa e sem mudança só entra se teve commit nesta janela. */
-export const JANELA_BRANCH_DIAS = 30;
+/**
+ * Conversa só vira tarefa se se mexeu nesta janela — a mesma das colunas vivas
+ * do quadro Assuntos (`JANELA_ATIVA_DIAS`). Conversa "bloqueada" parada há dois
+ * meses não é trabalho de hoje; ela continua no quadro Assuntos, em "mais antigos".
+ */
+export const JANELA_SESSAO_DIAS = JANELA_ATIVA_DIAS;
 
 /** Fonte das mudanças e branches (kind registrado pela migration 0031). */
 export const KIND_GITHUB: SourceKind = "github";
@@ -134,9 +146,11 @@ export function statusDoPr(p: Pr): TaskStatus {
 
 // ─── filtros ─────────────────────────────────────────────────────────────────
 
-/** Conversa que ainda conta: qualquer estado que não seja um dos três de encerrada. */
-export function sessaoEntra(s: Sessao): boolean {
-  return !ENCERRADAS.has(s.estado);
+/** Conversa que conta: não encerrada E com movimento nos últimos `JANELA_SESSAO_DIAS` dias. */
+export function sessaoEntra(s: Sessao, agora: number): boolean {
+  if (ENCERRADAS.has(s.estado)) return false;
+  const quando = ms(maisRecente(s.atualizado_em, s.criado_em));
+  return quando > 0 && agora - quando <= JANELA_SESSAO_DIAS * DIA;
 }
 
 /** Só mudança aberta vira tarefa — o que fechou é histórico, não trabalho. */
@@ -145,20 +159,14 @@ export function prEntra(p: Pr): boolean {
 }
 
 /**
- * A regra que evita afogar o grafo: branch entra se está ligada a algo vivo
- * (conversa ou mudança aberta) ou se alguém commitou nela nos últimos
- * `JANELA_BRANCH_DIAS` dias. Branch genérica (`main` etc.) nunca entra.
+ * A regra que evita afogar o grafo: branch só entra ligada a algo que ENTROU —
+ * uma mudança aberta nela ou uma conversa viva que a produziu. `sessao_ids` com
+ * conversa morta não conta, e commit recente sozinho também não: branch sem
+ * ninguém vivo por trás é histórico, e mora no quadro Assuntos. Branch genérica
+ * (`main` etc.) nunca entra.
  */
-export function branchEntra(
-  b: BranchSemPr,
-  agora: number,
-  ligadaAAlgoVivo: boolean,
-): boolean {
-  if (!branchUtil(b.branch)) return false;
-  if (ligadaAAlgoVivo) return true;
-  if ((b.sessao_ids?.length ?? 0) > 0) return true;
-  const commit = ms(b.ultimo_commit_em);
-  return commit > 0 && agora - commit <= JANELA_BRANCH_DIAS * DIA;
+export function branchEntra(b: BranchSemPr, ligadaAAlgoVivo: boolean): boolean {
+  return branchUtil(b.branch) && ligadaAAlgoVivo;
 }
 
 // ─── texto ───────────────────────────────────────────────────────────────────
@@ -284,7 +292,8 @@ export function materializarFrentes(
   };
 
   // 1 · o que entra
-  const sessoes = dados.sessoes.filter(sessaoEntra);
+  const sessoes = dados.sessoes.filter((s) => sessaoEntra(s, base.agora));
+  const sessoesQueEntraram = new Set(sessoes.map((s) => s.sessao_id));
   const prs = dados.prs.filter((p) => prEntra(p) && p.repo && p.numero != null);
 
   const prsPorRepoBranch = new Map<string, Pr[]>();
@@ -329,7 +338,10 @@ export function materializarFrentes(
   }
   const branches = [...branchesUnicas.values()].filter((b) => {
     const temMudancaAberta = prsPorRepoBranch.has(`${b.repo}:${b.branch}`);
-    return branchEntra(b, base.agora, temMudancaAberta || citadaPorSessao(b));
+    const produzidaPorConversaViva = (b.sessao_ids ?? []).some((id) =>
+      sessoesQueEntraram.has(id),
+    );
+    return branchEntra(b, temMudancaAberta || produzidaPorConversaViva || citadaPorSessao(b));
   });
 
   // 2 · tarefas

@@ -73,8 +73,11 @@ A1d só depois de medido no iMac.
    — migration + `SourceKind` no mesmo ato (lição de 13/09).
 6. **Prioridade das frentes no HIERARQ.** Toda tarefa materializada entra com o score neutro (1×1×1);
    a lista "hoje" ordena as frentes só pela precedência declarada, não por importância.
-7. **Volume.** A regra que segura as ~300 branches é declarada em `JANELA_BRANCH_DIAS = 30` (+ conversa
-   ligada ou mudança aberta). Se o grafo ficar cheio mesmo assim, o número muda ali, com teste.
+7. **Volume (corrigido em 26/09, medido em produção).** O 1º deploy mostrou ~530 cartões: a regra do doc
+   ("`sessao_ids` ou commit em 30 dias") deixava entrar 285 de 339 branches, porque quase toda branch guarda o id
+   de uma conversa, viva ou morta. Regra de agora: conversa só com movimento em `JANELA_SESSAO_DIAS = 21` dias;
+   branch só com mudança aberta ou conversa viva ligada. Mesmo banco: ~74 conversas, ~78 branches, 33 mudanças.
+   Se ainda ficar cheio, a próxima alavanca é esconder conversa sem ligação nenhuma (43 das 74 têm ligação).
 
 ## Ordem daqui para a frente
 
