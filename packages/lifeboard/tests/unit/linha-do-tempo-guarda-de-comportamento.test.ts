@@ -23,7 +23,7 @@ import {
   rolarESincronizar,
 } from "@/core/timeline/sincronizacao-painel";
 import type { Pr } from "@/lib/frentes/types";
-import type { HierarqScore, Source, Task, TaskStatus } from "@/types/canonical";
+import type { HierarqScore, Task, TaskStatus } from "@/types/canonical";
 
 /**
  * OS-LIFEBOARD · P5 — rodada 10. A GUARDA DA P5, por COMPORTAMENTO.
@@ -46,11 +46,30 @@ import type { HierarqScore, Source, Task, TaskStatus } from "@/types/canonical";
  * grupos, desligar o recorte da janela ou devolver o destino no lugar do lido
  * de volta são todas sintaticamente irrepreensíveis.
  *
- * Ler a FORMA do código é medir o autor, não a tela. Esta guarda mede a TELA:
- * monta um modelo mínimo do navegador (um painel que CLAMPA o `scrollLeft`
- * como o Chrome, uma página que satura o `scrollY` no máximo rolável) e faz as
- * FUNÇÕES DE PRODUÇÃO rodarem nele. Toda asserção abaixo é um número em pixels
- * ou uma ordem de linhas — nunca um trecho de código.
+ * Ler a FORMA do código é medir o autor, não a tela. Esta guarda mede a
+ * GEOMETRIA: monta um modelo mínimo do navegador (um painel que CLAMPA o
+ * `scrollLeft` como o Chrome, uma página que satura o `scrollY` no máximo
+ * rolável) e faz as FUNÇÕES PURAS DE PRODUÇÃO (`src/core/timeline/`) rodarem
+ * nele. Toda asserção abaixo é um número em pixels ou uma ordem de linhas —
+ * nunca um trecho de código.
+ *
+ * ## O que ela NÃO mede — corrigido na rodada 10, achado ALTO 2
+ *
+ * O cabeçalho anterior afirmava, aqui, que "esta guarda mede a TELA". Não
+ * media: este arquivo importa **zero** módulos de `src/components/`, e o
+ * crítico da rodada 10 provou com duas sabotagens de uma linha que passaram
+ * com 1354/1354 verdes — trocar o argumento do `aplicarPlanoDaFolha` dentro
+ * de um `useEffect` e trocar o token de cor da faixa do "Hoje" por
+ * `transparent`. As duas moram no componente, e nenhuma função pura daqui as
+ * enxerga.
+ *
+ * A divisão passou a ser explícita, e as três partes são complementares:
+ *
+ * | onde | o que mede | exemplo do que só ele pega |
+ * |---|---|---|
+ * | **este arquivo** | a geometria pura: escala, recorte, plano da folha | o teto de altura da folha, a âncora de fechamento |
+ * | `linha-do-tempo-componente.test.tsx` | a ÁRVORE que o componente devolve: elementos, classes, texto, ordem | a faixa do "Hoje" trocada por uma cor invisível (S2) |
+ * | `tests/navegador/guarda-p5.mjs` | o Chromium na rota real: estilo computado, retângulos, rolagem | a folha voltando a tapar a linha tocada (S1) |
  *
  * ## As cinco promessas da P5, e o que cada uma exige em número
  *
@@ -281,10 +300,6 @@ function tarefa(input: {
   };
 }
 
-const FONTES: Source[] = [
-  { id: "src-calendar", kind: "calendar", label: "Agenda", authMode: "api", lastSyncAt: null },
-];
-
 function assuntoPr(numero: number, titulo: string): Pr {
   return {
     repo: "org/repo",
@@ -315,7 +330,6 @@ function montar(): ReturnType<typeof montarLinhaDoTempo> {
     tarefas,
     [],
     [assuntoPr(1, "Primeiro assunto"), assuntoPr(2, "Segundo assunto")],
-    FONTES,
     cpm,
     HOJE,
   );

@@ -710,6 +710,24 @@ export function tetoMordeu(minIso: string, maxIso: string): boolean {
  * `false` só quando o rótulo REAL daquele período está exatamente na borda —
  * aí quem fala é ele, e o chip seria o mesmo nome desenhado duas vezes.
  */
+/**
+ * P5h (achado BAIXO 6, rodada 10): **o chip é inteiro ou não é.**
+ *
+ * Medido a 768×900 em "Semana", varrendo as 858 posições de rolagem: em 29
+ * delas (3,4%) sobrava menos de 60% do chip, e em `scrollLeft = 1236` sobravam
+ * **0,6px de um chip de 66,6px** — um caco de glifo com fundo sólido por cima
+ * do eixo. Um limiar intermediário (60%) só troca o caco por um caco maior
+ * ("jul/2" em vez de "j"), porque a largura que a função pura conhece é a
+ * ESTIMADA (`larguraAproximada`) e a que o navegador pinta é outra.
+ *
+ * `1` significa: o chip aparece enquanto não estiver sendo empurrado, e some
+ * inteiro no instante em que o próximo período encosta nele. Nesse instante o
+ * rótulo real desse período está a menos de uma largura de chip da borda —
+ * isto é, inteiro na tela, com o ano. Ninguém fica sem cabeçalho, e ninguém vê
+ * meio glifo.
+ */
+export const FRACAO_MINIMA_DO_CHIP = 1;
+
 export function posicaoDoChipGrudado(params: {
   /** A faixa de cima INTEIRA (não a filtrada) — o chip precisa saber quem vem a seguir. */
   rotulosSuperiores: readonly Pick<RotuloEixo, "x">[];
@@ -717,7 +735,7 @@ export function posicaoDoChipGrudado(params: {
   scrollLeft: number;
   /** Largura estimada do chip (`larguraAproximada` do rótulo dele). */
   larguraChip: number;
-}): { x: number } {
+}): { x: number; visivel: boolean } {
   const borda = Number.isFinite(params.scrollLeft) ? params.scrollLeft : 0;
   const largura = Number.isFinite(params.larguraChip) ? Math.max(0, params.larguraChip) : 0;
   let proximo: number | null = null;
@@ -728,9 +746,15 @@ export function posicaoDoChipGrudado(params: {
     if (!Number.isFinite(r.x) || r.x <= borda) continue;
     if (proximo === null || r.x < proximo) proximo = r.x;
   }
-  if (proximo === null) return { x: 0 };
+  if (proximo === null) return { x: 0, visivel: true };
   // Encostou: o chip cede o lugar deslizando para fora, nunca apagando o outro.
-  return { x: Math.min(0, proximo - borda - largura) };
+  const x = Math.min(0, proximo - borda - largura);
+  // `x` é negativo enquanto o chip é empurrado, então `largura + x` é o que
+  // sobra dele dentro da janela. Sobrando menos que a fração mínima, o chip
+  // sai de cena inteiro em vez de virar um caco — quem fala pelo período da
+  // borda, nesse ponto, é o rótulo real que acabou de encostar nela.
+  const visivel = largura <= 0 || largura + x >= FRACAO_MINIMA_DO_CHIP * largura;
+  return { x, visivel };
 }
 
 /**
@@ -839,7 +863,10 @@ export function faixaSuperiorDaTela(params: {
   pxPorDia: number;
   periodo: PeriodoSuperior;
   janela: JanelaVisivel;
-}): { chip: { label: string; largura: number; x: number }; rotulos: RotuloEixo[] } {
+}): {
+  chip: { label: string; largura: number; x: number; visivel: boolean };
+  rotulos: RotuloEixo[];
+} {
   const { rotulosSuperiores, minIso, pxPorDia, periodo, janela } = params;
   const label = rotuloDoPeriodoSuperior(
     minIso,
@@ -847,13 +874,54 @@ export function faixaSuperiorDaTela(params: {
     periodo,
   );
   const largura = larguraAproximada(label);
-  const { x } = posicaoDoChipGrudado({
+  const { x, visivel } = posicaoDoChipGrudado({
     rotulosSuperiores,
     scrollLeft: janela.scrollLeft,
     larguraChip: largura,
   });
   return {
-    chip: { label, largura, x },
-    rotulos: rotulosSuperioresNaJanela(rotulosSuperiores, { ...janela, rotuloDaBorda: label }),
+    chip: { label, largura, x, visivel },
+    /*
+      P5h (achado BAIXO 6, rodada 10): o chip é o ÚNICO rótulo que carrega o
+      ano sempre, e é por isso que `rotulosSuperioresNaJanela` pode encurtar um
+      mês para "set" (sem ano) quando ele não cabe inteiro — o ano estaria dito
+      no chip. Quando o chip está fora de cena, esse acordo deixa de valer: o
+      ano não está dito em lugar nenhum. Passando `rotuloDaBorda: undefined`,
+      nenhum encurtamento é autorizado por um ano que ninguém pode ler.
+    */
+    rotulos: comAnoNaBorda(
+      rotulosSuperioresNaJanela(rotulosSuperiores, {
+        ...janela,
+        rotuloDaBorda: visivel ? label : undefined,
+      }),
+      { ativo: !visivel, minIso, pxPorDia },
+    ),
   };
+}
+
+/**
+ * P5h (achado BAIXO 6, rodada 10): o ano, quando o chip não está lá para
+ * carregá-lo.
+ *
+ * `rotuloDeMes` só escreve o ano no primeiro mês de cada ano (ou em horizontes
+ * de mais de 366 dias). Em "Semana", isso significa que a faixa de cima mostra
+ * "ago" cru e quem dizia "2026" era o chip grudado. Com o chip fora de cena
+ * (porque o próximo período encostou nele), o ano deixava de estar escrito em
+ * qualquer lugar da tela — medido a 768×900: 32 de 858 posições de rolagem
+ * com "ago" sozinho e nenhum ano.
+ *
+ * O ano não é adivinhado: sai do próprio `x` do rótulo, que é `minIso` mais
+ * `x / pxPorDia` dias — a mesma conta que posiciona a barra. Só o PRIMEIRO
+ * rótulo é promovido (é ele que ocupa a borda esquerda, o lugar do chip); os
+ * de trás seguem a régua de sempre.
+ */
+function comAnoNaBorda(
+  rotulos: RotuloEixo[],
+  ctx: { ativo: boolean; minIso: string; pxPorDia: number },
+): RotuloEixo[] {
+  const primeiro = rotulos[0];
+  if (!ctx.ativo || primeiro === undefined || !(ctx.pxPorDia > 0)) return rotulos;
+  if (/\/\d{4}$/.test(primeiro.label)) return rotulos;
+  const iso = somaDiasIso(ctx.minIso, Math.round(primeiro.x / ctx.pxPorDia));
+  return [{ ...primeiro, label: `${primeiro.label}/${anoDoIso(iso)}` }, ...rotulos.slice(1)];
 }

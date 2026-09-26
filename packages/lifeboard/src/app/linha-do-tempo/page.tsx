@@ -6,11 +6,8 @@ import { montarLinhaDoTempo } from "@/core/timeline/linha-do-tempo";
 import { getFrentesRepository } from "@/lib/frentes/repository";
 import type { Pr } from "@/lib/frentes/types";
 import { hojeNoFusoDoOperador } from "@/lib/fuso";
-import {
-  getSourcesRepository,
-  getTasksRepository,
-} from "@/lib/repositories/factory";
-import type { Source, Task, TaskEdge } from "@/types/canonical";
+import { getTasksRepository } from "@/lib/repositories/factory";
+import type { Task, TaskEdge } from "@/types/canonical";
 import type { LinhaDoTempoProps } from "@/types/linha-do-tempo";
 
 import { LinhaDoTempoView } from "@/components/timeline/linha-do-tempo";
@@ -39,15 +36,13 @@ export default async function PaginaLinhaDoTempo(): Promise<JSX.Element> {
   let props: LinhaDoTempoProps;
   try {
     const tasksRepo = getTasksRepository();
-    const sourcesRepo = getSourcesRepository();
-    const [tasks, sources, edges, dadosFrentes] = await Promise.all([
+    const [tasks, edges, dadosFrentes] = await Promise.all([
       tasksRepo.listAll(),
-      sourcesRepo.listAll(),
       tasksRepo.listEdges(),
       getFrentesRepository().carregar(),
     ]);
 
-    props = montarProps(tasks, sources, edges, dadosFrentes.prs);
+    props = montarProps(tasks, edges, dadosFrentes.prs);
   } catch (erro) {
     console.error("[linha-do-tempo] falha ao ler o estado do dia:", erro);
     return <NaoConsegui />;
@@ -59,7 +54,6 @@ export default async function PaginaLinhaDoTempo(): Promise<JSX.Element> {
 /** Extraído para ser chamável de teste manual sem HTTP — mesma lógica da rota. */
 function montarProps(
   tasks: Task[],
-  sources: Source[],
   edges: TaskEdge[],
   prs: Pr[],
 ): LinhaDoTempoProps {
@@ -79,7 +73,7 @@ function montarProps(
   // frente do calendário real dele. `hojeNoFusoDoOperador` (`@/lib/fuso`)
   // corrige com o fuso certo; teste fixo em `tests/unit/fuso.test.ts`.
   const hoje = hojeNoFusoDoOperador();
-  return montarLinhaDoTempo(tasks, edges, prs, sources, cpm, hoje, scores);
+  return montarLinhaDoTempo(tasks, edges, prs, cpm, hoje, scores);
 }
 
 /** Aviso de leitura falhada — mesmo contrato de `/` e `/frentes` (B11 da régua de UI/UX). */

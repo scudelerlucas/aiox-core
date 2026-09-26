@@ -146,9 +146,10 @@ export function podeAjustarCusto(item: ItemFilaPrompt, agora: number): boolean {
  */
 function CelulaCusto({ item }: { item: ItemFilaPrompt }): JSX.Element {
   // MÉDIO 3 (rodada 13): o número impresso é o que o DIA cobra — o do livro
-  // quando ele discorda da coluna do item.
+  // quando ele discorda da coluna do item. O travessão em `bone-400` é a P5:
+  // `bone-500` sobre o painel dava 4,01:1, abaixo da régua.
   const { valorUsd, nota, atencao } = custoNaTela(item);
-  if (valorUsd === null) return <span className="text-bone-500">—</span>;
+  if (valorUsd === null) return <span className="text-bone-400">—</span>;
   return (
     <span className={atencao ? "text-state-progress" : undefined}>
       {formatarUsd(valorUsd)}
@@ -490,7 +491,7 @@ export function FilaTabela({
                       abrir
                     </a>
                   ) : (
-                    <span className="text-bone-500">—</span>
+                    <span className="text-bone-400">—</span>
                   )}
                 </td>
                 <td className="px-3 py-2.5 align-top text-right">
