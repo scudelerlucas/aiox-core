@@ -35,7 +35,7 @@ Claude, o que ele **não alcança**. Por isso as fontes estão paradas desde 09/
 | D4 | maxTierTested declarado (1k tarefas) | **CORTADO PARA v2** (proposta) | nenhum teste com 1.000 tarefas; volume real hoje ≈ 18 cartões | — |
 | D5 | Não-regressão da normalização | FEITO | `tests/unit/normalize.manual.test.ts` (diferença com LLM × sem LLM = 0) | — |
 | D6 | Kill-switches presentes | FEITO nos que se aplicam; **2 e 5 CORTADOS PARA v2** (proposta) | nº 3 `server-only`; nº 6 `/api/health`; nº 1: migração só roda à mão no SQL Editor (gate humano). Nº 2 (teto de custo de infra) e nº 5 (tier) não têm infra paga nem volume que os justifique | — |
-| D7 | PR revisado + merge | **FALTA** (3 abertos) | mergeados: #21, #24, #30, #41, #42 · **abertos: #43, #44, #45** (ver seção abaixo) | Codex (Tarefa 00) → Lucas decide |
+| D7 | PR revisado + merge | **FALTA** (3 abertos, **Tarefa 00 concluída em 26/09**) | mergeados: #21, #24, #30, #41, #42, #47 · abertos: #43 (0 grave → mergear), #45 (1 crítico + 1 alto → `@codex`), #44 (1 alto → `@codex`) — `docs/lifeboard/CODEX-00-relatorio.md` | Lucas decide; Codex corrige |
 | D8 | Produção + health ok + rollback testado | **FALTA** | produção no ar e login ok (24/09); health = `degraded` até A1; rollback nunca exercitado | **Lucas**: 1 rollback de teste na Vercel (e voltar) |
 | D9 | Não duplica IP existente | FEITO | declaração do PRD, conferida: nada no `aiox-core` faz agregação multi-fonte pessoal | — |
 
