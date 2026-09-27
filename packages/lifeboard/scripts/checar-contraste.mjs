@@ -105,10 +105,14 @@ const PARES = [
   ["fonte-notes", "navy-850", 4.5, "rótulo da fonte Notas"],
   ["fonte-chat", "navy-850", 4.5, "rótulo da fonte Chats"],
   ["fonte-lms", "navy-850", 4.5, "rótulo da fonte Cativa"],
+  ["fonte-github", "navy-850", 4.5, "rótulo da fonte GitHub (frentes → tarefas, 25/09)"],
   ["fonte-neutra", "navy-850", 4.5, "rótulo de fonte desconhecida"],
   ["navy-700", "navy-950", 3, "borda de cartão (só borda: 3:1)"],
   ["navy-600", "navy-850", 3, "borda forte (só borda: 3:1)"],
   ["state-warning", "navy-850", 4.5, "aviso 'estimativa faltando' no cartão do grafo (P4)"],
+  // [MÉDIO #1, rodada 15] o aviso "Não salvo" dos campos numéricos da página
+  // da tarefa — os formulários vivem dentro de uma <section> `bg-navy-900`.
+  ["state-warning", "navy-900", 4.5, "aviso 'Não salvo' dos campos numéricos (P6)"],
   // ── Arestas do grafo v3 (P4, 13/09/2026) — traço sobre o fundo do canvas (navy-950) ──
   ["aresta-sucessao", "navy-950", 3, "aresta de sucessão — verde contínua (P4 §5)"],
   ["aresta-predecessor", "navy-950", 3, "aresta destacada ao selecionar — amarela (P4 §5)"],

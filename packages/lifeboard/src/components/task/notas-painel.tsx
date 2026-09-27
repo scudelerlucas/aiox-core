@@ -19,10 +19,10 @@ import { alvoAposExclusaoDeNota, type Focavel } from "@/components/task/foco";
 import { MensagemSucesso } from "@/components/task/mensagem-sucesso";
 import { usarPortaDeEscrita, type RegiaoViva } from "@/components/task/porta-de-escrita";
 import {
-  gravarRascunhoNota,
-  lerRascunhoNota,
-  limparRascunhoNota,
-} from "@/components/task/rascunho-nota";
+  CAMPOS_COM_RASCUNHO,
+  gravarRascunho,
+  lerRascunho,
+} from "@/components/task/rascunho";
 import { dataCurtaNoFusoDoOperador } from "@/lib/fuso";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import type { TaskNote } from "@/types/canonical";
@@ -30,6 +30,31 @@ import type { TaskNote } from "@/types/canonical";
 export interface NotasPainelProps {
   taskId: string;
   notas: readonly TaskNote[];
+  /**
+   * ═════════════════════════════════════════════════════ MÉDIO #4, rodada 12 ═
+   * O INSTANTE DO SERVIDOR, VIAJANDO JUNTO COM O HTML.
+   *
+   * `NotaLinha` chamava `formatRelativeTime(nota.createdAt)`, e essa função
+   * usa `Date.now()` quando ninguém lhe dá um `now`. Este é um componente
+   * CLIENTE: o servidor o renderiza com o relógio dele e o navegador o
+   * hidrata com o dele, mais tarde. Qualquer fronteira de arredondamento
+   * atravessada entre os dois momentos ("agora mesmo" → "há 1 min") produz
+   * textos diferentes, e o React joga fora a árvore inteira do servidor e
+   * refaz tudo no cliente.
+   *
+   * Medido no Chromium, sem mexer em relógio nenhum: salvar uma nota, esperar
+   * 45 s, recarregar com os scripts atrasados em 20 s (celular em rede ruim)
+   * → `pageerror` *"Hydration failed because the server rendered text didn't
+   * match the client"*, com o próprio React apontando o nó (`<NotaLinha>`) e
+   * a troca (`+ há 1 min` / `- agora mesmo`) e nomeando a causa: *"Variable
+   * input such as `Date.now()`"*.
+   *
+   * A correção é a que o próprio React recomenda no lugar de `suppressHydration
+   * Warning`: **mandar o instantâneo junto com o HTML**. O servidor decide que
+   * horas são, o número viaja no payload, e as duas renderizações fazem a
+   * MESMA conta — independentemente de quanto tempo passar entre elas.
+   */
+  agora: number;
 }
 
 /** 10 s — mesma janela do "Desfazer" da relação criada (`relacoes-painel.tsx`). */
@@ -67,7 +92,7 @@ interface JanelaDeDesfazerNota {
  * colado ao "Desfazer" da 1ª: *"Confirme: clique de novo em excluir para
  * apagar a nota. Desfazer"*.
  */
-export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
+export function NotasPainel({ taskId, notas, agora }: NotasPainelProps): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   /** Botões "excluir" por índice — o alvo do foco quando a nota some. */
   const botoesExcluirRef = useRef<Map<number, HTMLButtonElement>>(new Map());
@@ -164,7 +189,7 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
 
   function desfazerExclusao(): void {
     const janela = desfazerRef.current;
-    portaDesfazer.escrever(
+    const decisao = portaDesfazer.escrever(
       {
         task_id: taskId,
         texto: janela?.nota.texto ?? "",
@@ -176,6 +201,25 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
       },
       { valido: janela !== null },
     );
+    /*
+     * ══════════════════════════════════════════════════════ ALTO #1, rodada 15 ═
+     * O RELÓGIO DA JANELA PARA NO INSTANTE EM QUE O DESFAZER É DESPACHADO.
+     *
+     * O texto, o botão e o DADO A RESTAURAR saíam todos do mesmo valor, e o
+     * `setTimeout(JANELA_DESFAZER_MS)` apagava esse valor sozinho aos 10 s —
+     * inclusive com uma chamada de desfazer EM VOO. Medido pelo crítico da
+     * rodada 15, com a rota segurando o POST 3 s e abortando, clique aos
+     * 8,5 s: a tela dizia "Não foi possível desfazer…", havia ZERO botões de
+     * Desfazer, e a nota do operador — cujo texto existia num lugar só — tinha
+     * ido embora. O `aoFalha` que promete "não esconde o botão" chegava tarde:
+     * não havia o que não esconder.
+     *
+     * A correção é uma linha e uma ordem: quem clica em Desfazer FECHA a
+     * janela, e só depois a chamada parte. A partir daí o valor só sai da tela
+     * por decisão — sucesso, ou uma limpeza/criação nova que o substitua.
+     * Falhar deixa botão, texto e dado exatamente onde estavam.
+     */
+    if (decisao === "gravar") limparTimer();
   }
 
   return (
@@ -224,6 +268,7 @@ export function NotasPainel({ taskId, notas }: NotasPainelProps): JSX.Element {
               key={n.id}
               nota={n}
               taskId={taskId}
+              agora={agora}
               indice={indice}
               total={notas.length}
               refDoBotao={(el) => {
@@ -264,15 +309,48 @@ function FormularioNovaNota({
 }): JSX.Element {
   const [texto, setTexto] = useState("");
   const [autor, setAutor] = useState("");
+  /**
+   * ═════════════════════════════════════════════════════════ ALTO #4, rodada 13 ═
+   * SÓ SE ESVAZIA O CAMPO QUE AINDA TEM O QUE FOI ENVIADO.
+   *
+   * `aoSucesso` roda depois do `await` e esvaziava a caixa sem olhar o que
+   * havia nela. Medido no Chromium com 2,5 s de latência: escrever "primeira
+   * nota", clicar "Salvar nota" e continuar escrevendo 300 ms depois — quando
+   * a resposta chegava, "segunda nota que eu estava escrevendo" virava `""` e
+   * o rascunho do `sessionStorage` ia junto para `null`.
+   *
+   * O rascunho existe desde a rodada 5 exatamente para *"escrever meia nota e
+   * não perder"*. Ele protegia contra NAVEGAR e não protegia contra SALVAR —
+   * e salvar é o que o operador faz o tempo todo.
+   *
+   * Estes dois refs são o espelho do que está NA CAIXA agora (o `useState` lido
+   * por `aoSucesso` seria o do render em que a closure nasceu) e o que de fato
+   * foi enviado. Campo intacto: esvazia e apaga o rascunho dele. Campo mexido:
+   * não se toca em nenhum dos dois — o que a pessoa está escrevendo é dela.
+   */
+  const naCaixaRef = useRef({ texto, autor });
+  naCaixaRef.current = { texto, autor };
+  const enviadoRef = useRef<{ texto: string; autor: string } | null>(null);
   const porta = usarPortaDeEscrita({
     op: "nota_criar",
     // [ALTO #1, rodada 6] o campo que ficou vazio é para onde o trabalho
     // continua — e é o foco que o `disabled` levava para o `<body>`.
     alvo: () => textareaRef.current,
     aoSucesso: () => {
-      setTexto("");
-      // [BAIXO #6, rodada 5] salvou: o rascunho deixou de existir.
-      limparRascunhoNota(taskId);
+      const enviado = enviadoRef.current;
+      if (enviado === null) return;
+      const textoIntacto = naCaixaRef.current.texto === enviado.texto;
+      const autorIntacto = naCaixaRef.current.autor === enviado.autor;
+      if (textoIntacto) {
+        setTexto("");
+        // [BAIXO #6, rodada 5] salvou: o rascunho daquele campo deixou de
+        // existir. Valor vazio já é `removeItem` em `gravarRascunho`.
+        gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.nota, "");
+      }
+      if (autorIntacto) {
+        setAutor("");
+        gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.notaAutor, "");
+      }
     },
   });
 
@@ -283,19 +361,35 @@ function FormularioNovaNota({
    * render do cliente (hidratação quebrada).
    */
   useEffect(() => {
-    const rascunho = lerRascunhoNota(taskId);
+    const rascunho = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.nota);
     if (rascunho.length > 0) setTexto(rascunho);
+    // [BAIXO, rodada 11] o autor volta junto: o texto sobrevivia ao F5 e o
+    // autor não, e meio formulário restaurado em silêncio é pior que nenhum.
+    const autorSalvo = lerRascunho(taskId, CAMPOS_COM_RASCUNHO.notaAutor);
+    if (autorSalvo.length > 0) setAutor(autorSalvo);
   }, [taskId]);
 
   function aoDigitar(valor: string): void {
     setTexto(valor);
     porta.aoMudarCampo();
-    gravarRascunhoNota(taskId, valor);
+    gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.nota, valor);
+  }
+
+  function aoDigitarAutor(valor: string): void {
+    setAutor(valor);
+    porta.aoMudarCampo();
+    gravarRascunho(taskId, CAMPOS_COM_RASCUNHO.notaAutor, valor);
   }
 
   function aoEnviar(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    porta.escrever({ task_id: taskId, texto, autor }, { valido: texto.trim().length > 0 });
+    // Mesma lei dos CRÍTICOs #1/#2: o ref do que foi enviado só se escreve
+    // depois do veredito. Uma recusa não pode passar por cima do que está em voo.
+    const decisao = porta.escrever(
+      { task_id: taskId, texto, autor },
+      { valido: texto.trim().length > 0 },
+    );
+    if (decisao === "gravar") enviadoRef.current = { texto, autor };
   }
 
   const vazia = texto.trim().length === 0;
@@ -317,8 +411,7 @@ function FormularioNovaNota({
         <input
           value={autor}
           onChange={(e) => {
-            setAutor(e.target.value);
-            porta.aoMudarCampo();
+            aoDigitarAutor(e.target.value);
           }}
           placeholder="autor (opcional)"
           aria-label="Autor da nota (opcional)"
@@ -386,6 +479,7 @@ export function rotuloDoBotaoDeExcluir(
 function NotaLinha({
   nota,
   taskId,
+  agora,
   indice,
   total,
   refDoBotao,
@@ -401,6 +495,8 @@ function NotaLinha({
 }: {
   nota: TaskNote;
   taskId: string;
+  /** [MÉDIO #4, rodada 12] o relógio do SERVIDOR — ver `NotasPainelProps`. */
+  agora: number;
   indice: number;
   /** Quantas notas a lista tem — o "de 5" do rótulo (MÉDIO #6). */
   total: number;
@@ -443,8 +539,13 @@ function NotaLinha({
     if (confirmando) {
       // [MÉDIO #3, rodada 9] o 2º clique sai da confirmação SEM anunciar
       // cancelamento — quem fala é o sucesso da exclusão.
-      aoConfirmarExecutado();
-      porta.escrever({ id: nota.id, task_id: taskId });
+      // [CRÍTICO #1/#2, varredura de gêmeos, rodada 13] A SAÍDA DA CONFIRMAÇÃO
+      // também é estado, e também só acontece depois do veredito: com uma
+      // gravação em voo a porta recusa ("Aguarde…") e o 2º clique NÃO apaga —
+      // sair da confirmação ali deixava a linha de volta em "excluir", como se
+      // o clique tivesse sido cancelado, e o operador tinha de recomeçar os
+      // dois cliques sem nada explicar por quê.
+      if (porta.escrever({ id: nota.id, task_id: taskId }) === "gravar") aoConfirmarExecutado();
       return;
     }
     // [MÉDIO #5, rodada 7] 1º clique: sem `setTimeout`, o pedido fica até
@@ -459,7 +560,27 @@ function NotaLinha({
   return (
     <li className="rounded-lg border border-navy-700 bg-navy-850 p-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm leading-relaxed text-bone-100">{nota.texto}</p>
+        {/*
+          [ALTO #5, rodada 13] `min-w-0` + `break-words`: um item de flex nasce
+          com `min-width: auto`, então ele se recusa a ficar menor que a
+          palavra mais longa que contém. Um e-mail dentro da nota
+          (`lucas.scudeler@pandoratreinamentos.com.br`) empurrava a linha
+          inteira e o `<li>` estourava a viewport — medido a 390 px:
+          `scrollWidth` 435 contra `clientWidth` 390, e quem saía da tela era
+          justamente o botão "excluir" DESTA nota (borda direita em 435 px), a
+          única forma de apagá-la. Um SHA de 40 caracteres dava 459; um token
+          de 64, 632.
+
+          [MÉDIO #9, rodada 13] `whitespace-pre-line`: o banco guarda
+          `"linha um\nlinha dois\n\n- item a\n- item b"` e a tela devolvia
+          tudo numa frase corrida (uma linha de 23 px de altura, medida no
+          Chromium) — uma lista de 4 itens virava parágrafo. `pre-line`
+          preserva a quebra que o operador digitou e continua quebrando o
+          texto longo sozinho, ao contrário de `pre`.
+        */}
+        <p className="min-w-0 whitespace-pre-line break-words text-sm leading-relaxed text-bone-100">
+          {nota.texto}
+        </p>
         <button
           ref={refDoBotao}
           type="button"
@@ -491,7 +612,11 @@ function NotaLinha({
         </button>
       </div>
       <p className="mt-1.5 text-xs text-bone-400">
-        {nota.autor ?? "sem autor"} · {formatRelativeTime(nota.createdAt)}
+        {/* [MÉDIO #4, rodada 12] `agora` vem do servidor: o texto é o mesmo
+            no HTML e na hidratação, por mais tarde que ela aconteça. */}
+        {nota.autor ?? "sem autor"} · <time dateTime={nota.createdAt}>
+          {formatRelativeTime(nota.createdAt, agora)}
+        </time>
       </p>
       <CampoErro mensagem={porta.erroDoCampo} />
     </li>

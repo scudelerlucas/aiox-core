@@ -2,6 +2,7 @@ import {
   CalendarDays,
   CircleDot,
   FolderOpen,
+  GitPullRequestArrow,
   GraduationCap,
   Mail,
   MessagesSquare,
@@ -31,6 +32,7 @@ const ICON_BY_KIND: Record<string, LucideIcon> = {
   notes: NotebookPen,
   claude_chat: MessagesSquare,
   lms: GraduationCap,
+  github: GitPullRequestArrow,
 };
 
 /** Ícone de uma fonte; nunca devolve `undefined`, mesmo com `kind` novo no banco. */

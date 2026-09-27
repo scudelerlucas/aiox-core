@@ -38,7 +38,8 @@ create extension if not exists pgcrypto;
 -- -----------------------------------------------------------------------------
 create table if not exists public.sources (
   id            uuid primary key default gen_random_uuid(),
-  -- Ampliado por 0003 para incluir 'lms' (a produção já aceitava; o arquivo não).
+  -- Ampliado por 0003 ('lms' — a produção já aceitava; o arquivo não) e por
+  -- 0031 ('github' — mudanças e branches lidas de painel_frentes_*).
   kind          text not null check (kind in ('calendar','gmail','drive','notes','claude_chat')),
   label         text,
   auth_mode     text not null check (auth_mode in ('api','manual')),
