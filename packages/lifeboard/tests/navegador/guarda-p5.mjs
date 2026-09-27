@@ -59,7 +59,7 @@
  * | M | **o eixo imprime a data que a régua manda** (rótulos do cabeçalho) | 0 divergências em 7 cenas por estado |
  * | N | **toda camada que a guarda afirma ver está PINTADA** | alfa real > 0 E pixel que muda ao esconder |
  * | O | **nenhum mecanismo desenhado soma ZERO nos 4 estados** | ≥ 1 de cada mecanismo obrigatório |
- * | P | **todo item fora da janela diz a sua data por escrito na coluna** | 1 rótulo datado por chevron |
+ * | P | **todo item fora da janela diz a data inteira dentro da coluna** | 1 rótulo datado por chevron; largura do texto ≤ largura disponível |
  * | Q | **cada desenho na FAIXA VERTICAL do rótulo que o nomeia** (o eixo Y) | ±1,5 px de centro a centro, 9 contextos |
  * | R | **o teclado alcança todo controle que a tela declara**, NO INSTANTE DA CARGA | 0 `<button>`/`<a href>` visível fora do Tab |
  * | S | **a precedência desenhada é a da FONTE**, par a par | 0 par faltando, 0 conector a mais |
@@ -1360,8 +1360,8 @@ async function abrir(largura, altura, opcoes = {}) {
  * `/linha-do-tempo` — esta guarda visita uma rota só, e a medida X prova que
  * cada viewport visitado tem as suas TRÊS sentinelas, não que a guarda visita
  * tudo; (d) as três interações que o inventário achou e `ENTRADAS_DECLARADAS_FORA`
- * nomeia UMA A UMA, com motivo — clicar num link da navegação (sai da rota),
- * apontar o mouse sobre ele (pré-busca do `next/link`, que mora na outra rota)
+ * nomeia UMA A UMA, com motivo — clicar num link da navegação é medido em
+ * R-rota, pois desmonta esta sentinela; apontar o mouse sobre ele (pré-busca)
  * e o `onTouchStart` dele (o Chromium desta guarda não emula dedo); **arrastar**
  * continua fora porque o inventário não acha nada arrastável nesta rota — e no
  * dia em que achar, o fecho cobra; (e) mutação num nó que ainda não entrou na
@@ -1384,6 +1384,34 @@ const VIEWPORTS_DO_TECLADO = [
   [1440, 1000],
   [390, 844],
 ];
+
+/** Navega sem recarregar, preservando o escopo dos módulos do bundle. */
+async function navegarPelaBarra(pagina, rotulo, caminho) {
+  await pagina
+    .getByRole("navigation", { name: "Navegação principal" })
+    .getByRole("link", { name: rotulo, exact: true })
+    .click({ timeout: TETO_DE_ACAO_MS });
+  await pagina.waitForURL((url) => url.pathname === caminho, { timeout: TETO_DE_ACAO_MS });
+  if (caminho === "/linha-do-tempo") {
+    await pagina.waitForSelector(".lb-tl-hoje", { timeout: TETO_DE_ACAO_MS, state: "attached" });
+  } else {
+    await pagina.waitForLoadState("networkidle", { timeout: TETO_DE_ACAO_MS });
+  }
+  await assentar(pagina);
+}
+
+/** Espera a remontagem real da linha do tempo depois de mudar o histórico. */
+async function esperarLinhaRemontada(pagina) {
+  await pagina.waitForURL((url) => url.pathname === "/linha-do-tempo", { timeout: TETO_DE_ACAO_MS });
+  await pagina.waitForSelector(".lb-tl-hoje", { timeout: TETO_DE_ACAO_MS, state: "attached" });
+  await assentar(pagina);
+}
+
+/** Mede o nascimento que acontece depois de a rota já ter desmontado. */
+async function conferirTecladoDepoisDeRemontar(pagina, quando) {
+  const foto = await varrerTeclado(pagina);
+  return { foto, problemas: oQueFaltaAgora(foto, quando) };
+}
 
 /** Piso de vida da sentinela de tempo real, escrito à mão — não derivado da corrida. */
 const PISO_DE_VIDA_DA_SENTINELA_MS = 30000;
@@ -2032,7 +2060,7 @@ const ENTRADAS_DECLARADAS_FORA = [
   {
     chave: "LinkComponent | a | onClick",
     porque:
-      "clicar num link da navegação SAI de /linha-do-tempo, e a rota é o alcance declarado desta guarda — o que acontece do outro lado é assunto da peça de lá",
+      "clicar num link da navegação desmonta esta sentinela; R-rota exerce Painel → Linha do tempo e mede o Tab depois da remontagem, inclusive por voltar/avançar",
   },
   {
     chave: "LinkComponent | a | onMouseEnter",
@@ -3482,11 +3510,11 @@ const FONTES_DO_NAVEGADOR = [
   },
   {
     fonte: "a aba",
-    fora: "sair da página e voltar pelo cache do histórico (`pagehide`/`pageshow`/`freeze`/`resume`): a página que volta de lá é a do nascimento, e o nascimento é o que as medidas R, V e W já medem",
+    fora: "resta fora somente a restauração por bfcache (`freeze`/`resume`); voltar/avançar com remontagem pelo roteador do app é medido em R-rota",
   },
   {
     fonte: "o endereço",
-    fora: "navegar para OUTRA rota: sai de /linha-do-tempo, que é o alcance declarado desta guarda",
+    fora: "digitar outro endereço ou recarregar fora do app; sair pela barra e voltar pela barra ou pelo histórico é medido em R-rota",
   },
   { fonte: "a rolagem", fora: "nada" },
   { fonte: "o teclado fora dos controles", fora: "nada" },
@@ -5237,12 +5265,18 @@ async function lerGeometria(pagina) {
      * cada "◀"/"▶" do canvas a um destes — e reprova quando falta.
      */
     const rotulosForaDaJanela = [...document.querySelectorAll(".lb-tl-fora-da-janela-rotulo")].map(
-      (e) => ({
-        texto: (e.textContent ?? "").trim(),
-        lado: e.getAttribute("data-lb-fora-da-janela"),
-        rotuloAcessivel: e.closest("button")?.getAttribute("aria-label") ?? "",
-        titleDaLinha: e.closest("button")?.getAttribute("title") ?? "",
-      }),
+      (e) => {
+        const faixa = document.createRange();
+        faixa.selectNodeContents(e);
+        return {
+          texto: (e.textContent ?? "").trim(),
+          lado: e.getAttribute("data-lb-fora-da-janela"),
+          rotuloAcessivel: e.closest("button")?.getAttribute("aria-label") ?? "",
+          titleDaLinha: e.closest("button")?.getAttribute("title") ?? "",
+          larguraDoTexto: faixa.getBoundingClientRect().width,
+          larguraDisponivel: e.getBoundingClientRect().width,
+        };
+      },
     );
 
     /*
@@ -6167,6 +6201,12 @@ for (const [largura, altura] of [
         problemas.push(`a linha de "${c.title.slice(0, 30)}" tem texto visível mas o aria-label não diz data nenhuma`);
         continue;
       }
+      if (casado.larguraDoTexto > casado.larguraDisponivel + 0.5) {
+        problemas.push(
+          `"${casado.texto}" pede ${casado.larguraDoTexto.toFixed(1)}px, mas a coluna entrega só ${casado.larguraDisponivel.toFixed(1)}px — a data está cortada`,
+        );
+        continue;
+      }
       pares.push(`"${casado.texto}"`);
     }
     if (chevrons.length === 0) {
@@ -6663,6 +6703,49 @@ for (const [largura, altura] of [
  * viewports — e é por isso que a medida X consegue cobrar que todo viewport
  * medido por R tenha as suas duas sentinelas.
  */
+for (const [largura, altura] of [
+  [1280, 900],
+  [390, 844],
+]) {
+  await medir(`R-rota ${String(largura)}×${String(altura)}`, async () => {
+    const { contexto, pagina } = await abrir(largura, altura);
+    const problemas = [];
+    const passagens = [];
+
+    await navegarPelaBarra(pagina, "Painel", "/");
+    await navegarPelaBarra(pagina, "Linha do tempo", "/linha-do-tempo");
+    const pelaBarra = await conferirTecladoDepoisDeRemontar(
+      pagina,
+      "depois de Painel → Linha do tempo pela barra do app",
+    );
+    problemas.push(...pelaBarra.problemas);
+    passagens.push(`barra: ${String(pelaBarra.foto.alcancadosIds.length)}/${String(pelaBarra.foto.universo.length)}`);
+
+    await pagina.goBack({ waitUntil: "networkidle", timeout: TETO_DE_ACAO_MS });
+    await pagina.goBack({ timeout: TETO_DE_ACAO_MS });
+    await esperarLinhaRemontada(pagina);
+    const depoisDeVoltar = await conferirTecladoDepoisDeRemontar(pagina, "depois de voltar duas vezes no navegador");
+    problemas.push(...depoisDeVoltar.problemas);
+    passagens.push(`voltar: ${String(depoisDeVoltar.foto.alcancadosIds.length)}/${String(depoisDeVoltar.foto.universo.length)}`);
+
+    await pagina.goForward({ waitUntil: "networkidle", timeout: TETO_DE_ACAO_MS });
+    await pagina.goForward({ timeout: TETO_DE_ACAO_MS });
+    await esperarLinhaRemontada(pagina);
+    const depoisDeAvancar = await conferirTecladoDepoisDeRemontar(pagina, "depois de avançar duas vezes no navegador");
+    problemas.push(...depoisDeAvancar.problemas);
+    passagens.push(`avançar: ${String(depoisDeAvancar.foto.alcancadosIds.length)}/${String(depoisDeAvancar.foto.universo.length)}`);
+
+    conferir(
+      `R-rota · o teclado sobrevive à remontagem por rota (${String(largura)}×${String(altura)})`,
+      problemas.length === 0,
+      problemas.length === 0
+        ? `${passagens.join(" · ")} controles visíveis alcançados por Tab depois de cada remontagem`
+        : problemas.join(" · "),
+    );
+    await contexto.close();
+  });
+}
+
 for (const [largura, altura] of VIEWPORTS_DO_TECLADO) {
   await medir(`R ` + `${String(largura)}×${String(altura)}`, async () => {
     const { contexto, pagina } = await abrir(largura, altura);
