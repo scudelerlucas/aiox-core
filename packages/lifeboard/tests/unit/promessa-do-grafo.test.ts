@@ -92,6 +92,11 @@ const VISUAIS = construirArestasVisuais({
   tasks: TAREFAS,
   edges: ARESTAS,
   criticoIds: ["antes", "meio", "depois"],
+  janelas: {
+    antes: { es: 0, ef: 1, ls: 0, lf: 1, folga: 0, duracao: 1 },
+    meio: { es: 1, ef: 2, ls: 1, lf: 2, folga: 0, duracao: 1 },
+    depois: { es: 2, ef: 3, ls: 2, lf: 3, folga: 0, duracao: 1 },
+  },
 });
 const tituloDe = (id: string): string => TAREFAS.find((t) => t.id === id)?.title ?? id;
 

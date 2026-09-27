@@ -991,9 +991,10 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
         tasks,
         edges: grafoV3.edges,
         criticoIds: criticoSet,
+        janelas: grafoV3.janelas,
         selectedTaskId,
       }),
-    [tasks, grafoV3.edges, criticoSet, selectedTaskId],
+    [tasks, grafoV3.edges, grafoV3.janelas, criticoSet, selectedTaskId],
   );
 
   /**
