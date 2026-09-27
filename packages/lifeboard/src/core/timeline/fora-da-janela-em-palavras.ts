@@ -52,9 +52,10 @@ export function glifoDoLado(lado: LadoDaJanela): string {
 }
 
 /**
- * O texto VISÍVEL da coluna de rótulos: glifo + o que a data-âncora é + a
- * data com ano. `concluida` troca o verbo, porque para uma tarefa concluída
- * fora da janela a âncora é a data de CONCLUSÃO, não um começo.
+ * O texto VISÍVEL da coluna de rótulos: glifo + abreviação declarada do que a
+ * data-âncora é + a data com ano. A forma curta é deliberada: a coluna móvel
+ * tem só 111–123 px úteis, enquanto "começa"/"concluída" cortavam o ano.
+ * `concluida` troca "ini." por "fim", porque a âncora é a conclusão.
  */
 export function textoVisivelForaDaJanela(
   lado: LadoDaJanela,
@@ -62,8 +63,8 @@ export function textoVisivelForaDaJanela(
   concluida: boolean,
   formatarData: (iso: string) => string,
 ): string {
-  const verbo = concluida ? "concluída" : "começa";
-  return `${glifoDoLado(lado)} ${verbo} ${formatarData(dataAncora)}`;
+  const abreviacao = concluida ? "fim" : "ini.";
+  return `${glifoDoLado(lado)} ${abreviacao} ${formatarData(dataAncora)}`;
 }
 
 /**
