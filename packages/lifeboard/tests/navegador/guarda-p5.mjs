@@ -59,7 +59,7 @@
  * | M | **o eixo imprime a data que a régua manda** (rótulos do cabeçalho) | 0 divergências em 7 cenas por estado |
  * | N | **toda camada que a guarda afirma ver está PINTADA** | alfa real > 0 E pixel que muda ao esconder |
  * | O | **nenhum mecanismo desenhado soma ZERO nos 4 estados** | ≥ 1 de cada mecanismo obrigatório |
- * | P | **todo item fora da janela diz a sua data por escrito na coluna** | 1 rótulo datado por chevron |
+ * | P | **todo item fora da janela diz a data inteira dentro da coluna** | 1 rótulo datado por chevron; largura do texto ≤ largura disponível |
  * | Q | **cada desenho na FAIXA VERTICAL do rótulo que o nomeia** (o eixo Y) | ±1,5 px de centro a centro, 9 contextos |
  * | R | **o teclado alcança todo controle que a tela declara**, NO INSTANTE DA CARGA | 0 `<button>`/`<a href>` visível fora do Tab |
  * | S | **a precedência desenhada é a da FONTE**, par a par | 0 par faltando, 0 conector a mais |
@@ -5265,12 +5265,18 @@ async function lerGeometria(pagina) {
      * cada "◀"/"▶" do canvas a um destes — e reprova quando falta.
      */
     const rotulosForaDaJanela = [...document.querySelectorAll(".lb-tl-fora-da-janela-rotulo")].map(
-      (e) => ({
-        texto: (e.textContent ?? "").trim(),
-        lado: e.getAttribute("data-lb-fora-da-janela"),
-        rotuloAcessivel: e.closest("button")?.getAttribute("aria-label") ?? "",
-        titleDaLinha: e.closest("button")?.getAttribute("title") ?? "",
-      }),
+      (e) => {
+        const faixa = document.createRange();
+        faixa.selectNodeContents(e);
+        return {
+          texto: (e.textContent ?? "").trim(),
+          lado: e.getAttribute("data-lb-fora-da-janela"),
+          rotuloAcessivel: e.closest("button")?.getAttribute("aria-label") ?? "",
+          titleDaLinha: e.closest("button")?.getAttribute("title") ?? "",
+          larguraDoTexto: faixa.getBoundingClientRect().width,
+          larguraDisponivel: e.getBoundingClientRect().width,
+        };
+      },
     );
 
     /*
@@ -6193,6 +6199,12 @@ for (const [largura, altura] of [
       }
       if (!/\d{2}\/\d{2}\/\d{4}/.test(casado.rotuloAcessivel)) {
         problemas.push(`a linha de "${c.title.slice(0, 30)}" tem texto visível mas o aria-label não diz data nenhuma`);
+        continue;
+      }
+      if (casado.larguraDoTexto > casado.larguraDisponivel + 0.5) {
+        problemas.push(
+          `"${casado.texto}" pede ${casado.larguraDoTexto.toFixed(1)}px, mas a coluna entrega só ${casado.larguraDisponivel.toFixed(1)}px — a data está cortada`,
+        );
         continue;
       }
       pares.push(`"${casado.texto}"`);

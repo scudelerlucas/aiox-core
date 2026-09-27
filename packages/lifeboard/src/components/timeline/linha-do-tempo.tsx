@@ -1729,9 +1729,9 @@ function ladoForaDaJanelaDaLinha(
  * o `aria-label` só chega a quem usa leitor de tela.
  *
  * `whitespace-nowrap` de propósito: a data é um átomo, cortá-la ao meio com
- * reticências seria o mesmo defeito de novo. Ela cabe em uma linha de 12px
- * dentro dos 140px da coluna no celular — é por isso que o texto visível leva
- * UMA data e o período inteiro fica no `aria-label`/`title`/gaveta.
+ * reticências seria o mesmo defeito de novo. O texto usa as abreviações
+ * declaradas "ini."/"fim" para caber nos 111–123px realmente úteis da coluna
+ * móvel; o período por extenso fica no `aria-label`/`title`/gaveta.
  *
  * `bone-300` sobre `navy-850`: o mesmo par já na régua de contraste da casa
  * (o badge `lb-tl-fora-da-grade`, na mesma coluna e no mesmo fundo).
