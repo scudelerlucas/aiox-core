@@ -6,8 +6,17 @@ import {
   placarDeCartoes,
   type CartaoNaTela,
 } from "@/lib/enquadramento";
-import { alturaDoCanvasDoGrafo } from "@/lib/altura-do-canvas";
-import { CanvasSimulado } from "./simulador-do-canvas";
+import {
+  GAP_X,
+  GAP_Y,
+  GAP_Y_MINIMO,
+  maxColunasParaLargura,
+  NODE_W,
+  opcoesDoAlvo,
+} from "@/components/graph/dependency-graph";
+import { layoutDoGrafo } from "@/lib/layout-do-grafo";
+import { alturaDoCartao, ALTURA_DO_CARTAO } from "@/types/grafo-v3";
+import { PANES_MEDIDOS } from "./panes-medidos";
 import { arvore200, grafo40 } from "./cenarios-do-grafo";
 
 /**
@@ -163,57 +172,103 @@ describe("panQueMaximizaCartoesInteiros — encostar, nunca centrar (achado ALTO
   });
 });
 
-describe("o BOTÃO, medido antes e depois nos 5 casos do crítico", () => {
+describe("o BOTÃO, medido antes e depois nos casos do crítico", () => {
+  /**
+   * Nada aqui simula o React nem reimplementa o canvas (achado ALTO #1 da
+   * rodada 8: a versão anterior destes casos rodava contra um `CanvasSimulado`
+   * de 245 linhas escrito pela correção que ele deveria auditar). O que roda é
+   * a cadeia de produção — `layoutDoGrafo` → `cartoesParaAltura` →
+   * `enquadramentoDoAlvo` → `placarDeCartoes` — com os panes MEDIDOS no
+   * Chromium (`panes-medidos.ts`), e clicar duas vezes é chamar
+   * `enquadramentoDoAlvo` duas vezes realimentando `viewportAtual`, que é
+   * exatamente o que o componente faz.
+   *
+   * O fim-a-fim no navegador (o botão, o pane real, o placar real) é
+   * `scripts/guarda-no-navegador.mjs`.
+   */
+  function cartoesDoCenario(
+    cenario: { ids: string[]; edges: { origem: string; destino: string }[]; todasArestas: readonly unknown[]; criticoIds: string[] },
+    largura: number,
+    altura: number,
+  ): CartaoNaTela[] {
+    const feito = layoutDoGrafo({
+      ids: cenario.ids,
+      edges: cenario.edges,
+      criticoIds: new Set(cenario.criticoIds),
+      nodeW: NODE_W,
+      nodeH: altura,
+      gapX: GAP_X,
+      gapY: Math.max(GAP_Y, GAP_Y_MINIMO),
+      maxColunas: maxColunasParaLargura(largura),
+      todasArestas: cenario.todasArestas as never,
+    });
+    return [...feito.nodes.values()].map((n) => ({
+      id: n.id,
+      x: n.x,
+      y: n.y,
+      largura: NODE_W,
+      altura,
+    }));
+  }
+
   const casos = [
-    { nome: "40@390", cenario: grafo40, largura: 390, janela: 800 },
-    { nome: "40@1024", cenario: grafo40, largura: 1024, janela: 800 },
-    { nome: "40@1280", cenario: grafo40, largura: 1280, janela: 800 },
-    { nome: "40@1440", cenario: grafo40, largura: 1440, janela: 900 },
+    { nome: "40@390", cenario: grafo40, pane: PANES_MEDIDOS["390x800"]! },
+    { nome: "40@1024", cenario: grafo40, pane: PANES_MEDIDOS["1024x800"]! },
+    { nome: "40@1280", cenario: grafo40, pane: PANES_MEDIDOS["1280x800"]! },
+    { nome: "40@1440", cenario: grafo40, pane: PANES_MEDIDOS["1440x900"]! },
     {
       nome: "200@1280",
       cenario: () => ({ ...arvore200(), criticoIds: [] as string[] }),
-      largura: 1280,
-      janela: 800,
+      pane: PANES_MEDIDOS["1280x800"]!,
     },
   ];
 
   for (const caso of casos) {
     it(`${caso.nome}: "Ver o máximo possível" nunca entrega menos cartões inteiros do que já havia`, () => {
-      const pane = {
-        largura: caso.largura,
-        altura: alturaDoCanvasDoGrafo({
-          larguraDaJanela: caso.largura,
-          alturaDaJanela: caso.janela,
-        }),
-      };
-      const canvas = new CanvasSimulado({ cenario: caso.cenario(), pane, alvo: "tudo" }).montar();
-      canvas.clicarEnquadrar("tudo");
-      const antes = canvas.placar();
-      canvas.clicarEnquadrar("tudo");
-      const depois = canvas.placar();
+      const cenario = caso.cenario();
+      const pane = { largura: caso.pane.largura, altura: caso.pane.altura };
+      const cartoesParaAltura = (altura: number): CartaoNaTela[] =>
+        cartoesDoCenario(cenario, pane.largura, altura);
+      const enquadrar = (viewportAtual?: { x: number; y: number; zoom: number }) =>
+        enquadramentoDoAlvo({
+          cartoesParaAltura,
+          pane,
+          opcoes: opcoesDoAlvo("tudo"),
+          alturaCartao: ALTURA_DO_CARTAO,
+          alturaMapa: alturaDoCartao("mapa"),
+          criticoIds: new Set(cenario.criticoIds),
+          prioridade: "inteiros",
+          viewportAtual,
+        });
+
+      const primeiro = enquadrar();
+      const cartoesNaTela = cartoesParaAltura(
+        primeiro.modo === "mapa" ? alturaDoCartao("mapa") : ALTURA_DO_CARTAO,
+      );
+      const antes = placarDeCartoes(
+        cartoesNaTela,
+        { x: primeiro.x, y: primeiro.y, zoom: primeiro.zoom },
+        pane,
+        new Set(cenario.criticoIds),
+      );
+      const segundo = enquadrar({ x: primeiro.x, y: primeiro.y, zoom: primeiro.zoom });
+      const depois = placarDeCartoes(
+        cartoesNaTela,
+        { x: segundo.x, y: segundo.y, zoom: segundo.zoom },
+        pane,
+        new Set(cenario.criticoIds),
+      );
+
       expect(depois.inteiros).toBeGreaterThanOrEqual(antes.inteiros);
       expect(depois.criticos).toBeGreaterThanOrEqual(antes.criticos);
       // E não é só "não piorou": é o MÁXIMO alcançável naquele zoom. Centrar
       // (a rodada 7) fica abaixo deste número sempre que a caixa não cabe.
-      const cartoes = canvas.cartoesNaTela();
       const otimo = panQueMaximizaCartoesInteiros({
-        cartoes,
-        zoom: canvas.zoom,
+        cartoes: cartoesNaTela,
+        zoom: segundo.zoom,
         pane,
       });
       expect(depois.inteiros).toBe(otimo.placar.inteiros);
     });
   }
-
-  it('40 tarefas: o botão "Ver o máximo possível" não perde nó do caminho crítico que estava na tela', () => {
-    const pane = {
-      largura: 390,
-      altura: alturaDoCanvasDoGrafo({ larguraDaJanela: 390, alturaDaJanela: 800 }),
-    };
-    const canvas = new CanvasSimulado({ cenario: grafo40(), pane, alvo: "critico" }).montar();
-    const comCritico = canvas.placar();
-    canvas.clicarEnquadrar("tudo");
-    const comTudo = canvas.placar();
-    expect(comTudo.inteiros).toBeGreaterThanOrEqual(comCritico.inteiros);
-  });
 });

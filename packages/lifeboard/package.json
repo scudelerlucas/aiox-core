@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "guarda:navegador": "node tests/navegador/guarda-p6.mjs",
+    "guarda:grafo": "node scripts/guarda-no-navegador.mjs",
     "contraste": "node scripts/checar-contraste.mjs"
   },
   "dependencies": {
