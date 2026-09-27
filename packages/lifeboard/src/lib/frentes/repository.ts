@@ -73,13 +73,30 @@ export class FrentesIndisponivel extends Error {
   }
 }
 
+/**
+ * O relógio da fixture é fixado UMA vez, na carga do módulo — não em cada leitura.
+ *
+ * Medido na CI em 26/09/2026 (run 36278921070, `main` do merge do #43): a guarda
+ * no navegador da P6 (medida R, "com o pedido FALHANDO a loja não muda") reprovava
+ * em toda ação porque, entre as duas fotos da loja, a fonte virtual das frentes
+ * (`no-grafo.ts`) trocava de `lastSyncAt`
+ * (`sources/…/lastSyncAt: 23:20:15.123Z → 23:20:16.914Z`). A causa: as datas da
+ * fixture são relativas a `agora`, e `agora` era `Date.now()` a cada `carregar()`
+ * — o `executado_em` do sync andava junto com o relógio de parede, e com ele o
+ * `lastSyncAt`. Nem o #43 (a guarda) nem o #47 (a junção) viram o outro antes
+ * de irem para a `main`. Com o instante fixado por processo, a fixture continua
+ * relativa a hoje (a janela de 21 dias segue valendo) e duas leituras devolvem
+ * o mesmo dado — que é o que dado de demonstração deve fazer.
+ */
+const RELOGIO_DA_FIXTURE = Date.now();
+
 class FixtureFrentesRepository implements FrentesRepository {
   async carregar(): Promise<DadosFrentes> {
-    return fixtureFrentes(Date.now());
+    return fixtureFrentes(RELOGIO_DA_FIXTURE);
   }
 
   async carregarHistorico(): Promise<DadosHistorico> {
-    const dados = fixtureFrentes(Date.now());
+    const dados = fixtureFrentes(RELOGIO_DA_FIXTURE);
     const prs = dados.prs.filter((p) => p.estado !== "aberto");
     const sessoes = dados.sessoes.filter((s) => ENCERRADAS.has(s.estado));
     return {
