@@ -31,8 +31,11 @@ import { StatusChip } from "@/components/ui/status-chip";
 import {
   arestaEhCritica,
   camadaBaseDeAresta,
+  CAMADAS_TODAS,
   construirArestasVisuais,
   filtrarArestasPorCamada,
+  relacoesAcessiveisDaTarefa,
+  type ArestaVisual,
   type CamadaGrafo,
 } from "@/lib/camadas-do-grafo";
 import {
@@ -51,7 +54,12 @@ import {
 import { useReenquadramentoAutomatico } from "@/components/graph/reenquadramento-automatico";
 import { handlesDaConexao, zIndexDaAresta } from "@/lib/geometria-da-aresta";
 import { layoutDoGrafo, type Ponto } from "@/lib/layout-do-grafo";
-import { caixaEstimadaDoTexto, colocarRotulos, type Retangulo } from "@/lib/rotulo-da-aresta";
+import {
+  AFASTAMENTO_DO_ROTULO_MUNDO,
+  caixaEstimadaDoTexto,
+  colocarRotulos,
+  type Retangulo,
+} from "@/lib/rotulo-da-aresta";
 import { useFecharPopover } from "@/lib/use-fechar-popover";
 import type { Source, SourceKind, Task, TaskEdge } from "@/types/canonical";
 import {
@@ -595,6 +603,7 @@ function BarraDoGrafo({
   fecharPaineisSinal,
   larguraDoPane,
   alturaDoPane,
+  colunasDoLayout,
   onAltura,
   onZoom,
   camadas,
@@ -614,6 +623,7 @@ function BarraDoGrafo({
   fecharPaineisSinal: number;
   larguraDoPane: number;
   alturaDoPane: number;
+  colunasDoLayout: number;
   onAltura: (altura: number) => void;
   onZoom: (zoom: number) => void;
   camadas: UseCamadasDoGrafo;
@@ -652,12 +662,17 @@ function BarraDoGrafo({
    * 0,85 era desfeito em menos de 400ms (6 cliques, 6 vezes, em 1280 e 1440) e
    * o modo CARTÃO não existia no produto. A lista agora é uma função pura
    * (`dependenciasDoReenquadramento`) e o gesto do operador é soberano.
+   *
+   * P4i (achado ALTO #2 da rodada 8): o tamanho do pane entra QUANTIZADO —
+   * 2 px de resize devolviam o zoom do teto (1,8) ao enquadramento (0,849) nas
+   * quatro larguras de desktop. Ver `reenquadramento-automatico.ts`.
    */
   useReenquadramentoAutomatico({
     nodesInitialized,
     assinaturaDoFiltro,
     larguraDoPane,
     alturaDoPane,
+    colunasDoLayout,
     enquadrar,
     alvo,
   });
@@ -701,17 +716,30 @@ function BarraDoGrafo({
   );
 }
 
-/** Fallback acessível: lista topológica navegável por teclado (spec §7.2). */
+/**
+ * Fallback acessível: lista topológica navegável por teclado (spec §7.2).
+ *
+ * Rodada 10 (achado ALTO 3): passou a carregar **as cinco camadas**, e não só
+ * a sucessão. `data-lb-tarefa`, `data-lb-titulo` e `data-lb-camada` existem
+ * para a guarda de navegador casar linha a linha o que o canvas DESENHA com o
+ * que esta lista DIZ — sem parsear frase (é a mesma disciplina do
+ * `data-lb-linha` da P5). O `aria-label` do cartão do canvas começa pelo
+ * título, e a guarda confere que as duas superfícies nomeiam a mesma tarefa.
+ */
 function AccessibleGraphList({
   tasks,
   sourceByKind,
   depths,
+  arestas,
+  camadasAtivas,
   selectedTaskId,
   onSelectTask,
 }: {
   tasks: Task[];
   sourceByKind: Map<string, Source>;
   depths: Map<string, number>;
+  arestas: readonly ArestaVisual[];
+  camadasAtivas: ReadonlySet<CamadaGrafo>;
   selectedTaskId: string | null;
   onSelectTask: (id: string | null) => void;
 }): JSX.Element {
@@ -732,8 +760,14 @@ function AccessibleGraphList({
     >
       {ordered.map((t) => {
         const src = sourceOf(t);
+        const relacoes = relacoesAcessiveisDaTarefa({
+          taskId: t.id,
+          arestas,
+          tituloDe: titleOf,
+          camadasAtivas,
+        });
         return (
-          <li key={t.id}>
+          <li key={t.id} data-lb-tarefa={t.id} data-lb-titulo={t.title}>
             <button
               type="button"
               onClick={() => onSelectTask(t.id)}
@@ -747,11 +781,21 @@ function AccessibleGraphList({
                 {t.title}
                 <StatusChip status={t.status} />
               </span>
-              <span className="text-xs text-bone-400">
-                predecessores: {t.predecessorIds.map(titleOf).join(", ") || "nenhum"}
-                {" · "}
-                sucessores: {t.successorIds.map(titleOf).join(", ") || "nenhum"}
-              </span>
+              {relacoes.length === 0 ? (
+                <span className="text-xs text-bone-400" data-lb-camada="nenhuma">
+                  sem ligação com outra tarefa
+                </span>
+              ) : (
+                relacoes.map((r) => (
+                  <span
+                    key={r.camada}
+                    data-lb-camada={r.camada}
+                    className="text-xs text-bone-400"
+                  >
+                    {r.rotulo}: {r.itens.join(", ")}
+                  </span>
+                ))
+              )}
             </button>
           </li>
         );
@@ -952,6 +996,23 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     [tasks, grafoV3.edges, criticoSet, selectedTaskId],
   );
 
+  /**
+   * As arestas que as camadas MARCADAS deixam passar — uma conta só, usada
+   * pelas quatro superfícies que precisam dela: o contrato publicado, o canvas,
+   * os rótulos de sinergia e a LISTA ACESSÍVEL.
+   *
+   * Rodada 13, achado MÉDIO 6: a lista acessível recebia `arestasVisuais` CRU,
+   * sem passar por `filtrarArestasPorCamada`. Com só "Sucessão" marcada, o
+   * canvas mostrava 4 arestas e a lista continuava anunciando correlação,
+   * sinergia, obsolescência e caminho crítico — quem lê por leitor de tela via
+   * um grafo que ninguém mais estava vendo. Três chamadas iguais e uma
+   * ausência: agora é uma chamada e nenhuma ausência possível.
+   */
+  const arestasDasCamadasAtivas = useMemo(
+    () => filtrarArestasPorCamada(arestasVisuais, camadasAtivas),
+    [arestasVisuais, camadasAtivas],
+  );
+
   const paramsDoLayout = useMemo(
     () => ({
       ids: tasks.map((t) => t.id),
@@ -1101,7 +1162,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
    */
   const fonteDoRotuloPx = Math.round(tipografiaDoCartao(zoomAtual).dadoPx * 4) / 4;
   const rotulos = useMemo(() => {
-    const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
+    const visiveis = arestasDasCamadasAtivas;
     const pedidos = visiveis.flatMap((a) => {
       const pontos = rotaPorAresta.get(a.id);
       if (!pontos || camadaBaseDeAresta(a) !== "sinergia" || typeof a.pesoPercent !== "number") {
@@ -1130,10 +1191,25 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             y1: (pane.altura - v.y) / v.zoom,
           }
         : undefined;
-    return colocarRotulos(pedidos, cartoes, { regiaoVisivel });
+    /*
+     * P4 rodada 13 (achado BAIXO 13, 2ª parte): o colocador desviava de
+     * CARTÕES e de outros rótulos — nunca de ARESTAS. Como o candidato nasce
+     * SOBRE a polilinha da própria aresta, o "50%" da sinergia era desenhado
+     * em cima do próprio traço tracejado, com o tracejado atravessando os
+     * dígitos. Agora ele sai de LADO (perpendicular ao traço, por
+     * `deslocamento`) e recusa lugar que encoste em QUALQUER aresta desenhada
+     * — inclusive a dele.
+     */
+    const tracosNaTela = arestasDasCamadasAtivas
+      .map((a) => rotaPorAresta.get(a.id))
+      .filter((pontos): pontos is Ponto[] => pontos !== undefined);
+    return colocarRotulos(pedidos, cartoes, {
+      regiaoVisivel,
+      arestas: tracosNaTela,
+      deslocamento: AFASTAMENTO_DO_ROTULO_MUNDO,
+    });
   }, [
-    arestasVisuais,
-    camadasAtivas,
+    arestasDasCamadasAtivas,
     rotaPorAresta,
     layout,
     nodeHEfetivo,
@@ -1142,13 +1218,77 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
     pane,
   ]);
 
+  /**
+   * O QUE O COMPONENTE DECLARA QUE VAI DESENHAR (terceiro lado da conferência).
+   *
+   * Rodada 11, achado ALTO 2 do crítico hostil: `return []` para UMA aresta
+   * dentro do `useMemo` de `edges` (uma linha) apagou do canvas a única
+   * dependência que entrava na meta, e os cinco portões ficaram verdes. A
+   * guarda de navegador só sabia perguntar *"toda aresta DESENHADA está na
+   * lista acessível?"* — nunca o contrário — e o piso dela era "cada papel tem
+   * ao menos 1 aresta", nunca uma contagem contra o dado. A própria saída
+   * imprimia `critico=1/1` em vez de `2/2` e chamava aquilo de sucesso.
+   *
+   * Este memo é o que o componente DECLARA que vai desenhar: sai de
+   * `arestasVisuais` filtrado pelas camadas ativas, e nunca passa pelo
+   * `useMemo` que monta as arestas do ReactFlow. Publicado num atributo
+   * (`data-lb-contrato-do-canvas`) pela mesma disciplina de `data-lb-tarefa`
+   * da lista acessível: a superfície de medição é do produto, não da guarda.
+   *
+   * ── E ELE NÃO É "O DADO" (achado ALTO 1 da rodada 13) ──────────────────
+   *
+   * A rodada 11 chamou este atributo de "o lado do DADO da comparação". Era
+   * falso, e o crítico provou: este memo e o `useMemo` de `edges` nascem os
+   * dois de `arestasVisuais`, a 16 linhas um do outro. Qualquer erro ACIMA
+   * daquela variável — trocar o conjunto de ids críticos que alimenta as
+   * arestas, por exemplo — era publicado aqui como "o dado" e depois
+   * confirmado pelo desenho, com a guarda imprimindo a mentira e chamando de
+   * sucesso.
+   *
+   * O DADO mora FORA do componente: `GET /api/grafo-bruto`
+   * (`core/prioritize/grafo-do-dia.ts`), que entrega as tarefas, as arestas
+   * declaradas e o resultado do CPM sem passar por aqui. A guarda deriva dali
+   * o universo esperado e compara par a par com o que o canvas pinta. Este
+   * contrato continua valendo como TERCEIRO lado — é ele que denuncia o
+   * componente declarar uma coisa e desenhar outra, e é dele que sai o
+   * `temRota`, que só o layout sabe.
+   */
+  const contratoDoCanvas = useMemo(() => {
+    const visiveis = arestasDasCamadasAtivas;
+    return JSON.stringify({
+      camadasAtivas: CAMADAS_TODAS.filter((c) => camadasAtivas.has(c)),
+      totalNoDado: arestasVisuais.length,
+      esperadas: visiveis.map((a) => ({
+        id: a.id,
+        origem: a.origem,
+        destino: a.destino,
+        camada: camadaBaseDeAresta(a),
+        critica: camadasAtivas.has("critico") && arestaEhCritica(a),
+        temRota: rotaPorAresta.has(a.id),
+      })),
+    });
+  }, [arestasVisuais, arestasDasCamadasAtivas, camadasAtivas, rotaPorAresta]);
+
   const edges = useMemo<Edge<V3EdgeData>[]>(() => {
-    const visiveis = filtrarArestasPorCamada(arestasVisuais, camadasAtivas);
+    const visiveis = arestasDasCamadasAtivas;
     const mapeadas = visiveis.flatMap((aresta) => {
       const pontos = rotaPorAresta.get(aresta.id);
       // Sem rota = uma das pontas não está no layout (a RPC pode entregar
       // ponta solta). Não desenha — nunca inventa geometria.
       if (!pontos) return [];
+      /**
+       * Esmaecida = as DUAS pontas estão fora do filtro de fontes (§5).
+       *
+       * Rodada 13, achado MÉDIO 7: isto virava `style: { opacity: … }` no
+       * objeto da aresta — e no ReactFlow 11 o `EdgeWrapper` NÃO aplica `style`
+       * ao `<g>`; ele repassa a prop ao componente customizado, e `V3Edge`
+       * desestruturava só `{ data }`. Provado: `opacity: 0` em todas as
+       * arestas não mudava um pixel da tela, e `getComputedStyle` devolvia
+       * `style = null`. Ou seja: aresta de fonte desligada NUNCA esmaeceu, e
+       * quem escrevesse `style` numa aresta daqui para frente escreveria no
+       * vazio. Agora o esmaecimento anda por `data` (o canal que o componente
+       * de fato lê) e é aplicado no `<g>` por `aresta-svg.tsx`.
+       */
       const dimmed =
         isOut(sourceById.get(byId.get(aresta.origem)?.sourceId ?? "")?.kind ?? "calendar") &&
         isOut(sourceById.get(byId.get(aresta.destino)?.sourceId ?? "")?.kind ?? "calendar");
@@ -1168,13 +1308,13 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
           // testada): a obsolescência sobe acima dos nós para o ❌ nunca
           // depender só do recuo para aparecer.
           zIndex: zIndexDaAresta(camada),
-          style: { opacity: dimmed ? 0.15 : 1 },
           data: {
             id: aresta.id,
             origem: aresta.origem,
             destino: aresta.destino,
             camada,
             critica,
+            esmaecida: dimmed,
             destacadaPeloSelecionado: aresta.destacadaPeloSelecionado,
             pesoPercent: aresta.pesoPercent,
             pontos,
@@ -1195,7 +1335,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
       return 1;
     };
     return [...mapeadas].sort((a, b) => prioridade(a) - prioridade(b));
-  }, [arestasVisuais, camadasAtivas, byId, sourceById, isOut, rotaPorAresta, layout, rotulos]);
+  }, [arestasDasCamadasAtivas, camadasAtivas, byId, sourceById, isOut, rotaPorAresta, layout, rotulos]);
 
   /**
    * P4g (achado BAIXO #15): Enter abre `/tarefa/[id]`. A navegação é injetada
@@ -1213,15 +1353,50 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
   );
 
   if (accessibleFallback) {
+    /*
+     * ── A LISTA TAMBÉM TEM O PAINEL "CAMADAS" (achado MÉDIO 6, rodada 13) ──
+     *
+     * Este ramo devolvia SÓ a `<ol>`. A barra do grafo ficava de fora, e com
+     * ela o pill "Camadas" — o único controle que a peça nomeia. Quem troca o
+     * canvas pela lista (é o caminho de quem não usa mouse) perdia o controle
+     * das camadas por inteiro: não dava para desligar nenhuma, e as que
+     * estivessem desligadas continuavam sendo anunciadas, porque a lista
+     * recebia as arestas CRUAS.
+     *
+     * Agora a barra existe nos dois modos. Sem os botões de zoom e
+     * enquadramento, de propósito: eles mexem no viewport de um canvas que
+     * não está na tela, e um controle que não faz nada é pior que um controle
+     * ausente. Sem `ReactFlowProvider` também de propósito: nem a legenda nem
+     * o painel de camadas leem estado da lib — só os controles de viewport
+     * leem, e eles não vêm.
+     */
     return (
       <GraphSelectionContext.Provider value={selectionValue}>
-        <AccessibleGraphList
-          tasks={tasks}
-          sourceByKind={sourceByKind}
-          depths={depths}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={handleSelect}
-        />
+        <div
+          className="relative flex h-full w-full flex-col bg-navy-950"
+          data-lb-contrato-do-canvas={contratoDoCanvas}
+          data-lb-modo="lista"
+        >
+          <div className={CLASSES_DA_BARRA_DO_GRAFO}>
+            <GraphLegend fecharSinal={fecharPaineisSinal} />
+            <LayerTogglePanel
+              ativas={camadasAtivas}
+              alternar={camadas.alternar}
+              fecharSinal={fecharPaineisSinal}
+            />
+          </div>
+          <div className="min-h-0 flex-1">
+            <AccessibleGraphList
+              tasks={tasks}
+              sourceByKind={sourceByKind}
+              depths={depths}
+              arestas={arestasDasCamadasAtivas}
+              camadasAtivas={camadasAtivas}
+              selectedTaskId={selectedTaskId}
+              onSelectTask={handleSelect}
+            />
+          </div>
+        </div>
       </GraphSelectionContext.Provider>
     );
   }
@@ -1234,6 +1409,8 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
         className="relative flex h-full w-full flex-col bg-navy-950"
         role="application"
         aria-label="Grafo de dependências de tarefas"
+        data-lb-contrato-do-canvas={contratoDoCanvas}
+        data-lb-modo="canvas"
       >
         <ReactFlowProvider>
           {/* P4g (decisão D9 + achado BAIXO #14): a barra de controle vem
@@ -1248,6 +1425,7 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
             fecharPaineisSinal={fecharPaineisSinal}
             larguraDoPane={pane.largura}
             alturaDoPane={pane.altura}
+            colunasDoLayout={maxColunas}
             onAltura={aoMedirAltura}
             onZoom={aoMudarZoom}
             camadas={camadas}
@@ -1267,6 +1445,16 @@ export function DependencyGraph(props: DependencyGraphProps): JSX.Element {
               edges={edges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
+              /*
+               * O CARTÃO NÃO SE ARRASTA, E ISSO É CONTRATO (achado BAIXO 13,
+               * 3ª parte): a posição de cada cartão é DERIVADA do grafo
+               * (`layout-do-grafo.ts` — rank por caminho mais longo, coluna
+               * estável), nunca do mouse. Arrastar um cartão criaria um
+               * estado de layout que ninguém guarda e que o próximo
+               * reenquadramento jogaria fora. O único arrasto que existe
+               * aqui é o PAN do fundo, e a guarda de navegador mede os dois
+               * na mesma medida: o cartão fica onde está, o fundo anda.
+               */
               nodesDraggable={false}
               nodesConnectable={false}
               // P4f (decisão D9): cada cartão vale UMA parada de Tab. O wrapper

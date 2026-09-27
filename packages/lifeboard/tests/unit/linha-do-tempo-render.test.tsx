@@ -57,9 +57,11 @@ function tarefa(parcial: Partial<LinhaDoTempoTarefaRow> = {}): LinhaDoTempoTaref
     critico: false,
     folga: 0,
     semDuracao: false,
+    // P5h (rodada 10): a estimativa DIGITADA, que a tela agora cita em vez de
+    // reinventar por `diffDias`. 3 dias = `inicio` → `fim` do default acima.
+    estimativaDias: 3,
     predecessores: [],
     sucessores: [],
-    fonteKind: "calendar",
     status: "open",
     foraDoCpm: false,
     marco: false,
@@ -77,7 +79,6 @@ function props(): LinhaDoTempoProps {
   return {
     hoje: HOJE,
     goalId: "G",
-    duracaoTotal: 12,
     grupos: [
       {
         titulo: "Assuntos",
@@ -103,7 +104,6 @@ function props(): LinhaDoTempoProps {
             fimComFolga: "2026-09-21",
             folga: 3,
             predecessores: ["A"],
-            fonteKind: "drive",
           }),
         ],
       },
@@ -144,7 +144,29 @@ describe("LinhaDoTempoView — render", () => {
   it("assunto abre o painel de detalhe, e a URL da mudança é a ação de lá", () => {
     const html = renderToStaticMarkup(<LinhaDoTempoView {...props()} />);
     expect(html).toContain('aria-haspopup="dialog"');
-    expect(html).toContain('aria-label="Um assunto aberto — assunto em org/repo"');
+    /*
+      Rodada 11 (achado MÉDIO 4): o rótulo era só `título — assunto em repo`,
+      e as barras são todas `aria-hidden` — mergeado, aberto, data podre e
+      datas invertidas chegavam a um leitor de tela com a MESMA frase. Estado
+      e período por extenso agora.
+    */
+    /*
+      Rodada 12 (achado ALTO 3): este assunto do cenário cai ANTES da janela
+      desenhada — o canvas o desenha como um "◀" de 9px, `aria-hidden`. A
+      cláusula do lado da janela entra no rótulo, e o PERÍODO continua ali uma
+      única vez (a cláusula não o repete — repetir fazia o leitor de tela
+      dizer a mesma data duas vezes).
+    */
+    expect(html).toContain(
+      'aria-label="Um assunto aberto — assunto em org/repo; aberto; 01/09/2026 → em aberto;'
+        + ' fora da janela do tempo (antes do início da janela desenhada)"',
+    );
+    /* A data chega ao TOQUE: texto VISÍVEL na coluna, não só no `title`. */
+    expect(html).toContain('data-lb-fora-da-janela="antes"');
+    expect(html).toContain("◀ começa 01/09/2026");
+    /* E o período aparece uma vez só no rótulo (nunca duas). */
+    const rotulo = /aria-label="Um assunto aberto[^"]*"/.exec(html)?.[0] ?? "";
+    expect(rotulo.match(/01\/09\/2026/g)).toHaveLength(1);
     const painel = renderToStaticMarkup(
       <PainelDetalheAssunto linha={assunto()} onFechar={() => {}} />,
     );
@@ -157,7 +179,6 @@ describe("LinhaDoTempoView — render", () => {
     const vazio: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         { titulo: "Tarefas", linhas: [] },
@@ -185,7 +206,6 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -212,7 +232,6 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -237,11 +256,18 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
     expect(html).toContain("lb-tl-ponto-concluida");
   });
 
-  it("aberta sem estimativa: contorno tracejado + rótulo 'sem data' (nunca barra sólida)", () => {
+  /**
+   * Rodada 11 (achado MÉDIO 3): o nome deste teste era "contorno tracejado +
+   * rótulo 'sem data'" — e ele continuava VERDE depois de a barra tracejada
+   * deixar de existir, porque procurava as strings "sem data" e
+   * "border-dashed" no HTML inteiro (as duas estão na legenda). Um teste que
+   * passa medindo outra coisa é pior que um teste ausente. Agora ele mira o
+   * contrato novo: sem duração, nada é desenhado na grade.
+   */
+  it("aberta sem estimativa: nenhuma barra na grade, e o motivo escrito na linha", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -258,20 +284,19 @@ describe("LinhaDoTempoView — tarefa fora do CPM sem duração/data (achado ALT
       ],
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
-    expect(html).toContain("sem data");
-    expect(html).toContain("border-dashed");
-    // P5f (rodada 5): a asserção mira a BARRA (a sequência de classes dela),
-    // não o HTML inteiro — a legenda ganhou uma amostra translúcida
-    // (`bg-state-open/30`) para "início não definido", e o que este teste
-    // precisa provar continua sendo que a BARRA não é sólida.
+    expect(html).not.toContain('data-lb-barra="tarefa"');
     expect(html).not.toContain("rounded-sm bg-state-open");
+    // O que substitui a barra: a etiqueta de texto na coluna de rótulos.
+    expect(html).toContain("lb-tl-fora-da-grade");
+    expect(html).toContain("sem duração");
+    // E o rótulo acessível diz a mesma coisa, sem depender de cor nem forma.
+    expect(html).toContain("sem duração — fora da grade do tempo");
   });
 
   it("atrasada: contorno vermelho + rótulo 'atrasada' + marcador em dueDate", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -304,7 +329,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: "G",
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -321,7 +345,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -338,7 +361,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -365,7 +387,6 @@ describe("LinhaDoTempoView — marco e datas inconsistentes (achado ALTO #8)", (
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -385,7 +406,6 @@ describe("LinhaDoTempoView — fechado sem merge e legenda (achado ALTO #9)", ()
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -417,6 +437,29 @@ describe("LinhaDoTempoView — fechado sem merge e legenda (achado ALTO #9)", ()
       expect(html).toContain(rotulo);
     }
   });
+
+  /**
+   * Rodada 11 (achado BAIXO 7): com o quadro vazio a tela abria com os 13
+   * símbolos da legenda decodificando um gráfico que não existia, e sem
+   * nenhuma saída. É o primeiro contato de um quadro novo.
+   */
+  it("quadro vazio: sem legenda de símbolos, e com caminho para sair", () => {
+    const vazio: LinhaDoTempoProps = {
+      hoje: HOJE,
+      goalId: null,
+      grupos: [
+        { titulo: "Assuntos", linhas: [] },
+        { titulo: "Tarefas", linhas: [] },
+      ],
+    };
+    const html = renderToStaticMarkup(<LinhaDoTempoView {...vazio} />);
+    expect(html).not.toContain("lb-tl-legenda");
+    expect(html).toContain("Nada para mostrar na linha do tempo ainda.");
+    expect(html).toContain('href="/frentes"');
+    expect(html).toContain('href="/"');
+    // E a legenda continua existindo quando HÁ o que decodificar.
+    expect(renderToStaticMarkup(<LinhaDoTempoView {...props()} />)).toContain("lb-tl-legenda");
+  });
 });
 
 /** Achado ALTO #5/#6/#17: conector em conflito, cotovelo vertical e ordem destacado > crítico. */
@@ -432,7 +475,6 @@ describe("LinhaDoTempoView — conectores (achados ALTO #5, #6, #17)", () => {
     return {
       hoje: HOJE,
       goalId: "B",
-      duracaoTotal: 5,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -534,7 +576,6 @@ describe("LinhaDoTempoView — acessibilidade (achado ALTO #11)", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         { titulo: "Tarefas", linhas: [tarefa({ id: "SOLTA", titulo: "Tarefa solta" })] },
@@ -577,7 +618,6 @@ describe("LinhaDoTempoView — atrasada é aditiva sobre crítico (achado ALTO #
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: "G",
-      duracaoTotal: 5,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -611,7 +651,6 @@ describe("LinhaDoTempoView — marcador de prazo fora da barra vira seta (achado
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -646,7 +685,6 @@ describe("LinhaDoTempoView — sub-dia vira barra curta, não diamante (achado B
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -686,7 +724,6 @@ describe("LinhaDoTempoView — conflito exige datas reais dos dois lados (achado
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -777,7 +814,6 @@ describe("LinhaDoTempoView — escala do auto sempre tem rótulos (achado CRÍTI
     return {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -878,7 +914,6 @@ describe("LinhaDoTempoView — rodada 5", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         {
           titulo: "Assuntos",
@@ -919,11 +954,18 @@ describe("LinhaDoTempoView — rodada 5", () => {
     expect(html).toContain("◀ ▶");
   });
 
-  it("A9: fora do CPM sem início real — barra tracejada translúcida e 'início não definido'", () => {
+  /**
+   * Rodada 11 (achado MÉDIO 3): este caso NÃO desenha mais barra nenhuma. A
+   * rodada 5 tinha dado a ele uma barra tracejada translúcida — honesta no
+   * preenchimento, mentirosa na geometria: o `left` era a faixa do "Hoje"
+   * (uma data que ninguém informou) e o comprimento, uma duração real. A
+   * diferença para uma barra de verdade era uma borda de 2px, que some no
+   * piso de largura a 390px. Agora a linha sai da grade e diz por quê.
+   */
+  it("A9: fora do CPM sem início real — nenhuma barra, e o motivo por extenso na linha", () => {
     const p: LinhaDoTempoProps = {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 0,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {
@@ -944,10 +986,14 @@ describe("LinhaDoTempoView — rodada 5", () => {
       ],
     };
     const html = renderToStaticMarkup(<LinhaDoTempoView {...p} />);
-    expect(html).toContain("border-dashed");
-    expect(html).toContain("bg-state-open/30");
-    expect(html).toContain("início não definido — estimativa de 3 dias");
+    // Nenhuma barra: nem sólida, nem translúcida, nem tracejada.
+    expect(html).not.toContain('data-lb-barra="tarefa"');
+    expect(html).not.toContain("bg-state-open/30");
     expect(html).not.toContain("rounded-sm bg-state-open ");
+    // E a linha diz o que tem e o que não tem — em texto, nunca só em cor.
+    expect(html).toContain("lb-tl-fora-da-grade");
+    expect(html).toContain("sem início");
+    expect(html).toContain("início não definido — estimativa de 3 dias");
   });
 
   it("A12: a tela tem o botão 'Hoje' (e o atalho declarado no title)", () => {
@@ -982,7 +1028,6 @@ describe("LinhaDoTempoView — rodada 6", () => {
     return {
       hoje: HOJE,
       goalId: null,
-      duracaoTotal: 400,
       grupos: [
         { titulo: "Assuntos", linhas: [] },
         {

@@ -366,7 +366,7 @@ export function TaskNode({ data, selected }: TaskNodeProps): JSX.Element {
                 <span
                   title="fora do caminho da meta"
                   aria-label="fora do caminho da meta"
-                  className="ml-1 inline-flex items-center align-text-bottom text-bone-500"
+                  className="ml-1 inline-flex items-center align-text-bottom text-bone-400"
                 >
                   <CircleSlash2 size={13} aria-hidden="true" />
                 </span>

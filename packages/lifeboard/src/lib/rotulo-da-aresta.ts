@@ -40,6 +40,24 @@ export interface PedidoDeRotulo {
  */
 export const FRACOES_CANDIDATAS = [0.5, 0.38, 0.62, 0.27, 0.73, 0.18, 0.82] as const;
 
+/**
+ * Afastamento perpendicular do rótulo em relação ao próprio traço, em px de
+ * MUNDO (achado BAIXO 13 do crítico hostil, rodada 13).
+ *
+ * O que ele viu: *"o rótulo '50%' da sinergia é desenhado em cima do próprio
+ * traço tracejado (o colocador desvia de cartões, não de arestas)"*. E era
+ * estrutural: o candidato nasce de `pontoNaFracao`, que é um ponto SOBRE a
+ * polilinha — então o texto ficava sempre em cima da linha que ele descreve,
+ * com o tracejado atravessando os dígitos.
+ *
+ * O valor é o AR ALÉM da caixa do texto, não a distância total: o colocador
+ * soma `0,8 × altura` (a parte da caixa que fica acima da linha de base, que é
+ * como o `<text>` do SVG se desenha) para que os DOIS lados do traço fiquem
+ * livres — um número fixo de distância total serviria para um lado e deixaria
+ * o outro encostado, e o colocador precisa dos dois para ter alternativa.
+ */
+export const AFASTAMENTO_DO_ROTULO_MUNDO = 5;
+
 /** Ponto a uma fração do comprimento total da polilinha. */
 export function pontoNaFracao(pontos: readonly Ponto[], fracao: number): Ponto {
   const lista = pontos.length > 0 ? pontos : [{ x: 0, y: 0 }];
@@ -62,6 +80,34 @@ export function pontoNaFracao(pontos: readonly Ponto[], fracao: number): Ponto {
     andado += comprimento;
   }
   return { ...lista[lista.length - 1]! };
+}
+
+/**
+ * A NORMAL (unitária) do segmento em que a fração cai. É por ela que o rótulo
+ * sai de cima do próprio traço, para o lado — ver `AFASTAMENTO_DO_ROTULO_MUNDO`.
+ * Polilinha degenerada devolve `{x:0,y:-1}` (para cima), que é um lado válido.
+ */
+export function normalNaFracao(pontos: readonly Ponto[], fracao: number): Ponto {
+  const lista = pontos.length > 1 ? pontos : [];
+  if (lista.length === 0) return { x: 0, y: -1 };
+  let total = 0;
+  for (let i = 0; i < lista.length - 1; i++) {
+    total += Math.hypot(lista[i + 1]!.x - lista[i]!.x, lista[i + 1]!.y - lista[i]!.y);
+  }
+  if (total === 0) return { x: 0, y: -1 };
+  const alvo = total * Math.min(Math.max(fracao, 0), 1);
+  let andado = 0;
+  for (let i = 0; i < lista.length - 1; i++) {
+    const a = lista[i]!;
+    const b = lista[i + 1]!;
+    const comprimento = Math.hypot(b.x - a.x, b.y - a.y);
+    if (comprimento === 0) continue;
+    if (andado + comprimento >= alvo || i === lista.length - 2) {
+      return { x: -(b.y - a.y) / comprimento, y: (b.x - a.x) / comprimento };
+    }
+    andado += comprimento;
+  }
+  return { x: 0, y: -1 };
 }
 
 /**
@@ -94,6 +140,51 @@ function inflado(r: Retangulo, folga: number): Retangulo {
   return { x0: r.x0 - folga, y0: r.y0 - folga, x1: r.x1 + folga, y1: r.y1 + folga };
 }
 
+/**
+ * O segmento `a→b` encosta no retângulo? Recorte de Liang–Barsky, sem
+ * dependência nenhuma: é o que permite ao colocador recusar um lugar por causa
+ * de uma ARESTA (uma polilinha), e não só por causa de um cartão.
+ */
+export function segmentoCruzaRetangulo(a: Ponto, b: Ponto, r: Retangulo): boolean {
+  const dentro = (p: Ponto): boolean => p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1;
+  if (dentro(a) || dentro(b)) return true;
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const testes: [number, number][] = [
+    [-dx, a.x - r.x0],
+    [dx, r.x1 - a.x],
+    [-dy, a.y - r.y0],
+    [dy, r.y1 - a.y],
+  ];
+  for (const [p, q] of testes) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+  }
+  return t0 <= t1;
+}
+
+/** Alguma aresta (polilinha) encosta neste retângulo? */
+function algumaArestaCruza(caixa: Retangulo, arestas: readonly (readonly Ponto[])[]): boolean {
+  for (const pontos of arestas) {
+    for (let i = 0; i + 1 < pontos.length; i += 1) {
+      if (segmentoCruzaRetangulo(pontos[i]!, pontos[i + 1]!, caixa)) return true;
+    }
+  }
+  return false;
+}
+
 function contido(a: Retangulo, b: Retangulo): boolean {
   return a.x0 >= b.x0 && a.y0 >= b.y0 && a.x1 <= b.x1 && a.y1 <= b.y1;
 }
@@ -116,9 +207,24 @@ export function colocarRotulos(
     regiaoVisivel?: Retangulo;
     /** Ar mínimo em volta do rótulo, em px de mundo. */
     folga?: number;
+    /**
+     * As polilinhas das arestas desenhadas, em px de mundo. Candidato que
+     * encoste em qualquer uma é recusado — inclusive na aresta do próprio
+     * rótulo (achado BAIXO 13: o "50%" era escrito em cima do próprio traço
+     * tracejado). Ausente = a régua antiga, que só conhecia cartões.
+     */
+    arestas?: readonly (readonly Ponto[])[];
+    /**
+     * Quanto o rótulo sai de LADO, perpendicular ao traço, em px de mundo.
+     * 0 (o default) mantém o comportamento de sempre: o texto no ponto do
+     * caminho. Quem desenha o grafo passa `AFASTAMENTO_DO_ROTULO_MUNDO`.
+     */
+    deslocamento?: number;
   } = {},
 ): Map<string, Ponto | null> {
   const folga = opcoes.folga ?? FOLGA_DO_ROTULO_MUNDO;
+  const arestas = opcoes.arestas ?? [];
+  const deslocamento = opcoes.deslocamento ?? 0;
   const saida = new Map<string, Ponto | null>();
   const ocupadas: Retangulo[] = [];
   const ordenados = [...pedidos].sort((a, b) => a.id.localeCompare(b.id));
@@ -130,15 +236,32 @@ export function colocarRotulos(
     const passadas = opcoes.regiaoVisivel ? [opcoes.regiaoVisivel, undefined] : [undefined];
     for (const regiao of passadas) {
       for (const fracao of FRACOES_CANDIDATAS) {
-        const ponto = pontoNaFracao(pedido.pontos, fracao);
-        const caixa = caixaDoRotulo(ponto, pedido.largura, pedido.altura);
-        const comFolga = inflado(caixa, folga);
-        if (regiao && !contido(caixa, regiao)) continue;
-        if (cartoes.some((c) => colidem(comFolga, c))) continue;
-        if (ocupadas.some((o) => colidem(comFolga, o))) continue;
-        escolhido = ponto;
-        caixaEscolhida = caixa;
-        break;
+        const naLinha = pontoNaFracao(pedido.pontos, fracao);
+        const normal = normalNaFracao(pedido.pontos, fracao);
+        // Os dois lados do traço, sempre na mesma ordem (determinismo), e o
+        // ponto sobre a linha só quando não há afastamento pedido.
+        // Ar pedido + a meia-caixa alta do texto: é o que deixa os DOIS lados
+        // do traço livres (ver `AFASTAMENTO_DO_ROTULO_MUNDO`).
+        const afastamento = deslocamento > 0 ? deslocamento + pedido.altura * 0.8 : 0;
+        const lados: Ponto[] =
+          afastamento > 0
+            ? [
+                { x: naLinha.x + normal.x * afastamento, y: naLinha.y + normal.y * afastamento },
+                { x: naLinha.x - normal.x * afastamento, y: naLinha.y - normal.y * afastamento },
+              ]
+            : [naLinha];
+        for (const ponto of lados) {
+          const caixa = caixaDoRotulo(ponto, pedido.largura, pedido.altura);
+          const comFolga = inflado(caixa, folga);
+          if (regiao && !contido(caixa, regiao)) continue;
+          if (cartoes.some((c) => colidem(comFolga, c))) continue;
+          if (ocupadas.some((o) => colidem(comFolga, o))) continue;
+          if (algumaArestaCruza(comFolga, arestas)) continue;
+          escolhido = ponto;
+          caixaEscolhida = caixa;
+          break;
+        }
+        if (escolhido) break;
       }
       if (escolhido) break;
     }
