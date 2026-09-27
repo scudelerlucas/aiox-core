@@ -25,6 +25,33 @@ export function hojeNoFusoDoOperador(agora: Date = new Date()): string {
 }
 
 /**
+ * [ALTO 2, rodada 13] `AAAA-MM-DD` — o DIA DE CALENDÁRIO de um instante ISO no
+ * fuso do operador. É a conversão única: quem precisa saber "em que dia isto
+ * aconteceu" chama daqui, nunca `iso.slice(0, 10)`.
+ *
+ * Por que `slice` estava errado: `slice(0, 10)` de `2026-09-22T02:00:00.000Z`
+ * devolve `2026-09-22` — a data em UTC. Em America/São Paulo (UTC−3) aquele
+ * instante é 21/09 às 23h. O "hoje" da tela já vinha de
+ * `hojeNoFusoDoOperador` (São Paulo); as datas dos itens vinham do corte em
+ * UTC. Duas pontas da mesma tela, dois calendários: um PR criado às 23h de
+ * 21/09 era desenhado começando em 22/09, à direita da faixa do "Hoje".
+ * Medido em `painel_frentes_prs` (865 linhas de produção): 121 têm dia de
+ * criação diferente entre UTC e São Paulo (14,0%) e 111, dia de merge.
+ *
+ * `AAAA-MM-DD` sem hora entra e sai IGUAL: não há instante para converter, e
+ * convertê-lo seria inventar um fuso que ninguém declarou (`2026-09-22` lido
+ * como meia-noite UTC e convertido para São Paulo viraria 21/09 — mudar um
+ * dia de calendário que já estava dito). ISO ilegível devolve `null` e o
+ * chamador decide; esta função nunca lança.
+ */
+export function diaNoFusoDoOperador(iso: string): string | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("sv", { timeZone: FUSO_DO_OPERADOR });
+}
+
+/**
  * `dd/mm/aaaa` de um instante ISO, no fuso do operador — para NOMEAR coisas
  * ("a nota de Claude de 12/07/2026"), onde "há 67 dias" não distingue duas
  * linhas na mesma semana. `pt-BR` dá a ordem dia/mês/ano com zeros à
