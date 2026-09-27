@@ -50,6 +50,7 @@ export async function GET(): Promise<Response> {
         peso: e.peso,
       })),
       critico: [...cpm.critico],
+      janelas: Object.fromEntries(cpm.janelas),
       emCiclo: [...cpm.emCiclo],
       goalId,
       duracaoTotal: cpm.duracaoTotal,

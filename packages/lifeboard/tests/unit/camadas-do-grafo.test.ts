@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import {
   arestaEhCritica,
   camadaBaseDeAresta,
@@ -42,6 +43,10 @@ const C = task("C");
 const D = task("D");
 const E = task("E");
 const TASKS = [A, B, C, D, E];
+const JANELAS_AB = {
+  A: { es: 0, ef: 1, ls: 0, lf: 1, folga: 0, duracao: 1 },
+  B: { es: 1, ef: 2, ls: 1, lf: 2, folga: 0, duracao: 1 },
+};
 
 const EDGES: TaskEdge[] = [
   edge({ origem: "C", destino: "D", tipo: "predecessor" }),
@@ -51,6 +56,27 @@ const EDGES: TaskEdge[] = [
 ];
 
 describe("construirArestasVisuais", () => {
+  it("não marca como crítica uma ligação com folga entre duas tarefas críticas", () => {
+    const tasks = [
+      task("A", { estimativaDias: 2, successorIds: ["B", "C"] }),
+      task("B", { estimativaDias: 5, predecessorIds: ["A"], successorIds: ["C"] }),
+      task("C", { estimativaDias: 1, predecessorIds: ["A", "B"], isGoal: true }),
+    ];
+    const cpm = caminhoCritico(tasks, []);
+    const visuais = construirArestasVisuais({
+      tasks,
+      edges: [],
+      criticoIds: cpm.critico,
+      janelas: cpm.janelas,
+    });
+
+    expect([...cpm.critico].sort()).toEqual(["A", "B", "C"]);
+    expect(cpm.janelas.get("C")!.es - cpm.janelas.get("A")!.ef).toBe(5);
+    expect(visuais.find((v) => v.id === "sucessao:A->B")?.camadas).toContain("critico");
+    expect(visuais.find((v) => v.id === "sucessao:B->C")?.camadas).toContain("critico");
+    expect(visuais.find((v) => v.id === "sucessao:A->C")?.camadas).toEqual(["sucessao"]);
+  });
+
   it("une predecessor por array E por TaskEdge, sem duplicar", () => {
     const visuais = construirArestasVisuais({ tasks: TASKS, edges: EDGES, criticoIds: [] });
     const sucessao = visuais.filter((v) => v.tipoOriginal === "predecessor");
@@ -63,6 +89,7 @@ describe("construirArestasVisuais", () => {
       tasks: TASKS,
       edges: EDGES,
       criticoIds: new Set(["A", "B"]),
+      janelas: JANELAS_AB,
     });
     const ab = visuais.find((v) => v.origem === "A" && v.destino === "B");
     const cd = visuais.find((v) => v.origem === "C" && v.destino === "D");
@@ -117,6 +144,7 @@ describe("filtrarArestasPorCamada — o toggle", () => {
     tasks: TASKS,
     edges: EDGES,
     criticoIds: new Set(["A", "B"]),
+    janelas: JANELAS_AB,
   });
 
   it("default (sucessão + caminho crítico) mostra as 2 sucessões e nada mais", () => {
