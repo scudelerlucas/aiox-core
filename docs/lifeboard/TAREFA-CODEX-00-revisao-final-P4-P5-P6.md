@@ -52,7 +52,7 @@ Para **cada** um dos três PRs, nesta ordem — #45, #43, #44 (do mais limpo ao 
 - Não reescrever histórico das branches (há commits com nome de modelo no rodapé; só o operador manda limpar).
 - Não subir mais de **um** Chromium por vez: cada guarda sobe um servidor próprio.
 - Não tocar em Vercel, Supabase de produção, nem aplicar migration.
-- Não começar a Tarefa 01 antes de o Lucas ter decidido o destino dos três PRs.
+- ~~Não começar a Tarefa 01 antes de o Lucas ter decidido o destino dos três PRs.~~ *(histórico: valia antes de 25/09; a Tarefa 01 já estava feita quando esta tarefa rodou)*
 
 ## PRONTO QUANDO
 
