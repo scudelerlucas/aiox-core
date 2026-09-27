@@ -33,6 +33,30 @@ import { useRef, type KeyboardEvent } from "react";
  * dito por `aria-busy`/`aria-disabled` (o leitor de tela sabe; o gerenciador
  * de foco não se mete) e o duplo envio é recusado no handler.
  *
+ * v6 (achado BAIXO #2, rodada 12): as setas moviam o foco E NADA MAIS — nem
+ * selecionavam (v3, de propósito: uma requisição por tecla), nem diziam que
+ * faltava o Enter. Quem usa leitor de tela percorria as quatro opções ouvindo
+ * "não marcado, não marcado, não marcado" sem nenhuma pista de como marcar.
+ *
+ * O padrão WAI-ARIA de `radiogroup` tem DUAS formas: seleção que segue o foco
+ * e seleção adiada. A adiada é a prescrita justamente quando escolher dispara
+ * uma ação — que é o caso aqui (`StatusForm` grava no instante do `aoMudar`).
+ * O que faltava não era a seleção pelas setas: era a CONVENÇÃO DITA. Agora:
+ *
+ *  - toda opção NÃO selecionada carrega `aria-describedby` apontando para uma
+ *    frase do grupo — "Aperte Enter ou Espaço para escolher esta opção." —,
+ *    que o leitor de tela lê ao pousar nela pela seta;
+ *  - o grupo inteiro descreve a navegação (`aria-describedby` no
+ *    `role="radiogroup"`), lido uma vez na entrada;
+ *  - a opção em foco ganha um anel visível (`focus-visible:ring-2`), para
+ *    quem enxerga ver onde está antes de comitar.
+ *
+ * O que continua NÃO acontecendo, e é decisão, não esquecimento: comitar no
+ * `blur`. Tab para fora do grupo gravaria um valor que o operador só
+ * percorreu — uma escrita que ninguém pediu, disparada por sair da tela. A
+ * régua da peça é "nenhum caminho grava ou apaga em silêncio"; comitar no
+ * blur seria criar um.
+ *
  * v4 (achado MÉDIO #2, rodada 4 do crítico): `valorAtual` aceita `null` — o
  * estado LEGÍTIMO de "nada escolhido ainda" (`AtomosForm` sem átomos
  * declarados, achado MÉDIO #2), não só um bug defensivo. Com `null`, todo
@@ -97,6 +121,18 @@ export function ControleSegmentado<T extends string | number>({
 }: ControleSegmentadoProps<T>): JSX.Element {
   const botoesRef = useRef<Map<number, HTMLButtonElement>>(new Map());
   const indiceAtual = valorAtual === null ? -1 : opcoes.findIndex((op) => op.valor === valorAtual);
+  /**
+   * [BAIXO #2, rodada 12] O id da frase que ensina a comitar. Derivado do
+   * rótulo do grupo (que já é único na página: "Status da tarefa",
+   * "Opcionalidade", "Esforço", "Custo", "Tipo de relação") — nada de
+   * `useId`, que mudaria entre servidor e cliente nas versões em que ele não
+   * é estável, e nada de contador de módulo, que muda com a ordem de render.
+   */
+  const idDaDica = `dica-segmentado-${rotuloGrupo
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")}`;
 
   /**
    * Só move o FOCO do navegador para o botão alvo — nunca chama `aoMudar`.
@@ -141,8 +177,15 @@ export function ControleSegmentado<T extends string | number>({
     <div
       role="radiogroup"
       aria-label={rotuloGrupo}
+      // [BAIXO #2, rodada 12] a convenção do grupo, dita uma vez na entrada.
+      aria-describedby={idDaDica}
       className={`inline-flex flex-wrap gap-1.5 ${className ?? ""}`}
     >
+      {/* Invisível aos olhos, presente para o leitor de tela (`sr-only`). */}
+      <span id={idDaDica} className="sr-only">
+        Use as setas para percorrer as opções e Enter ou Espaço para escolher a que
+        estiver em foco — percorrer sozinho não muda nada.
+      </span>
       {opcoes.map((op, indice) => {
         const selecionado = valorAtual !== null && op.valor === valorAtual;
         // Roving tabindex: só a opção selecionada entra no fluxo de Tab da
@@ -162,6 +205,9 @@ export function ControleSegmentado<T extends string | number>({
             type="button"
             role="radio"
             aria-checked={selecionado}
+            // [BAIXO #2, rodada 12] a opção em que a seta pousou diz, ela
+            // mesma, o que falta para valer. A já selecionada não repete.
+            aria-describedby={selecionado ? undefined : idDaDica}
             tabIndex={ehParadaDoTab ? 0 : -1}
             // [MÉDIO #2, rodada 5] NÃO `disabled` — ver o bloco v5 acima.
             aria-busy={desabilitado ? true : undefined}
@@ -175,7 +221,9 @@ export function ControleSegmentado<T extends string | number>({
             // [BAIXO #7, rodada 7] e 44 px de LARGURA mínima: a rodada 6 só
             // olhou a altura, e a medição do crítico achou 36 px de largura
             // no rótulo mais curto ("2", "3") destes mesmos segmentados.
-            className={`min-h-[44px] min-w-[44px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra ${
+            // [BAIXO #2, rodada 12] `focus-visible`: a opção percorrida pela
+            // seta fica visível para quem enxerga, sem fingir estar marcada.
+            className={`min-h-[44px] min-w-[44px] rounded-lg border px-3 text-sm font-semibold transition duration-150 ease-almapetra focus-visible:ring-2 focus-visible:ring-gold-500 ${
               desabilitado ? "opacity-50" : ""
             } ${
               selecionado

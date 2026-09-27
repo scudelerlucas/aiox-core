@@ -79,6 +79,13 @@ const POR_KIND: Record<string, CorDaFonte> = {
     fundo: "bg-fonte-lms/10",
     ponto: "bg-fonte-lms",
   },
+  github: {
+    texto: "text-fonte-github",
+    faixa: "bg-fonte-github",
+    borda: "border-fonte-github/45",
+    fundo: "bg-fonte-github/10",
+    ponto: "bg-fonte-github",
+  },
 };
 
 /** Cor de uma fonte; nunca devolve `undefined`, mesmo com kind novo no banco. */

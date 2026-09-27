@@ -18,7 +18,8 @@ export type SourceKind =
   | "drive"
   | "notes"
   | "claude_chat"
-  | "lms";
+  | "lms"
+  | "github";
 
 export type AuthMode = "api" | "manual";
 
@@ -37,7 +38,7 @@ export interface HierarqScore {
 
 export interface SourcesRow {
   id: string; // uuid, default gen_random_uuid()
-  kind: SourceKind; // check in ('calendar','gmail','drive','notes','claude_chat')
+  kind: SourceKind; // check in ('calendar','gmail','drive','notes','claude_chat','lms','github') — 0001 + 0003 + 0031
   label: string | null;
   auth_mode: AuthMode; // check in ('api','manual')
   last_sync_at: string | null; // timestamptz (ISO)
