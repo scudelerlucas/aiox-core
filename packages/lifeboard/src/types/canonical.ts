@@ -10,7 +10,19 @@
  * manual) importa daqui e NUNCA redefine estes tipos (coding standard §11).
  */
 
-export type SourceKind = "calendar" | "gmail" | "drive" | "notes" | "claude_chat" | "lms";
+/**
+ * `github` (25/09/2026, migration 0031): mudanças e branches lidas de
+ * `painel_frentes_*` e materializadas como tarefas do grafo. As conversas do
+ * Claude usam `claude_chat`, que já existia.
+ */
+export type SourceKind =
+  | "calendar"
+  | "gmail"
+  | "drive"
+  | "notes"
+  | "claude_chat"
+  | "lms"
+  | "github";
 
 export type AuthMode = "api" | "manual";
 

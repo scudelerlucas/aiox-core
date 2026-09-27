@@ -130,14 +130,15 @@ export function repoCurto(repo: string | null | undefined): string | null {
 export { FUSO, dataCurta, maisRecente, ms, tempoRelativo };
 
 /** Os testes automáticos, em palavras de gente. */
-function textoDosTestes(checks: Pr["checks"]): string | null {
+export function textoDosTestes(checks: Pr["checks"]): string | null {
   if (checks === "verde") return "testes ok";
   if (checks === "vermelho") return "testes com erro";
   if (checks === "pendente") return "testes rodando";
   return null;
 }
 
-const TEXTO_ESTADO: Record<string, string> = {
+/** Estado da conversa em palavras de gente (também usado por `materializar.ts`). */
+export const TEXTO_ESTADO: Record<string, string> = {
   working: "em andamento",
   review_ready: "pronto para o Lucas aprovar",
   blocked: "travado, esperando o Lucas",
@@ -158,7 +159,7 @@ interface Grupo {
 }
 
 /** Branch que serve para juntar assuntos (ignora `main` e companhia). */
-function branchUtil(nome: string | null | undefined): boolean {
+export function branchUtil(nome: string | null | undefined): boolean {
   if (!nome) return false;
   return !BRANCHES_GENERICAS.has(nome.trim().toLowerCase());
 }

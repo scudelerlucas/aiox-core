@@ -3,15 +3,17 @@
  *
  * Fonte da semântica: hub, `docs/ops/LIFEBOARD-V3-4z-atomos-e-gargalo-2026-09-13.md`
  * §5. "Caminho crítico" NUNCA é uma aresta declarada — é o resultado do CPM: uma
- * aresta de SUCESSÃO cujos dois lados estão em `critico` ganha `critica: true` (o
- * traço triplo), sem deixar de ser uma aresta de sucessão (ela continua visível
- * quando só a camada "Sucessão" está ativa e "Caminho crítico" está desligada).
+ * aresta de SUCESSÃO cujos dois lados estão em `critico` E cuja origem termina
+ * quando o destino começa ganha `critica: true` (o traço triplo), sem deixar de
+ * ser uma aresta de sucessão (ela continua visível quando só a camada
+ * "Sucessão" está ativa e "Caminho crítico" está desligada).
  *
  * Módulo PURO — sem React, sem ReactFlow, sem `server-only` — para ser testável
  * isoladamente (item 4 da spec do P4) e reusado tanto pelo grafo real quanto
  * pelo teste de render.
  */
 
+import { EPSILON_FOLGA, type JanelaCPM } from "@/core/prioritize/tipos-v3";
 import type { Task, TaskEdge } from "@/types/canonical";
 
 /** As 5 camadas alternáveis do painel "Camadas" (checkbox por camada). */
@@ -89,16 +91,25 @@ function construirSucessao(
 /**
  * Constrói TODAS as arestas visuais do grafo v3, já classificadas por camada.
  * `criticoIds`: ids com folga zero (vindos de `GrafoV3Props.critico`).
+ * `janelas`: tempos do CPM; uma sucessão só é crítica quando também é justa.
  * `selectedTaskId`: nó selecionado — sucessão que TERMINA nele fica destacada.
  */
 export function construirArestasVisuais(params: {
   tasks: readonly Task[];
   edges: readonly TaskEdge[];
   criticoIds: ReadonlySet<string> | readonly string[];
+  janelas?: ReadonlyMap<string, JanelaCPM> | Readonly<Record<string, JanelaCPM>>;
   selectedTaskId?: string | null;
 }): ArestaVisual[] {
   const { tasks, edges, selectedTaskId = null } = params;
   const critico = params.criticoIds instanceof Set ? params.criticoIds : new Set(params.criticoIds);
+  const janelaDe = (id: string): JanelaCPM | undefined => {
+    const janelas = params.janelas;
+    if (janelas === undefined) return undefined;
+    return janelas instanceof Map
+      ? janelas.get(id)
+      : (janelas as Readonly<Record<string, JanelaCPM>>)[id];
+  };
   // Mesma convenção de `dag.ts`/`caminho-critico.ts`: aresta cuja origem ou
   // destino não está na lista de tarefas é descartada em silêncio (a RPC pode
   // entregar ponta solta quando os filtros por dono divergem).
@@ -107,7 +118,14 @@ export function construirArestasVisuais(params: {
   const visuais: ArestaVisual[] = [];
 
   for (const { origem, destino } of construirSucessao(tasks, edges)) {
-    const critica = critico.has(origem) && critico.has(destino);
+    const janelaOrigem = janelaDe(origem);
+    const janelaDestino = janelaDe(destino);
+    const critica =
+      critico.has(origem) &&
+      critico.has(destino) &&
+      janelaOrigem !== undefined &&
+      janelaDestino !== undefined &&
+      Math.abs(janelaOrigem.ef - janelaDestino.es) <= EPSILON_FOLGA;
     visuais.push({
       id: `sucessao:${origem}->${destino}`,
       origem,
