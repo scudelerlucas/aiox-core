@@ -927,12 +927,14 @@ try {
  * O dado agora entra por um caminho que **não atravessa o componente que
  * desenha**: `GET /api/grafo-bruto` (`core/prioritize/grafo-do-dia.ts`), a
  * mesma função que a home usa para calcular o CPM. Dali saem as tarefas com as
- * duas listas de precedência, as arestas declaradas e o conjunto `critico`.
+ * duas listas de precedência, as arestas declaradas, o conjunto `critico` e
+ * as janelas calculadas pelo CPM.
  *
  * E a derivação abaixo é DESTA guarda — de propósito. Ela espelha as regras
  * que `camadas-do-grafo.ts` documenta (união das três fontes de precedência,
  * dedupe por par, id `sucessao:origem->destino`, crítica quando as duas pontas
- * estão em `critico`). Se as duas divergirem, a guarda fica VERMELHA — que é o
+ * estão em `critico` E a origem termina quando o destino começa). Se as duas
+ * divergirem, a guarda fica VERMELHA — que é o
  * lado seguro da divergência, e o contrário de perguntar ao desenho o que ele
  * acha que devia desenhar.
  */
@@ -942,8 +944,8 @@ async function lerDadoBruto(base) {
   });
   if (!resposta.ok) throw new Error(`GET /api/grafo-bruto respondeu ${String(resposta.status)}`);
   const bruto = await resposta.json();
-  if (!Array.isArray(bruto?.tarefas) || !Array.isArray(bruto?.arestas) || !Array.isArray(bruto?.critico)) {
-    throw new Error("GET /api/grafo-bruto não devolveu tarefas/arestas/critico");
+  if (!Array.isArray(bruto?.tarefas) || !Array.isArray(bruto?.arestas) || !Array.isArray(bruto?.critico) || typeof bruto?.janelas !== "object" || bruto.janelas === null) {
+    throw new Error("GET /api/grafo-bruto não devolveu tarefas/arestas/critico/janelas");
   }
   return bruto;
 }
@@ -959,7 +961,14 @@ function derivarUniversoDeArestas(bruto) {
     const chave = `${origem}|${destino}`;
     if (vistos.has(chave)) return;
     vistos.add(chave);
-    const critica = critico.has(origem) && critico.has(destino);
+    const janelaOrigem = bruto.janelas[origem];
+    const janelaDestino = bruto.janelas[destino];
+    const critica =
+      critico.has(origem) &&
+      critico.has(destino) &&
+      janelaOrigem !== undefined &&
+      janelaDestino !== undefined &&
+      Math.abs(janelaOrigem.ef - janelaDestino.es) <= 1e-9;
     universo.push({
       id: `sucessao:${origem}->${destino}`,
       origem,

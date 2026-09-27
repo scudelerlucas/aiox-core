@@ -107,6 +107,11 @@ describe("MÉDIO 6 — a lista acessível obedece ao painel Camadas", () => {
     tasks,
     edges,
     criticoIds: ["task-setup", "task-build", "task-deploy"],
+    janelas: {
+      "task-setup": { es: 0, ef: 0, ls: 0, lf: 0, folga: 0, duracao: 0 },
+      "task-build": { es: 0, ef: 3, ls: 0, lf: 3, folga: 0, duracao: 3 },
+      "task-deploy": { es: 3, ef: 4, ls: 3, lf: 4, folga: 0, duracao: 1 },
+    },
   });
   const tituloDe = (id: string): string => tasks.find((t) => t.id === id)?.title ?? id;
 
