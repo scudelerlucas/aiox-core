@@ -35,12 +35,14 @@ Claude, o que ele **não alcança**. Por isso as fontes estão paradas desde 09/
 | D4 | maxTierTested declarado (1k tarefas) | **CORTADO PARA v2** (proposta) | nenhum teste com 1.000 tarefas; volume real hoje ≈ 18 cartões | — |
 | D5 | Não-regressão da normalização | FEITO | `tests/unit/normalize.manual.test.ts` (diferença com LLM × sem LLM = 0) | — |
 | D6 | Kill-switches presentes | FEITO nos que se aplicam; **2 e 5 CORTADOS PARA v2** (proposta) | nº 3 `server-only`; nº 6 `/api/health`; nº 1: migração só roda à mão no SQL Editor (gate humano). Nº 2 (teto de custo de infra) e nº 5 (tier) não têm infra paga nem volume que os justifique | — |
-| D7 | PR revisado + merge | FEITO | PRs #21, #24, #30, #41, #42 mergeados | — |
+| D7 | PR revisado + merge | **FEITO (27/09)** | mergeados: #21, #24, #30, #41, #42, #47, #43 (26/09), **#45 e #44 (27/09, pelo Lucas, depois de 2 rodadas de conflito resolvidas)**, #53 (relógio da fixture). Os 3 achados graves da Tarefa 00 viraram PRs do Codex (#54, #55, #56), validados por fora e levados à main no PR desta linha — `docs/lifeboard/CODEX-00-validacao-final.md` | — |
 | D8 | Produção + health ok + rollback testado | **FALTA** | produção no ar e login ok (24/09); health = `degraded` até A1; rollback nunca exercitado | **Lucas**: 1 rollback de teste na Vercel (e voltar) |
 | D9 | Não duplica IP existente | FEITO | declaração do PRD, conferida: nada no `aiox-core` faz agregação multi-fonte pessoal | — |
 
-**Contagem (17):** 11 FEITO (o D6 com parte cortada) · 5 FALTA (A1, A7, D1, D3, D8) · 1 CORTADO PARA v2 (D4), ainda como proposta.
+**Contagem (17):** 11 FEITO (o D6 com parte cortada) · 5 FALTA (A1, A7, D1, D3, D8) · 1 CORTADO PARA v2 (D4), aprovado.
 Dos 5 FALTA, **A1 destrava A7, D1 e metade do D8.** É a única caixa grande.
+
+**Achado de 27/09 (validação final da Tarefa 00), com dono:** as guardas de navegador da P4 e da P5 estão **vermelhas na `main`** desde a junção das frentes (#47): a demonstração passou de 27 para 46 linhas e o grafo ganhou cartões de frentes, e as duas guardas foram escritas para a demonstração antiga (P5: 21 medidas `Q`; P4: 41 medidas, entre elas a cor `sinergia` que não pinta e o teto do zoom). Com a junção desligada sobra 1 medida em cada (P5 `T` a 390 px; P4 rótulo sobre traço a 390 px com o aviso de fontes). Mesma classe do vermelho da P6 que o #53 fechou. Nenhum desses vermelhos é dos PRs do Codex (listas idênticas com e sem eles). **Dono: Lucas (escreve a Tarefa Codex 03 e dispara a tarefa no painel do Codex; o Codex é a ferramenta, não o dono) · data proposta: 29/09 · quem cobra: Lucas.** Detalhe: `docs/lifeboard/CODEX-00-validacao-final.md`.
 
 ## D-A1 decidida: caminho A, com 5 fontes — o que já existe e o que falta (medido 25/09)
 
@@ -79,6 +81,15 @@ A1d só depois de medido no iMac.
    branch só com mudança aberta ou conversa viva ligada. Mesmo banco: ~74 conversas, ~78 branches, 33 mudanças.
    Se ainda ficar cheio, a próxima alavanca é esconder conversa sem ligação nenhuma (43 das 74 têm ligação).
 
+## PRs abertos que a linha de chegada não via (achado de 25/09, passagem do gauntlet)
+
+A conta `lucasscudeler@` deixou **três PRs abertos** no pacote — #44 (P4 grafo), #45 (P5 linha do tempo),
+#43 (P6 página da tarefa) — somando **42 mil linhas** e entre 9 e 24 rodadas de correção cada, sem merge.
+Passagem: `Lucas-Contexto-Geral/docs/ops/LIFEBOARD-GAUNTLET-PASSAGEM-2026-09-25.md`. O item **D7** desta
+página estava incompleto: "PR revisado + merge" só valia para os mergeados. Eles encostam nas fixtures e no
+grafo que a Tarefa 01 usa, então **vêm antes dela**: `docs/lifeboard/TAREFA-CODEX-00-revisao-final-P4-P5-P6.md`
+(uma revisão adversarial por PR, ≤1 correção, e o Lucas decide mergear/mergear com pendências/fechar).
+
 ## Ordem daqui para a frente
 
 1. Lucas, no iMac: liga o plugin do Codex e faz `codex login`; mede A1d.
@@ -88,3 +99,4 @@ A1d só depois de medido no iMac.
 3. Claude: D3 (chc-verify como script) vai no PR seguinte.
 4. Lucas: aplica a migration `0031` (SQL Editor) · Routines das contas secundárias (§5.2) · aprova a Routine
    Google · 1 rollback de teste (D8) · print do grafo com a 1ª aresta real.
+5. **Tarefa 00** (`docs/lifeboard/TAREFA-CODEX-00-revisao-final-P4-P5-P6.md`): revisor independente por PR, na ordem #45 → #43 → #44 (decisão do Lucas, 26/09). Achado CRÍTICO/ALTO vira comentário `@codex` no PR (regra *Codex corrige, Claude valida*, 24/09), nunca correção do Claude; o Lucas decide o destino de cada PR.

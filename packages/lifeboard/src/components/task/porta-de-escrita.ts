@@ -12,6 +12,7 @@ import type {
 import {
   concluirEscrita,
   decidirEscrita,
+  MENSAGEM_GRAVANDO,
   recusarEscrita,
   useCampoDeErro,
   type DecisaoDeEscrita,
@@ -205,6 +206,11 @@ export function usarPortaDeEscrita(config: ConfigDaPorta): PortaDeEscrita {
     atual.antesDeGravar?.();
     emVooRef.current = true;
     setPedidoEmVoo(true);
+    // [BAIXO, rodada 11] a região viva DIZ que está gravando — era o único
+    // canal sem nada durante os 2,5 s de uma gravação lenta (ver
+    // `MENSAGEM_GRAVANDO`). Persistente: some quando a resposta chega, logo
+    // abaixo, não por relógio.
+    regiao.mostrar(MENSAGEM_GRAVANDO, { persistente: true });
     const pedido = selar(atual.op, campos);
     startTransition(() => {
       void (async () => {
@@ -223,6 +229,11 @@ export function usarPortaDeEscrita(config: ConfigDaPorta): PortaDeEscrita {
         }
         setEstado(r);
         const c = configRef.current;
+        // A resposta chegou: "Salvando…" deixou de ser verdade. Apagar aqui
+        // (e não em cada desfecho) é o que garante que nenhuma frase do
+        // ANTES sobreviva ao DEPOIS — inclusive o "Confirme: clique de novo
+        // em excluir…" que ficava 2,6 s ao lado de "Excluída. Desfazer".
+        regiao.limpar();
         if (r.ok === true) {
           // O texto é calculado ANTES de `aoSucesso` — quem decide a frase
           // costuma depender do estado que `aoSucesso` vai justamente mudar

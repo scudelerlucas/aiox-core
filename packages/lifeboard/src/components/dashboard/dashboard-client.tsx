@@ -14,7 +14,7 @@ import {
   RefreshCw,
   SlidersHorizontal,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { DependencyGraph } from "@/components/graph/dependency-graph";
 import { SourceFilter, type SourceFilterOption } from "@/components/dashboard/source-filter";
@@ -25,6 +25,7 @@ import {
   CLASSES_DA_FAIXA_DE_BAIXO,
   CLASSES_DA_SECAO_DO_GRAFO,
   estiloDasAlturasDoCorpo,
+  useAlturaDaSecaoDoGrafo,
 } from "@/lib/altura-do-canvas";
 import { passaNoFiltro } from "@/lib/filtro-de-fontes";
 import { useTodayQuery } from "@/hooks/use-today-query";
@@ -102,6 +103,15 @@ function DashboardInner({
   const staleSources = sourceStatuses.filter((s) => s.severity !== null);
   const temErro = staleSources.some((s) => s.severity === "error");
 
+  /**
+   * P4i (achado ALTO #3 da rodada 8): a altura da seção do grafo é MEDIDA a
+   * partir de onde ela mesma começa — o `<nav>` global e a linha de fontes
+   * desatualizadas ficam acima dela e nenhuma constante os via. O que sobra
+   * abaixo da dobra é o teaser da faixa "Fontes + Hoje".
+   */
+  const secaoDoGrafoRef = useRef<HTMLElement>(null);
+  const alturaDaSecaoDoGrafo = useAlturaDaSecaoDoGrafo(secaoDoGrafoRef);
+
   const handleSync = (): void => {
     // E5: "refresh" do estado (E6/Fase 2 conecta o POST /api/sync real).
     void queryClient.invalidateQueries({ queryKey: ["today"] });
@@ -117,8 +127,16 @@ function DashboardInner({
        forma de o canvas do desktop não ficar proporcionalmente MENOR que o do
        tablet (medido: 354px a 1280 contra 534px a 768, com o tablet mostrando
        12 cartões a mais em 200 nós) sem espremer "Hoje" contra o rodapé. O
-       grafo fica com a dobra; "Hoje" e "Fontes" ficam a um rolar — que é o que
-       o comentário do corpo já prometia. Números: `@/lib/altura-do-canvas`. */
+       grafo fica com a dobra; "Hoje" e "Fontes" ficam a um rolar.
+
+       P4i (achado ALTO #3 da rodada 8): "a um rolar" só é verdade se o
+       operador VIR que há mais tela abaixo. A rodada 8 prometeu 43px de "Hoje"
+       acima da dobra com uma conta de constantes; o Chromium mediu **0px** nas
+       quatro larguras, porque a conta não via o `<nav>` global (45px) nem a
+       linha de fontes desatualizadas (41px, que aparece conforme o dado do
+       dia). Agora a altura da seção é MEDIDA a partir do topo real dela —
+       44px de "Hoje" nas quatro larguras, conferidos por
+       `scripts/guarda-no-navegador.mjs`. Números: `@/lib/altura-do-canvas`. */
     <div
       style={estiloDasAlturasDoCorpo()}
       className="flex h-[100dvh] flex-col overflow-hidden bg-navy-950 text-bone-100 lg:h-auto lg:min-h-[100dvh] lg:overflow-y-auto"
@@ -277,7 +295,11 @@ function DashboardInner({
           grafo precisa dele inteiro. */}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-none">
         <section
+          ref={secaoDoGrafoRef}
           aria-label="Grafo de dependências"
+          style={
+            alturaDaSecaoDoGrafo === null ? undefined : { height: alturaDaSecaoDoGrafo }
+          }
           className={`${visivel("grafo")} min-h-0 w-full min-w-0 flex-1 flex-col bg-navy-900 ${CLASSES_DA_SECAO_DO_GRAFO}`}
         >
           <div className="flex min-h-[44px] shrink-0 items-center justify-between gap-2 border-b border-navy-700 px-3">
