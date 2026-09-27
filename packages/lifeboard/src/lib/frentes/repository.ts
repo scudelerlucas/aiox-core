@@ -74,7 +74,7 @@ export class FrentesIndisponivel extends Error {
 }
 
 /**
- * O relógio da fixture é fixado UMA vez, na carga do módulo — não em cada leitura.
+ * O relógio da fixture NÃO anda entre leituras vizinhas — e NÃO envelhece.
  *
  * Medido na CI em 26/09/2026 (run 36278921070, `main` do merge do #43): a guarda
  * no navegador da P6 (medida R, "com o pedido FALHANDO a loja não muda") reprovava
@@ -84,19 +84,39 @@ export class FrentesIndisponivel extends Error {
  * fixture são relativas a `agora`, e `agora` era `Date.now()` a cada `carregar()`
  * — o `executado_em` do sync andava junto com o relógio de parede, e com ele o
  * `lastSyncAt`. Nem o #43 (a guarda) nem o #47 (a junção) viram o outro antes
- * de irem para a `main`. Com o instante fixado por processo, a fixture continua
- * relativa a hoje (a janela de 21 dias segue valendo) e duas leituras devolvem
- * o mesmo dado — que é o que dado de demonstração deve fazer.
+ * de irem para a `main`.
+ *
+ * A âncora é uma só enquanto há atividade: ela só se move quando a última
+ * leitura foi há mais de `OCIOSO_MS` E a âncora tem mais de `ANCORA_MAX_MS`.
+ * Assim, duas fotos tiradas a segundos uma da outra (o caso da guarda) sempre
+ * leem o mesmo dado — a âncora nunca muda no meio de uma sequência viva —, e um
+ * servidor de desenvolvimento deixado ligado por dias não envelhece a
+ * demonstração (achado da revisão automática no #53: com a âncora fixa para
+ * sempre, o sync "de 0,6 h atrás" cruzaria as 26 h de `stale` em ~25,4 h e as
+ * conversas sairiam da janela de 21 dias). O contrato de `fixture.ts` — a
+ * demonstração é sempre "de hoje" — continua valendo, a menos de 1 h.
  */
-const RELOGIO_DA_FIXTURE = Date.now();
+const ANCORA_MAX_MS = 60 * 60 * 1000;
+const OCIOSO_MS = 60 * 1000;
+let ancoraDaFixture = Date.now();
+let ultimaLeituraDaFixture = ancoraDaFixture;
+
+/** Exportado só para teste: o instante que a fixture usa nesta leitura. */
+export function agoraDaFixture(agora: number = Date.now()): number {
+  const ocioso = agora - ultimaLeituraDaFixture > OCIOSO_MS;
+  const velha = agora - ancoraDaFixture > ANCORA_MAX_MS;
+  if (ocioso && velha) ancoraDaFixture = agora;
+  ultimaLeituraDaFixture = agora;
+  return ancoraDaFixture;
+}
 
 class FixtureFrentesRepository implements FrentesRepository {
   async carregar(): Promise<DadosFrentes> {
-    return fixtureFrentes(RELOGIO_DA_FIXTURE);
+    return fixtureFrentes(agoraDaFixture());
   }
 
   async carregarHistorico(): Promise<DadosHistorico> {
-    const dados = fixtureFrentes(RELOGIO_DA_FIXTURE);
+    const dados = fixtureFrentes(agoraDaFixture());
     const prs = dados.prs.filter((p) => p.estado !== "aberto");
     const sessoes = dados.sessoes.filter((s) => ENCERRADAS.has(s.estado));
     return {
