@@ -220,12 +220,12 @@ describe("ALTO 3 · o item fora da janela nunca é uma linha muda", () => {
     ).toBeNull();
   });
 
-  it("o texto VISÍVEL leva o glifo, o verbo certo e a data COM ANO", () => {
-    expect(textoVisivelForaDaJanela("antes", "2026-08-03", false, br)).toBe("◀ começa 03/08/2026");
-    expect(textoVisivelForaDaJanela("depois", "2026-11-30", false, br)).toBe("▶ começa 30/11/2026");
-    /* Concluída troca o verbo: a âncora é a data de conclusão, não um começo. */
+  it("o texto VISÍVEL leva glifo, abreviação declarada e a data COM ANO", () => {
+    expect(textoVisivelForaDaJanela("antes", "2026-08-03", false, br)).toBe("◀ ini. 03/08/2026");
+    expect(textoVisivelForaDaJanela("depois", "2026-11-30", false, br)).toBe("▶ ini. 30/11/2026");
+    /* Concluída troca a abreviação: a âncora é a data de conclusão, não um começo. */
     expect(textoVisivelForaDaJanela("antes", "2026-07-08", true, br)).toBe(
-      "◀ concluída 08/07/2026",
+      "◀ fim 08/07/2026",
     );
   });
 

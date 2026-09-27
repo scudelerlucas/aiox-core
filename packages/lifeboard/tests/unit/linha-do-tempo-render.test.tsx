@@ -163,7 +163,7 @@ describe("LinhaDoTempoView — render", () => {
     );
     /* A data chega ao TOQUE: texto VISÍVEL na coluna, não só no `title`. */
     expect(html).toContain('data-lb-fora-da-janela="antes"');
-    expect(html).toContain("◀ começa 01/09/2026");
+    expect(html).toContain("◀ ini. 01/09/2026");
     /* E o período aparece uma vez só no rótulo (nunca duas). */
     const rotulo = /aria-label="Um assunto aberto[^"]*"/.exec(html)?.[0] ?? "";
     expect(rotulo.match(/01\/09\/2026/g)).toHaveLength(1);
