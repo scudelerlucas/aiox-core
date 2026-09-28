@@ -2,8 +2,11 @@
 
 > Decisão do Lucas, 27/09/2026 (D2 = A): *reescrever as guardas de navegador da P4 (grafo) e da P5 (linha do
 > tempo) para a demonstração com frentes e ligá-las na CI.* Nasce do achado da validação final da Tarefa 00
-> (`docs/lifeboard/CODEX-00-validacao-final.md`). Dono: Lucas (dispara no painel do Codex). Executor: Codex.
-> Quem valida: Claude, por fora. **Um PR. No máximo 2 rodadas de revisão.**
+> (`docs/lifeboard/CODEX-00-validacao-final.md`). **Um PR. No máximo 2 rodadas de revisão.**
+>
+> | Executa (pessoa) | Data | Quem cobra |
+> |---|---|---|
+> | **Lucas** — cola o prompt do fim desta página no painel do Codex, publica o PR e decide o merge. O Codex é a ferramenta; o Claude valida por fora. | **29/09/2026, 10h** (data proposta; evento na agenda LS do Lucas com e-mail e aviso 1 dia antes e aviso 1 h antes — o prazo tem ~33 h, por isso não há aviso de 7 dias) | **Lucas** |
 
 ## O problema, medido em 27/09 na `main` (89ccf4b5)
 
@@ -26,8 +29,11 @@ classe (o que a tela promete para qualquer dado).**
 1. **P5 — a contagem sai do dado servido, nunca de constante.** `LINHAS_DA_FIXTURE` e os pisos derivados dela
    passam a ser lidos do que o servidor entrega para a rota (o mesmo caminho que a página usa), como a guarda P4
    já faz com `/api/grafo-bruto`. Uma constante só sobrevive se for **piso mínimo** declarado com o motivo.
-2. **P4 — as expectativas saem do dado servido.** Cor por papel: exigir pintura só de papéis que **existem** no
-   dado bruto e cujo traço cai no canvas; papel ausente não é "não pintou". Traço fora do canvas a 390: a guarda
+2. **P4 — as expectativas saem do dado servido, sem perder o piso de cada papel.** IDs e quantidades de arestas
+   vêm do dado bruto, mas o piso por papel (`MINIMO_DE_ARESTAS_POR_CAMADA = 2`) **continua valendo para cada um dos
+   seis papéis**: se o dado servido não trouxer arestas de um papel (por exemplo `sinergia`), a guarda fica
+   **vermelha** e a fixture é que tem de fornecê-las — ausência nunca vira sucesso. Onde o papel existe e o traço
+   não pinta, é falha de produto ou de enquadramento, não de dado. Traço fora do canvas a 390: a guarda
    leva o traço à vista (rolagem/enquadrar do produto) antes de medir, ou mede só o que o produto promete
    mostrar naquela largura — **não medir continua sendo reprovar**, como a guarda já diz. Teto do zoom e piso do
    passeio: recalcular a partir do que o produto declara para o número de cartões servido, com o motivo escrito.
@@ -43,8 +49,10 @@ classe (o que a tela promete para qualquer dado).**
    **não** são os da P6:
    - P5 lê `PLAYWRIGHT_MODULO` e `PLAYWRIGHT_CHROMIUM` (iguais à P6).
    - P4 lê `LIFEBOARD_PLAYWRIGHT` (caminho do **pacote**, não do `index.js`) e `LIFEBOARD_CHROMIUM`; tem
-     `LIFEBOARD_GUARDA_LARGURAS` para escolher larguras. Na CI, rodar **1280 e 390** (a corrida inteira de 5
-     larguras leva ~35 min) e declarar no próprio job por que só essas duas.
+     `LIFEBOARD_GUARDA_LARGURAS` para escolher larguras. Na CI, **as cinco larguras rodam** (1024, 1280, 1440,
+     1920 e 390), cada uma com as suas medidas e sentinelas: a corrida inteira leva ~35 min, então dividir em
+     **uma entrada de matriz por largura, em paralelo** (~7–8 min cada), nunca cortar larguras. Recorte de
+     largura só é aceito em corrida manual de sabotagem, nunca no portão.
    - Scripts npm: `guarda:grafo` já existe (P4); criar `guarda:linha-do-tempo` para a P5.
    - `timeout-minutes` com a mesma folga de 7 min sobre o teto da corrida que o job da P6 usa.
    - Estender `tests/unit/guardas-com-gatilho.test.ts` / `guarda-de-navegador-com-gatilho.test.ts` para conferir
