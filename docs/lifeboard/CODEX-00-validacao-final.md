@@ -46,9 +46,10 @@ na CI** (só a P6), por isso ninguém viu.
 
 **Aprovado.** As três correções entram na `main` por um PR único, sem segunda rodada (regra da Tarefa 00).
 O que sobra tem dono na `LINHA-DE-CHEGADA.md`: reescrever as guardas P4 e P5 para a demonstração com frentes
-(Tarefa Codex 03, a escrever) e decidir se elas entram na CI.
+(Tarefa Codex 03: `docs/lifeboard/TAREFA-CODEX-03-guardas-p4-p5-com-frentes-e-na-ci.md`) e ligá-las na CI (decisão D2 = A do Lucas, 27/09).
 
 ## Nota de leitura (não bloqueia)
 
 O #55 troca "começa"/"concluída" por `ini.`/`fim` no rótulo visível do celular. Cabe e resolve o corte, mas `ini.` é
 abreviação que o operador não usa; se incomodar na tela, é ajuste de texto de uma linha (`fora-da-janela-em-palavras.ts`).
+**Decisão D1 = A do Lucas (27/09): fica como está.**
