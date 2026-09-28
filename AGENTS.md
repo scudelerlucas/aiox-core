@@ -191,7 +191,8 @@ que a veja é item que tem tudo no papel e não anda.
 
 Ordem do operador, válida em **qualquer repo**: em código avançado (banco, dinheiro, migration, concorrência,
 segurança, ou PR já revisado por robô) e em projeto longo (mais de uma sessão ou PRs encadeados), **o Codex corrige o
-achado de revisão e o Claude valida, resolve e mergeia**. O Codex é chamado por um comentário `@codex` no PR, um por
+achado de revisão e o Claude valida, resolve e mergeia**. Fora disso — doc, ajuste trivial de 1 linha e emergência
+declarada, **mesmo em PR já revisado por robô** — o Claude corrige direto; a exceção vence a lista. O Codex é chamado por um comentário `@codex` no PR, um por
 achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
 suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
 escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
