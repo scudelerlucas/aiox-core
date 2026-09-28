@@ -7,7 +7,7 @@
 >
 > Se precisar mudar o formato, mude **só este arquivo, no hub** `Lucas-Contexto-Geral` — os espelhos são regravados pelo `sync-rules`. Não duplicar em CLAUDE.md.
 
-## 🕒 Carimbo de hora — linha 2 de toda resposta (ordem do operador, 25/09/2026)
+## 🕒 Carimbo de hora — em toda resposta ao operador (linha 2 se houver a do modelo, senão linha 1; ordem do operador, 25/09/2026)
 
 Palavras dele: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
 **Toda resposta, sem exceção** — longa, curta, de uma linha, de espera — traz `🕒 AAAA-MM-DD HH:MM (São Paulo)`:
