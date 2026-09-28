@@ -21,6 +21,7 @@ de memória (erro classe A, dado inventado) · carimbo em UTC · carimbo inventa
 **Escopo:** resposta ao operador no chat. Não se aplica a saída consumida por máquina com formato exato exigido por
 quem chama (retorno de subagente, JSON, "responda só OK", corpo de commit/PR, arquivo gravado) — ali o carimbo quebraria
 o contrato. Isso não é brecha de tamanho: resposta curta ao operador continua com carimbo (achado P2 do Codex, vsl-mastery#39).
+Na resposta de troca de modelo (`model-routing`, gate errado), as linhas são duas: o pedido de troca e o carimbo (achado P2 do Codex, TEMPLO-FE#15).
 
 Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:
