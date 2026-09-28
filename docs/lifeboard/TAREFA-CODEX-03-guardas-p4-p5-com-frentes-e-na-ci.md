@@ -30,13 +30,18 @@ classe (o que a tela promete para qualquer dado).**
    passam a ser lidos do que o servidor entrega para a rota (o mesmo caminho que a página usa), como a guarda P4
    já faz com `/api/grafo-bruto`. Uma constante só sobrevive se for **piso mínimo** declarado com o motivo.
 2. **P4 — as expectativas saem do dado servido, sem perder o piso de cada papel.** IDs e quantidades de arestas
-   vêm do dado bruto, mas o piso por papel (`MINIMO_DE_ARESTAS_POR_CAMADA = 2`) **continua valendo para cada um dos
-   seis papéis**: se o dado servido não trouxer arestas de um papel (por exemplo `sinergia`), a guarda fica
-   **vermelha** e a fixture é que tem de fornecê-las — ausência nunca vira sucesso. Onde o papel existe e o traço
+   vêm do dado bruto, mas o piso por camada (`MINIMO_DE_ARESTAS_POR_CAMADA = 2`) **continua valendo para cada uma
+   das cinco camadas de `CAMADAS_TODAS`**: se o dado servido não trouxer arestas de uma camada (por exemplo
+   `sinergia`), a guarda fica **vermelha** e a fixture é que tem de fornecê-las — ausência nunca vira sucesso. O
+   sexto papel visual, `destacada`, **não** é camada do dado (é o estado de seleção de um cartão): continua medido
+   nas medidas de interação, sem piso de dado. Onde o papel existe e o traço
    não pinta, é falha de produto ou de enquadramento, não de dado. Traço fora do canvas a 390: a guarda
    leva o traço à vista (rolagem/enquadrar do produto) antes de medir, ou mede só o que o produto promete
-   mostrar naquela largura — **não medir continua sendo reprovar**, como a guarda já diz. Teto do zoom e piso do
-   passeio: recalcular a partir do que o produto declara para o número de cartões servido, com o motivo escrito.
+   mostrar naquela largura — **não medir continua sendo reprovar**, como a guarda já diz. O teto do zoom **não muda**: é `ZOOM_MAXIMO_DO_CANVAS = 1,8` (`dependency-graph.tsx`), fixo para qualquer
+   número de cartões; o número de cartões só muda o zoom **inicial**. Com o enquadramento inicial mais afastado,
+   seis cliques não chegam a 1,8: a guarda passa a usar o gesto que vai até a ponta (`gestoDeZoomAteAPonta`) para
+   exigir o 1,8, e os seis cliques ficam só com a exigência de monotonicidade. O piso do passeio do zoom (40
+   valores) só muda com a medição escrita ao lado.
 3. **Os dois resíduos (aparecem com a junção desligada), reproduzidos antes de mexer:**
    - P5 `T` a 390: decidir, com medida, se é defeito do produto (o "Auto" escolhe quase a escala do Trimestre) ou
      critério estreito da guarda (os eixos são diferentes, 218 × 546 px, e a guarda compara só px/dia). Se for
