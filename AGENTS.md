@@ -215,7 +215,8 @@ no `CLAUDE.md` do `aiox-core`; se a constituição for revista pelo caminho dela
 Ordem do operador: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
 **Toda resposta, sem exceção de tamanho,** traz `🕒 AAAA-MM-DD HH:MM (São Paulo)` (linha 2 se houver linha de
 modelo, senão linha 1), com a hora **medida no mesmo turno** — `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` — nunca de memória. Sem relógio no ambiente, escreve-se
-`🕒 sem relógio nesta sessão`. Norma completa, no hub:
+`🕒 sem relógio nesta sessão`. Vale para resposta ao operador no chat; saída lida por máquina com formato exato (JSON,
+retorno de subagente, "responda só OK") fica sem carimbo. Norma completa, no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
 
 <!-- HUB-INVARIANTES-END -->
