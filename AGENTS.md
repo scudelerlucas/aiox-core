@@ -191,7 +191,8 @@ que a veja é item que tem tudo no papel e não anda.
 
 Ordem do operador, válida em **qualquer repo**: em código avançado (banco, dinheiro, migration, concorrência,
 segurança, ou PR já revisado por robô) e em projeto longo (mais de uma sessão ou PRs encadeados), **o Codex corrige o
-achado de revisão e o Claude valida, resolve e mergeia**. O Codex é chamado por um comentário `@codex` no PR, um por
+achado de revisão e o Claude valida, resolve e mergeia**. Fora disso — doc, ajuste trivial de 1 linha e emergência
+declarada, **mesmo em PR já revisado por robô** — o Claude corrige direto; a exceção vence a lista. O Codex é chamado por um comentário `@codex` no PR, um por
 achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
 suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
 escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
@@ -210,12 +211,13 @@ no `CLAUDE.md` do `aiox-core`; se a constituição for revista pelo caminho dela
 **Norma completa** — no hub, não neste repositório:
 [`.claude/rules/codex-corrige-claude-valida.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md).
 
-## Carimbo de hora na linha 2 de toda resposta (25/09/2026)
+## Carimbo de hora em toda resposta ao operador (25/09/2026)
 
 Ordem do operador: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
-Toda resposta substantiva traz na **2ª linha** `🕒 AAAA-MM-DD HH:MM (São Paulo)`, com a hora **medida no mesmo
-turno** — `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` — nunca de memória. Sem relógio no ambiente, escreve-se
-`🕒 sem relógio nesta sessão`. Norma completa, no hub:
+**Toda resposta, sem exceção de tamanho,** traz `🕒 AAAA-MM-DD HH:MM (São Paulo)` (linha 2 se houver linha de
+modelo, senão linha 1), com a hora **medida no mesmo turno** — `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` — nunca de memória. Sem relógio no ambiente, escreve-se
+`🕒 sem relógio nesta sessão`. Vale para resposta ao operador no chat; saída lida por máquina com formato exato (JSON,
+retorno de subagente, "responda só OK") fica sem carimbo. Norma completa, no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
 
 <!-- HUB-INVARIANTES-END -->
