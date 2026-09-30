@@ -1,0 +1,5 @@
+# Orca (onorca.dev): pastas ignoradas pelo git compartilhadas por link entre as cópias de trabalho (worktrees).
+# Só entra o que já existe no checkout principal e está no .gitignore; o resto é pulado.
+worktree:
+  sharedDirectories:
+    - node_modules
