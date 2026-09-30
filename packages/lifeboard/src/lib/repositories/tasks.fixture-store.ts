@@ -129,6 +129,35 @@ function loja(): EstadoFixture {
  * 3ª fonte de fato participava sozinha. Este helper isola a 3ª fonte: ajusta
  * só `predecessorIds`, deixando `successorIds` do outro lado como estava.
  */
+/**
+ * ══════════════════════════════════════════════════════ MÉDIO #5, rodada 18 ═
+ * O DUBLÊ PASSA A MEXER NO `updatedAt`, PORQUE O BANCO MEXE.
+ *
+ * O crítico da rodada 17-B leu isto no código e estava certo: tudo o que a
+ * família `P` da guarda de navegador prova é sobre este `Map` em memória, e a
+ * régua "só o campo declarado mudou" era MOLDADA PELO DUBLÊ — os setters
+ * faziam `{ ...tarefa, status }` e **não tocavam em `updatedAt`**, enquanto um
+ * banco de verdade tocaria.
+ *
+ * Não é opinião: `supabase/migrations/0001_init.sql` cria o gatilho
+ * `trg_tasks_touch` (`before update on public.tasks`), que roda
+ * `lifeboard_touch_updated_at()` e faz `new.updated_at := now()` em TODA
+ * atualização de tarefa. Então, no modo live, mudar o status muda dois campos:
+ * o status e o `updatedAt`. Aqui mudava um.
+ *
+ * Consequência concreta: a tabela de ALCANCE da guarda declarava um campo por
+ * escrita de tarefa, e passava. No banco ela reprovaria — a guarda estava
+ * calibrada para o dublê, não para o produto. Agora o dublê carimba igual, e a
+ * tabela declara os DOIS campos. O que a guarda ainda NÃO alcança está dito por
+ * extenso na medida `Z` da guarda, e continua valendo.
+ *
+ * O que NÃO se copia: `createdAt` de nota e aresta continua vindo de quem
+ * chama (o desfazer restaura o instante original), igual ao banco.
+ */
+function comCarimbo(tarefa: Task): Task {
+  return { ...tarefa, updatedAt: new Date().toISOString() };
+}
+
 export function definirPredecessorIdsFixture(taskId: string, predecessorIds: string[]): void {
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
@@ -282,7 +311,7 @@ export function parentSetFixture(taskId: string, parentId: string | null): Resul
       atual = estado.tasks.get(atual)?.parentId ?? null;
     }
   }
-  estado.tasks.set(taskId, { ...tarefa, parentId });
+  estado.tasks.set(taskId, comCarimbo({ ...tarefa, parentId }));
   return { ok: true };
 }
 
@@ -290,7 +319,7 @@ export function goalSetFixture(taskId: string, isGoal: boolean): ResultadoMutaca
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
   if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
-  estado.tasks.set(taskId, { ...tarefa, isGoal });
+  estado.tasks.set(taskId, comCarimbo({ ...tarefa, isGoal }));
   return { ok: true };
 }
 
@@ -301,7 +330,7 @@ export function atomosSetFixture(
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
   if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
-  estado.tasks.set(taskId, { ...tarefa, assimetria });
+  estado.tasks.set(taskId, comCarimbo({ ...tarefa, assimetria }));
   return { ok: true };
 }
 
@@ -319,7 +348,7 @@ export function estimativaSetFixture(
       erro: `A duração (estimativa em dias) precisa ser um número de pelo menos ${minimoFormatado} dia.`,
     };
   }
-  estado.tasks.set(taskId, { ...tarefa, estimativaDias });
+  estado.tasks.set(taskId, comCarimbo({ ...tarefa, estimativaDias }));
   return { ok: true };
 }
 
@@ -327,7 +356,7 @@ export function statusSetFixture(taskId: string, status: TaskStatus): ResultadoM
   const estado = loja();
   const tarefa = estado.tasks.get(taskId);
   if (!tarefa) return { erro: "A tarefa não existe (ou não é sua)." };
-  estado.tasks.set(taskId, { ...tarefa, status });
+  estado.tasks.set(taskId, comCarimbo({ ...tarefa, status }));
   return { ok: true };
 }
 

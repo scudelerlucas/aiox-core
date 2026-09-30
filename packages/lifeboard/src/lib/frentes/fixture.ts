@@ -139,7 +139,18 @@ export function fixtureFrentes(agora: number = Date.now()): DadosFrentes {
       base: "main",
       autor: "claude",
       url: "https://github.com/scudelerlucas/Lucas-Contexto-Geral/pull/598",
-      criado_em: d(5),
+      /*
+       * P5 rodada 14 (achado BAIXO 5): este PR nasce e morre no MESMO
+       * INSTANTE de propósito — `d(3)` nas quatro datas. É o único jeito de a
+       * demonstração ter SEMPRE um assunto de "mesmo dia" (o losango
+       * `.lb-tl-marco`), que é um desenho do produto e estava com ZERO
+       * cobertura de navegador: ele só aparecia quando o relógio fazia
+       * `criado_em` e `mergeado_em` caírem no mesmo dia de calendário, o que
+       * mudava com a HORA da corrida (medido: 3 losangos às 01h, 0 às 03h).
+       * Mesmo instante nas duas pontas é mesmo dia em qualquer fuso e em
+       * qualquer hora — a cobertura para de depender do relógio.
+       */
+      criado_em: d(3),
       atualizado_em: d(3),
       fechado_em: d(3),
       mergeado_em: d(3),

@@ -25,7 +25,8 @@ import "server-only";
 import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import type { Pr } from "@/lib/frentes/types";
 import { limparTitulo } from "@/lib/frentes/compose";
-import type { Source, SourceKind, Task, TaskEdge } from "@/types/canonical";
+import { diaNoFusoDoOperador } from "@/lib/fuso";
+import type { Task, TaskEdge } from "@/types/canonical";
 import type {
   LinhaDoTempoAssuntoRow,
   LinhaDoTempoGrupo,
@@ -46,9 +47,24 @@ function paraEpoch(iso: string | null | undefined): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** Corta para `AAAA-MM-DD` — nunca lança mesmo com string fora do formato ISO. */
-function paraDataCurta(iso: string): string {
-  return iso.length >= 10 ? iso.slice(0, 10) : iso;
+/**
+ * [ALTO 2, rodada 13] O DIA DE CALENDÁRIO de um instante, NO FUSO DO OPERADOR.
+ *
+ * Era `iso.slice(0, 10)`: o dia em UTC. O `hoje` desta mesma função vem de
+ * `hojeNoFusoDoOperador` (America/São Paulo) — então a faixa dourada, a origem
+ * da régua e a comparação de atraso falavam um calendário enquanto as datas
+ * dos itens falavam outro. Um PR criado às 23h de 21/09 em São Paulo nascia
+ * desenhado em 22/09, à DIREITA do "Hoje", e o `title`, o `aria-label` e a
+ * gaveta imprimiam 22/09/2026. Não era divergência de texto contra pixel (por
+ * isso nenhum portão via): os dois saíam do mesmo valor errado.
+ *
+ * Delega à conversão única (`@/lib/fuso`), que devolve `AAAA-MM-DD` sem hora
+ * INTACTO (não há instante para converter) e `null` para ISO ilegível — aqui
+ * o `null` devolve a string como veio, porque esta função nunca lança e o
+ * chamador já marcou `dataInvalida` antes de chegar neste ponto.
+ */
+function diaNoCalendarioDoOperador(iso: string): string {
+  return diaNoFusoDoOperador(iso) ?? iso;
 }
 
 /** `iso` + `dias` dias corridos, devolvido como `AAAA-MM-DD`. */
@@ -113,8 +129,8 @@ function montaAssunto(pr: Pr, hoje: string): LinhaDoTempoAssuntoRow {
   const fimEpoch = paraEpoch(fimIsoBruto);
   const dataInvalida = inicioEpoch === null || fimEpoch === null;
 
-  const inicio = dataInvalida ? hoje : paraDataCurta(inicioIsoBruto);
-  const fim = dataInvalida ? hoje : paraDataCurta(fimIsoBruto);
+  const inicio = dataInvalida ? hoje : diaNoCalendarioDoOperador(inicioIsoBruto);
+  const fim = dataInvalida ? hoje : diaNoCalendarioDoOperador(fimIsoBruto);
   // Comparação por DIA de calendário (`inicio`/`fim` já truncados), não pelo
   // instante exato — um PR criado 08h e mergeado 18h do MESMO dia é "marco"
   // (mesmo dia), não duas datas diferentes por causa da hora.
@@ -139,14 +155,6 @@ function montaAssunto(pr: Pr, hoje: string): LinhaDoTempoAssuntoRow {
     datasInconsistentes,
     marco,
   };
-}
-
-/** [id da tarefa] → `SourceKind`, mesma convenção de `dashboard-client.tsx`. */
-function mapaFontePorTask(tasks: readonly Task[], sources: readonly Source[]): Map<string, SourceKind> {
-  const kindPorSourceId = new Map(sources.map((s) => [s.id, s.kind] as const));
-  const mapa = new Map<string, SourceKind>();
-  for (const t of tasks) mapa.set(t.id, kindPorSourceId.get(t.sourceId) ?? "notes");
-  return mapa;
 }
 
 function estimativaValida(t: Task): number | null {
@@ -195,7 +203,7 @@ function calcularRanks(predecessores: ReadonlyMap<string, Set<string>>): Map<str
 
 /** ISO curto de `t.dueDate`, só quando parseia; `null` senão (nunca lança). */
 function dueDateValida(t: Task): string | null {
-  return t.dueDate && paraEpoch(t.dueDate) !== null ? paraDataCurta(t.dueDate) : null;
+  return t.dueDate && paraEpoch(t.dueDate) !== null ? diaNoCalendarioDoOperador(t.dueDate) : null;
 }
 
 /**
@@ -213,13 +221,12 @@ function estaAtrasada(t: Task, dueDateCurta: string | null, hoje: string): boole
 
 /** ISO curto de `t.updatedAt`, quando parseia — o "ponto de conclusão" de uma `done` fora do CPM. */
 function pontoDeConclusao(t: Task): string | null {
-  return paraEpoch(t.updatedAt) !== null ? paraDataCurta(t.updatedAt) : null;
+  return paraEpoch(t.updatedAt) !== null ? diaNoCalendarioDoOperador(t.updatedAt) : null;
 }
 
 function montaTarefa(
   t: Task,
   cpm: ResultadoCPM,
-  fontePorTask: ReadonlyMap<string, SourceKind>,
   predecessores: ReadonlyMap<string, Set<string>>,
   sucessores: ReadonlyMap<string, Set<string>>,
   scores: ReadonlyMap<string, number | null | undefined> | undefined,
@@ -229,8 +236,14 @@ function montaTarefa(
   const sucs = [...(sucessores.get(t.id) ?? [])].sort();
   const scoreValor = scores?.get(t.id);
   const janela = cpm.janelas.get(t.id);
-  const fonteKind = fontePorTask.get(t.id) ?? "notes";
   const dueDate = dueDateValida(t);
+  /**
+   * P5h (achado ALTO 3, rodada 10): a estimativa DIGITADA viaja até a tela,
+   * em vez de ser reinventada lá por `diffDias(inicio, fim)` (que devolvia 1
+   * para `0,5` e 1 para "nenhuma"). `null` é "ninguém digitou" — e a tela
+   * tem de dizer isso, nunca escolher um número no lugar de quem não digitou.
+   */
+  const estimativaDigitada = estimativaValida(t);
 
   const base = {
     kind: "tarefa" as const,
@@ -239,7 +252,6 @@ function montaTarefa(
     predecessores: preds,
     sucessores: sucs,
     ...(typeof scoreValor === "number" ? { score: scoreValor } : {}),
-    fonteKind,
     status: t.status,
     dueDate,
   };
@@ -266,6 +278,7 @@ function montaTarefa(
       critico: janela ? cpm.critico.has(t.id) : false,
       folga: janela ? janela.folga : null,
       semDuracao: false,
+      estimativaDias: estimativaDigitada,
       foraDoCpm: !janela,
       marco: false,
       datasInconsistentes: false,
@@ -288,6 +301,7 @@ function montaTarefa(
       critico: cpm.critico.has(t.id),
       folga: janela.folga,
       semDuracao: cpm.semDuracao.includes(t.id),
+      estimativaDias: estimativaDigitada,
       foraDoCpm: false,
       // P5c (achado BAIXO #11 do crítico hostil, rodada 2): duração zero de
       // VERDADE (`es === ef`, `done` no CPM tem duração 0 por construção) →
@@ -312,14 +326,14 @@ function montaTarefa(
   // "sem folga" (== tão urgente quanto o caminho crítico), quando o CPM
   // simplesmente não calculou folga nenhuma para quem está fora do subgrafo
   // do goal. `null` é "não calculada", nunca "zero".
-  const estimativa = estimativaValida(t);
+  const estimativa = estimativaDigitada;
   const duracao = estimativa ?? DURACAO_PLACEHOLDER_FORA_CPM;
   // P5f (achado BAIXO A9, rodada 5): sem `iniciadoEm` válido, o início é
   // FABRICADO ("hoje") só para a barra ter onde nascer — a tela precisa saber
   // disso para não desenhar uma barra sólida afirmando uma data que ninguém
   // informou (o conector já dizia "indefinido"; a barra dizia o contrário).
   const temInicioReal = Boolean(t.iniciadoEm && paraEpoch(t.iniciadoEm) !== null);
-  const inicio = temInicioReal ? paraDataCurta(t.iniciadoEm as string) : hoje;
+  const inicio = temInicioReal ? diaNoCalendarioDoOperador(t.iniciadoEm as string) : hoje;
   const fim = somaDias(inicio, duracao);
   const row: LinhaDoTempoTarefaRow = {
     ...base,
@@ -329,6 +343,7 @@ function montaTarefa(
     critico: false,
     folga: null,
     semDuracao: estimativa === null,
+    estimativaDias: estimativa,
     foraDoCpm: true,
     // P5c (achado BAIXO #11, rodada 2): FORA do CPM a duração nunca é zero de
     // verdade (`estimativaValida` exige > 0; zero de verdade é `done`, que sai
@@ -354,19 +369,50 @@ export function montarLinhaDoTempo(
   tasks: readonly Task[],
   edges: readonly TaskEdge[],
   prs: readonly Pr[],
-  sources: readonly Source[],
   cpm: ResultadoCPM,
   hoje: string,
   scores?: ReadonlyMap<string, number | null | undefined>,
 ): LinhaDoTempoProps {
-  const linhasAssuntos: LinhaDoTempoRow[] = prs.map((pr) => montaAssunto(pr, hoje));
+  /**
+   * P5h (achado MÉDIO 5, rodada 10): os ASSUNTOS não tinham ordem nenhuma —
+   * saíam na ordem em que o repositório de frentes os devolveu. Medido na
+   * tela, o `left` das 14 barras descia e subia cinco vezes
+   * (377,85 · 377,85 · 299,38 · 256,61 · 342,14 · 171,06 · 0 · 42,77 · 0 · 0 ·
+   * 0 · 128,30 · 213,84 · 299,38): um Gantt sem eixo vertical. As TAREFAS já
+   * ordenavam (`es` → `rank` → `critico` → id); o grupo de cima é que não.
+   *
+   * A ordem escolhida é a única defensável sem inventar produto: **a data de
+   * início da barra**, a mesma grandeza que o olho segue da esquerda para a
+   * direita (é o default do Asana e do MS Project, e a P5 declara perseguir o
+   * primeiro). Desempates, nesta ordem: fim mais cedo primeiro (barra mais
+   * curta em cima quando dois assuntos começam no mesmo dia) e depois o id
+   * (`repo#numero`), estável e único — a ordem nunca muda entre duas leituras
+   * do mesmo quadro.
+   *
+   * Linha sem barra desenhável (`dataInvalida`) vai para o FIM: ela não tem
+   * posição no eixo, e enfiá-la no meio pela data fabricada de "hoje"
+   * misturaria "não sei quando" com "começa hoje". `datasInconsistentes` TEM
+   * início real (o podre é o fim) e ordena por ele, como qualquer outra.
+   *
+   * O que NÃO entra aqui: um controle de ordenação para o operador (ordenar
+   * por fim, por repositório, por estado). Isso é decisão de produto e está
+   * PROPOSTO, não implementado — a régua desta rodada é "o Gantt tem UMA
+   * ordem", não "o Gantt tem um seletor".
+   */
+  const linhasAssuntos: LinhaDoTempoRow[] = prs
+    .map((pr) => montaAssunto(pr, hoje))
+    .sort((a, b) => {
+      if (a.dataInvalida !== b.dataInvalida) return a.dataInvalida ? 1 : -1;
+      if (a.inicio !== b.inicio) return a.inicio < b.inicio ? -1 : 1;
+      if (a.fim !== b.fim) return a.fim < b.fim ? -1 : 1;
+      return a.id.localeCompare(b.id);
+    });
 
   const { predecessores, sucessores } = precedenciaDeclarada(tasks, edges);
-  const fontePorTask = mapaFontePorTask(tasks, sources);
   const ranks = calcularRanks(predecessores);
 
   const tarefasOrdenaveis = tasks.map((t) =>
-    montaTarefa(t, cpm, fontePorTask, predecessores, sucessores, scores, hoje),
+    montaTarefa(t, cpm, predecessores, sucessores, scores, hoje),
   );
   tarefasOrdenaveis.sort((a, b) => {
     if (a.es !== b.es) return a.es - b.es;
@@ -383,9 +429,8 @@ export function montarLinhaDoTempo(
   ];
 
   return {
-    hoje: paraDataCurta(hoje),
+    hoje: diaNoCalendarioDoOperador(hoje),
     grupos,
     goalId: cpm.goalId,
-    duracaoTotal: cpm.duracaoTotal,
   };
 }

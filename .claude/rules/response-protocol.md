@@ -7,16 +7,21 @@
 >
 > Se precisar mudar o formato, mude **só este arquivo, no hub** `Lucas-Contexto-Geral` — os espelhos são regravados pelo `sync-rules`. Não duplicar em CLAUDE.md.
 
-## 🕒 Carimbo de hora — linha 2 de toda resposta (ordem do operador, 25/09/2026)
+## 🕒 Carimbo de hora — em toda resposta ao operador (linha 2 se houver a do modelo, senão linha 1; ordem do operador, 25/09/2026)
 
 Palavras dele: *"todos os meus chats tenham TIME STAMP simples em cada resposta, em todos os repositórios"*.
-Toda resposta substantiva abre com **duas** linhas fixas: a 1ª é o gate de modelo (`model-routing`); a 2ª é
-`🕒 AAAA-MM-DD HH:MM (São Paulo)`. A hora **é medida no mesmo turno, nunca lembrada**: no hub, o hook
-`.claude/hooks/carimbo-de-hora.sh` (UserPromptSubmit) imprime a linha pronta no contexto; fora do hub, onde os
-hooks não carregam, o agente roda `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'` antes de responder. Ambiente sem
-relógio (sem shell) escreve `🕒 sem relógio nesta sessão` — a ausência é declarada, não preenchida.
-Confirmação trivial de 1 linha dispensa. Violação: hora de memória (erro classe A, dado inventado) · carimbo em
-UTC · carimbo ausente em resposta substantiva · carimbo inventado onde não há relógio.
+**Toda resposta, sem exceção** — longa, curta, de uma linha, de espera — traz `🕒 AAAA-MM-DD HH:MM (São Paulo)`:
+na linha 2 quando há o gate de modelo (`model-routing`) na linha 1; na linha 1 quando não há. A hora **é medida no
+mesmo turno, nunca lembrada**: no hub, o hook `.claude/hooks/carimbo-de-hora.sh` (UserPromptSubmit) imprime a linha
+pronta no contexto; fora do hub, onde os hooks não carregam, o agente roda `TZ=America/Sao_Paulo date '+%Y-%m-%d %H:%M'`
+antes de responder. Ambiente sem relógio (sem shell) escreve `🕒 sem relógio nesta sessão` — a ausência é declarada,
+não preenchida. Violação: resposta sem carimbo, **qualquer que seja o tamanho** (a exceção para resposta curta da v1
+foi retirada em 27/09 — o operador pediu "cada resposta", e a brecha fez o carimbo sumir justamente nas curtas) · hora
+de memória (erro classe A, dado inventado) · carimbo em UTC · carimbo inventado onde não há relógio.
+**Escopo:** resposta ao operador no chat. Não se aplica a saída consumida por máquina com formato exato exigido por
+quem chama (retorno de subagente, JSON, "responda só OK", corpo de commit/PR, arquivo gravado) — ali o carimbo quebraria
+o contrato. Isso não é brecha de tamanho: resposta curta ao operador continua com carimbo (achado P2 do Codex, vsl-mastery#39).
+Na resposta de troca de modelo (`model-routing`, gate errado), as linhas são duas: o pedido de troca e o carimbo (achado P2 do Codex, TEMPLO-FE#15).
 
 Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:

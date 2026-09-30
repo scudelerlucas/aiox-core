@@ -4,10 +4,10 @@
 > próxima alavanca é a que o item 7 da `packages/lifeboard/LINHA-DE-CHEGADA.md` já nomeia — **esconder conversa que
 > não tem ligação com nada**. Executa o **Codex** (regra `codex-corrige-claude-valida`: um PR publicado pela
 > tarefa, base = a branch deste doc); o Claude valida por fora e mescla. **Um PR. No máximo 2 rodadas.**
-> **Dono: Lucas** (publica o PR da tarefa pelo botão e mergeia o #51) · **data proposta: 28/09/2026 10h** (evento no
-> calendário LS, lembretes e-mail 1 d + popup 1 d + popup 1 h — desvio declarado, o evento nasceu a ~38 h) · **quem
-> cobra: Lucas** (executor é o operador). Registro: hub, `docs/audit/AGENDA-FALSIFICACAO.md`. Codex e Claude são
-> ferramentas, não donos.
+> **Dono: Lucas** (publica o PR da tarefa pelo botão e mergeia o #51) · **data proposta: 01/10/2026 10h** (a de
+> 28/09 venceu sem o PR publicado; evento no calendário LS remarcado, lembretes e-mail 1 d + popup 1 d + popup 1 h —
+> desvio declarado, o evento renasce a ~31 h) · **quem cobra: Lucas** (executor é o operador). Registro: hub,
+> `docs/audit/AGENDA-FALSIFICACAO.md`. Codex e Claude são ferramentas, não donos.
 
 ## O que foi medido (26/09 19:19 SP, banco `hciiilopyivjaekaxfqp`, sincronização das 18:08)
 
@@ -56,6 +56,14 @@ Consequências que precisam continuar verdadeiras:
 > de predicado nenhum** (e `materializar.ts` só ganha um campo aditivo, sem mudar testes); a guarda de fiação também
 > confere que a proveniência chega à projeção; e os **gates da raiz** (`npm run lint` · `npm run typecheck` · `npm test`)
 > entram, com a régua de comparação contra a base.
+> **v5 (30/09 03:0x — a `main` mudou por baixo, base atualizada no #51):** a Tarefa 00 (#57, 27/09) pôs o cálculo do
+> grafo num lugar só, `montarGrafoDoDia` (`src/core/prioritize/grafo-do-dia.ts`), usado **pela home e por
+> `GET /api/grafo-bruto`** — e a guarda P4 (`scripts/guarda-no-navegador.mjs`) lê essa rota para derivar as tarefas e
+> as arestas que o canvas **tem** de mostrar, nos dois sentidos, conjuntos e contagens iguais. Uma poda só em
+> `page.tsx` deixaria a rota dizendo 183 e o canvas mostrando 137: a guarda ficaria vermelha, e com razão. Logo **a
+> poda entra em `montarGrafoDoDia`, não numa projeção nova**: `grafo-da-home.ts` deixa de existir, e a guarda de
+> fiação cobre a página **e** a rota. As duas entregas do Codex de 26/09 (spec v1 e v2, commits `353cd32` e
+> `64ce43a`, nunca publicadas) ficaram obsoletas: base antiga (`page.tsx` já não é o mesmo) e spec três versões atrás.
 
 1. **Proveniência, sem mudar `listAll()` nem o tipo `Task`.** `materializarFrentes` já sabe quais tarefas são
    conversa (`idDaSessao`): o retorno `Materializacao` ganha **um campo aditivo**, `idsDeConversa: Set<string>` —
@@ -76,12 +84,16 @@ Consequências que precisam continuar verdadeiras:
    predicado por `externalRef`**) e (ii) de grau zero em `edges`. **Linha do banco nunca é podada, por construção**
    — ela não está no conjunto; branch e mudança materializadas também não. Constante declarada e comentada com a
    medição desta página.
-3. **A projeção do grafo vira função**, `src/lib/frentes/grafo-da-home.ts`: `montarGrafoDaHome({ tasks, edges,
-   conversasMaterializadas })` faz, nesta ordem, a poda → o `goalId` (mesma regra determinística de hoje) → `caminhoCritico`
-   → `scoreAssimetriaLote` → `serializaGrafoV3`, e devolve `{ tasksDoGrafo, grafoV3 }`. `src/app/page.tsx` passa a
-   chamar só ela para o que vai ao `DashboardClient` como `tasks` e `grafoV3`. **`hoje = buildTodayList(tasks)`
-   continua com a lista inteira.** `materializar.ts`, `compose.ts`, `/api/today`, `/api/health`, linha do tempo,
-   prompts e página da tarefa: **intocados**.
+3. **A poda entra na função que já é o lugar único do grafo** (v5): `montarGrafoDoDia(tasks, edges,
+   conversasMaterializadas)` em `src/core/prioritize/grafo-do-dia.ts` faz, nesta ordem, a poda → o `goalId` (mesma
+   regra determinística de hoje) → `caminhoCritico` → `scoreAssimetriaLote` → `serializaGrafoV3`, e o retorno
+   `GrafoDoDia` ganha `tasksDoGrafo: Task[]` (a lista podada). O terceiro parâmetro é **obrigatório** (conjunto vazio
+   explícito = nada é podado): sem ele a fiação esquece a proveniência e tudo fica verde por engano. Os dois chamadores
+   mudam do mesmo jeito: `src/app/page.tsx` manda ao `DashboardClient` `tasks={tasksDoGrafo}` e `grafoV3`; e
+   `src/app/api/grafo-bruto/route.ts` serializa `tarefas` a partir de `tasksDoGrafo` (as `arestas` não mudam: conversa
+   de grau zero não tem aresta). É isso que mantém a guarda P4 medindo o produto: rota e canvas continuam saindo da
+   mesma conta. **`hoje = buildTodayList(tasks)` continua com a lista inteira.** `materializar.ts`, `compose.ts`,
+   `/api/today`, `/api/health`, linha do tempo, prompts e página da tarefa: **intocados**.
 4. **Testes** (vitest):
    - `tests/unit/frentes-podar-soltas.test.ts`: conversa materializada sem aresta → **sai** (**o teste que falha
      antes e passa depois**: sem a função, a lista volta igual) · conversa com aresta para branch ou mudança → fica,
@@ -98,13 +110,16 @@ Consequências que precisam continuar verdadeiras:
      proveniência — e, em todos,
      `listConversasMaterializadas()` **não** contém o id persistido e, passando esse conjunto pela projeção com a
      tarefa de grau zero, ela **fica**. Se a união decidir por id em vez de por chave, o segundo caso fica vermelho;
-   - `tests/unit/frentes-grafo-da-home.test.ts`: a projeção devolve `tasksDoGrafo` sem a conversa solta, e o
-     `grafoV3` (caminho crítico e scores) é calculado **sobre a lista podada**, não sobre a inteira;
-   - **guarda de fiação** no mesmo arquivo (no estilo de `tarefa-escritas-varredura.test.ts`): lê
-     `src/app/page.tsx` como texto e exige (1) que `DashboardClient` receba `tasks={tasksDoGrafo}` e `grafoV3`
-     **vindos de `montarGrafoDaHome`**, (2) que `buildTodayList` receba a lista inteira e (3) que a página chame
-     `listConversasMaterializadas()` do repositório e passe o resultado a `montarGrafoDaHome` como
-     `conversasMaterializadas` — conjunto vazio ou fixo no lugar dele fica vermelho com o nome do arquivo;
+   - `tests/unit/grafo-do-dia-poda.test.ts` (v5): `montarGrafoDoDia` devolve `tasksDoGrafo` sem a conversa solta, e
+     o `grafoV3` (caminho crítico e scores) é calculado **sobre a lista podada**, não sobre a inteira; com conjunto
+     vazio, `tasksDoGrafo` é a lista inteira e o `grafoV3` é idêntico ao de hoje (o teste existente da função, se
+     houver, não muda de expectativa);
+   - **guarda de fiação** no mesmo arquivo (no estilo de `tarefa-escritas-varredura.test.ts`): lê `src/app/page.tsx`
+     **e** `src/app/api/grafo-bruto/route.ts` como texto e exige, nos dois, (1) que o que vai à tela ou à resposta
+     (`tasks={tasksDoGrafo}` + `grafoV3` na página; `tarefas` a partir de `tasksDoGrafo` na rota) **venha de
+     `montarGrafoDoDia`**, (2) na página, que `buildTodayList` receba a lista inteira, e (3) que cada um chame
+     `listConversasMaterializadas()` do repositório e passe o resultado a `montarGrafoDoDia` como terceiro argumento —
+     conjunto vazio ou fixo no lugar dele, ou a rota serializando `tasks` cru, fica vermelho com o nome do arquivo;
    - `tests/unit/frentes-materializar.test.ts` (a)–(e): **sem alteração nenhuma** (`git diff` vazio).
 5. `LINHA-DE-CHEGADA.md`, item 7: acrescentar a linha da medição do PR (cartões do grafo antes → depois, no banco de
    produção, só leitura) e marcar `[x]` nos critérios abaixo que a entrega cumprir.
@@ -126,8 +141,9 @@ Consequências que precisam continuar verdadeiras:
       com o mesmo UUID → id persistido fora de `listConversasMaterializadas()` e presente no grafo), não só pela poda
       com conjunto montado à mão
 - [ ] o caminho crítico e os scores do `grafoV3` são calculados sobre a lista podada
-- [ ] guarda de fiação: `page.tsx` passa ao grafo só o que sai de `montarGrafoDaHome`, a lista inteira a `buildTodayList`,
-      e `listConversasMaterializadas()` chega à projeção como `conversasMaterializadas`
+- [ ] guarda de fiação: `page.tsx` e `api/grafo-bruto/route.ts` só publicam o que sai de `montarGrafoDoDia`, a página
+      dá a lista inteira a `buildTodayList`, e `listConversasMaterializadas()` chega à função nos dois chamadores
+- [ ] guarda P4 (`npm run guarda:grafo`, junção ligada) verde sobre o head: rota e canvas contam as mesmas tarefas
 - [ ] `getTasksRepository().listAll()`, `/api/today`, `/api/health`, linha do tempo, prompts e página da tarefa
       continuam mostrando a conversa solta (nada muda fora do grafo)
 - [ ] `frentes-materializar.test.ts` (a)–(e) intactos e verdes
@@ -143,10 +159,11 @@ Consequências que precisam continuar verdadeiras:
 | `packages/lifeboard/src/lib/frentes/no-grafo.ts` | só a proveniência: `conversasMaterializadas` em `GrafoUnido` + `listConversasMaterializadas()` no repositório da união |
 | `packages/lifeboard/src/lib/repositories/tasks.fixture.ts` | método opcional `listConversasMaterializadas?()` na interface; fixture devolve conjunto vazio |
 | `packages/lifeboard/src/lib/frentes/podar-soltas.ts` | **novo** — a função pura da poda e a constante comentada |
-| `packages/lifeboard/src/lib/frentes/grafo-da-home.ts` | **novo** — a projeção do grafo (poda → goal → CPM → scores → v3) |
-| `packages/lifeboard/src/app/page.tsx` | chama `montarGrafoDaHome`; `buildTodayList` segue com a lista inteira |
+| `packages/lifeboard/src/core/prioritize/grafo-do-dia.ts` | `montarGrafoDoDia` ganha o 3º parâmetro e `tasksDoGrafo` (poda → goal → CPM → scores → v3) |
+| `packages/lifeboard/src/app/page.tsx` | passa `tasksDoGrafo` ao `DashboardClient`; `buildTodayList` segue com a lista inteira |
+| `packages/lifeboard/src/app/api/grafo-bruto/route.ts` | `tarefas` sai de `tasksDoGrafo`; chama `listConversasMaterializadas()` |
 | `packages/lifeboard/tests/unit/frentes-podar-soltas.test.ts` | **novo** — testes do item 4, 1º bloco |
-| `packages/lifeboard/tests/unit/frentes-grafo-da-home.test.ts` | **novo** — projeção + guarda de fiação |
+| `packages/lifeboard/tests/unit/grafo-do-dia-poda.test.ts` | **novo** — poda dentro da função + guarda de fiação (página e rota) |
 | `packages/lifeboard/tests/unit/frentes-no-grafo.test.ts` | conversa persistida com chave igual (id diferente e id igual) → fora da proveniência, presente no grafo |
 | `packages/lifeboard/LINHA-DE-CHEGADA.md` | item 7, medição antes → depois |
 | `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` | esta página (checklist marcado) |
@@ -156,8 +173,9 @@ Consequências que precisam continuar verdadeiras:
 Merge local do PR do Codex com a base · as cinco checagens do pacote (tsc, vitest, contraste, eslint, **build**) · os três
 gates da raiz (lint, typecheck, `npm test`; falha fora do Lifeboard comparada com a base) · o teste da poda rodado sem a
 função aplicada (tem que ficar vermelho) · o teste da linha do banco com `externalRef` de sessão, **pela união** (tem que ficar) · a guarda
-de fiação com `page.tsx` sabotado duas vezes — passando `tasks` cru ao grafo, e passando `new Set()` no lugar de
-`listConversasMaterializadas()` (as duas têm que ficar vermelhas) · `frentes-materializar.test.ts` idêntico ao da base
+de fiação sabotada três vezes — `page.tsx` passando `tasks` cru ao grafo, `page.tsx` passando `new Set()` no lugar de
+`listConversasMaterializadas()`, e `route.ts` serializando `tasks` cru (as três têm que ficar vermelhas) · a guarda P4
+no Chromium com a junção ligada (`npm run guarda:grafo`), verde · `frentes-materializar.test.ts` idêntico ao da base
 (`git diff` vazio) · a mesma medição desta página refeita sobre o head do Codex (esperado ≈ 137 cartões de
 frentes com o dado de 26/09; o número do dia pode variar com a sincronização). Verde → merge commit na branch deste
 doc, thread resolvida com o resultado escrito; o operador mergeia na `main`.
@@ -171,4 +189,6 @@ doc, thread resolvida com o resultado escrito; o operador mergeia na `main`.
 - Não decidir "é conversa" pelo `externalRef` em lugar nenhum da poda: quem diz é a proveniência; sem ela, uma linha do
   banco seria podada.
 - Não inferir ligação por texto (título, mensagem de commit).
+- Não criar uma segunda conta do grafo (projeção só da home): a rota `/api/grafo-bruto` e a página saem da **mesma**
+  função — é a guarda P4 que mede isso, e é a razão de existir de `grafo-do-dia.ts`.
 - Não aplicar nada em produção; não empurrar na `main`; não fazer rebase/força na branch base.

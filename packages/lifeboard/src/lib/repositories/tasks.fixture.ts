@@ -159,6 +159,64 @@ export const FIXTURE_TASKS: readonly Task[] = [
     updatedAt: "2026-07-07T09:00:00.000Z",
   }),
 
+  /*
+   * ── Rodada 12 (achado ALTO 1) — os dois mecanismos que NUNCA nasciam ──────
+   *
+   * Medido no Chromium em 4 estados (1440/390 × Auto/Semana/Trimestre):
+   * `lb-tl-slack` = 0 e `lb-tl-atraso` = 0 em TODOS. Duas camadas desenhadas
+   * pela tela, cada uma afirmando uma data, com zero cobertura de navegador
+   * em qualquer largura ou zoom — porque as duas únicas tarefas com barra da
+   * fixture (`task-build`, `task-deploy`) estão as duas no caminho crítico,
+   * com `folga: 0 d`, e o único `dueDate` cai fora da barra.
+   *
+   * As duas tarefas abaixo existem para que esses dois desenhos EXISTAM na
+   * tela que a guarda mede. Elas não mexem no caminho crítico nem em
+   * `duracaoTotal` (prova em `caminho-critico.test.ts`).
+   */
+
+  /*
+   * `lb-tl-slack` — a hachura de folga, que afirma `fim → fimComFolga`.
+   * Predecessora do goal com 1 dia de duração contra 3 dias de janela:
+   * ES 0, EF 1, LF 3 → folga 2. A barra é de 1 dia e a hachura de 2, SEMPRE
+   * relativas a "hoje" (o CPM conta a partir de hoje) — logo este desenho
+   * não envelhece com o calendário.
+   */
+  makeTask("task-lint", { s1: 2, s2: 2, s3: 1 }, {
+    title: "Rodar o lint antes do deploy",
+    notes: "Folga de 2 dias: ficar pronta hoje não adianta a data do goal",
+    sourceId: sourceIdFor("drive"),
+    estimativaDias: 1,
+    successorIds: ["task-deploy"],
+  }),
+
+  /*
+   * `lb-tl-atraso` — o TRAÇO de prazo, que afirma `xFor(dueDate)` DENTRO da
+   * barra. Para o prazo cair dentro da barra e a tarefa estar atrasada ao
+   * mesmo tempo, ela precisa de início REAL no passado (`iniciadoEm`) e
+   * duração que atravesse o prazo: uma tarefa do CPM começa em "hoje" ou
+   * depois, e "atrasada" exige prazo ANTERIOR a hoje — as duas condições não
+   * cabem na mesma tarefa do CPM. Por isso esta fica FORA do CPM (sem aresta
+   * nenhuma), como `task-docs`.
+   *
+   * inicio 16/09 → prazo 18/09 → fim 28/09: o prazo está dentro da barra por
+   * construção (as três datas são absolutas, a relação entre elas não muda).
+   * O que muda com o calendário é a JANELA do zoom "Auto" (min(hoje−7, menor
+   * início de barra)); nos zooms FIXOS a janela é ancorada no histórico
+   * inteiro dos assuntos (03/08/2026) e cobre esta barra por ~420 dias. A
+   * guarda mede os dois casos e REPROVA se a contagem voltar a zero — é essa
+   * medida, e não este comentário, que impede a cobertura de sumir em
+   * silêncio outra vez.
+   */
+  makeTask("task-migracao", { s1: 3, s2: 2, s3: 2 }, {
+    title: "Migrar a tabela de leituras",
+    notes: "Atrasada: o prazo caiu no meio da execução",
+    sourceId: sourceIdFor("gmail"),
+    estimativaDias: 12,
+    iniciadoEm: "2026-09-16T09:00:00.000Z",
+    dueDate: "2026-09-18T00:00:00.000Z",
+    updatedAt: "2026-09-16T09:00:00.000Z",
+  }),
+
   // ── P6 (13/09/2026) — subtarefa de demonstração da página da tarefa ───────
   // Filha de task-build, SEM predecessor/successor: fica fora dos ancestrais
   // do goal (task-deploy), então não entra no caminho crítico nem muda
@@ -174,9 +232,27 @@ export const FIXTURE_TASKS: readonly Task[] = [
 ];
 
 /**
- * v3 — uma aresta de cada tipo declarado, para o grafo e os testes exercitarem
- * as quatro camadas. A cadeia setup → build → deploy continua vindo dos arrays
+ * v3 — as arestas declaradas, para o grafo e os testes exercitarem as quatro
+ * camadas. A cadeia setup → build → deploy continua vindo dos arrays
  * (`predecessorIds`); aqui só o que os arrays não sabem dizer.
+ *
+ * ── DUAS DE CADA, NUNCA UMA (achado BAIXO 12 do crítico, rodada 13) ────────
+ *
+ * Até aqui eram quatro arestas: uma predecessora, UMA correlação, UMA
+ * sinergia e UMA obsolescência. O piso da guarda de navegador — "cada papel
+ * tem ao menos uma aresta na tela" — repousava, em três dos quatro papéis,
+ * sobre um único objeto: mudar o layout e perder aquela aresta derrubava o
+ * papel inteiro, e uma sabotagem que apagasse *a outra* aresta de um papel
+ * não teria onde ser vista, porque não havia outra.
+ *
+ * Agora cada camada base tem PELO MENOS DUAS arestas, e a guarda cobra esse
+ * piso do lado do dado (`§0`, o universo fino demais reprova): medir a classe
+ * exige mais de um caso da classe.
+ *
+ * As três novas foram escolhidas para não mexer no CPM nem na lista "hoje":
+ * correlação e sinergia não entram em precedência nenhuma, e a obsolescência
+ * nova sai de `task-docs`, que está ABERTA — só obsolescência cuja origem já
+ * está `done` poda o destino do grafo (`caminho-critico.ts`).
  */
 export const FIXTURE_EDGES: readonly TaskEdge[] = [
   {
@@ -214,6 +290,33 @@ export const FIXTURE_EDGES: readonly TaskEdge[] = [
     peso: 1,
     nota: "Com o motor pronto, arquivar os docs antigos deixa de importar.",
     createdAt: "2026-07-09T10:03:00.000Z",
+  },
+  {
+    id: "edge-standup-correlaciona-triage",
+    origem: "task-standup",
+    destino: "task-triage-inbox",
+    tipo: "correlacao",
+    peso: 1,
+    nota: "O standup e a triagem da caixa andam no mesmo começo de dia.",
+    createdAt: "2026-07-09T10:04:00.000Z",
+  },
+  {
+    id: "edge-docs-sinergia-review",
+    origem: "task-docs",
+    destino: "task-review",
+    tipo: "sinergia",
+    peso: 0.35,
+    nota: "Escrever a documentação adianta parte da leitura do PR.",
+    createdAt: "2026-07-09T10:05:00.000Z",
+  },
+  {
+    id: "edge-docs-obsoleta-notes",
+    origem: "task-docs",
+    destino: "task-notes-idea",
+    tipo: "obsolescencia",
+    peso: 1,
+    nota: "Com a documentação escrita, o rascunho solto da ideia perde a razão.",
+    createdAt: "2026-07-09T10:06:00.000Z",
   },
 ];
 
