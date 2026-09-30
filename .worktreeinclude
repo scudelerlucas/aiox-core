@@ -1,0 +1,6 @@
+# Orca (onorca.dev): arquivos ignorados pelo git que cada cópia de trabalho (worktree) recebe por cópia.
+# Só caminhos literais; o que não existir no checkout principal é pulado sem erro.
+# Parecer: Lucas-Contexto-Geral/docs/audit/AUDITORIA-orca-onorca-dev-instalacao-2026-09-30.md
+.env
+.env.local
+.claude/settings.local.json
