@@ -143,7 +143,10 @@ Consequências que precisam continuar verdadeiras:
 - [x] o caminho crítico e os scores do `grafoV3` são calculados sobre a lista podada
 - [x] guarda de fiação: `page.tsx` e `api/grafo-bruto/route.ts` só publicam o que sai de `montarGrafoDoDia`, a página
       dá a lista inteira a `buildTodayList`, e `listConversasMaterializadas()` chega à função nos dois chamadores
-- [ ] guarda P4 (`npm run guarda:grafo`, junção ligada) verde sobre o head: rota e canvas contam as mesmas tarefas
+- [x] guarda P4 (`npm run guarda:grafo`, junção ligada) sobre o head: **rota e canvas contam as mesmas tarefas** (30/30 no
+      Tab, 19/19 arestas do dado) e **nenhuma falha nova** contra a base `e831938e` (Claude, 01/10, Chromium 1194, larguras
+      1280 e 390, corridas limpas: head 22 falhas, base 34, as 22 do head todas presentes na base). "Verde" não é possível
+      por esta tarefa: a P4 já está vermelha na `main` com a junção ligada, e consertá-la é a Tarefa 03
 - [x] `getTasksRepository().listAll()`, `/api/today`, `/api/health`, linha do tempo, prompts e página da tarefa
       continuam mostrando a conversa solta (nada muda fora do grafo)
 - [x] `frentes-materializar.test.ts` (a)–(e) intactos e verdes
