@@ -133,23 +133,23 @@ Consequências que precisam continuar verdadeiras:
 
 ## Critérios de aceite (checklist da story — o PR do Codex marca o que cumpriu)
 
-- [ ] conversa materializada sem aresta não aparece no grafo (teste vermelho antes, verde depois)
-- [ ] conversa com aresta para branch ou mudança continua no grafo, com a aresta
-- [ ] branch e mudança materializadas nunca são podadas
-- [ ] **linha do banco nunca é podada**, mesmo com `externalRef` de sessão e grau zero (proveniência) — provado
+- [x] conversa materializada sem aresta não aparece no grafo (teste vermelho antes, verde depois)
+- [x] conversa com aresta para branch ou mudança continua no grafo, com a aresta
+- [x] branch e mudança materializadas nunca são podadas
+- [x] **linha do banco nunca é podada**, mesmo com `externalRef` de sessão e grau zero (proveniência) — provado
       **pela união** (`frentes-no-grafo.test.ts`: chave igual à de uma conversa materializada, com id diferente **e**
       com o mesmo UUID → id persistido fora de `listConversasMaterializadas()` e presente no grafo), não só pela poda
       com conjunto montado à mão
-- [ ] o caminho crítico e os scores do `grafoV3` são calculados sobre a lista podada
-- [ ] guarda de fiação: `page.tsx` e `api/grafo-bruto/route.ts` só publicam o que sai de `montarGrafoDoDia`, a página
+- [x] o caminho crítico e os scores do `grafoV3` são calculados sobre a lista podada
+- [x] guarda de fiação: `page.tsx` e `api/grafo-bruto/route.ts` só publicam o que sai de `montarGrafoDoDia`, a página
       dá a lista inteira a `buildTodayList`, e `listConversasMaterializadas()` chega à função nos dois chamadores
 - [ ] guarda P4 (`npm run guarda:grafo`, junção ligada) verde sobre o head: rota e canvas contam as mesmas tarefas
-- [ ] `getTasksRepository().listAll()`, `/api/today`, `/api/health`, linha do tempo, prompts e página da tarefa
+- [x] `getTasksRepository().listAll()`, `/api/today`, `/api/health`, linha do tempo, prompts e página da tarefa
       continuam mostrando a conversa solta (nada muda fora do grafo)
-- [ ] `frentes-materializar.test.ts` (a)–(e) intactos e verdes
-- [ ] item 7 da linha de chegada com a medição antes → depois
-- [ ] pacote: `tsc` · `vitest` · `contraste` · eslint · **`npm run build`** verdes
-- [ ] raiz: `npm run lint` · `npm run typecheck` · `npm test` verdes (ou falha fora do Lifeboard reproduzida na base, escrita no PR)
+- [x] `frentes-materializar.test.ts` (a)–(e) intactos e verdes
+- [x] item 7 da linha de chegada com a medição antes → depois
+- [x] pacote: `tsc` · `vitest` · `contraste` · eslint · **`npm run build`** verdes
+- [x] raiz: `npm run lint` · `npm run typecheck` · `npm test` verdes (ou falha fora do Lifeboard reproduzida na base, escrita no PR)
 
 ## Lista de arquivos (File List — o PR do Codex a mantém)
 
