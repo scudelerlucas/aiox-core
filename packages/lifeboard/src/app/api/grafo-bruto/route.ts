@@ -31,11 +31,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 export async function GET(): Promise<Response> {
   try {
     const repo = getTasksRepository();
-    const [tasks, edges] = await Promise.all([repo.listAll(), repo.listEdges()]);
-    const { goalId, cpm } = montarGrafoDoDia(tasks, edges);
+    const [tasks, edges, conversasMaterializadas] = await Promise.all([
+      repo.listAll(),
+      repo.listEdges(),
+      repo.listConversasMaterializadas?.() ?? Promise.resolve(new Set<string>()),
+    ]);
+    const { tasksDoGrafo, goalId, cpm } = montarGrafoDoDia(tasks, edges, conversasMaterializadas);
 
     return jsonResponse({
-      tarefas: tasks.map((t) => ({
+      tarefas: tasksDoGrafo.map((t) => ({
         id: t.id,
         titulo: t.title,
         predecessorIds: t.predecessorIds,

@@ -40,6 +40,7 @@ export interface GrafoUnido {
   tasks: Task[];
   edges: TaskEdge[];
   sources: Source[];
+  conversasMaterializadas?: Set<string>;
 }
 
 /**
@@ -77,7 +78,9 @@ export function unirFrentesAoGrafo(
   // Tarefas: a linha do banco vence a materializada pela mesma chave lógica.
   const idPorChave = new Map<string, string>();
   for (const t of base.tasks) idPorChave.set(`${t.sourceId}|${t.externalRef}`, t.id);
+  const idsDoBanco = new Set(base.tasks.map((t) => t.id));
   const mapaId = new Map<string, string>(); // id materializado → id final
+  const conversasMaterializadas = new Set<string>();
   const tasks = [...base.tasks];
   for (const t of frentes.tasks) {
     const existente = idPorChave.get(`${t.sourceId}|${t.externalRef}`);
@@ -85,8 +88,13 @@ export function unirFrentesAoGrafo(
       mapaId.set(t.id, existente);
       continue;
     }
+    if (idsDoBanco.has(t.id)) {
+      mapaId.set(t.id, t.id);
+      continue;
+    }
     mapaId.set(t.id, t.id);
     tasks.push(t);
+    if (frentes.idsDeConversa.has(t.id)) conversasMaterializadas.add(t.id);
   }
 
   // Arestas: remapeia as pontas; só entra o que liga duas tarefas presentes e
@@ -126,7 +134,7 @@ export function unirFrentesAoGrafo(
     };
   });
 
-  return { tasks: tasksFinais, edges, sources };
+  return { tasks: tasksFinais, edges, sources, conversasMaterializadas };
 }
 
 /** Os dois repositórios base que a junção envolve. */
@@ -157,7 +165,7 @@ export function criarRepositoriosComFrentes(
         base.tasks.listEdges(),
         base.sources.listAll(),
       ]);
-      const grafo: GrafoUnido = { tasks, edges, sources };
+      const grafo: GrafoUnido = { tasks, edges, sources, conversasMaterializadas: new Set() };
       let dados: DadosFrentes;
       try {
         dados = await lerFrentes();
@@ -178,6 +186,9 @@ export function criarRepositoriosComFrentes(
     },
     async listEdges() {
       return (await carregar()).edges;
+    },
+    async listConversasMaterializadas() {
+      return (await carregar()).conversasMaterializadas ?? new Set<string>();
     },
     listNotes() {
       return base.tasks.listNotes();

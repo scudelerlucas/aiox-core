@@ -50,6 +50,8 @@ export interface TasksRepository {
   listEdges(): Promise<TaskEdge[]>;
   /** v3 — notas em lista, mais recente primeiro. */
   listNotes(): Promise<TaskNote[]>;
+  /** Proveniência opcional das conversas criadas só na leitura das frentes. */
+  listConversasMaterializadas?(): Promise<Set<string>>;
 }
 
 function makeTask(
@@ -365,5 +367,9 @@ export class FixtureTasksRepository implements TasksRepository {
 
   async listNotes(): Promise<TaskNote[]> {
     return FIXTURE_NOTES.map((n) => ({ ...n }));
+  }
+
+  async listConversasMaterializadas(): Promise<Set<string>> {
+    return new Set();
   }
 }
