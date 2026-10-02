@@ -6648,3 +6648,69 @@ begin
   raise exception 'FALHA: T113 esperado dono 0, outra 25 e item 0 — obteve dono=% outra=% item=%',
     v_dono_hoje, v_outra_hoje, v_item_hoje;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T114 · MÉDIO 1 (revisão independente de 29/09) — A QUARTA CONTA
+-- PREEXISTENTE E SEM MEDIÇÃO TAMBÉM FICA TRAVADA
+-- A 0027 só inseria a trava quando a linha ainda não existia. Produção podia
+-- chegar à migration com a linha da 0026 irmã já presente e `false`; nesse
+-- caso, a conta sem Routine parecia ter US$ 500 livres e recebia item. Este
+-- bloco parte exatamente dessa linha preexistente, aplica a correção da 0031
+-- e prova também o limite negativo: uma conta que já mediu conserva a decisão
+-- explícita do operador.
+-- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: remover a chamada da 0031 ou retirar
+-- o `not exists` que distingue conta nunca medida de conta já medida.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_quarta text := 'arborcactus@gmail.com';
+  v_contas text[] := public.painel_contas_da_casa();
+  v_travou boolean;
+  v_preservou boolean;
+  v_r jsonb;
+begin
+  delete from public.painel_frentes_sessoes where conta = any (v_contas);
+  delete from public.painel_fila_prompts where conta = any (v_contas);
+  delete from public.painel_caixa_lancamentos where conta = any (v_contas);
+  update public.painel_teto_diario
+     set teto_usd = 500, exigir_medicao_recente = false
+   where conta = any (v_contas);
+
+  -- Estado que já podia existir antes da 0027: linha presente, destravada e
+  -- nenhuma medição que prove a existência da Routine da quarta conta.
+  perform private.painel_fila_travar_conta_sem_medicao(v_quarta);
+  select exigir_medicao_recente into v_travou
+    from public.painel_teto_diario where conta = v_quarta;
+
+  -- As três contas provisionadas têm medição e algum gasto; se a quarta
+  -- continuasse false, seus US$ 500 vazios venceriam a escolha automática.
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, medido_em, nota)
+  select public.painel_dia_operador(), c, 50, 'medido', 'item', 'T114-' || c,
+         30, now(), 'T114 gasto das contas provisionadas'
+    from unnest(v_contas) c where c <> v_quarta;
+
+  v_r := public.fila_prompts_enfileirar(
+    (select valor from private.lifeboard_config where chave = 'load_secret'),
+    jsonb_build_object('prompt', 'T114 item automático', 'complexidade', 'alta'));
+
+  -- Depois que existe uma medição, false pode ser uma decisão do operador e
+  -- a migration não a sobrescreve silenciosamente.
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, precedencia, medido_em, nota)
+  values (public.painel_dia_operador(), v_quarta, 1, 'medido', 'item',
+          'T114-quarta-medida', 30, now(), 'T114 quarta conta já mediu');
+  update public.painel_teto_diario
+     set exigir_medicao_recente = false
+   where conta = v_quarta;
+  perform private.painel_fila_travar_conta_sem_medicao(v_quarta);
+  select not exigir_medicao_recente into v_preservou
+    from public.painel_teto_diario where conta = v_quarta;
+
+  if v_travou and v_r->>'conta' is not null and v_r->>'conta' <> v_quarta and v_preservou then
+    raise exception 'RESULTADO: ok — T114 a linha preexistente sem medição foi travada, a escolha foi para % e a decisão posterior à medição foi preservada',
+      v_r->>'conta';
+  end if;
+  raise exception 'FALHA: T114 esperado trava da linha preexistente, escolha fora da quarta conta e decisão pós-medição preservada — obteve trava=% retorno=% preservou=%',
+    v_travou, v_r, v_preservou;
+end $$;

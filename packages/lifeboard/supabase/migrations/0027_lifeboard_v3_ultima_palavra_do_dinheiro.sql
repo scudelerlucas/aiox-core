@@ -668,10 +668,11 @@ update public.painel_teto_diario
 -- conta que ainda não tem Routine configurada (o DEPLOY.md só instruía três)
 -- — o item ficava na fila para sempre. Travada, ela não é autorizada até a
 -- Routine dela publicar a primeira medição (menos de 12 h): aí destrava
--- sozinha, sem ninguém mexer nesta linha. Só quando a linha AINDA NÃO existe:
--- num banco onde ela já está, vale o que o operador decidiu. É o mesmo estado
--- que o fixture já mostra para ela (`exigeMedicaoRecente: true`). Vem ANTES da
--- semente das quatro, que então a pula pelo `on conflict`.
+-- sozinha, sem ninguém mexer nesta linha. Aqui a semente cobre a linha que
+-- AINDA NÃO existe; a 0031 cobre explicitamente a linha preexistente sem
+-- medição, preservando a decisão do operador quando a conta já mediu. É o
+-- mesmo estado que o fixture já mostra (`exigeMedicaoRecente: true`). Vem
+-- ANTES da semente das quatro, que então a pula pelo `on conflict`.
 insert into public.painel_teto_diario (conta, teto_usd, exigir_medicao_recente)
 select 'arborcactus@gmail.com', 500, true
  where not exists (select 1 from public.painel_teto_diario where conta = 'arborcactus@gmail.com');
