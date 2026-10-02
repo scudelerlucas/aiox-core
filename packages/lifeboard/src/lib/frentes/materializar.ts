@@ -14,6 +14,8 @@
  *  • mudança ABERTA → 1 tarefa (`external_ref = repo#numero`);
  *  • branch → 1 tarefa (`external_ref = repo:branch`) SÓ se tiver mudança aberta ou
  *    uma conversa que ENTROU ligada a ela.
+ *  • conversa só permanece no grafo se estiver ligada a uma branch ou mudança
+ *    que também entrou; conversa solta continua disponível no quadro Assuntos.
  *
  *    Medido em produção em 26/09/2026, depois do 1º deploy: a regra do doc da
  *    tarefa ("tem `sessao_ids` OU commit em 30 dias") deixava entrar 285 das 339
@@ -66,6 +68,12 @@ const DIA = 86_400_000;
  * meses não é trabalho de hoje; ela continua no quadro Assuntos, em "mais antigos".
  */
 export const JANELA_SESSAO_DIAS = JANELA_ATIVA_DIAS;
+
+/**
+ * Grau mínimo de uma conversa no grafo. Em 26/09, 46 de 74 conversas tinham
+ * grau zero e transformavam o grafo em lista; elas continuam no quadro Assuntos.
+ */
+const GRAU_MINIMO_SESSAO = 1;
 
 /** Fonte das mudanças e branches (kind registrado pela migration 0031). */
 export const KIND_GITHUB: SourceKind = "github";
@@ -415,6 +423,16 @@ export function materializarFrentes(
       if (jaPassaPelaBranch) continue;
       liga(origem, destino, "a conversa produziu esta mudança");
     }
+  }
+
+  // Conversa solta pertence ao quadro Assuntos, não ao grafo de ligações.
+  const grauPorTarefa = new Map<string, number>();
+  for (const { origem, destino } of arestas.values()) {
+    grauPorTarefa.set(origem, (grauPorTarefa.get(origem) ?? 0) + 1);
+    grauPorTarefa.set(destino, (grauPorTarefa.get(destino) ?? 0) + 1);
+  }
+  for (const id of idDaSessao.values()) {
+    if ((grauPorTarefa.get(id) ?? 0) < GRAU_MINIMO_SESSAO) tasks.delete(id);
   }
 
   // 4 · as duas representações da precedência

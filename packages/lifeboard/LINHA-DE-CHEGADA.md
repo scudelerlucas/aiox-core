@@ -81,7 +81,8 @@ A1d só depois de medido no iMac.
    **Medido de novo em 26/09 19:19 SP, já com o #49 em produção:** 183 cartões de frentes (74 conversas · 77 branches ·
    32 mudanças) + 18 do dono, 92 ligações; **46 das 74 conversas estão soltas** (grau 0). Decisão A do operador:
    a alavanca vira a `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` (Codex executa,
-   Claude valida). Esperado depois dela: ~137 cartões de frentes.
+   Claude valida). **Medição reproduzível desta entrega: 183 → 137 cartões de frentes** ao retirar as 46
+   conversas de grau zero do retrato de produção das 19:19; o número ao vivo fica para a validação externa.
 
 ## Ordem daqui para a frente
 

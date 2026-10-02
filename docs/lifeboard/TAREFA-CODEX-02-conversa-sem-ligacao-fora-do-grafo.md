@@ -66,3 +66,18 @@ doc, thread resolvida com o resultado escrito; o operador mergeia na `main`.
 - Não tocar em `compose.ts`/quadro Assuntos: a conversa solta continua lá.
 - Não inferir ligação por texto (título, mensagem de commit).
 - Não aplicar nada em produção; não empurrar na `main`; não fazer rebase/força na branch base.
+
+## Registro da execução Codex
+
+- [x] Teste (f) reproduziu em vermelho a conversa viva sem ligação.
+- [x] Conversa de grau zero removida depois da montagem das arestas.
+- [x] Conversas ligadas a branch ou mudança preservadas com suas arestas.
+- [x] Item 7 registra a medição antes → depois.
+- [x] Checagens locais executadas conforme a tarefa.
+
+### File list
+
+- `packages/lifeboard/src/lib/frentes/materializar.ts`
+- `packages/lifeboard/tests/unit/frentes-materializar.test.ts`
+- `packages/lifeboard/LINHA-DE-CHEGADA.md`
+- `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md`

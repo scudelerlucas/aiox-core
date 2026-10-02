@@ -301,7 +301,12 @@ describe("(c) branch velha sem conversa não aparece", () => {
 
   it(`conversa com movimento dentro dos ${JANELA_SESSAO_DIAS} dias entra`, () => {
     const recente = sessao({ estado: "blocked", atualizado_em: d(JANELA_SESSAO_DIAS - 1) });
-    expect(materializarFrentes(dados({ sessoes: [recente] }), { agora: AGORA }).tasks).toHaveLength(1);
+    expect(
+      materializarFrentes(
+        dados({ sessoes: [recente], prs: [pr({ branch: null, sessao_ids: [recente.sessao_id] })] }),
+        { agora: AGORA },
+      ).tasks,
+    ).toHaveLength(2);
   });
 
   it("branch genérica (main, develop…) nunca vira tarefa", () => {
@@ -367,6 +372,41 @@ describe("acíclico por construção (complementa o (e) do banco)", () => {
   });
 });
 
+describe("(f) conversa sem ligação não vira cartão", () => {
+  it("conversa viva sem ligação → 0 tarefa", () => {
+    const solta = sessao({ branches: [] });
+    const { tasks, edges } = materializarFrentes(dados({ sessoes: [solta] }), {
+      agora: AGORA,
+    });
+
+    expect(tasks.filter((t) => t.sourceId === idDaFontePadrao(KIND_CONVERSA))).toHaveLength(0);
+    expect(edges).toEqual([]);
+  });
+
+  it("conversa viva que cita branch existente entra com a aresta conversa → branch", () => {
+    const ligada = sessao({ branches: ["claude/painel"] });
+    const existente = branch({ sessao_ids: [] });
+    const { tasks, edges } = materializarFrentes(
+      dados({ sessoes: [ligada], branches: [existente] }),
+      { agora: AGORA },
+    );
+
+    expect(tasks.map((t) => t.id).sort()).toEqual([idSessao, idBranch].sort());
+    expect(arestas(edges)).toEqual([`${idSessao}->${idBranch}`]);
+  });
+
+  it("conversa viva citada por mudança aberta entra com a aresta conversa → mudança", () => {
+    const ligada = sessao({ branches: [] });
+    const mudanca = pr({ branch: null, sessao_ids: ["session_01ABC"] });
+    const { tasks, edges } = materializarFrentes(dados({ sessoes: [ligada], prs: [mudanca] }), {
+      agora: AGORA,
+    });
+
+    expect(tasks.map((t) => t.id).sort()).toEqual([idSessao, idPr].sort());
+    expect(arestas(edges)).toEqual([`${idSessao}->${idPr}`]);
+  });
+});
+
 describe("status e texto", () => {
   it("estado da conversa → status canônico", () => {
     expect(statusDaSessao("working")).toBe("in_progress");
@@ -395,6 +435,7 @@ describe("status e texto", () => {
             estado_detalhe: "aguardando resposta",
           }),
         ],
+        prs: [pr({ branch: null, sessao_ids: ["session_01ABC"] })],
       }),
       { agora: AGORA },
     );
