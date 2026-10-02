@@ -46,6 +46,7 @@ export default async function Page(): Promise<JSX.Element> {
     const tasksRepo = getTasksRepository();
     const sourcesRepo = getSourcesRepository();
     const conversasMaterializadas = await tasksRepo.listConversasMaterializadas?.() ?? new Set<string>();
+    const branchesColadas = await tasksRepo.listBranchesColadas?.() ?? new Map<string, string>();
     [tasks, sources, syncLogs, edges] = await Promise.all([
       tasksRepo.listAll(),
       sourcesRepo.listAll(),
@@ -61,7 +62,10 @@ export default async function Page(): Promise<JSX.Element> {
     // desenha, quais arestas o canvas deve pintar (achado ALTO 1, rodada 13).
     // Duas contas de goal em dois lugares fariam a comparação medir a
     // divergência entre elas, não o produto.
-    ({ tasksDoGrafo, grafoV3 } = montarGrafoDoDia(tasks, edges, conversasMaterializadas));
+    ({ tasksDoGrafo, grafoV3 } = montarGrafoDoDia(tasks, edges, {
+      conversasMaterializadas,
+      branchesColadas,
+    }));
   } catch (erro) {
     console.error("[home] falha ao ler o estado do dia:", erro);
     return <NaoConsegui />;

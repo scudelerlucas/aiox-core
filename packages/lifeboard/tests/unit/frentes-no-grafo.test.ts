@@ -122,6 +122,30 @@ const idBranch = idDaTarefaFrente(KIND_GITHUB, `${HUB}:claude/painel`);
 const idPr = idDaTarefaFrente(KIND_GITHUB, `${HUB}#7`);
 
 describe("unirFrentesAoGrafo (pura)", () => {
+  it.each([
+    ["chave igual com id diferente", "id-persistido", `${HUB}:claude/painel`],
+    ["chave igual com o mesmo UUID", idBranch, `${HUB}:claude/painel`],
+    ["id igual com chave diferente", idBranch, "outra-chave"],
+  ])("não cola branch persistida quando %s", (_caso, id, externalRef) => {
+    const persistida = tarefa({
+      id,
+      sourceId: idDaFontePadrao(KIND_GITHUB),
+      externalRef,
+    });
+    const unido = unirFrentesAoGrafo({ tasks: [persistida], edges: [], sources: [] }, frentes(), AGORA);
+    expect(unido.branchesColadas).toEqual(new Map());
+  });
+
+  it("não cola quando a mudança já está persistida pela chave", () => {
+    const persistida = tarefa({
+      id: "pr-persistida",
+      sourceId: idDaFontePadrao(KIND_GITHUB),
+      externalRef: `${HUB}#7`,
+    });
+    const unido = unirFrentesAoGrafo({ tasks: [persistida], edges: [], sources: [] }, frentes(), AGORA);
+    expect(unido.branchesColadas).toEqual(new Map());
+  });
+
   it("soma as frentes ao grafo do banco e cria as fontes que faltam, com frescor", () => {
     const base: GrafoUnido = { tasks: [tarefa({})], edges: [], sources: [] };
     const unido = unirFrentesAoGrafo(base, frentes(), AGORA);
