@@ -41,6 +41,7 @@ export interface GrafoUnido {
   edges: TaskEdge[];
   sources: Source[];
   conversasMaterializadas?: Set<string>;
+  branchesColadas?: Map<string, string>;
 }
 
 /**
@@ -81,6 +82,7 @@ export function unirFrentesAoGrafo(
   const idsDoBanco = new Set(base.tasks.map((t) => t.id));
   const mapaId = new Map<string, string>(); // id materializado → id final
   const conversasMaterializadas = new Set<string>();
+  const branchesColadas = new Map<string, string>();
   const tasks = [...base.tasks];
   for (const t of frentes.tasks) {
     const existente = idPorChave.get(`${t.sourceId}|${t.externalRef}`);
@@ -95,6 +97,20 @@ export function unirFrentesAoGrafo(
     mapaId.set(t.id, t.id);
     tasks.push(t);
     if (frentes.idsDeConversa.has(t.id)) conversasMaterializadas.add(t.id);
+  }
+
+  // A colagem só vale quando as duas tarefas nasceram nesta materialização.
+  // Uma colisão por chave ou por id com o banco exclui a ponta, mesmo que o id
+  // final coincida: proveniência é decidida pela origem, nunca pela aparência.
+  const materializadasNovas = new Set(
+    frentes.tasks
+      .filter((t) => !idPorChave.has(`${t.sourceId}|${t.externalRef}`) && !idsDoBanco.has(t.id))
+      .map((t) => t.id),
+  );
+  for (const [branch, mudanca] of frentes.branchParaMudanca) {
+    if (materializadasNovas.has(branch) && materializadasNovas.has(mudanca)) {
+      branchesColadas.set(branch, mudanca);
+    }
   }
 
   // Arestas: remapeia as pontas; só entra o que liga duas tarefas presentes e
@@ -134,7 +150,7 @@ export function unirFrentesAoGrafo(
     };
   });
 
-  return { tasks: tasksFinais, edges, sources, conversasMaterializadas };
+  return { tasks: tasksFinais, edges, sources, conversasMaterializadas, branchesColadas };
 }
 
 /** Os dois repositórios base que a junção envolve. */
@@ -165,7 +181,13 @@ export function criarRepositoriosComFrentes(
         base.tasks.listEdges(),
         base.sources.listAll(),
       ]);
-      const grafo: GrafoUnido = { tasks, edges, sources, conversasMaterializadas: new Set() };
+      const grafo: GrafoUnido = {
+        tasks,
+        edges,
+        sources,
+        conversasMaterializadas: new Set(),
+        branchesColadas: new Map(),
+      };
       let dados: DadosFrentes;
       try {
         dados = await lerFrentes();
@@ -189,6 +211,9 @@ export function criarRepositoriosComFrentes(
     },
     async listConversasMaterializadas() {
       return (await carregar()).conversasMaterializadas ?? new Set<string>();
+    },
+    async listBranchesColadas() {
+      return (await carregar()).branchesColadas ?? new Map<string, string>();
     },
     listNotes() {
       return base.tasks.listNotes();

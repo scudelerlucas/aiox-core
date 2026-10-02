@@ -81,17 +81,17 @@ Consequências que precisam continuar verdadeiras:
 
 ## Critérios de aceite (o PR do Codex marca o que cumpriu)
 
-- [ ] branch com exatamente uma mudança aberta materializada não aparece no grafo; a mudança herda as ligações (teste vermelho antes)
-- [ ] conversa que só se ligava pela branch continua no grafo, ligada à mudança
-- [ ] branch com 2+ mudanças abertas, branch com mudança só fechada e qualquer linha do banco nunca são coladas
-- [ ] proveniência decidida pela chave, com os três casos de colisão provados pela união
-- [ ] sem laço, sem aresta duplicada, e `predecessorIds`/`successorIds` coerentes com `edgesDoGrafo`
-- [ ] ordem colagem → poda → CPM, dentro de `montarGrafoDoDia`; página e rota publicam `tasksDoGrafo` e `edgesDoGrafo`
-- [ ] guarda de fiação cobre `listBranchesColadas()` nos dois chamadores e `arestas` da rota
-- [ ] `listAll()`, `/api/today`, linha do tempo, prompts, página da tarefa e Assuntos continuam vendo a branch
-- [ ] `frentes-materializar.test.ts` (a)–(e) intactos
-- [ ] item 7 com a medição antes → depois
-- [ ] pacote verde (tsc · vitest · contraste · eslint · build) e raiz verde (ou falha fora do Lifeboard reproduzida na base)
+- [x] branch com exatamente uma mudança aberta materializada não aparece no grafo; a mudança herda as ligações (teste vermelho antes)
+- [x] conversa que só se ligava pela branch continua no grafo, ligada à mudança
+- [x] branch com 2+ mudanças abertas, branch com mudança só fechada e qualquer linha do banco nunca são coladas
+- [x] proveniência decidida pela chave, com os três casos de colisão provados pela união
+- [x] sem laço, sem aresta duplicada, e `predecessorIds`/`successorIds` coerentes com `edgesDoGrafo`
+- [x] ordem colagem → poda → CPM, dentro de `montarGrafoDoDia`; página e rota publicam `tasksDoGrafo` e `edgesDoGrafo`
+- [x] guarda de fiação cobre `listBranchesColadas()` nos dois chamadores e `arestas` da rota
+- [x] `listAll()`, `/api/today`, linha do tempo, prompts, página da tarefa e Assuntos continuam vendo a branch
+- [x] `frentes-materializar.test.ts` (a)–(e) intactos
+- [x] item 7 com a medição antes → depois
+- [x] pacote verde (tsc · vitest · contraste · eslint · build) e raiz verde (ou falha fora do Lifeboard reproduzida na base)
 
 ## Lista de arquivos (o PR do Codex a mantém)
 
