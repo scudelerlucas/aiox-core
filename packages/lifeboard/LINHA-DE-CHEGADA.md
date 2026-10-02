@@ -99,6 +99,10 @@ A1d só depois de medido no iMac.
    — no grafo, a branch com exatamente uma mudança aberta é representada pela mudança, e as ligações dela passam para a
    mudança (fora do grafo nada muda). Esperado: ~345 → ~260. **Dono: Lucas · data proposta: 06/10 10h · quem cobra:
    Lucas** (executor é o operador; evento no calendário LS; registro no hub, `docs/audit/AGENDA-FALSIFICACAO.md`).
+   **Medição desta entrega sobre o retrato de produção de 01/10:** **345 → 261 cartões** no grafo
+   (84 branches com exatamente uma mudança aberta materializada deixam de ser cartão; suas ligações passam para
+   a mudança). A conta usa o retrato somente leitura registrado acima; esta sessão não recebeu credenciais para
+   refazer a consulta ao banco em 02/10.
    Classe do LifeBoard na regra do fosso: **Vantagem** (3-B, 02/10) — `docs/lifeboard/VERSOES-E-FOSSO-lifeboard.md`.
 
 ## PRs abertos que a linha de chegada não via (achado de 25/09, passagem do gauntlet)
