@@ -38,9 +38,11 @@
 -- 0005, que é a migration das travas de isolamento por dono, exige as QUATRO
 -- constraints dela, não uma. (3ª e 4ª rodadas do Codex no PR #26.)
 --
--- No SQL Editor do Supabase o risco é menor: a colagem roda como UMA transação
--- e aborta inteira no primeiro erro. O caminho perigoso é o psql sem
--- ON_ERROR_STOP.
+-- No SQL Editor do Supabase, `commit` explícito dentro do texto também encerra
+-- a transação corrente. Portanto, colar migrations com `commit` de uma vez
+-- pode gravar um prefixo antes de um erro posterior. Para 0027–0030 em
+-- produção, siga o roteiro arquivo por arquivo do DEPLOY.md e termine com o
+-- `PASSO-1c-conferencia-final-producao.sql`.
 --
 -- 5ª rodada do Codex: a checagem da 0005 contava nomes em `pg_constraint` sem
 -- dizer de que TABELA. Nome de constraint não é único no banco — só por tabela.

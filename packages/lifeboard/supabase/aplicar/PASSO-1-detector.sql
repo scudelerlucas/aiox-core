@@ -7,8 +7,13 @@
 -- reaplicação passada da migration 0019?
 --
 -- Como ler o resultado:
---   veredito = 'LIVRO SÃO'      -> pode seguir para o PASSO 2
+--   veredito = 'LIVRO SÃO'      -> em banco NOVO, pode seguir para o PASSO 2;
+--                                  em PRODUÇÃO, siga o roteiro 1b → 0027 →
+--                                  0028 → 0029 → 0030 → 1c do DEPLOY.md
 --   veredito = 'DINHEIRO DOBRADO' -> PARE e me mande o resultado
+--
+-- IMPORTANTE: `LIVRO SÃO` não diz que 0027–0030 foram aplicadas. O critério de
+-- pronto da aplicação em produção é o PASSO-1c-conferencia-final-producao.sql.
 -- ════════════════════════════════════════════════════════════════════════════
 with suspeitas as (
   select ab.entidade_tipo, ab.entidade_id, ab.dia, ab.valor_usd
