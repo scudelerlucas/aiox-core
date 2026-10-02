@@ -6648,3 +6648,88 @@ begin
   raise exception 'FALHA: T113 esperado dono 0, outra 25 e item 0 — obteve dono=% outra=% item=%',
     v_dono_hoje, v_outra_hoje, v_item_hoje;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T114 · ALTO 1 (revisão independente de 29/09) — MEDIÇÃO PARCIAL NÃO ABRE TETO
+-- Publicar um custo pequeno enquanto a sessão ainda trabalha não pode recusar
+-- o custo final maior do worker nem a reserva conservadora de cancelamento ou
+-- morte. A 0027 decidia só pelo posto 40 > 30 > 10: 20 recusava 400, e 3
+-- recusava a estimativa de 120. Agora medição mais nova vence outra medição;
+-- uma estimativa maior pode elevar o alvo sem perder a proveniência medida.
+-- MUTAÇÃO: remover a 0032 deixa fechamento=20, cancelamento=3 e morte=3.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_conta_fecha text := 'lucasscudeler@gmail.com';
+  v_conta_cancela text := 'lsgpandora@gmail.com';
+  v_conta_morre text := 'almapetra.ltda@gmail.com';
+  v_id_fecha uuid; v_id_cancela uuid; v_id_morre uuid; v_id_isca uuid;
+  v_fecha jsonb; v_cancela jsonb; v_pull jsonb;
+  v_consumo_fecha numeric; v_consumo_cancela numeric; v_consumo_morre numeric;
+  v_custo_linha numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta in
+    (v_conta_fecha, v_conta_cancela, v_conta_morre);
+  delete from public.painel_fila_prompts
+   where conta in (v_conta_fecha, v_conta_cancela, v_conta_morre);
+  delete from public.painel_caixa_lancamentos
+   where conta in (v_conta_fecha, v_conta_cancela, v_conta_morre);
+  update public.painel_teto_diario
+     set teto_usd = 500, exigir_medicao_recente = false
+   where conta in (v_conta_fecha, v_conta_cancela, v_conta_morre);
+
+  -- publicação parcial 20; o fechamento posterior e mais novo mede 400
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta_fecha, 'T114 fechar maior', 'maxima', 'Fable') returning id into v_id_fecha;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id_fecha;
+  perform public.fila_prompts_pegar_interno(v_conta_fecha, 'w-T114-fecha');
+  perform public.fila_prompts_heartbeat_interno(v_id_fecha, v_conta_fecha, 'w-T114-fecha', 'sess-T114-fecha');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T114-fecha', v_conta_fecha, 'parcial', 'working', 20, now() - interval '1 minute');
+  v_fecha := public.fila_prompts_fechar_interno(
+    v_id_fecha, v_conta_fecha, 'w-T114-fecha', 'concluida', 400, 'sess-T114-fecha');
+  select custo_usd into v_custo_linha from public.painel_fila_prompts where id = v_id_fecha;
+  v_consumo_fecha := public.painel_fila_consumo_hoje(v_conta_fecha);
+
+  -- publicação parcial 3; cancelar mantém a reserva maior de 120
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta_cancela, 'T114 cancelar maior', 'maxima', 'Fable') returning id into v_id_cancela;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id_cancela;
+  perform public.fila_prompts_pegar_interno(v_conta_cancela, 'w-T114-cancela');
+  perform public.fila_prompts_heartbeat_interno(v_id_cancela, v_conta_cancela, 'w-T114-cancela', 'sess-T114-cancela');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T114-cancela', v_conta_cancela, 'parcial', 'working', 3, now());
+  v_cancela := public.fila_prompts_cancelar(v_segredo, v_id_cancela);
+  v_consumo_cancela := public.painel_fila_consumo_hoje(v_conta_cancela);
+
+  -- a terceira expiração também conserva 120 sobre a publicação parcial 3
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta_morre, 'T114 morrer maior', 'maxima', 'Fable') returning id into v_id_morre;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id_morre;
+  perform public.fila_prompts_pegar_interno(v_conta_morre, 'w-T114-morre');
+  perform public.fila_prompts_heartbeat_interno(v_id_morre, v_conta_morre, 'w-T114-morre', 'sess-T114-morre');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T114-morre', v_conta_morre, 'parcial', 'working', 3, now());
+  update public.painel_fila_prompts
+     set heartbeat_em = now() - interval '2 hours', tentativas = 3, max_tentativas = 3
+   where id = v_id_morre;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta_morre, 'T114 isca', 'baixa', 'Haiku') returning id into v_id_isca;
+  v_pull := public.fila_prompts_pegar_interno(v_conta_morre, 'w-T114-isca');
+  v_consumo_morre := public.painel_fila_consumo_hoje(v_conta_morre);
+
+  if v_consumo_fecha = 400 and v_custo_linha = 400
+     and not coalesce((v_fecha->'caixa'->>'recusado_por_precedencia')::boolean, false)
+     and v_consumo_cancela = 120
+     and (v_cancela->>'custo_lancado_usd')::numeric = 120
+     and v_consumo_morre = 120
+     and (v_pull->>'mortos')::int = 1
+     and (v_pull->>'mortos_usd')::numeric = 117 then
+    raise exception 'RESULTADO: ok — T114 parcial nunca abre teto: fechamento=% cancelamento=% morte=%',
+      v_consumo_fecha, v_consumo_cancela, v_consumo_morre;
+  end if;
+  raise exception 'FALHA: T114 esperado fechamento=400 sem recusa, cancelamento=120 (alvo conservador) e morte=120 (+117) — obteve fecha=% linha=% caixa=% cancela=% retorno_cancel=% morte=% pull=%',
+    v_consumo_fecha, v_custo_linha, v_fecha->'caixa', v_consumo_cancela, v_cancela,
+    v_consumo_morre, v_pull;
+end $$;
