@@ -80,6 +80,21 @@ A1d só depois de medido no iMac.
    de uma conversa, viva ou morta. Regra de agora: conversa só com movimento em `JANELA_SESSAO_DIAS = 21` dias;
    branch só com mudança aberta ou conversa viva ligada. Mesmo banco: ~74 conversas, ~78 branches, 33 mudanças.
    Se ainda ficar cheio, a próxima alavanca é esconder conversa sem ligação nenhuma (43 das 74 têm ligação).
+   **Medido de novo em 26/09 19:19 SP, já com o #49 em produção:** 183 cartões de frentes (74 conversas · 77 branches ·
+   32 mudanças) + 18 do dono, 92 ligações; **46 das 74 conversas estão soltas** (grau 0). Decisão A do operador:
+   a alavanca vira a `docs/lifeboard/TAREFA-CODEX-02-conversa-sem-ligacao-fora-do-grafo.md` — a poda vive **só no
+   caminho do grafo**, dentro de `montarGrafoDoDia`; Hoje, linha do tempo, prompts e página da tarefa continuam vendo a conversa.
+   **Medição desta entrega (30/09, sobre o retrato reproduzível de 26/09): 183 → 137 cartões de frentes no grafo**
+   (as 46 conversas materializadas de grau zero saem; as 18 tarefas do dono ficam fora dessa conta). **Dono: Lucas · data proposta: 01/10 10h (a de 28/09 venceu sem o PR do Codex
+   publicado; spec v5 em 30/09, porque a Tarefa 00 pôs a conta do grafo em `montarGrafoDoDia`) · quem cobra: Lucas**
+   (executor é o operador; evento no calendário LS; registro no hub, `docs/audit/AGENDA-FALSIFICACAO.md`).
+   **Validação por fora e medição de hoje (01/10 13:01 SP, banco de produção, só leitura, com o código desta entrega):**
+   o grafo das frentes **cresceu por outro lado** em cinco dias — **362 cartões** (75 conversas · 201 branches · 86
+   mudanças abertas) e 250 ligações, contra 183 em 26/09. Só **17 das 75 conversas** estão soltas hoje, e a poda tira
+   exatamente essas: **362 → 345** (nenhuma podada tem ligação; nenhuma podada é branch ou mudança). A regra está
+   certa e segura, mas deixou de ser a alavanca grande: o volume agora vem de branches e mudanças abertas.
+   **Achado, sem dono ainda:** 84 das 201 branches no grafo são a branch de uma mudança aberta — o mesmo trabalho em dois
+   cartões. 182 das 201 são do hub.
 
 ## PRs abertos que a linha de chegada não via (achado de 25/09, passagem do gauntlet)
 

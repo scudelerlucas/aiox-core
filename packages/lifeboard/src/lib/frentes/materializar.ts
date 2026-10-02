@@ -87,6 +87,8 @@ export interface Materializacao {
   tasks: Task[];
   edges: TaskEdge[];
   fontes: FonteMaterializada[];
+  /** Ids cuja origem é uma conversa; proveniência, não heurística por referência. */
+  idsDeConversa: Set<string>;
 }
 
 export interface OpcoesMaterializar {
@@ -445,5 +447,6 @@ export function materializarFrentes(
     tasks: [...tasks.values()],
     edges,
     fontes: fontesDasFrentes(dados.sync),
+    idsDeConversa: new Set(idDaSessao.values()),
   };
 }

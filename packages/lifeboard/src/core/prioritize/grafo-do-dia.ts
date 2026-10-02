@@ -26,6 +26,7 @@ import { scoreAssimetriaLote } from "@/core/prioritize/assimetria";
 import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import { serializaGrafoV3 } from "@/lib/serializa-grafo-v3";
+import { podarConversasSoltas } from "@/lib/frentes/podar-soltas";
 import type { Task, TaskEdge } from "@/types/canonical";
 import type { GrafoV3Props } from "@/types/grafo-v3";
 
@@ -43,15 +44,21 @@ export function goalDoGrafo(tasks: readonly Task[]): string | null {
 }
 
 export interface GrafoDoDia {
+  tasksDoGrafo: Task[];
   goalId: string | null;
   cpm: ResultadoCPM;
   grafoV3: GrafoV3Props;
 }
 
 /** CPM + scores + serialização, a partir do dado bruto já lido. */
-export function montarGrafoDoDia(tasks: Task[], edges: TaskEdge[]): GrafoDoDia {
-  const goalId = goalDoGrafo(tasks);
-  const cpm = caminhoCritico(tasks, edges, goalId);
-  const scores = scoreAssimetriaLote(tasks, edges, cpm);
-  return { goalId, cpm, grafoV3: serializaGrafoV3(edges, cpm, scores) };
+export function montarGrafoDoDia(
+  tasks: Task[],
+  edges: TaskEdge[],
+  conversasMaterializadas: ReadonlySet<string>,
+): GrafoDoDia {
+  const tasksDoGrafo = podarConversasSoltas(tasks, edges, conversasMaterializadas);
+  const goalId = goalDoGrafo(tasksDoGrafo);
+  const cpm = caminhoCritico(tasksDoGrafo, edges, goalId);
+  const scores = scoreAssimetriaLote(tasksDoGrafo, edges, cpm);
+  return { tasksDoGrafo, goalId, cpm, grafoV3: serializaGrafoV3(edges, cpm, scores) };
 }

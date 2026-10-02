@@ -41,9 +41,11 @@ export default async function Page(): Promise<JSX.Element> {
   let edges: TaskEdge[];
   let hoje: ReturnType<typeof buildTodayList>;
   let grafoV3: GrafoV3Props;
+  let tasksDoGrafo: Task[];
   try {
     const tasksRepo = getTasksRepository();
     const sourcesRepo = getSourcesRepository();
+    const conversasMaterializadas = await tasksRepo.listConversasMaterializadas?.() ?? new Set<string>();
     [tasks, sources, syncLogs, edges] = await Promise.all([
       tasksRepo.listAll(),
       sourcesRepo.listAll(),
@@ -59,7 +61,7 @@ export default async function Page(): Promise<JSX.Element> {
     // desenha, quais arestas o canvas deve pintar (achado ALTO 1, rodada 13).
     // Duas contas de goal em dois lugares fariam a comparação medir a
     // divergência entre elas, não o produto.
-    grafoV3 = montarGrafoDoDia(tasks, edges).grafoV3;
+    ({ tasksDoGrafo, grafoV3 } = montarGrafoDoDia(tasks, edges, conversasMaterializadas));
   } catch (erro) {
     console.error("[home] falha ao ler o estado do dia:", erro);
     return <NaoConsegui />;
@@ -74,7 +76,7 @@ export default async function Page(): Promise<JSX.Element> {
 
   return (
     <DashboardClient
-      tasks={tasks}
+      tasks={tasksDoGrafo}
       sources={sources}
       sourceStatuses={sourceStatuses}
       initialToday={initialToday}

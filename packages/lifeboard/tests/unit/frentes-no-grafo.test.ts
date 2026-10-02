@@ -11,9 +11,13 @@ import {
   unirFrentesAoGrafo,
   type GrafoUnido,
 } from "@/lib/frentes/no-grafo";
+import { podarConversasSoltas } from "@/lib/frentes/podar-soltas";
 import type { DadosFrentes } from "@/lib/frentes/types";
 import { FixtureSourcesRepository } from "@/lib/repositories/sources.fixture";
-import { FixtureTasksRepository } from "@/lib/repositories/tasks.fixture";
+import {
+  FixtureTasksRepository,
+  type TasksRepository,
+} from "@/lib/repositories/tasks.fixture";
 import { computeSourceStatuses } from "@/lib/source-status";
 import type { Source, Task } from "@/types/canonical";
 
@@ -71,6 +75,27 @@ function frentes(): DadosFrentes {
       },
     ],
     sync: [{ fonte: "github", executado_em: h(1), ok: true }],
+  };
+}
+
+function conversaSolta(): DadosFrentes {
+  return {
+    sessoes: [{
+      sessao_id: "session_01ABC",
+      conta: "lucasscudeler@gmail.com",
+      titulo: "Painel de assuntos",
+      estado: "working",
+      estado_detalhe: null,
+      precisa_de: null,
+      branches: [],
+      repos: [],
+      url: null,
+      criado_em: h(30),
+      atualizado_em: h(2),
+    }],
+    branches: [],
+    prs: [],
+    sync: [],
   };
 }
 
@@ -250,5 +275,37 @@ describe("criarRepositoriosComFrentes (o par que o factory devolve)", () => {
     const par = criarRepositoriosComFrentes(b, async () => frentes(), () => AGORA);
     expect(await par.tasks.listNotes()).toEqual(await b.tasks.listNotes());
     expect(await par.sources.listSyncLogs()).toEqual(await b.sources.listSyncLogs());
+  });
+
+  it.each([
+    ["chave igual e id diferente", "id-persistido", "session_01ABC"],
+    ["chave igual e mesmo UUID", idSessao, "session_01ABC"],
+    ["id igual e chave diferente", idSessao, "session_OUTRA"],
+  ])("preserva conversa persistida quando %s", async (_caso, id, externalRef) => {
+    const persistida = tarefa({
+      id,
+      sourceId: idDaFontePadrao(KIND_CONVERSA),
+      externalRef,
+    });
+    const tasksBase: TasksRepository = {
+      async listAll() { return [persistida]; },
+      async listEdges() { return []; },
+      async listNotes() { return []; },
+    };
+    const par = criarRepositoriosComFrentes(
+      { tasks: tasksBase, sources: new FixtureSourcesRepository() },
+      async () => conversaSolta(),
+      () => AGORA,
+    );
+
+    const [tasks, edges, materializadas] = await Promise.all([
+      par.tasks.listAll(),
+      par.tasks.listEdges(),
+      par.tasks.listConversasMaterializadas?.() ?? Promise.resolve(new Set<string>()),
+    ]);
+
+    expect(tasks.filter((t) => t.id === id)).toHaveLength(1);
+    expect(materializadas.has(id)).toBe(false);
+    expect(podarConversasSoltas(tasks, edges, materializadas).some((t) => t.id === id)).toBe(true);
   });
 });
