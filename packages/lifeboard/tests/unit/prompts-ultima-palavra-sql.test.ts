@@ -265,6 +265,25 @@ describe("M1 — a ÚLTIMA definição de cada função é a que vale (varredura
     for (const h of limites) expect(h, ondeFalhou).toBe(LIMITE_DEFASAGEM_HORAS);
   });
 
+  it("painel_sessao_dona termina com a trava D52 no caminho de atualização de produção", () => {
+    const d = unicaViva("painel_sessao_dona");
+    const ondeFalhou = `${d.chave} — última palavra em ${d.arquivo}`;
+
+    expect(
+      d.arquivo.localeCompare("0030_", "en"),
+      `${ondeFalhou}: a correção precisa vir depois do pacote 0027–0030, pois produção pode não ter aplicado a 0025`,
+    ).toBeGreaterThan(0);
+    expect(d.corpo, `${ondeFalhou}: voltou a ser STABLE e o planejador pode pular a trava`).toMatch(
+      /\bvolatile\b/i,
+    );
+    expect(d.corpo, `${ondeFalhou}: não serializa a leitura com a publicação da sessão`).toContain(
+      "pg_advisory_xact_lock",
+    );
+    expect(d.corpo, `${ondeFalhou}: usa uma chave diferente da entidade do livro`).toContain(
+      "hashtextextended('sessao:' || p_sessao_id, 0)",
+    );
+  });
+
   it("nenhuma função VIVA crava um teto de 150 (o teto é declarado, nunca inventado)", () => {
     const culpadas = [...VIVAS.values()]
       .filter((d) => /v_teto\s*:=\s*150\b/.test(d.corpo))
