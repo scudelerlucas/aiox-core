@@ -16,9 +16,11 @@
 -- repositório depois, recuperadas do histórico do banco, com números que as
 -- põem no FIM da ordem de aplicação.
 --
--- Em produção nada quebrou: lá a ordem REAL foi 0022/0023/0024 primeiro e
--- 0019/0025 depois, então a última palavra sempre foi a certa. Quem quebra é
--- quem segue o DEPLOY.md e aplica `0001` … `0025` em ordem num banco NOVO:
+-- Em produção, 0022/0023/0024 rodaram antes da 0019, mas a 0025 não foi
+-- aplicada. Por isso as duas funções do dinheiro ficaram corretas enquanto
+-- `painel_sessao_dona` continuou na versão sql/stable da 0018, sem D52. A 0032
+-- reafirma essa trava depois deste pacote. Num banco NOVO, aplicar `0001` …
+-- `0025` apenas em ordem numérica ainda deixa estas outras regressões:
 --
 --   · `fila_prompts_pegar_interno`  — última definição: 0022. Sem o
 --     lançamento no livro-razão do item que morre (D37), sem a recusa por
