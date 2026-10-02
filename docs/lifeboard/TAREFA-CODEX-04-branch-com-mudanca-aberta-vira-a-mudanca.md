@@ -49,9 +49,7 @@ Consequências que precisam continuar verdadeiras:
 3. **A colagem vive na conta única do grafo.** Função pura nova `colarBranchesNaMudanca(tasks, edges, branchesColadas)`
    em `src/lib/frentes/colar-branches.ts`: devolve `{ tasks, edges }` em que (i) a branch colada sai da lista, (ii) toda
    aresta que tocava a branch é redirecionada para a mudança, (iii) aresta que vira laço (origem = destino) sai, (iv)
-   aresta duplicada `(origem, destino, tipo)` sai, ficando a primeira, e (v) `predecessorIds`/`successorIds` de **toda**
-   tarefa que fica são recalculados: nenhum aponta para branch colada, e os redirecionados aparecem — o caminho crítico lê
-   as duas listas **e** as arestas (`caminho-critico.ts` §2), então as três fontes precisam concordar.
+   aresta duplicada `(origem, destino, tipo)` sai, ficando a primeira, e (v) `predecessorIds`/`successorIds` são **preservados e remapeados**, nunca reconstruídos só das arestas: em cada lista, o id de uma branch colada vira o id da mudança dela, o próprio id da tarefa sai (laço), o que não está mais no grafo sai, e repetição sai — **todo o resto da lista fica**. As listas são uma das três fontes do caminho crítico (`caminho-critico.ts` §2: listas ∪ arestas `predecessor`), e muita precedência das tarefas do dono vive **só** nelas. **Com o mapa de colagem vazio, a saída é idêntica à entrada** (mesmas tarefas, mesmas listas, mesmas arestas). *(v5.1, 02/10, achado da validação por fora: a 1ª entrega reconstruía as listas só das arestas e, com o mapa vazio, a demonstração perdia 7 elos — caminho crítico de preparar → construir → publicar, 4 dias, para publicar → revisar, 2 dias.)*
    `montarGrafoDoDia(tasks, edges, proveniencia)` passa a receber `proveniencia: { conversasMaterializadas, branchesColadas }`
    (**obrigatório**; mapas/conjuntos vazios explícitos = nada muda) e faz, nesta ordem: **colagem → poda das conversas
    soltas → goal → caminho crítico → scores → serialização**, devolvendo também `edgesDoGrafo`.
