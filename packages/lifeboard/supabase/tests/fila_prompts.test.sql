@@ -6958,3 +6958,78 @@ begin
   raise exception 'FALHA: T117 esperado conta 50, A 0, B 50, item 50 — obteve conta=% A=% B=% item=%',
     v_total, v_a, v_b, v_item;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T118 · ALTO do crítico do #71, rodada 2 (08/10) — O PISO RESPEITA O CARIMBO
+-- Quatro casos do piso da 0033 que a suíte não fixava:
+--   (a) a rotina publica 400 e, mais tarde no MESMO dia, recalcula para 40.
+--       A medição mais nova vale: o dia conta 40. Com o piso sem carimbo, o 40
+--       era recusado como foto velha, o 400 ficava no dia, e na virada a D54
+--       descontava o excesso do dia seguinte (sessão em 440, dia seguinte
+--       contando 40 com 400 reais — o pull despachava acima do teto);
+--   (b) medição real sem carimbo abaixo do piso, com a reserva da casa por
+--       cima: a reserva desce até o piso (3), não fica inteira (120). (Com
+--       carimbo mais novo que o 3, o 2 valeria — é a regra de (a).);
+--   (c) operador abaixo da maior medição real de hoje é recusado — o piso vale
+--       para quem não é medição;
+--   (d) depois da fusão esvaziar a sessão A (posto 99), A publica o próprio
+--       custo de 10 e depois 12: os dois entram (a medição antiga de A, já
+--       transferida, é mais velha e não forma piso).
+-- MUTAÇÕES (medidas): tirar o filtro de carimbo do piso derruba (a) e (d);
+-- tirar o ramo que desce a reserva até o piso derruba (b); aplicar o piso só a
+-- `medido` derruba (c). Tirar `v_ultimo is not null` da condição do piso
+-- sobrevive e é equivalente aqui: a medição transferida é mais velha que as
+-- publicações novas de A, e o carimbo já a tira do piso.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  c text := 'lsgpandora@gmail.com';
+  v_a numeric; v_b numeric; v_c numeric; v_d numeric; v_id uuid;
+begin
+  delete from public.painel_frentes_sessoes where conta = c;
+  delete from public.painel_fila_prompts where conta = c;
+  delete from public.painel_caixa_lancamentos where conta = c;
+
+  -- (a)
+  perform public.painel_caixa_lancar('sessao','sess-T118-a',c,400,'medido',null,'sess-T118-a',
+                                     now() - interval '2 hours','T118 rotina 10h',40);
+  perform public.painel_caixa_lancar('sessao','sess-T118-a',c,40,'medido',null,'sess-T118-a',
+                                     now() - interval '1 hour','T118 rotina recalcula 11h',40);
+  select sum(valor_usd) into v_a from public.painel_caixa_lancamentos where entidade_id = 'sess-T118-a';
+
+  -- (b)
+  perform public.painel_caixa_lancar('sessao','sess-T118-b',c,3,'medido',null,'sess-T118-b',
+                                     now() - interval '5 minutes','T118 publicou 3',40);
+  perform public.painel_caixa_lancar('sessao','sess-T118-b',c,120,'estimativa',null,'sess-T118-b',
+                                     null,'T118 reserva',null);
+  perform public.painel_caixa_lancar('sessao','sess-T118-b',c,2,'medido',null,'sess-T118-b',
+                                     null,'T118 worker fecha 2 sem carimbo',30);
+  select sum(valor_usd) into v_b from public.painel_caixa_lancamentos where entidade_id = 'sess-T118-b';
+
+  -- (c)
+  perform public.painel_caixa_lancar('sessao','sess-T118-c',c,60,'medido',null,'sess-T118-c',
+                                     now(),'T118 publicou 60',40);
+  perform public.painel_caixa_lancar('sessao','sess-T118-c',c,480,'estimativa',null,'sess-T118-c',
+                                     null,'T118 reserva',null);
+  perform public.painel_caixa_lancar('sessao','sess-T118-c',c,30,'operador',null,'sess-T118-c',
+                                     null,'T118 operador baixa',null);
+  select sum(valor_usd) into v_c from public.painel_caixa_lancamentos where entidade_id = 'sess-T118-c';
+
+  -- (d)
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (c, 'T118 d', 'alta', 'Opus', 'sess-T118-dA') returning id into v_id;
+  perform public.painel_caixa_lancar_item(v_id, 30, 'medido', now() - interval '10 minutes', 'T118 worker em A');
+  update public.painel_fila_prompts set session_id = 'sess-T118-dB' where id = v_id;
+  perform public.painel_caixa_lancar_item(v_id, 50, 'medido', now() - interval '5 minutes', 'T118 worker em B');
+  perform public.painel_caixa_lancar('sessao','sess-T118-dA',c,10,'medido',null,'sess-T118-dA',
+                                     now() - interval '2 minutes','T118 A publica por si',40);
+  perform public.painel_caixa_lancar('sessao','sess-T118-dA',c,12,'medido',null,'sess-T118-dA',
+                                     now() - interval '1 minute','T118 A publica de novo',40);
+  select sum(valor_usd) into v_d from public.painel_caixa_lancamentos where entidade_id = 'sess-T118-dA';
+
+  if v_a = 40 and v_b = 3 and v_c = 480 and v_d = 12 then
+    raise exception 'RESULTADO: ok — T118 recalculo mais novo valeu (%), reserva desceu ao piso (%), operador abaixo do real recusado (%), A depois da fusão publicou (%)',
+      v_a, v_b, v_c, v_d;
+  end if;
+  raise exception 'FALHA: T118 esperado a=40 b=3 c=480 d=12 — obteve a=% b=% c=% d=%', v_a, v_b, v_c, v_d;
+end $$;

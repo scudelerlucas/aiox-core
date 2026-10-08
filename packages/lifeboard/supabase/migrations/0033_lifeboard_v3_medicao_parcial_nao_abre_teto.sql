@@ -20,8 +20,15 @@
 --      de 410 (T115), e o fechamento real depois de cancelar ficava na
 --      reserva (T116). Medição de dia anterior continua corrigível para baixo
 --      hoje (T105); posto 99 (esvaziar na fusão) não passa pelo piso (T117).
---      Limite, erro só para cima: na virada do dia, uma foto velha que chega
---      antes da medição nova faz o dia contar a mais.
+--      Rodada 2 do crítico: o piso respeita o carimbo — medição real MAIS NOVA
+--      e menor é recálculo e vale; sem isso o excesso de hoje virava falta no
+--      dia seguinte (T118).
+--      Limites declarados: (a) na virada do dia, uma foto velha que chega
+--      antes da medição nova faz o dia contar a mais; (b) quando o worker e a
+--      sessão discordam (worker 400, sessão 30 mais velha), vale o mais novo,
+--      e se o maior estava errado o excesso de um dia pode virar falta no
+--      seguinte — igual à main nessa ordem; (c) medição do worker numa sessão
+--      que depois troca de item pode contar nas duas (erro para cima).
 --   2. O fechamento NUNCA aborta porque o livro conservou outro valor. O item
 --      fecha, e o retorno diz o número pedido e o que o livro guardou
 --      (`custo_pedido_usd`, `livro_conservou_outro_valor`). Abortar deixava o
@@ -195,9 +202,27 @@ begin
   --
   -- O piso é DE HOJE. Medição de dia anterior continua corrigível para baixo
   -- (a rotina recalcula a sessão — T105); a D54 limita o estorno ao que hoje
-  -- tem. Limite conhecido, erro só para cima: na virada, uma foto velha que
-  -- chega antes da medição nova faz o dia contar a mais (o piso de hoje ainda
-  -- não existia quando ela chegou).
+  -- tem.
+  --
+  -- E O PISO RESPEITA O CARIMBO (crítico do #71, rodada 2). Para uma medição
+  -- real com carimbo, só formam o piso as medições de hoje com carimbo IGUAL
+  -- OU MAIS NOVO que o dela: o que ela contradiz é foto velha só se chegou
+  -- depois de algo medido depois. Medição real MAIS NOVA e menor é a rotina
+  -- recalculando a sessão para baixo, e vale — senão o excesso ficava no dia
+  -- de hoje e, na virada, a D54 o descontava do dia seguinte: a sessão
+  -- recalculada de 400 para 40 seguia para 440 e o dia seguinte contava 40
+  -- com 400 reais, e o pull despachava acima do teto (T118). Carimbo no
+  -- futuro conta como agora; medição sem carimbo não é mais nova que nada.
+  -- Estimativa e operador não trazem carimbo: para eles vale toda medição
+  -- real de hoje.
+  --
+  -- Medição real abaixo do piso, quando o vigente NÃO é medição (é a reserva
+  -- da casa acima do piso), não deixa a reserva inteira: desce até o piso —
+  -- o maior gasto real conhecido hoje (T118).
+  --
+  -- Limite conhecido, erro só para cima: na virada, uma foto velha que chega
+  -- antes da medição nova faz o dia contar a mais (o piso de hoje ainda não
+  -- existia quando ela chegou).
   --
   -- Posto 99 (esvaziar entidade na fusão, `painel_caixa_lancar_item`) não
   -- passa pelo piso: esvaziar não pode ser recusado, senão o dinheiro conta
@@ -208,8 +233,15 @@ begin
       from public.painel_caixa_lancamentos l
      where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
        and l.origem = 'medido'
-       and l.dia = public.painel_dia_operador();
-    if v_alvo < v_piso then
+       and l.dia = public.painel_dia_operador()
+       and (p_origem <> 'medido' or p_medido_em is null
+            or l.medido_em >= least(p_medido_em, now()));
+    if v_alvo < v_piso and p_origem = 'medido'
+       and v_origem_atual is distinct from 'medido' and v_valor_atual > v_piso then
+      v_alvo := v_piso;
+      p_nota := coalesce(p_nota, '') ||
+        ' [medição abaixo do piso de hoje: a reserva desce até a maior medição real]';
+    elsif v_alvo < v_piso then
       return jsonb_build_object(
         'ok', true, 'movimentou', false, 'conta', v_conta,
         'liquido_usd', round(v_liquido, 2), 'dia', null,
