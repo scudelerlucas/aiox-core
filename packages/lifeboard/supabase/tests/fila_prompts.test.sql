@@ -7033,3 +7033,78 @@ begin
   end if;
   raise exception 'FALHA: T118 esperado a=40 b=3 c=480 d=12 — obteve a=% b=% c=% d=%', v_a, v_b, v_c, v_d;
 end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T119 · ALTO do crítico do #71, rodada 3 (08/10) — MEDIÇÃO SUBSTITUÍDA NÃO
+-- FORMA PISO, E FOTO VELHA NÃO DERRUBA A NOVA
+--   (a) a rotina publica 400 às 10h e recalcula 40 às 11h; o operador cancela
+--       o item em execução (estimativa 300). A reserva entra (300): com o 400
+--       substituído ainda no piso, ela era recusada, o dia ficava em 40 e o
+--       pull despachava um item de 420 num teto de 500;
+--   (b) a mesma coisa pela porta direta do livro;
+--   (c) o worker mede 100 (carimbo de 1 min atrás) e depois chega uma foto
+--       velha de 30 (carimbo de 10 min atrás): fica 100. Com o carimbo da
+--       comparação trocado por `now()`, a foto velha derrubava o número — a
+--       suíte não via, porque `now()` não anda dentro de um bloco;
+--   (d) 50 (1 min atrás), uma foto velha MAIOR de 100 (10 min atrás, aceita
+--       para cima) e uma de 30 (5 min atrás): o livro desce até 50, a medição
+--       mais nova, em vez de ficar nos 100 velhos.
+-- MUTAÇÕES: tirar o `not exists` da medição substituída derruba (a) e (b);
+-- trocar `least(p_medido_em, now())` por `now()` derruba (c); exigir que o
+-- vigente não seja medição para descer até o piso derruba (d).
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  c text := 'lsgpandora@gmail.com';
+  v_id uuid; v_id2 uuid; r jsonb; v_pull jsonb;
+  v_a numeric; v_b numeric; v_c numeric; v_d numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = c;
+  delete from public.painel_fila_prompts where conta = c;
+  delete from public.painel_caixa_lancamentos where conta = c;
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false where conta = c;
+
+  -- (a) pelo caminho real
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (c, 'T119 cancela', 'alta', 'Opus') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 300 where id = v_id;
+  perform public.fila_prompts_pegar_interno(c, 'w-T119');
+  perform public.fila_prompts_heartbeat_interno(v_id, c, 'w-T119', 'sess-T119');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T119', c, 'rotina 10h', 'working', 400, now() - interval '2 hours');
+  update public.painel_frentes_sessoes set custo_usd = 40, atualizado_em = now() - interval '1 hour'
+   where sessao_id = 'sess-T119';
+  r := public.fila_prompts_cancelar(v_segredo, v_id);
+  v_a := public.painel_fila_consumo_hoje(c);
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (c, 'T119 grande', 'maxima', 'Fable') returning id into v_id2;
+  update public.painel_fila_prompts set custo_estimado_usd = 420 where id = v_id2;
+  v_pull := public.fila_prompts_pegar_interno(c, 'w-T119-grande');
+
+  -- (b) pela porta do livro
+  perform public.painel_caixa_lancar('sessao','T119-b',c,400,'medido',null,'T119-b',now() - interval '2 hours','T119 10h',40);
+  perform public.painel_caixa_lancar('sessao','T119-b',c,40,'medido',null,'T119-b',now() - interval '1 hour','T119 11h',40);
+  perform public.painel_caixa_lancar('sessao','T119-b',c,300,'estimativa',null,'T119-b',null,'T119 reserva',null);
+  select sum(valor_usd) into v_b from public.painel_caixa_lancamentos where entidade_id = 'T119-b';
+
+  -- (c)
+  perform public.painel_caixa_lancar('sessao','T119-c',c,100,'medido',null,'T119-c',now() - interval '1 minute','T119 worker',30);
+  perform public.painel_caixa_lancar('sessao','T119-c',c,30,'medido',null,'T119-c',now() - interval '10 minutes','T119 foto velha',40);
+  select sum(valor_usd) into v_c from public.painel_caixa_lancamentos where entidade_id = 'T119-c';
+
+  -- (d)
+  perform public.painel_caixa_lancar('sessao','T119-d',c,50,'medido',null,'T119-d',now() - interval '1 minute','T119 nova',40);
+  perform public.painel_caixa_lancar('sessao','T119-d',c,100,'medido',null,'T119-d',now() - interval '10 minutes','T119 velha maior',40);
+  perform public.painel_caixa_lancar('sessao','T119-d',c,30,'medido',null,'T119-d',now() - interval '5 minutes','T119 velha menor',40);
+  select sum(valor_usd) into v_d from public.painel_caixa_lancamentos where entidade_id = 'T119-d';
+
+  if (r->>'custo_lancado_usd')::numeric = 300 and v_a = 300
+     and (v_pull->'item' is null or v_pull->'item' = 'null'::jsonb)
+     and v_b = 300 and v_c = 100 and v_d = 50 then
+    raise exception 'RESULTADO: ok — T119 reserva entrou sobre o recálculo (% e %), pull vazio, foto velha não derrubou (%), livro desceu à medição mais nova (%)',
+      v_a, v_b, v_c, v_d;
+  end if;
+  raise exception 'FALHA: T119 esperado reserva 300, dia 300, pull vazio, b=300, c=100, d=50 — obteve reserva=% dia=% pull=% b=% c=% d=%',
+    r->>'custo_lancado_usd', v_a, coalesce(v_pull->'item'->>'prompt', 'vazio'), v_b, v_c, v_d;
+end $$;

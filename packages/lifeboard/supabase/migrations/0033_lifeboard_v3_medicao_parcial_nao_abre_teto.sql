@@ -25,10 +25,16 @@
 --      dia seguinte (T118).
 --      Limites declarados: (a) na virada do dia, uma foto velha que chega
 --      antes da medição nova faz o dia contar a mais; (b) quando o worker e a
---      sessão discordam (worker 400, sessão 30 mais velha), vale o mais novo,
---      e se o maior estava errado o excesso de um dia pode virar falta no
---      seguinte — igual à main nessa ordem; (c) medição do worker numa sessão
+--      sessão discordam, vale a medição de carimbo mais novo. Se a sessão
+--      publica antes e o worker fecha depois, é igual à main. Na ordem
+--      inversa (worker fecha 400, depois chega a foto da sessão de 30 com
+--      carimbo mais velho), a main fica com 30 e este PR com 400: se o 400
+--      estava errado, o excesso do dia vira falta no dia seguinte; se estava
+--      certo, a main é que conta 30 com 400 reais. Troca de desenho
+--      declarada: carimbo mais novo vence; (c) medição do worker numa sessão
 --      que depois troca de item pode contar nas duas (erro para cima).
+--      Rodada 3: medição substituída por recálculo mais novo e menor não
+--      forma piso (T119).
 --   2. O fechamento NUNCA aborta porque o livro conservou outro valor. O item
 --      fecha, e o retorno diz o número pedido e o que o livro guardou
 --      (`custo_pedido_usd`, `livro_conservou_outro_valor`). Abortar deixava o
@@ -216,9 +222,10 @@ begin
   -- Estimativa e operador não trazem carimbo: para eles vale toda medição
   -- real de hoje.
   --
-  -- Medição real abaixo do piso, quando o vigente NÃO é medição (é a reserva
-  -- da casa acima do piso), não deixa a reserva inteira: desce até o piso —
-  -- o maior gasto real conhecido hoje (T118).
+  -- Medição real abaixo do piso, quando o vigente está ACIMA do piso (a
+  -- reserva da casa, ou uma foto velha maior aceita para cima), não deixa o
+  -- vigente inteiro: desce até o piso — o maior gasto real que uma medição
+  -- mais nova que ela sustenta (T118, T119).
   --
   -- Limite conhecido, erro só para cima: na virada, uma foto velha que chega
   -- antes da medição nova faz o dia contar a mais (o piso de hoje ainda não
@@ -235,9 +242,16 @@ begin
        and l.origem = 'medido'
        and l.dia = public.painel_dia_operador()
        and (p_origem <> 'medido' or p_medido_em is null
-            or l.medido_em >= least(p_medido_em, now()));
-    if v_alvo < v_piso and p_origem = 'medido'
-       and v_origem_atual is distinct from 'medido' and v_valor_atual > v_piso then
+            or l.medido_em >= least(p_medido_em, now()))
+       -- rodada 3: medição já SUBSTITUÍDA por um recálculo mais novo e menor
+       -- não forma piso — senão o 400 recalculado para 40 recusava a reserva
+       -- de 300 do cancelamento e o pull despachava acima do teto (T119).
+       and not exists (
+             select 1 from public.painel_caixa_lancamentos n
+              where n.entidade_tipo = l.entidade_tipo and n.entidade_id = l.entidade_id
+                and n.origem = 'medido' and n.dia = l.dia
+                and n.medido_em > l.medido_em and n.valor_usd < l.valor_usd);
+    if v_alvo < v_piso and p_origem = 'medido' and v_valor_atual > v_piso then
       v_alvo := v_piso;
       p_nota := coalesce(p_nota, '') ||
         ' [medição abaixo do piso de hoje: a reserva desce até a maior medição real]';
