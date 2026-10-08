@@ -6473,11 +6473,18 @@ end $$;
 -- carimbo e o mesmo posto — e o item como dono.
 -- MUTAÇÃO QUE DEIXA ESTE BLOCO VERMELHO: tirar o ramo "dono adotado" da trava
 -- de precedência de `painel_caixa_lancar` (0027 §6).
+-- 08/10 (0033): o fechamento NÃO aborta quando o livro conserva os 40 — o
+-- retorno diz `custo_pedido_usd` = 35 e `livro_conservou_outro_valor`. E o
+-- espelho: publicação SEM dono de 20 seguida de fechamento de 400 deixa o item
+-- com 400 (a adoção não pode trocar uma medição maior pela menor).
+-- MUTAÇÃO: voltar o `raise` de `fila_prompts_fechar_interno`, ou tirar a
+-- condição "medição maior não adota" da adoção de dono.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
   v_conta text := 'almapetra.ltda@gmail.com';
-  v_id uuid; v_pull jsonb;
+  v_id uuid; v_pull jsonb; v_fecha jsonb;
+  v_id2 uuid; v_item2_hoje numeric;
   v_item_hoje numeric; v_conta_hoje numeric; v_carimbo timestamptz;
   v_vigente_valor numeric; v_vigente_prec int; v_vigente_medido timestamptz;
   v_publicado timestamptz := now() - interval '10 minutes';
@@ -6496,7 +6503,7 @@ begin
   insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
   values ('sess-T110', v_conta, 'filha', 'idle', 40, v_publicado);
 
-  perform public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T110', 'concluida', 35, 'sess-T110');
+  v_fecha := public.fila_prompts_fechar_interno(v_id, v_conta, 'w-T110', 'concluida', 35, 'sess-T110');
 
   select coalesce(sum(contribuicao), 0) into v_item_hoje
     from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_id;
@@ -6507,13 +6514,28 @@ begin
    where l.entidade_id = 'sess-T110' and l.origem <> 'estorno' and l.item_id = v_id
      and not exists (select 1 from public.painel_caixa_lancamentos e where e.estorna_id = l.id);
 
+  -- espelho (0033): publicação sem dono MENOR que o fechamento
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T110 item 2', 'baixa', 'Haiku');
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T110-2');
+  v_id2 := (v_pull->'item'->>'id')::uuid;
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T110-2', v_conta, 'filha parcial', 'working', 20, now() - interval '1 minute');
+  perform public.fila_prompts_fechar_interno(v_id2, v_conta, 'w-T110-2', 'concluida', 400, 'sess-T110-2');
+  select coalesce(sum(contribuicao), 0) into v_item2_hoje
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_id2;
+
   if v_item_hoje = 40 and v_conta_hoje = 40 and v_vigente_valor = 40
-     and v_vigente_prec = 40 and v_vigente_medido = v_publicado then
-    raise exception 'RESULTADO: ok — T110 o item ficou com os US$ % publicados (conta US$ %), posto % e carimbo da publicação',
-      v_item_hoje, v_conta_hoje, v_vigente_prec;
+     and v_vigente_prec = 40 and v_vigente_medido = v_publicado
+     and (v_fecha->>'ok')::boolean
+     and (v_fecha->>'custo_pedido_usd')::numeric = 35
+     and (v_fecha->>'livro_conservou_outro_valor')::boolean
+     and v_item2_hoje = 400 then
+    raise exception 'RESULTADO: ok — T110 o item ficou com os US$ % publicados (conta US$ %), posto % e carimbo da publicação; o fechamento de 35 não abortou e disse que o livro conservou outro valor; o espelho (20 sem dono → fecha 400) deu %',
+      v_item_hoje, v_conta_hoje, v_vigente_prec, v_item2_hoje;
   end if;
-  raise exception 'FALHA: T110 esperado item 40, conta 40, vigente 40/posto 40/carimbo da publicação — obteve item=% conta=% vigente=% posto=% medido=% (publicado %)',
-    v_item_hoje, v_conta_hoje, v_vigente_valor, v_vigente_prec, v_vigente_medido, v_publicado;
+  raise exception 'FALHA: T110 esperado item 40, conta 40, vigente 40/posto 40/carimbo da publicação, retorno com custo_pedido 35 e livro_conservou_outro_valor, e espelho 400 — obteve item=% conta=% vigente=% posto=% medido=% (publicado %) fecha=% espelho=%',
+    v_item_hoje, v_conta_hoje, v_vigente_valor, v_vigente_prec, v_vigente_medido, v_publicado, v_fecha, v_item2_hoje;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -6656,7 +6678,7 @@ end $$;
 -- morte. A 0027 decidia só pelo posto 40 > 30 > 10: 20 recusava 400, e 3
 -- recusava a estimativa de 120. Agora medição mais nova vence outra medição;
 -- uma estimativa maior pode elevar o alvo sem perder a proveniência medida.
--- MUTAÇÃO: remover a 0032 deixa fechamento=20, cancelamento=3 e morte=3.
+-- MUTAÇÃO: remover a 0033 deixa fechamento=20, cancelamento=3 e morte=3.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare

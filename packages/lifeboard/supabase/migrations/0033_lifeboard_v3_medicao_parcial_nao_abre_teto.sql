@@ -4,6 +4,20 @@
 -- uma sessão não pode recusar uma medição posterior do worker nem uma reserva
 -- conservadora maior. A função é substituída atomicamente; nenhuma aplicação é
 -- feita fora da execução normal das migrations.
+--
+-- 08/10/2026 (correção da regressão do #62, por exceção declarada pelo operador):
+-- este arquivo nasceu como `0032_…` no #62 e quebrou T66, T67 e T110 na `main`.
+-- Duas mudanças, e o número passou a 0033 (a 0032 é a da trava D52, #64):
+--   1. Entre duas MEDIÇÕES da mesma entidade NO MESMO DIA vale a MAIOR, em
+--      qualquer ordem de chegada e de qualquer porta. Uma
+--      publicação parcial nunca derruba o fechamento, e o fechamento nunca
+--      derruba uma publicação maior. Era "a mais nova vence", que fazia a ordem
+--      de chegada decidir o total (T66/T67). Medição de dia anterior continua
+--      corrigível para baixo hoje (T105); a D54 impede que isso vire teto.
+--   2. O fechamento NUNCA aborta porque o livro conservou outro valor. O item
+--      fecha, e o retorno diz o número pedido e o que o livro guardou
+--      (`custo_pedido_usd`, `livro_conservou_outro_valor`). Abortar deixava o
+--      item preso até morrer valendo a estimativa (T110).
 
 begin;
 create or replace function public.painel_caixa_lancar(
@@ -133,8 +147,13 @@ begin
   -- origem, o MESMO carimbo e o MESMO posto — só o dono muda (estorno sem dono
   -- + relançamento com o item, os dois hoje). Vigente de OUTRO item não é
   -- adotado: dono gravado não se rouba. Bloco: T110.
+  -- 08/10: a adoção só vale quando o número pedido NÃO é uma medição maior que
+  -- a vigente. Medição maior não adota o número velho: ela vence (regra abaixo)
+  -- e entra já com o item como dono.
   if v_ultimo is not null and v_prec < v_prec_atual
-     and v_item_atual is null and p_item_id is not null then
+     and v_item_atual is null and p_item_id is not null
+     and not (p_origem = 'medido' and v_origem_atual = 'medido'
+              and v_alvo > v_valor_atual) then
     v_adotou    := true;
     v_alvo      := v_valor_atual;
     p_origem    := v_origem_atual;
@@ -150,12 +169,38 @@ begin
   -- medição vigente quando aumenta o alvo; nesse caso preservamos a
   -- proveniência medida e o posto vigentes, para uma estimativa posterior
   -- nunca ganhar autoridade para reduzir o número.
-  if v_ultimo is not null and v_prec < v_prec_atual then
-    if p_origem = 'medido' and v_origem_atual = 'medido'
-       and p_medido_em is not null
-       and (v_medido_atual is null or p_medido_em >= v_medido_atual) then
-      null; -- medição mais nova substitui a anterior, independentemente da porta
-    elsif v_alvo > v_valor_atual then
+  --
+  -- 08/10 · ENTRE MEDIÇÕES VALE A MAIOR, nos dois sentidos de posto. Medição
+  -- menor que a vigente é recusada mesmo vindo de posto maior (publicação
+  -- parcial atrasada depois do fechamento); medição maior vence mesmo vindo de
+  -- posto menor (fechamento depois de publicação parcial). Valor igual segue
+  -- para o D43/D50 abaixo (carimbo e dono ainda podem andar). Mantém o posto
+  -- mais alto dos dois, para nenhuma estimativa posterior ganhar autoridade.
+  --
+  -- A regra vale DENTRO DO DIA. Uma medição de dia anterior pode ser corrigida
+  -- para baixo hoje (a rotina recalcula a sessão — T105): a D54 já impede que
+  -- essa correção vire teto, porque o estorno não tira de hoje mais do que hoje
+  -- tem e o dia passado não muda.
+  if v_ultimo is not null and p_origem = 'medido' and v_origem_atual = 'medido'
+     and not v_adotou then
+    if v_alvo < v_valor_atual
+       and (select l.dia from public.painel_caixa_lancamentos l where l.id = v_ultimo)
+           = public.painel_dia_operador() then
+      return jsonb_build_object(
+        'ok', true, 'movimentou', false, 'conta', v_conta,
+        'liquido_usd', round(v_liquido, 2), 'dia', null,
+        'recusado_por_precedencia', true,
+        'motivo', 'medicao_menor_que_a_vigente',
+        'valor_vigente_usd', round(v_valor_atual, 2),
+        'origem_vigente', v_origem_atual,
+        'precedencia_vigente', v_prec_atual,
+        'origem', p_origem,
+        'precedencia_pedida', v_prec,
+        'alvo_recusado_usd', round(v_alvo, 2));
+    end if;
+    v_prec := greatest(v_prec, v_prec_atual);
+  elsif v_ultimo is not null and v_prec < v_prec_atual then
+    if v_alvo > v_valor_atual then
       p_origem    := v_origem_atual;
       p_medido_em := v_medido_atual;
       v_prec      := v_prec_atual;
@@ -365,8 +410,9 @@ comment on function public.painel_caixa_lancar(text, text, text, numeric, text, 
   'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53: cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta) e um lançamento de posto menor NÃO derruba um de posto maior — em nenhuma ordem de chegada. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos dois fatos darem o mesmo total nos dois sentidos (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção. D54 (rodada 13): o ESTORNO é limitado ao que a entidade já pôs no dia de HOJE — crédito que anula dinheiro de um dia FECHADO não vira teto de hoje, e por isso nenhum dia pode somar negativo.';
 revoke all on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) from public, anon, authenticated;
 
--- Fechar só confirma o item quando o livro confirmou o mesmo custo. Uma recusa
--- excepcional (por exemplo, carimbo publicado no futuro) aborta e desfaz a linha.
+-- 08/10: fechar NUNCA aborta porque o livro conservou outro valor (a versão do
+-- #62 abortava e o item ficava preso até morrer valendo a estimativa — T110).
+-- O item fecha; o retorno diz o número pedido e se o livro guardou outro.
 create or replace function public.fila_prompts_fechar_interno(
   p_id uuid, p_conta text, p_worker_id text, p_estado text,
   p_custo_usd numeric, p_session_id text default null,
@@ -500,14 +546,12 @@ begin
       v_row.id, p_custo_usd, 'medido', now(),
       'fechamento pelo último dono de item que tinha morrido sem fechar');
 
-    if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
-      raise exception 'fechamento recusado pelo livro; o item não foi alterado: %', v_caixa
-        using errcode = 'check_violation';
-    end if;
 
     return jsonb_build_object(
       'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', true, 'estado', p_estado,
-      'caixa', v_caixa
+      'caixa', v_caixa,
+      'custo_pedido_usd', round(p_custo_usd, 2),
+      'livro_conservou_outro_valor', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false)
     );
   end if;
 
@@ -563,14 +607,12 @@ begin
       v_row.id, p_custo_usd, 'medido', now(),
       'medição real sobre item cancelado durante a execução');
 
-    if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
-      raise exception 'fechamento recusado pelo livro; o item não foi alterado: %', v_caixa
-        using errcode = 'check_violation';
-    end if;
 
     return jsonb_build_object(
       'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', 'cancelada',
-      'caixa', v_caixa
+      'caixa', v_caixa,
+      'custo_pedido_usd', round(p_custo_usd, 2),
+      'livro_conservou_outro_valor', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false)
     );
   end if;
 
@@ -592,14 +634,12 @@ begin
     v_row.id, p_custo_usd, 'medido', now(),
     'fechamento normal');
 
-  if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
-    raise exception 'fechamento recusado pelo livro; o item não foi alterado: %', v_caixa
-      using errcode = 'check_violation';
-  end if;
 
   return jsonb_build_object(
     'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', p_estado,
-    'caixa', v_caixa
+    'caixa', v_caixa,
+    'custo_pedido_usd', round(p_custo_usd, 2),
+    'livro_conservou_outro_valor', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false)
   );
 end;
 $$;
