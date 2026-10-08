@@ -3737,10 +3737,17 @@ begin
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- T67 · D53 — a ordem de precedência é a MESMA nos dois sentidos, entidade a
--- entidade. Quatro postos, seis pares: em qualquer ordem de chegada o líquido
--- da entidade é o do posto mais alto.
--- MUTAÇÃO: qualquer afrouxamento da trava de posto derruba ao menos um par.
+-- T67 · D53 + 0033 — o total é o MESMO nos dois sentidos, entidade a
+-- entidade. Quatro postos, seis pares, DUAS tabelas de valores: a de sempre
+-- (valor cresce com o posto) e a com as duas medições trocadas (posto 30 = 44,
+-- posto 40 = 33). Em qualquer ordem de chegada o líquido é o MAIOR do par:
+-- medição real nunca fica abaixo de outra medição real do dia, e nada que não
+-- seja medição desce abaixo dela (0033). A tabela trocada existe porque com a
+-- primeira só o bloco passava também por "o posto mais alto vence" — o
+-- crítico de 08/10 mostrou que a regra real é outra. E o rótulo: o 44 medido
+-- pelo worker fica gravado com posto 30, não com o 40 da rotina.
+-- MUTAÇÃO: qualquer afrouxamento da trava de posto ou do piso derruba ao
+-- menos um par; regravar a medição com o posto do vigente derruba o rótulo.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
@@ -3749,53 +3756,69 @@ declare
   v_ent text;
   v_a record;
   v_b record;
+  v_tab record;
   v_liq_ab numeric;
   v_liq_ba numeric;
+  v_esperado numeric;
+  v_posto_44 int;
   v_n int := 0;
-  v_postos jsonb := $postos$[
-    {"origem":"estimativa","posto":10,"valor":11},
-    {"origem":"operador","posto":20,"valor":22},
-    {"origem":"medido","posto":30,"valor":33},
-    {"origem":"medido","posto":40,"valor":44}
-  ]$postos$;
 begin
   delete from public.painel_frentes_sessoes where conta = v_conta;
   delete from public.painel_fila_prompts where conta = v_conta;
 
-  for v_a in select * from jsonb_to_recordset(v_postos) as x(origem text, posto int, valor numeric) loop
-    for v_b in select * from jsonb_to_recordset(v_postos) as y(origem text, posto int, valor numeric) loop
-      if v_a.posto >= v_b.posto then continue; end if;
-      v_n := v_n + 1;
+  for v_tab in select * from (values
+    ('cresce', $postos$[
+      {"origem":"estimativa","posto":10,"valor":11},
+      {"origem":"operador","posto":20,"valor":22},
+      {"origem":"medido","posto":30,"valor":33},
+      {"origem":"medido","posto":40,"valor":44}
+    ]$postos$::jsonb),
+    ('trocada', $postos$[
+      {"origem":"estimativa","posto":10,"valor":11},
+      {"origem":"operador","posto":20,"valor":22},
+      {"origem":"medido","posto":30,"valor":44},
+      {"origem":"medido","posto":40,"valor":33}
+    ]$postos$::jsonb)) as t(nome, postos) loop
+    for v_a in select * from jsonb_to_recordset(v_tab.postos) as x(origem text, posto int, valor numeric) loop
+      for v_b in select * from jsonb_to_recordset(v_tab.postos) as y(origem text, posto int, valor numeric) loop
+        if v_a.posto >= v_b.posto then continue; end if;
+        v_n := v_n + 1;
+        v_esperado := greatest(v_a.valor, v_b.valor);
 
-      v_ent := format('T67-%s-%s-ab', v_a.posto, v_b.posto);
-      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_a.valor, v_a.origem,
-                                         null, null, now(), 'T67', v_a.posto);
-      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_b.valor, v_b.origem,
-                                         null, null, now(), 'T67', v_b.posto);
-      select coalesce(sum(l.valor_usd), 0) into v_liq_ab
-        from public.painel_caixa_lancamentos l where l.entidade_id = v_ent;
+        v_ent := format('T67-%s-%s-%s-ab', v_tab.nome, v_a.posto, v_b.posto);
+        perform public.painel_caixa_lancar('item', v_ent, v_conta, v_a.valor, v_a.origem,
+                                           null, null, now(), 'T67', v_a.posto);
+        perform public.painel_caixa_lancar('item', v_ent, v_conta, v_b.valor, v_b.origem,
+                                           null, null, now(), 'T67', v_b.posto);
+        select coalesce(sum(l.valor_usd), 0) into v_liq_ab
+          from public.painel_caixa_lancamentos l where l.entidade_id = v_ent;
 
-      v_ent := format('T67-%s-%s-ba', v_a.posto, v_b.posto);
-      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_b.valor, v_b.origem,
-                                         null, null, now(), 'T67', v_b.posto);
-      perform public.painel_caixa_lancar('item', v_ent, v_conta, v_a.valor, v_a.origem,
-                                         null, null, now(), 'T67', v_a.posto);
-      select coalesce(sum(l.valor_usd), 0) into v_liq_ba
-        from public.painel_caixa_lancamentos l where l.entidade_id = v_ent;
+        v_ent := format('T67-%s-%s-%s-ba', v_tab.nome, v_a.posto, v_b.posto);
+        perform public.painel_caixa_lancar('item', v_ent, v_conta, v_b.valor, v_b.origem,
+                                           null, null, now(), 'T67', v_b.posto);
+        perform public.painel_caixa_lancar('item', v_ent, v_conta, v_a.valor, v_a.origem,
+                                           null, null, now(), 'T67', v_a.posto);
+        select coalesce(sum(l.valor_usd), 0) into v_liq_ba
+          from public.painel_caixa_lancamentos l where l.entidade_id = v_ent;
 
-      if v_liq_ab is distinct from v_b.valor or v_liq_ba is distinct from v_b.valor then
-        v_falhas := v_falhas || format(' | posto %s x %s: ab=%s ba=%s esperado=%s',
-          v_a.posto, v_b.posto, v_liq_ab, v_liq_ba, v_b.valor);
-      end if;
+        if v_liq_ab is distinct from v_esperado or v_liq_ba is distinct from v_esperado then
+          v_falhas := v_falhas || format(' | %s posto %s x %s: ab=%s ba=%s esperado=%s',
+            v_tab.nome, v_a.posto, v_b.posto, v_liq_ab, v_liq_ba, v_esperado);
+        end if;
+      end loop;
     end loop;
   end loop;
 
+  select l.precedencia into v_posto_44
+    from public.painel_caixa_lancamentos l
+   where l.entidade_id = 'T67-trocada-30-40-ba' and l.origem = 'medido' and l.valor_usd = 44;
+
   -- VARREDURA DE GENERALIZAÇÃO (rodada 14) · PISO. Mesma forma do T42: com
   -- zero pares, `v_falhas = ''` é verdade e o bloco aprova tendo medido nada.
-  if v_falhas = '' and v_n >= 6 then
-    raise exception 'RESULTADO: ok — T67 D53 o posto mais alto vence nos dois sentidos em % de % pares (piso 6)', v_n, v_n;
+  if v_falhas = '' and v_n >= 12 and v_posto_44 = 30 then
+    raise exception 'RESULTADO: ok — T67 o maior do par vence nos dois sentidos em % de % pares (piso 12), e o 44 do worker ficou com posto %', v_n, v_n, v_posto_44;
   end if;
-  raise exception 'FALHA: T67 D53 precedência dependente da ordem — pares medidos=% (piso 6)%', v_n, v_falhas;
+  raise exception 'FALHA: T67 total dependente da ordem ou rótulo errado — pares medidos=% (piso 12) posto do 44=% %', v_n, v_posto_44, v_falhas;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -6676,8 +6699,9 @@ end $$;
 -- Publicar um custo pequeno enquanto a sessão ainda trabalha não pode recusar
 -- o custo final maior do worker nem a reserva conservadora de cancelamento ou
 -- morte. A 0027 decidia só pelo posto 40 > 30 > 10: 20 recusava 400, e 3
--- recusava a estimativa de 120. Agora medição mais nova vence outra medição;
--- uma estimativa maior pode elevar o alvo sem perder a proveniência medida.
+-- recusava a estimativa de 120. Agora nada abaixo da maior medição real de
+-- hoje entra, e uma estimativa maior eleva o alvo como reserva (origem
+-- estimativa, posto dela — nunca regravada como medição).
 -- MUTAÇÃO: remover a 0033 deixa fechamento=20, cancelamento=3 e morte=3.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
@@ -6754,4 +6778,183 @@ begin
   raise exception 'FALHA: T114 esperado fechamento=400 sem recusa, cancelamento=120 (alvo conservador) e morte=120 (+117) — obteve fecha=% linha=% caixa=% cancela=% retorno_cancel=% morte=% pull=%',
     v_consumo_fecha, v_custo_linha, v_fecha->'caixa', v_consumo_cancela, v_cancela,
     v_consumo_morre, v_pull;
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T115 · ALTO do crítico do #71 (08/10) — A RESERVA DA CASA NÃO VIRA MEDIÇÃO,
+-- E O GASTO REAL NÃO SOME NA VIRADA DO DIA
+-- O item morre depois de a sessão publicar 3; a morte lança a reserva de 480
+-- por cima. A sessão segue viva e publica o real: 30, depois 60. A 1ª versão
+-- do #71 regravava a reserva como `medido` de posto 40 e recusava o 30 e o 60
+-- como "foto velha": o dia guardava 480, a reserva atravessava a meia-noite e,
+-- no dia seguinte, com a sessão em 470 acumulados (410 reais de hoje), a D54
+-- zerava o dia e o pull despachava um item de US$ 400 num teto de 500.
+-- Parte 1 (hoje): a reserva entra como estimativa, e a medição real seguinte
+-- a substitui — o dia vale 60 (+1 da isca).
+-- Parte 2 (dia seguinte, livro de ontem gravado à mão como a parte 1 deixa):
+-- a sessão chega a 470 e o dia de hoje conta 410; o item de 400 não cabe.
+-- MUTAÇÃO: regravar a reserva com a origem e o posto do vigente (`medido`, 40)
+-- no ramo da reserva conservadora da 0033 deixa a parte 1 em 481.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_conta2 text := 'almapetra.ltda@gmail.com';
+  v_id uuid; v_isca uuid; v_pull jsonb; v_grande uuid;
+  v_dia_d numeric; v_reserva_origem text; v_hoje numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta in (v_conta, v_conta2);
+  delete from public.painel_fila_prompts where conta in (v_conta, v_conta2);
+  delete from public.painel_caixa_lancamentos where conta in (v_conta, v_conta2);
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta in (v_conta, v_conta2);
+
+  -- parte 1: hoje
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T115 morre', 'maxima', 'Fable') returning id into v_id;
+  update public.painel_fila_prompts set custo_estimado_usd = 480 where id = v_id;
+  perform public.fila_prompts_pegar_interno(v_conta, 'w-T115');
+  perform public.fila_prompts_heartbeat_interno(v_id, v_conta, 'w-T115', 'sess-T115');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T115', v_conta, 'filha', 'working', 3, now() - interval '30 minutes');
+  update public.painel_fila_prompts
+     set heartbeat_em = now() - interval '2 hours', tentativas = 3, max_tentativas = 3
+   where id = v_id;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta, 'T115 isca', 'baixa', 'Haiku') returning id into v_isca;
+  v_pull := public.fila_prompts_pegar_interno(v_conta, 'w-T115-isca');
+  select l.origem into v_reserva_origem
+    from public.painel_caixa_lancamentos l
+   where l.entidade_id = 'sess-T115' and l.valor_usd = 480;
+  update public.painel_frentes_sessoes set custo_usd = 30, atualizado_em = now() - interval '5 minutes'
+   where sessao_id = 'sess-T115';
+  update public.painel_frentes_sessoes set custo_usd = 60, atualizado_em = now() - interval '1 minute'
+   where sessao_id = 'sess-T115';
+  perform public.fila_prompts_fechar_interno(v_isca, v_conta, 'w-T115-isca', 'concluida', 1, null);
+  v_dia_d := public.painel_fila_consumo_hoje(v_conta);
+
+  -- parte 2: ontem a sessão ficou em 60 reais; hoje chega a 470
+  insert into public.painel_caixa_lancamentos
+    (dia, conta, valor_usd, origem, entidade_tipo, entidade_id, sessao_id, precedencia, medido_em, nota)
+  values
+    (public.painel_dia_operador() - 1, v_conta2, 60, 'medido', 'sessao', 'sess-T115-b',
+     'sess-T115-b', 40, now() - interval '1 day', 'T115 ontem: a sessão publicou 60 reais');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T115-b', v_conta2, 'filha que virou o dia', 'working', 470, now());
+  v_hoje := public.painel_fila_consumo_hoje(v_conta2);
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_conta2, 'T115 grande', 'maxima', 'Fable') returning id into v_grande;
+  update public.painel_fila_prompts set custo_estimado_usd = 400 where id = v_grande;
+  v_pull := public.fila_prompts_pegar_interno(v_conta2, 'w-T115-grande');
+
+  if v_reserva_origem = 'estimativa' and v_dia_d = 61
+     and v_hoje = 410 and v_pull->'item' = 'null'::jsonb then
+    raise exception 'RESULTADO: ok — T115 a reserva ficou estimativa, o dia valeu % (real 60 + isca) e no dia seguinte contou % sem despachar o item de 400',
+      v_dia_d, v_hoje;
+  end if;
+  raise exception 'FALHA: T115 esperado reserva=estimativa, dia=61, dia seguinte=410 e pull vazio — obteve reserva=% dia=% seguinte=% pull=%',
+    v_reserva_origem, v_dia_d, v_hoje, left(v_pull::text, 300);
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T116 · MÉDIO do crítico do #71 (08/10) — O FECHAMENTO REAL DEPOIS DE
+-- CANCELAR OU MORRER SUBSTITUI A RESERVA (D12/D26)
+-- Sessão publica 3; cancelar (ou a 3ª expiração) lança a reserva de 120; o
+-- dono fecha com o real 5. A 1ª versão do #71 guardava 120 no livro e 5 na
+-- linha do item, com `livro_conservou_outro_valor` = true que ninguém lê, e a
+-- tela atribuía o 120 "à sessão". Agora o dia vale 5 nos dois caminhos.
+-- MUTAÇÃO: regravar a reserva como `medido` (ramo da reserva conservadora da
+-- 0033) deixa os dois caminhos em 120.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_segredo text := (select valor from private.lifeboard_config where chave = 'load_secret');
+  v_c1 text := 'lsgpandora@gmail.com';
+  v_c2 text := 'almapetra.ltda@gmail.com';
+  v_id1 uuid; v_id2 uuid; v_isca uuid;
+  v_f1 jsonb; v_f2 jsonb;
+  v_cancel numeric; v_morte numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta in (v_c1, v_c2);
+  delete from public.painel_fila_prompts where conta in (v_c1, v_c2);
+  delete from public.painel_caixa_lancamentos where conta in (v_c1, v_c2);
+  update public.painel_teto_diario set teto_usd = 500, exigir_medicao_recente = false
+   where conta in (v_c1, v_c2);
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_c1, 'T116 cancela', 'maxima', 'Fable') returning id into v_id1;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id1;
+  perform public.fila_prompts_pegar_interno(v_c1, 'w-T116');
+  perform public.fila_prompts_heartbeat_interno(v_id1, v_c1, 'w-T116', 'sess-T116');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T116', v_c1, 'parcial', 'working', 3, now() - interval '2 minutes');
+  perform public.fila_prompts_cancelar(v_segredo, v_id1);
+  v_f1 := public.fila_prompts_fechar_interno(v_id1, v_c1, 'w-T116', 'concluida', 5, 'sess-T116');
+  v_cancel := public.painel_fila_consumo_hoje(v_c1);
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_c2, 'T116 morre', 'maxima', 'Fable') returning id into v_id2;
+  update public.painel_fila_prompts set custo_estimado_usd = 120 where id = v_id2;
+  perform public.fila_prompts_pegar_interno(v_c2, 'w-T116m');
+  perform public.fila_prompts_heartbeat_interno(v_id2, v_c2, 'w-T116m', 'sess-T116m');
+  insert into public.painel_frentes_sessoes (sessao_id, conta, titulo, estado, custo_usd, atualizado_em)
+  values ('sess-T116m', v_c2, 'parcial', 'working', 3, now() - interval '2 minutes');
+  update public.painel_fila_prompts
+     set heartbeat_em = now() - interval '2 hours', tentativas = 3, max_tentativas = 3
+   where id = v_id2;
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido)
+  values (v_c2, 'T116 isca', 'baixa', 'Haiku') returning id into v_isca;
+  perform public.fila_prompts_pegar_interno(v_c2, 'w-T116-isca');
+  perform public.fila_prompts_fechar_interno(v_isca, v_c2, 'w-T116-isca', 'concluida', 0, null);
+  v_f2 := public.fila_prompts_fechar_interno(v_id2, v_c2, 'w-T116m', 'concluida', 5, 'sess-T116m');
+  v_morte := public.painel_fila_consumo_hoje(v_c2);
+
+  if v_cancel = 5 and v_morte = 5
+     and not coalesce((v_f1->>'livro_conservou_outro_valor')::boolean, true)
+     and not coalesce((v_f2->>'livro_conservou_outro_valor')::boolean, true) then
+    raise exception 'RESULTADO: ok — T116 o fechamento real substituiu a reserva: cancelado=% morto=%',
+      v_cancel, v_morte;
+  end if;
+  raise exception 'FALHA: T116 esperado 5 e 5 sem livro conservando outro valor — obteve cancelado=% (%) morto=% (%)',
+    v_cancel, v_f1->>'livro_conservou_outro_valor', v_morte, v_f2->>'livro_conservou_outro_valor';
+end $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- T117 · BAIXO do crítico do #71 (08/10) — ESVAZIAR NA FUSÃO (POSTO 99) NÃO
+-- PASSA PELO PISO
+-- O worker mede 30 na sessão A; o item passa para a sessão B e mede 50. A fusão
+-- esvazia A com posto 99 ("esvaziar não pode ser recusado"). A 1ª versão do
+-- #71 recusava o esvaziamento como "medição menor que a vigente" e a conta
+-- somava 80 (A guardava 30) para um gasto de 50.
+-- MUTAÇÃO: tirar `v_prec < 99` da condição do piso na 0033 deixa a conta em 80.
+-- ─────────────────────────────────────────────────────────────────────────────
+do $$
+declare
+  v_conta text := 'lsgpandora@gmail.com';
+  v_id uuid;
+  v_total numeric; v_a numeric; v_b numeric; v_item numeric;
+begin
+  delete from public.painel_frentes_sessoes where conta = v_conta;
+  delete from public.painel_fila_prompts where conta = v_conta;
+  delete from public.painel_caixa_lancamentos where conta = v_conta;
+
+  insert into public.painel_fila_prompts (conta, prompt, complexidade, modelo_sugerido, session_id)
+  values (v_conta, 'T117', 'alta', 'Opus', 'sess-T117-A') returning id into v_id;
+  perform public.painel_caixa_lancar_item(v_id, 30, 'medido', now(), 'T117 worker mediu em A');
+  update public.painel_fila_prompts set session_id = 'sess-T117-B' where id = v_id;
+  perform public.painel_caixa_lancar_item(v_id, 50, 'medido', now(), 'T117 worker mediu em B');
+
+  v_total := public.painel_fila_consumo_hoje(v_conta);
+  select coalesce(sum(valor_usd), 0) into v_a
+    from public.painel_caixa_lancamentos where entidade_id = 'sess-T117-A';
+  select coalesce(sum(valor_usd), 0) into v_b
+    from public.painel_caixa_lancamentos where entidade_id = 'sess-T117-B';
+  select coalesce(sum(contribuicao), 0) into v_item
+    from public.painel_fila_itens_do_dia(v_conta, public.painel_dia_operador()) where id = v_id;
+
+  if v_total = 50 and v_a = 0 and v_b = 50 and v_item = 50 then
+    raise exception 'RESULTADO: ok — T117 a fusão esvaziou A e a conta ficou com o gasto real (US$ %)', v_total;
+  end if;
+  raise exception 'FALHA: T117 esperado conta 50, A 0, B 50, item 50 — obteve conta=% A=% B=% item=%',
+    v_total, v_a, v_b, v_item;
 end $$;
