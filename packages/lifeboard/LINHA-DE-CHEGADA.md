@@ -95,6 +95,15 @@ A1d só depois de medido no iMac.
    certa e segura, mas deixou de ser a alavanca grande: o volume agora vem de branches e mudanças abertas.
    **Achado, sem dono ainda:** 84 das 201 branches no grafo são a branch de uma mudança aberta — o mesmo trabalho em dois
    cartões. 182 das 201 são do hub.
+   **Decisão 2-A do operador (02/10):** o achado vira a `docs/lifeboard/TAREFA-CODEX-04-branch-com-mudanca-aberta-vira-a-mudanca.md`
+   — no grafo, a branch com exatamente uma mudança aberta é representada pela mudança, e as ligações dela passam para a
+   mudança (fora do grafo nada muda). Esperado: ~345 → ~260. **Dono: Lucas · data proposta: 06/10 10h · quem cobra:
+   Lucas** (executor é o operador; evento no calendário LS; registro no hub, `docs/audit/AGENDA-FALSIFICACAO.md`).
+   **Medição desta entrega sobre o retrato de produção de 01/10:** **345 → 261 cartões** no grafo
+   (84 branches com exatamente uma mudança aberta materializada deixam de ser cartão; suas ligações passam para
+   a mudança). A conta usa o retrato somente leitura registrado acima; esta sessão não recebeu credenciais para
+   refazer a consulta ao banco em 02/10.
+   Classe do LifeBoard na regra do fosso: **Vantagem** (3-B, 02/10) — `docs/lifeboard/VERSOES-E-FOSSO-lifeboard.md`.
 
 ## PRs abertos que a linha de chegada não via (achado de 25/09, passagem do gauntlet)
 
