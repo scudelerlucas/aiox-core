@@ -4,6 +4,41 @@
 -- uma sessão não pode recusar uma medição posterior do worker nem uma reserva
 -- conservadora maior. A função é substituída atomicamente; nenhuma aplicação é
 -- feita fora da execução normal das migrations.
+--
+-- 08/10/2026 (correção da regressão do #62, por exceção declarada pelo operador):
+-- este arquivo nasceu como `0032_…` no #62 e quebrou T66, T67 e T110 na `main`.
+-- Duas mudanças, e o número passou a 0033 (a 0032 é a da trava D52, #64):
+--   1. O PISO DO DIA É A MAIOR MEDIÇÃO REAL DE HOJE. Número menor que ela, de
+--      qualquer porta e em qualquer ordem, é recusado (foto velha ou estimativa
+--      abaixo do gasto conhecido). Medição real igual ou maior sempre vale,
+--      inclusive sobre a reserva da casa. A reserva de cancelamento e morte
+--      entra com a origem e o posto dela (estimativa), nunca como `medido`.
+--      Era "a mais nova vence" (a ordem decidia o total: T66/T67) e, na 1ª
+--      versão deste PR, "a maior entre medições" com a reserva regravada como
+--      medição — o crítico independente de 08/10 reprovou: a reserva
+--      atravessava a meia-noite e o dia seguinte contava zero com gasto real
+--      de 410 (T115), e o fechamento real depois de cancelar ficava na
+--      reserva (T116). Medição de dia anterior continua corrigível para baixo
+--      hoje (T105); posto 99 (esvaziar na fusão) não passa pelo piso (T117).
+--      Rodada 2 do crítico: o piso respeita o carimbo — medição real MAIS NOVA
+--      e menor é recálculo e vale; sem isso o excesso de hoje virava falta no
+--      dia seguinte (T118).
+--      Limites declarados: (a) na virada do dia, uma foto velha que chega
+--      antes da medição nova faz o dia contar a mais; (b) quando o worker e a
+--      sessão discordam, vale a medição de carimbo mais novo. Se a sessão
+--      publica antes e o worker fecha depois, é igual à main. Na ordem
+--      inversa (worker fecha 400, depois chega a foto da sessão de 30 com
+--      carimbo mais velho), a main fica com 30 e este PR com 400: se o 400
+--      estava errado, o excesso do dia vira falta no dia seguinte; se estava
+--      certo, a main é que conta 30 com 400 reais. Troca de desenho
+--      declarada: carimbo mais novo vence; (c) medição do worker numa sessão
+--      que depois troca de item pode contar nas duas (erro para cima).
+--      Rodada 3: medição substituída por recálculo mais novo e menor não
+--      forma piso (T119).
+--   2. O fechamento NUNCA aborta porque o livro conservou outro valor. O item
+--      fecha, e o retorno diz o número pedido e o que o livro guardou
+--      (`custo_pedido_usd`, `livro_conservou_outro_valor`). Abortar deixava o
+--      item preso até morrer valendo a estimativa (T110).
 
 begin;
 create or replace function public.painel_caixa_lancar(
@@ -44,6 +79,7 @@ declare
   v_estornar       numeric;
   v_liquido_novo   numeric;
   v_adotou         boolean := false;
+  v_piso           numeric;
 begin
   if p_entidade_tipo is null or p_entidade_id is null or btrim(p_entidade_id) = '' then
     raise exception 'painel_caixa_lancar: entidade é obrigatória.' using errcode = 'check_violation';
@@ -133,8 +169,13 @@ begin
   -- origem, o MESMO carimbo e o MESMO posto — só o dono muda (estorno sem dono
   -- + relançamento com o item, os dois hoje). Vigente de OUTRO item não é
   -- adotado: dono gravado não se rouba. Bloco: T110.
+  -- 08/10: a adoção só vale quando o número pedido NÃO é uma medição maior que
+  -- a vigente. Medição maior não adota o número velho: ela vence (regra abaixo)
+  -- e entra já com o item como dono.
   if v_ultimo is not null and v_prec < v_prec_atual
-     and v_item_atual is null and p_item_id is not null then
+     and v_item_atual is null and p_item_id is not null
+     and not (p_origem = 'medido' and v_origem_atual = 'medido'
+              and v_alvo > v_valor_atual) then
     v_adotou    := true;
     v_alvo      := v_valor_atual;
     p_origem    := v_origem_atual;
@@ -143,24 +184,99 @@ begin
     p_nota      := 'o item passou a ser dono do que esta sessão já tinha publicado (mesmo valor, mesmo carimbo, mesmo posto)';
   end if;
 
-  -- ALTO 1 (revisão independente de 29/09): posto distingue autoridade,
-  -- mas não pode transformar uma medição parcial em teto falso. Entre duas
-  -- medições, a mais nova pode corrigir a anterior mesmo vindo de outra porta
-  -- (worker 30 × publicação 40). Uma origem de posto menor só atravessa a
-  -- medição vigente quando aumenta o alvo; nesse caso preservamos a
-  -- proveniência medida e o posto vigentes, para uma estimativa posterior
-  -- nunca ganhar autoridade para reduzir o número.
-  if v_ultimo is not null and v_prec < v_prec_atual then
-    if p_origem = 'medido' and v_origem_atual = 'medido'
-       and p_medido_em is not null
-       and (v_medido_atual is null or p_medido_em >= v_medido_atual) then
-      null; -- medição mais nova substitui a anterior, independentemente da porta
-    elsif v_alvo > v_valor_atual then
-      p_origem    := v_origem_atual;
-      p_medido_em := v_medido_atual;
-      v_prec      := v_prec_atual;
-      p_nota      := coalesce(p_nota, '') ||
-        ' [alvo conservador maior; proveniência medida preservada]';
+  -- ALTO 1 (revisão independente de 29/09) · 08/10 (crítico do #71) — O PISO
+  -- DO DIA É A MAIOR MEDIÇÃO REAL DE HOJE, E SÓ MEDIÇÃO REAL O FORMA.
+  --
+  -- Medição real (`medido`) é custo ACUMULADO de uma sessão: cresce enquanto
+  -- ela trabalha. Então, dentro do dia, um número menor que a maior medição
+  -- real já vista HOJE nesta entidade é foto velha (publicação parcial
+  -- atrasada) ou estimativa abaixo do que já se sabe gasto — as duas abririam
+  -- teto falso, e as duas são recusadas, de qualquer porta e em qualquer
+  -- ordem. Medição real igual ou maior que o piso SEMPRE vale, substitua ela
+  -- uma medição, uma estimativa ou a reserva da casa (D12/D26): é o gasto
+  -- real, e o gasto real nunca fica abaixo de si mesmo.
+  --
+  -- A RESERVA DA CASA NÃO É MEDIÇÃO. Cancelar ou matar um item cuja sessão já
+  -- publicou pouco lança a estimativa maior por cima (T114) — com a origem e o
+  -- posto DELA (estimativa, 10), nunca regravada como `medido` de posto 40. A
+  -- versão do #62 regravava, e daí: (a) a medição real seguinte, menor que a
+  -- reserva, era recusada como "foto velha" — o dia guardava 480 de reserva
+  -- em vez dos 60 reais, a reserva atravessava a meia-noite e a D54 zerava o
+  -- dia seguinte com gasto real de 410 (o pull despachou US$ 400 com teto de
+  -- 500); (b) o fechamento real de 5 depois de cancelar ficava em 120. Agora
+  -- a medição real seguinte substitui a reserva no mesmo dia (T115, T116).
+  --
+  -- O piso é DE HOJE. Medição de dia anterior continua corrigível para baixo
+  -- (a rotina recalcula a sessão — T105); a D54 limita o estorno ao que hoje
+  -- tem.
+  --
+  -- E O PISO RESPEITA O CARIMBO (crítico do #71, rodada 2). Para uma medição
+  -- real com carimbo, só formam o piso as medições de hoje com carimbo IGUAL
+  -- OU MAIS NOVO que o dela: o que ela contradiz é foto velha só se chegou
+  -- depois de algo medido depois. Medição real MAIS NOVA e menor é a rotina
+  -- recalculando a sessão para baixo, e vale — senão o excesso ficava no dia
+  -- de hoje e, na virada, a D54 o descontava do dia seguinte: a sessão
+  -- recalculada de 400 para 40 seguia para 440 e o dia seguinte contava 40
+  -- com 400 reais, e o pull despachava acima do teto (T118). Carimbo no
+  -- futuro conta como agora; medição sem carimbo não é mais nova que nada.
+  -- Estimativa e operador não trazem carimbo: para eles vale toda medição
+  -- real de hoje.
+  --
+  -- Medição real abaixo do piso, quando o vigente está ACIMA do piso (a
+  -- reserva da casa, ou uma foto velha maior aceita para cima), não deixa o
+  -- vigente inteiro: desce até o piso — o maior gasto real que uma medição
+  -- mais nova que ela sustenta (T118, T119).
+  --
+  -- Limite conhecido, erro só para cima: na virada, uma foto velha que chega
+  -- antes da medição nova faz o dia contar a mais (o piso de hoje ainda não
+  -- existia quando ela chegou).
+  --
+  -- Posto 99 (esvaziar entidade na fusão, `painel_caixa_lancar_item`) não
+  -- passa pelo piso: esvaziar não pode ser recusado, senão o dinheiro conta
+  -- nas duas entidades (T117).
+  if v_ultimo is not null and v_prec < 99 then
+    select coalesce(max(l.valor_usd), 0)
+      into v_piso
+      from public.painel_caixa_lancamentos l
+     where l.entidade_tipo = p_entidade_tipo and l.entidade_id = p_entidade_id
+       and l.origem = 'medido'
+       and l.dia = public.painel_dia_operador()
+       and (p_origem <> 'medido' or p_medido_em is null
+            or l.medido_em >= least(p_medido_em, now()))
+       -- rodada 3: medição já SUBSTITUÍDA por um recálculo mais novo e menor
+       -- não forma piso — senão o 400 recalculado para 40 recusava a reserva
+       -- de 300 do cancelamento e o pull despachava acima do teto (T119).
+       and not exists (
+             select 1 from public.painel_caixa_lancamentos n
+              where n.entidade_tipo = l.entidade_tipo and n.entidade_id = l.entidade_id
+                and n.origem = 'medido' and n.dia = l.dia
+                and n.medido_em > l.medido_em and n.valor_usd < l.valor_usd);
+    if v_alvo < v_piso and p_origem = 'medido' and v_valor_atual > v_piso then
+      v_alvo := v_piso;
+      p_nota := coalesce(p_nota, '') ||
+        ' [medição abaixo do piso de hoje: a reserva desce até a maior medição real]';
+    elsif v_alvo < v_piso then
+      return jsonb_build_object(
+        'ok', true, 'movimentou', false, 'conta', v_conta,
+        'liquido_usd', round(v_liquido, 2), 'dia', null,
+        'recusado_por_precedencia', true,
+        'motivo', 'abaixo_da_maior_medicao_real_de_hoje',
+        'piso_medido_hoje_usd', round(v_piso, 2),
+        'valor_vigente_usd', round(v_valor_atual, 2),
+        'origem_vigente', v_origem_atual,
+        'precedencia_vigente', v_prec_atual,
+        'origem', p_origem,
+        'precedencia_pedida', v_prec,
+        'alvo_recusado_usd', round(v_alvo, 2));
+    end if;
+  end if;
+
+  -- D53: fora da medição real, o POSTO ainda manda. Estimativa ou operador de
+  -- posto menor só atravessa o vigente quando AUMENTA o número (reserva
+  -- conservadora), e entra com a própria origem e o próprio posto.
+  if v_ultimo is not null and p_origem <> 'medido' and v_prec < v_prec_atual then
+    if v_alvo > v_valor_atual then
+      p_nota := coalesce(p_nota, '') || ' [reserva conservadora acima do vigente]';
     else
       return jsonb_build_object(
         'ok', true, 'movimentou', false, 'conta', v_conta,
@@ -362,11 +478,12 @@ begin
 end;
 $$;
 comment on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) is
-  'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53: cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta) e um lançamento de posto menor NÃO derruba um de posto maior — em nenhuma ordem de chegada. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos dois fatos darem o mesmo total nos dois sentidos (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção. D54 (rodada 13): o ESTORNO é limitado ao que a entidade já pôs no dia de HOJE — crédito que anula dinheiro de um dia FECHADO não vira teto de hoje, e por isso nenhum dia pode somar negativo.';
+  'D37/D38/D39/D40 + D42/D43/D47 + D50 + D53 (rodada 12): a única porta de escrita do caixa. D53 + 0033 (08/10): cada lançamento tem um POSTO (10 estimativa · 20 operador · 30 medido pelo worker · 40 publicado pela rotina da conta · 99 esvaziar na fusão). Nada abaixo da MAIOR MEDIÇÃO REAL DE HOJE da entidade entra (exceto posto 99); medição real igual ou maior sempre vale, também sobre a reserva da casa; estimativa e operador de posto menor só atravessam o vigente para cima. É o que impede a estimativa da casa de apagar a medição real (CRÍTICO 1) e o que faz os mesmos fatos do mesmo dia darem o mesmo total em qualquer ordem (ALTO 1). Recusa devolve movimentou=false com recusado_por_precedencia=true, nunca exceção. D54 (rodada 13): o ESTORNO é limitado ao que a entidade já pôs no dia de HOJE — crédito que anula dinheiro de um dia FECHADO não vira teto de hoje, e por isso nenhum dia pode somar negativo.';
 revoke all on function public.painel_caixa_lancar(text, text, text, numeric, text, uuid, text, timestamptz, text, integer) from public, anon, authenticated;
 
--- Fechar só confirma o item quando o livro confirmou o mesmo custo. Uma recusa
--- excepcional (por exemplo, carimbo publicado no futuro) aborta e desfaz a linha.
+-- 08/10: fechar NUNCA aborta porque o livro conservou outro valor (a versão do
+-- #62 abortava e o item ficava preso até morrer valendo a estimativa — T110).
+-- O item fecha; o retorno diz o número pedido e se o livro guardou outro.
 create or replace function public.fila_prompts_fechar_interno(
   p_id uuid, p_conta text, p_worker_id text, p_estado text,
   p_custo_usd numeric, p_session_id text default null,
@@ -500,14 +617,12 @@ begin
       v_row.id, p_custo_usd, 'medido', now(),
       'fechamento pelo último dono de item que tinha morrido sem fechar');
 
-    if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
-      raise exception 'fechamento recusado pelo livro; o item não foi alterado: %', v_caixa
-        using errcode = 'check_violation';
-    end if;
 
     return jsonb_build_object(
       'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', true, 'estado', p_estado,
-      'caixa', v_caixa
+      'caixa', v_caixa,
+      'custo_pedido_usd', round(p_custo_usd, 2),
+      'livro_conservou_outro_valor', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false)
     );
   end if;
 
@@ -563,14 +678,12 @@ begin
       v_row.id, p_custo_usd, 'medido', now(),
       'medição real sobre item cancelado durante a execução');
 
-    if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
-      raise exception 'fechamento recusado pelo livro; o item não foi alterado: %', v_caixa
-        using errcode = 'check_violation';
-    end if;
 
     return jsonb_build_object(
       'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', 'cancelada',
-      'caixa', v_caixa
+      'caixa', v_caixa,
+      'custo_pedido_usd', round(p_custo_usd, 2),
+      'livro_conservou_outro_valor', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false)
     );
   end if;
 
@@ -592,14 +705,12 @@ begin
     v_row.id, p_custo_usd, 'medido', now(),
     'fechamento normal');
 
-  if coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false) then
-    raise exception 'fechamento recusado pelo livro; o item não foi alterado: %', v_caixa
-      using errcode = 'check_violation';
-  end if;
 
   return jsonb_build_object(
     'ok', true, 'ja_fechado', false, 'reaberto_e_fechado', false, 'estado', p_estado,
-    'caixa', v_caixa
+    'caixa', v_caixa,
+    'custo_pedido_usd', round(p_custo_usd, 2),
+    'livro_conservou_outro_valor', coalesce((v_caixa->>'recusado_por_precedencia')::boolean, false)
   );
 end;
 $$;
