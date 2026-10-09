@@ -1,0 +1,158 @@
+# Botão de criar TAG — porque a sessão de nuvem não consegue, e nunca vai conseguir.
+#
+# Motivo (medido em 2026-09-07 e reconfirmado em 08/09, nas duas rotas): o proxy da
+# sessão recusa escrita de tag. `git push origin refs/tags/...` cai com "the remote end
+# hung up unexpectedly" (HTTP 403) e a API `POST /git/refs` responde "Write access to
+# this GitHub API path is not permitted through this proxy". Push de branch passa no
+# mesmo minuto — é a ROTA de tag que é recusada, não a permissão.
+#
+# Como a regra `.claude/rules/versionamento-e-rollback.md` exige uma tag de ponto de
+# retorno em TODA mudança de produto vivo, isso deixava um passo manual para o operador
+# em toda entrega. Este botão tira o passo da mão dele: dois toques, inclusive no celular.
+#
+# Onde fica: Actions → "Criar tag (ponto de retorno)" → Run workflow.
+name: Criar tag (ponto de retorno)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Nome da tag (ex.: offerforge-v2.1.0)"
+        required: true
+      commit:
+        description: "SHA do commit que a tag marca — NUNCA um nome de branch"
+        required: true
+      mensagem:
+        description: "O que era esta versão (fica gravado na tag)"
+        required: false
+        default: ""
+      sobrescrever:
+        description: "Mover a tag se ela já existir (use para CORRIGIR uma tag errada)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  criar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar o repositório inteiro (a tag pode apontar para commit antigo)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Criar a tag
+        env:
+          TAG: ${{ inputs.tag }}
+          COMMIT: ${{ inputs.commit }}
+          MENSAGEM: ${{ inputs.mensagem }}
+          SOBRESCREVER: ${{ inputs.sobrescrever }}
+        run: |
+          set -euo pipefail
+
+          # ── Guarda 0: aparar espaços e validar o nome da tag ───────────────
+          # Medido em 08/09: o operador colou "offerforge-v2.1.0 " (com espaço no
+          # fim, do celular) e o git recusou com "is not a valid tag name" — uma
+          # mensagem que não diz o que fazer e não aparece como erro da Action.
+          # Campo que um humano digita no celular chega com espaço; quem apara é
+          # o programa, não a pessoa.
+          aparar() {
+            local v="$1"
+            v="${v#"${v%%[![:space:]]*}"}"   # tira espaço do começo
+            v="${v%"${v##*[![:space:]]}"}"   # tira espaço do fim
+            printf '%s' "$v"
+          }
+          TAG_ORIG="${TAG}"
+          TAG="$(aparar "${TAG}")"
+          COMMIT="$(aparar "${COMMIT}")"
+          MENSAGEM="$(aparar "${MENSAGEM}")"
+          if [ "${TAG}" != "${TAG_ORIG}" ]; then
+            echo "Aparei espaços do nome da tag: \"${TAG_ORIG}\" → \"${TAG}\""
+          fi
+          if [ -z "${TAG}" ]; then
+            echo "::error::O nome da tag veio vazio."
+            exit 1
+          fi
+          if [ -z "${COMMIT}" ]; then
+            echo "::error::O commit veio vazio — cole o SHA do commit que a tag marca."
+            exit 1
+          fi
+          if ! git check-ref-format "refs/tags/${TAG}" 2>/dev/null; then
+            echo "::error::\"${TAG}\" não é um nome de tag válido."
+            echo "::error::Use letras, números, ponto, hífen e barra — sem espaços, sem acentos, sem ~^:?*[]"
+            echo "::error::Exemplo: offerforge-v2.1.0"
+            exit 1
+          fi
+
+          # ── Guarda 1: nome de branch NÃO é ponto de retorno ────────────────
+          # Foi exatamente assim que duas tags nasceram erradas em 08/09: o campo
+          # "Target" da tela de release ficou em `main`, e as duas apontaram para o
+          # topo do momento em vez do commit pedido. Ponto de retorno é um commit
+          # FIXO — um nome de branch anda sozinho e leva o marcador junto.
+          if git show-ref --verify --quiet "refs/remotes/origin/${COMMIT}"; then
+            echo "::error::\"${COMMIT}\" é o nome de uma BRANCH, não um commit."
+            echo "::error::Uma branch anda; um ponto de retorno não pode andar."
+            echo "::error::Pegue o SHA em https://github.com/${GITHUB_REPOSITORY}/commits e cole aqui."
+            exit 1
+          fi
+          if [ "${COMMIT}" = "HEAD" ] || [ "${COMMIT}" = "head" ]; then
+            echo "::error::HEAD não é um ponto de retorno — cole o SHA do commit."
+            exit 1
+          fi
+
+          # ── Guarda 2: o commit tem de existir ──────────────────────────────
+          if ! SHA=$(git rev-parse --verify --quiet "${COMMIT}^{commit}"); then
+            echo "::error::Commit \"${COMMIT}\" não existe neste repositório."
+            exit 1
+          fi
+
+          # ── Guarda 3: tag existente só se move com autorização explícita ───
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            ATUAL=$(git rev-parse "refs/tags/${TAG}^{commit}" 2>/dev/null || echo "?")
+            if [ "${ATUAL}" = "${SHA}" ]; then
+              echo "A tag \"${TAG}\" já aponta para ${SHA}. Nada a fazer."
+              {
+                echo "### Nada a fazer"
+                echo ""
+                echo "\`${TAG}\` já aponta para \`${SHA:0:8}\`."
+              } >> "${GITHUB_STEP_SUMMARY}"
+              exit 0
+            fi
+            if [ "${SOBRESCREVER}" != "true" ]; then
+              echo "::error::A tag \"${TAG}\" já existe e aponta para ${ATUAL:0:8}, não para ${SHA:0:8}."
+              echo "::error::Para MOVER a tag, rode de novo marcando \"sobrescrever\"."
+              exit 1
+            fi
+            echo "Movendo \"${TAG}\": ${ATUAL:0:8} → ${SHA:0:8}"
+          fi
+
+          MSG="${MENSAGEM}"
+          if [ -z "${MSG}" ]; then MSG="Ponto de retorno ${TAG}"; fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f -a "${TAG}" "${SHA}" -m "${MSG}"
+          git push --force origin "refs/tags/${TAG}"
+
+          # ── Critério de pronto VISÍVEL: o que a tag marcou, por extenso ────
+          # Sem isto, o operador sai da tela sem saber se acertou o commit — que é
+          # a metade do problema que este botão existe para resolver.
+          ASSUNTO=$(git log -1 --format=%s "${SHA}")
+          DATA=$(git log -1 --format=%ci "${SHA}")
+          {
+            echo "### Tag criada: \`${TAG}\`"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| commit | \`${SHA:0:8}\` |"
+            echo "| o que é esse commit | ${ASSUNTO} |"
+            echo "| data do commit | ${DATA} |"
+            echo "| mensagem da tag | ${MSG} |"
+            echo ""
+            echo "Confira em https://github.com/${GITHUB_REPOSITORY}/tags"
+            echo ""
+            echo "Voltar o código inteiro para este ponto: \`git checkout ${TAG}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
