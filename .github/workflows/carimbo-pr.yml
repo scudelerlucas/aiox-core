@@ -1,7 +1,7 @@
 # Carimbo de PR — confere que todo PR aberto por sessão do Claude diz QUEM o fez.
 #
 # Ordem do operador (13/10/2026): todo PR novo leva hora, conta Max (nome antes do @), título do chat,
-# hashtag única do chat (#chat + 8 caracteres do id da sessão) e de onde rodou.
+# hashtag única do chat (#chat- + 6 últimos caracteres do id da sessão) e de onde rodou.
 # Motivo medido no mesmo dia: o PR #1620 trazia só o link da sessão, que só abre na conta dona —
 # a conta que fez o trabalho não podia ser descoberta pelo PR. Formato e fontes de cada campo:
 # skill `.claude/skills/carimbo-pr/SKILL.md`.
@@ -52,10 +52,13 @@ jobs:
               grep -qE '^- Hora: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \(São Paulo\)$|^- Hora: sem relógio' <<<"$b" || falta+=("bloco $i: a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)'")
               grep -qE '^- Conta: [^@]+$' <<<"$b" || falta+=("bloco $i: a linha '- Conta:' só com o nome antes do @")
               sess=$(grep -E '^- Chat: ' <<<"$b" | grep -oE 'claude\.ai/code/session_[0-9A-Za-z]*' | head -1 | sed 's/.*session_//')
+              # Hashtag = "#chat-" + os 6 ÚLTIMOS caracteres do id (a parte aleatória). Os primeiros são a hora
+              # de criação do chat e se repetem entre chats abertos no mesmo minuto. Mesma hashtag da regra
+              # carimbo-de-publicacao, para uma busca só achar tudo o que o chat publicou.
               if [[ ${#sess} -lt 8 ]]; then
                 falta+=("bloco $i: a linha '- Chat:' com o link completo da sessão (id com 8 ou mais caracteres)")
-              elif ! grep -qE "^- Busca: #chat${sess:0:8}([^0-9A-Za-z]|$)" <<<"$b"; then
-                falta+=("bloco $i: a linha '- Busca: #chat${sess:0:8}' (os 8 primeiros caracteres do id da sessão do link do Chat)")
+              elif ! grep -qE "^- Busca: #chat-${sess: -6}([^0-9A-Za-z]|$)" <<<"$b"; then
+                falta+=("bloco $i: a linha '- Busca: #chat-${sess: -6}' (os 6 últimos caracteres do id da sessão do link do Chat)")
               fi
             done
             bloco="$(cat blocos/* 2>/dev/null || true)"
