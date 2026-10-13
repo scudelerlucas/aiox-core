@@ -33,36 +33,40 @@ jobs:
           fi
           jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" | tr -d '\r' > corpo.txt
           falta=()
-          # v2 a partir de 13/10/2026 23:00 UTC (com Busca e conta sem @); antes disso, aceita a v1.
-          if [[ "$criado" < "2026-10-13T23:00:00Z" ]] && grep -q '<!-- carimbo-pr v1 -->' corpo.txt; then
-            bloco=$(awk 'index($0,"<!-- carimbo-pr v1 -->"){d=1} d{print} /<!-- \/carimbo-pr -->/{d=0}' corpo.txt)
-            grep -qE '^- Hora: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \(São Paulo\)|^- Hora: sem relógio' <<<"$bloco" || falta+=("a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)'")
-            grep -qE '^- Conta: .+' <<<"$bloco" || falta+=("a linha '- Conta:'")
-            grep -qE '^- Chat: .*claude\.ai/code/session_' <<<"$bloco" || falta+=("a linha '- Chat:' com o link da sessão")
-          else
-            # Cada bloco v2 é conferido sozinho: num PR retomado por outro chat, um carimbo antigo
-            # correto não pode esconder um carimbo novo errado (achado do Codex no #1688).
-            rm -rf blocos && mkdir blocos
-            awk 'index($0,"<!-- carimbo-pr v2 -->"){n++; d=1} d{print > ("blocos/" n)} /<!-- \/carimbo-pr -->/{d=0}' corpo.txt
-            n=$(ls blocos | wc -l)
-            (( n > 0 )) || falta+=("o bloco <!-- carimbo-pr v2 --> … <!-- /carimbo-pr -->")
-            for i in $(seq 1 "$n"); do
-              b=$(cat "blocos/$i")
-              grep -q '<!-- /carimbo-pr -->' <<<"$b" || falta+=("bloco $i: sem o fecho <!-- /carimbo-pr -->")
-              grep -qE '^- Hora: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \(São Paulo\)$|^- Hora: sem relógio' <<<"$b" || falta+=("bloco $i: a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)'")
-              grep -qE '^- Conta: [^@]+$' <<<"$b" || falta+=("bloco $i: a linha '- Conta:' só com o nome antes do @")
-              sess=$(grep -E '^- Chat: ' <<<"$b" | grep -oE 'claude\.ai/code/session_[0-9A-Za-z]*' | head -1 | sed 's/.*session_//')
-              # Hashtag = "#chat-" + os 6 ÚLTIMOS caracteres do id (a parte aleatória). Os primeiros são a hora
-              # de criação do chat e se repetem entre chats abertos no mesmo minuto. Mesma hashtag da regra
-              # carimbo-de-publicacao, para uma busca só achar tudo o que o chat publicou.
-              if [[ ${#sess} -lt 8 ]]; then
-                falta+=("bloco $i: a linha '- Chat:' com o link completo da sessão (id com 8 ou mais caracteres)")
-              elif ! grep -qE "^- Busca: #chat-${sess: -6}([^0-9A-Za-z]|$)" <<<"$b"; then
-                falta+=("bloco $i: a linha '- Busca: #chat-${sess: -6}' (os 6 últimos caracteres do id da sessão do link do Chat)")
-              fi
-            done
-            bloco="$(cat blocos/* 2>/dev/null || true)"
+          # Todo bloco v2 presente é conferido sozinho: num PR retomado por outro chat, um carimbo antigo
+          # correto não pode esconder um carimbo novo errado (achados do Codex no #1688).
+          rm -rf blocos && mkdir blocos
+          awk 'index($0,"<!-- carimbo-pr v2 -->"){n++; d=1} d{print > ("blocos/" n)} /<!-- \/carimbo-pr -->/{d=0}' corpo.txt
+          n=$(ls blocos | wc -l)
+          for i in $(seq 1 "$n"); do
+            b=$(cat "blocos/$i")
+            grep -q '<!-- /carimbo-pr -->' <<<"$b" || falta+=("bloco $i: sem o fecho <!-- /carimbo-pr -->")
+            grep -qE '^- Hora: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \(São Paulo\)[[:space:]]*$|^- Hora: sem relógio' <<<"$b" || falta+=("bloco $i: a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)'")
+            grep -qE '^- Conta: [^@[:space:]]+[[:space:]]*$' <<<"$b" || falta+=("bloco $i: a linha '- Conta:' só com o nome antes do @")
+            grep -qE '^- Onde: .*[^[:space:]]' <<<"$b" || falta+=("bloco $i: a linha '- Onde:' (de onde a sessão rodou)")
+            # Só vale o link canônico do claude.ai, com fronteira antes e depois do id.
+            sess=$(grep -E '^- Chat: ' <<<"$b" | grep -oE '(^|[[:space:]])https://claude\.ai/code/session_[0-9A-Za-z]+([[:space:]]|$)' | head -1 | sed -E 's/.*session_([0-9A-Za-z]+).*/\1/')
+            # Hashtag = "#chat-" + os 6 ÚLTIMOS caracteres do id (a parte aleatória). Os primeiros são a hora
+            # de criação do chat e se repetem entre chats abertos no mesmo minuto. Mesma hashtag da regra
+            # carimbo-de-publicacao, para uma busca só achar tudo o que o chat publicou.
+            if [[ ${#sess} -lt 8 ]]; then
+              falta+=("bloco $i: a linha '- Chat:' com o link completo https://claude.ai/code/session_… (id com 8 ou mais caracteres)")
+            elif ! grep -qE "^- Busca: #chat-${sess: -6}[[:space:]]*$" <<<"$b"; then
+              falta+=("bloco $i: a linha '- Busca: #chat-${sess: -6}' (os 6 últimos caracteres do id da sessão do link do Chat, e nada depois)")
+            fi
+          done
+          # v1 só é aceito em PR aberto antes de 13/10/2026 23:00 UTC; daí em diante, ao menos um bloco v2.
+          if (( n == 0 )); then
+            if [[ "$criado" < "2026-10-13T23:00:00Z" ]] && grep -q '<!-- carimbo-pr v1 -->' corpo.txt; then
+              b=$(awk 'index($0,"<!-- carimbo-pr v1 -->"){d=1} d{print} /<!-- \/carimbo-pr -->/{d=0}' corpo.txt)
+              grep -qE '^- Hora: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \(São Paulo\)|^- Hora: sem relógio' <<<"$b" || falta+=("a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)'")
+              grep -qE '^- Conta: .*[^[:space:]]' <<<"$b" || falta+=("a linha '- Conta:'")
+              grep -qE '^- Chat: .*https://claude\.ai/code/session_[0-9A-Za-z]{8}' <<<"$b" || falta+=("a linha '- Chat:' com o link da sessão")
+            else
+              falta+=("o bloco <!-- carimbo-pr v2 --> … <!-- /carimbo-pr -->")
+            fi
           fi
+          bloco="$(cat blocos/* 2>/dev/null || true)"
           if (( ${#falta[@]} )); then
             echo "::error title=PR sem carimbo da sessão::Falta no corpo do PR: $(IFS='; '; echo "${falta[*]}"). Formato: skill .claude/skills/carimbo-pr/SKILL.md. Corrige-se editando o corpo do PR."
             exit 1
