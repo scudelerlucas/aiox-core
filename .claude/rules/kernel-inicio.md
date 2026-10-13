@@ -9,3 +9,5 @@
 7. **Carimbo de PR:** todo PR aberto ou retomado pela sessão leva, no fim do corpo, o bloco `carimbo-pr` — hora de São Paulo, conta Max (só o nome antes do @), título do chat com link, hashtag `#chat-` + 6 últimos caracteres do id da sessão (a mesma da regra `carimbo-de-publicacao`, para achar na busca) e de onde a sessão rodou, medidos no mesmo turno. Skill `carimbo-pr` (espelhada em todo repo); a Action `carimbo-pr` reprova PR de branch `claude/` sem ele. Ordem do operador, 13/10/2026.
 
 *Fora do hub, o espelho do kernel são só estas três páginas — esta, `model-routing` e `response-protocol` (decisão do operador, 09/09/2026); regras próprias do repositório em `.claude/rules/` (p. ex. as do AIOX) continuam valendo. As normas citadas acima vivem no hub: `../Lucas-Contexto-Geral/.claude/rules/` ou GitHub `scudelerlucas/lucas-contexto-geral`, path `.claude/rules/`.*
+
+🕒 2026-10-13 19:42 (São Paulo) · ✍ almapetra.ltda · 💬 !! 15/10 · A70 · CARIMBO DE PR → mergear os PRs do carimbo · #chat-CGszhT
