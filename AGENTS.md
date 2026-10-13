@@ -220,4 +220,15 @@ modelo, senão linha 1), com a hora **medida no mesmo turno** — `TZ=America/Sa
 retorno de subagente, "responda só OK") fica sem carimbo. Norma completa, no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
 
+## Segredo tem uma fonte só (09/10/2026, decisão 3-A do operador)
+
+Segredo guardado em dois lugares acaba com um deles mentindo. No Radar, o cron assinava com o cofre do banco e a função
+conferia contra uma cópia nos segredos das funções. As duas nunca bateram, e o cron registrava "succeeded" por ter
+enfileirado o pedido, não porque a função o aceitou. Regra, em qualquer repo: **um segredo tem uma fonte**, e quem confere
+pergunta à fonte (no Radar, a RPC `radar_cron_confere`, que devolve só verdadeiro/falso). Cópia que precisar existir é
+conferida por **sonda** com o caminho real, nunca pela tela do painel. Enquanto a cópia velha existir, ela ainda vale
+como segunda credencial: a fonte só fica única quando a cópia é apagada, depois da sonda verde. E `A || B` não é fallback quando A pode estar presente
+e quebrado: teste A, e só então escolha. Norma completa, no hub:
+[`.claude/rules/branches-de-agente.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/branches-de-agente.md) §"Segredo quebrado".
+
 <!-- HUB-INVARIANTES-END -->
