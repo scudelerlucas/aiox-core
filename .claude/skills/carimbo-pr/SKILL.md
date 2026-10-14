@@ -16,6 +16,11 @@ No **fim do corpo de todo PR** que a sessão abrir, logo antes das linhas de atr
 estiver sem carimbo (ou com carimbo de outra sessão que o retomou), a sessão acrescenta um novo carimbo — não
 apaga o antigo: cada sessão que mexeu no PR deixa o seu.
 
+**Um carimbo por chat que empurrou commit** (decisão 2-A do operador, 13/10/2026): a Action lê o trailer
+`Claude-Session:` de cada commit do PR e exige um bloco v2 cujo link do `Chat:` seja aquela sessão. Se entraram no
+PR commits de **outro** chat (merge de outra branch, PR retomado), a sessão acrescenta também o bloco dele, com o que
+souber; o que não souber vai nas formas de ausência da tabela (`não informada pelo ambiente`, `sem título`, `não medido`).
+
 ## O bloco — copiar exatamente estas linhas, trocando só os valores
 
 ```
@@ -57,6 +62,8 @@ reprova PR de branch `claude/` aberto a partir de 13/10/2026 22:00 UTC sem as li
 `@`), `Chat:` com link de sessão e `Busca: #chat-…` dentro dos marcadores — e confere que a hashtag bate com o id
 da sessão do link (hashtag copiada de outro chat dá vermelho). O carimbo v1 (sem `Busca`) só vale para PR
 aberto antes de 13/10/2026 23:00 UTC. Branch de pessoa, do Codex (`codex/`, `chatgpt/`) e do Dependabot não
-é conferida. Vermelho por falta de carimbo se corrige editando o corpo do PR — a Action roda de novo sozinha.
+é conferida. Desde 14/10/2026 01:00 UTC ela também lê os commits do PR (até 250, pela API do GitHub) e reprova se
+algum chat com trailer `Claude-Session:` em commit dessa data em diante ficou sem o próprio bloco; se não conseguir
+ler os commits, reprova em vez de passar calada. Vermelho por falta de carimbo se corrige editando o corpo do PR — a Action roda de novo sozinha.
 
-🕒 2026-10-13 19:42 (São Paulo) · ✍ almapetra.ltda · 💬 !! 15/10 · A70 · CARIMBO DE PR → mergear os PRs do carimbo · #chat-CGszhT
+🕒 2026-10-13 22:45 (São Paulo) · ✍ almapetra.ltda · 💬 !! 15/10 · A70 · CARIMBO POR CHAT → mergear o PR do trailer · #chat-CGszhT
