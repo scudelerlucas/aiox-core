@@ -63,7 +63,9 @@ outra palavra (`rode !shs na prévia`).
    3`) e anotado na `🧪` — é por ele que se apaga · UTM `utm_source=shs`. **Antes de escrever em produção, confirmar
    que dá para recolher** (apagar a linha, desfazer a transação). Não dá — log imutável, fila que se consome, envio a
    terceiro — → a escrita vai à prévia isolada; transação desfeita só quando o caminho inteiro cabe nela; senão,
-   fronteira. Ao fim, apagar e mostrar que apagou.
+   fronteira. Ao fim, esperar o que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o
+   `quiz_leituras` entra depois do `/api/quiz/score` responder), apagar, e reconferir todas as linhas marcadas antes
+   de dizer que recolheu.
 5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de
    teste recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo
    "confira".
