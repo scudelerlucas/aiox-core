@@ -238,11 +238,13 @@ vc já checa antes e me tira esse trabalho."* Antes de terminar uma resposta com
 avise, pronto quando você…*, a sessão **vira o humano** e faz a checagem no lugar dele — assume a persona (ele no painel, o
 visitante da página, o lead do quiz), percorre o **caminho real** (HTTP na prévia ou na produção, navegador sem tela, rota,
 banco, script) e relata o **medido** numa seção `🧪 Checagem sintética` (persona · caminho · evidência · veredito · dado de
-teste recolhido · custo). Com as mesmas travas do humano: nada irreversível, nada de dinheiro acima de US$ 0,50 por
-checagem, nada na Meta, nada a pessoa de fora da casa, nada publicado; dado de teste marcado `shs` e apagado ao fim. Só
-sobra pedido quando a fronteira é só dele — credencial ou sessão só dele, aprovação que outra regra exige, juízo humano —
-e aí a sessão vai até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não
-confundir com `!mirofish` (população sintética prevê **público**); SHS simula **o operador conferindo**.
+teste recolhido · custo). Com as mesmas travas do humano: nada irreversível, dinheiro só até US$ 0,50 por checagem e
+US$ 2,00 por dia (acima, pergunta antes, com o número), nada na Meta, nada a pessoa de fora da casa, nada publicado, nada
+em conta de cliente; dado de teste marcado `shs` e apagado ao fim — sem como apagar em produção, a escrita vai à prévia ou
+a uma transação desfeita. Só sobra pedido quando a fronteira é só dele — credencial ou sessão só dele, aprovação que outra
+regra exige, juízo humano — ou quando o ambiente não alcança, e aí a sessão vai até a borda e pede **um passo só, com o
+porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não confundir com `!mirofish` (população sintética prevê
+**público**); SHS simula **o operador conferindo**.
 
 **Norma completa e skill** — no hub, não neste repositório:
 [`.claude/rules/simulacao-humana-sintetica.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/simulacao-humana-sintetica.md) e
