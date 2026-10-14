@@ -27,38 +27,44 @@ terminal, onde `!` no começo da linha abre o shell, use `/simulacao-humana-sint
 outra palavra (`rode !shs na prévia`).
 
 ## 3. Protocolo (6 passos — pular um é "eu acho")
-1. **Alvo e persona.** Em 1 linha: *o que* se quer saber (a rota responde? o botão gera? a linha gravou?) e *quem* faria
-   isso (Lucas no painel da Casa X · visitante anônimo da página · lead terminando o quiz · membro logado · Codex lendo
-   o AGENTS.md). A persona decide o caminho e a credencial: visitante usa o que a página pública usa; o painel usa a
-   chave que o painel usa; nunca credencial que o humano não teria.
+1. **Alvo e persona.** Em 1 linha: *o que* se quer saber (a rota responde? o botão gera? a linha gravou?) e *quem*
+   faria isso (Lucas no painel da Casa X · visitante anônimo da página · lead terminando o quiz · membro logado ·
+   Codex lendo o AGENTS.md). A persona decide o caminho e a credencial: visitante usa o que a página pública usa; o
+   painel usa a chave que o próprio painel usa no navegador (nunca `service_role` nem chave de servidor: ela pula
+   login e RLS, e a checagem passaria com o caminho real quebrado); nunca credencial que o humano não teria.
 2. **Caminho real, na camada mais externa que alcança.** Ordem de preferência: (a) navegador sem tela sobre a URL
-   (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath: '/opt/pw-browsers/chromium'`;
-   fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela, print; (b) HTTP na rota
-   (`f=$(mktemp); trap 'rm -f "$f"' EXIT; curl -sS -o "$f" -w '%{http_code} %{time_total}\n' <url> && jq '.status' "$f"` —
-   o corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho (`jq`, `grep -c '<marcador>'`),
-   nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial); (c) leitura/escrita no banco
-   (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se desfaz
-   sozinho); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o
-   código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel no próprio PR.
+   (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
+   '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
+   print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
+   arquivo fora do repositório; (b) HTTP na rota (`f=$(mktemp); trap 'rm -f "$f"' EXIT; curl -sSL -o "$f" -w
+   '%{http_code} %{time_total}\n' "<url>" && jq '.status' "$f"` — o corpo fica fora do repositório e fora do chat:
+   dele sai só o campo que prova o caminho (`jq`, `grep -c '<marcador>'`), nunca o corpo inteiro, que em painel ou
+   produção pode trazer dado de cliente ou credencial); (c) leitura/escrita no banco (MCP do Supabase; preferir `begin
+   … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota:
+   se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la); (d) script do repositório (`npm run`,
+   `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da
+   casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel no próprio PR.
 3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
-   dia em cada chat — não há contador comum entre chats; acima, pergunta com o número) · nada na Meta (`chave-meta-acesso-total`) · nada a pessoa de fora da casa
-   (e-mail, WhatsApp, DM, lista de parceiro) · nada publicado · nada em conta de cliente · nada que amplie o alcance do
-   agente (`execucao-remota` §exceção). Prévia por padrão para ler; para escrever, só prévia comprovadamente isolada
-   (banco, filas e envios dela não chegam à produção nem a terceiro — há prévia da casa que manda e-mail real); produção
-   quando a pergunta é sobre produção.
-4. **Dado de teste marcado e recolhido.** `criado_por = 'shs'` · nome/tema/título com prefixo `[shs]` · lead com e-mail
-   `shs+AAAA-MM-DD-<código>@alma-petra.test`, com código de 6 caracteres gerado na checagem (`openssl rand -hex 3`) e
-   anotado na `🧪` — é por ele que se apaga · UTM
-   `utm_source=shs`. **Antes de escrever em produção, confirmar que dá para recolher** (apagar a linha, desfazer a
-   transação). Não dá — log imutável, fila que se consome, envio a terceiro — → a escrita vai a uma transação desfeita ou à prévia
-   isolada, ou vira fronteira. Ao fim, apagar e mostrar que apagou.
-5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de teste
-   recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo "confira".
-6. **Fronteira, se sobrar.** Só quatro motivos justificam pedir ao Lucas: credencial ou sessão só dele (login no navegador,
-   celular, QR, 2FA) · ação que outra regra manda aprovar (dinheiro acima do teto, irreversível, Meta, pessoa de fora) ·
-   juízo humano (gosto, voz, decisão de negócio) · alcance: o ambiente desta sessão não chega lá (rede, IP, ferramenta que
-   falta) e outro chega, sem alargar o alcance do agente. Mesmo assim: ir até a borda e escrever `fronteira: fiz até X; falta só o seu clique
-   em Y, porque Z` — um passo, com link. Depois da fronteira, `execucao-remota` (prompt para quem alcança).
+   dia em cada chat — não há contador comum entre chats; acima, pergunta com o número) · nada na Meta
+   (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de parceiro) · nada
+   publicado · nada em conta de cliente · nada que amplie o alcance do agente (`execucao-remota` §exceção). Prévia por
+   padrão para ler; para escrever, só prévia comprovadamente isolada (banco, filas e envios dela não chegam à produção
+   nem a terceiro — há prévia da casa que manda e-mail real); produção quando a pergunta é sobre produção.
+4. **Dado de teste marcado e recolhido.** `criado_por = 'shs'` · nome/tema/título com prefixo `[shs]` · lead com
+   e-mail `shs+AAAA-MM-DD-<código>@alma-petra.test`, com código de 6 caracteres gerado na checagem (`openssl rand -hex
+   3`) e anotado na `🧪` — é por ele que se apaga · UTM `utm_source=shs`. **Antes de escrever em produção, confirmar
+   que dá para recolher** (apagar a linha, desfazer a transação). Não dá — log imutável, fila que se consome, envio a
+   terceiro — → a escrita vai à prévia isolada; transação desfeita só quando o caminho inteiro cabe nela; senão,
+   fronteira. Ao fim, apagar e mostrar que apagou.
+5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de
+   teste recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo
+   "confira".
+6. **Fronteira, se sobrar.** Só quatro motivos justificam pedir ao Lucas: credencial ou sessão só dele (login no
+   navegador, celular, QR, 2FA) · ação que outra regra manda aprovar (dinheiro acima do teto, irreversível, Meta,
+   pessoa de fora) · juízo humano (gosto, voz, decisão de negócio) · alcance: o ambiente desta sessão não chega lá
+   (rede, IP, ferramenta que falta) e outro chega, sem alargar o alcance do agente. Mesmo assim: ir até a borda e
+   escrever `fronteira: fiz até X; falta só o seu clique em Y, porque Z` — um passo, com link. Depois da fronteira,
+   `execucao-remota` (prompt para quem alcança).
 
 ## 4. Modelo da seção
 ```
@@ -97,4 +103,4 @@ não "testa" com dinheiro real acima do teto · não substitui o campo (`!mirofi
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 01:49 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → mergear #1708 e os 12 PRs dos irmãos · #chat-4BNJMe
+🕒 2026-10-14 02:11 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
