@@ -39,18 +39,31 @@ outra palavra (`rode !shs na prévia`).
    (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
    print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
-   arquivo fora do repositório; (b) HTTP na rota (`URL='https://…/rota'; f=$(mktemp); trap 'rm -f "$f"' EXIT; curl
-   -sSL --fail-with-body -o "$f" -w '%{http_code} %{time_total}\n' "$URL" && jq -e '.status == "ok"' "$f"` — `URL`
-   recebe a rota da prévia ou da produção na própria linha, e `.status == "ok"` dá lugar à condição de sucesso daquela
-   rota (o valor certo, não só o campo presente); `--fail-with-body` faz 4xx/5xx sair com erro, senão um 500 com JSON
-   passaria; `jq -e` faz a condição falsa sair com erro, senão um `{}` ou um `{"status":"error"}` passaria; o corpo
-   fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho (`jq`, `grep -c '<marcador>'`),
-   nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial); (c) leitura/escrita no
-   banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se
-   desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui
-   chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele
-   prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel
-   no próprio PR.
+   arquivo fora do repositório; em produção, antes de abrir a página, cortar as chamadas de medição de terceiros
+   (`page.route` abortando `connect.facebook.net`, `facebook.com/tr`, `google-analytics.com`, `googletagmanager.com`,
+   `clarity.ms`, `hotjar.com` e o que mais a página carregar para medir visita), porque a visita sintética não pode
+   virar evento na Meta nem sujar a métrica da campanha — sem como cortar, só na prévia isolada; (b) HTTP na rota, com
+   o bloco abaixo — `URL` recebe a rota da prévia ou da produção, e `.status == "ok"` dá lugar à condição de sucesso
+   daquela rota (o valor certo, não só o campo presente). O que cada peça evita: o `( … )` dá a cada checagem o seu
+   arquivo e a sua limpeza, mesmo com várias no mesmo terminal; `--fail-with-body` faz 4xx/5xx sair com erro (senão um
+   500 com JSON passaria) e guarda o corpo; `--max-time` impede que uma rota travada prenda a checagem; `jq -e` faz a
+   condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha, antes de apagar, sai do
+   corpo só o campo de erro, cortado em 200 caracteres, para a seção `🧪` mostrar o trecho. O corpo fica fora do
+   repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo inteiro, que em painel ou
+   produção pode trazer dado de cliente ou credencial; (c) leitura/escrita no banco (MCP do Supabase; preferir `begin
+   … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota:
+   se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la); (d) script do repositório (`npm run`,
+   `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da
+   casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel no próprio PR.
+
+   ```bash
+   URL='https://…/rota'   # a rota da prévia ou da produção
+   ( f=$(mktemp); trap 'rm -f "$f"' EXIT
+     curl -sS -L --fail-with-body --max-time 30 -o "$f" -w '%{http_code} %{time_total}\n' "$URL" \
+       && jq -e '.status == "ok"' "$f" \
+       || { jq -r '.error? // .message? // empty' "$f" 2>/dev/null | head -c 200; echo; exit 1; } )
+   ```
+
 3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
    dia em cada chat — não há contador comum entre chats; acima, pergunta com o número) · nada na Meta
    (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de parceiro) · nada
