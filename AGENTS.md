@@ -252,4 +252,27 @@ até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X; fal
 [`.claude/skills/simulacao-humana-sintetica/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/simulacao-humana-sintetica/SKILL.md)
 (a skill é espelhada em cada irmão pelo `sync-rules`; o hook de parada que barra a resposta sem `🧪` só existe no hub).
 
+## Handoff de cota — a sessão escreve o próprio quando a conta chega a 90% (14/10/2026)
+
+Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**: *"handoff para a nuvem, em todos os
+repositórios, de tudo o que está acontecendo nessa conta quando chegarmos em 90-95% de uso, da cota semanal, da cota do
+fable ou da cota da sessão (…) autocontido, independente, interdependente e sinérgico (…) permanente, e replicável em todas
+as minhas contas."* Ao fim de todo turno com trabalho real, a sessão lê a própria cota (`list_events` deste chat,
+`kinds: ["rate_limit_event"]`, evento mais novo — janelas `five_hour` = a "sessão" do app, `seven_day` = semana, e por
+modelo = Fable). Qualquer uma em **0,90 ou mais** → antes de qualquer outra coisa, escreve o **próprio handoff**: um arquivo
+autocontido (pedido · feito · onde parou · o que falta e de quem · decisões já tomadas · PRs e branches · prompt de
+retomada) em `docs/ops/HANDOFF-COTA/<conta>--<renovação da semana>/chats/` no hub — pela API do GitHub se o hub não
+estiver clonado; sem o hub no escopo, em `memoria/` deste repo com prefixo `handoff-cota-` —, sem segredo, token ou dado
+de cliente, e diz no título do chat o que falta na outra conta. Reescreve só se houve trabalho real desde o último; no
+máximo um por turno. Comando explícito: `!handoff`. O vigia da conta (mão 2, chat `⚙ COTA`, a cada 2 h) lê os chats por
+fora, monta o `README.md`, o `REPOS.md` (PRs abertos e branches com trabalho em **todos os repositórios**) e o
+`ROTINAS-E-CONTA.md`, e reaproveita o que a mão 1 gravou. Agente sem o servidor Claude Code Remote (CLI local) não lê a
+cota: para ele a skill vale só sob demanda.
+
+**Norma completa e skill** — no hub, não neste repositório:
+[`.claude/rules/cota-90-handoff.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/cota-90-handoff.md),
+[`docs/ops/COTA-90-HANDOFF.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/COTA-90-HANDOFF.md) e
+[`.claude/skills/handoff-cota/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/handoff-cota/SKILL.md)
+(a skill é espelhada em cada irmão pelo `sync-rules`).
+
 <!-- HUB-INVARIANTES-END -->
