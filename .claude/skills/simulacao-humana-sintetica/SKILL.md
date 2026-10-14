@@ -36,14 +36,16 @@ outra palavra (`rode !shs na prévia`).
    (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
    print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
-   arquivo fora do repositório; (b) HTTP na rota (`f=$(mktemp); trap 'rm -f "$f"' EXIT; curl -sSL -o "$f" -w
-   '%{http_code} %{time_total}\n' "<url>" && jq '.status' "$f"` — o corpo fica fora do repositório e fora do chat:
-   dele sai só o campo que prova o caminho (`jq`, `grep -c '<marcador>'`), nunca o corpo inteiro, que em painel ou
-   produção pode trazer dado de cliente ou credencial); (c) leitura/escrita no banco (MCP do Supabase; preferir `begin
-   … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota:
-   se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la); (d) script do repositório (`npm run`,
-   `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da
-   casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel no próprio PR.
+   arquivo fora do repositório; (b) HTTP na rota (`URL='https://…/rota'; f=$(mktemp); trap 'rm -f "$f"' EXIT; curl
+   -sSL --fail-with-body -o "$f" -w '%{http_code} %{time_total}\n' "$URL" && jq '.status' "$f"` — `URL` recebe a rota
+   da prévia ou da produção na própria linha; `--fail-with-body` faz 4xx/5xx sair com erro, senão um 500 com JSON
+   passaria; o corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho (`jq`, `grep -c
+   '<marcador>'`), nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial); (c)
+   leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK
+   …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não
+   substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui
+   (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o
+   link da Vercel no próprio PR.
 3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
    dia em cada chat — não há contador comum entre chats; acima, pergunta com o número) · nada na Meta
    (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de parceiro) · nada
