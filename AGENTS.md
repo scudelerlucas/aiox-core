@@ -231,4 +231,22 @@ como segunda credencial: a fonte só fica única quando a cópia é apagada, dep
 e quebrado: teste A, e só então escolha. Norma completa, no hub:
 [`.claude/rules/branches-de-agente.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/branches-de-agente.md) §"Segredo quebrado".
 
+## Simulação humana sintética — a checagem é da sessão, não do Lucas (13/10/2026)
+
+Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**: *"Sempre que for me pedir para checar algo,
+vc já checa antes e me tira esse trabalho."* Antes de terminar uma resposta com *confira, teste, abra e veja, gere um e me
+avise, pronto quando você…*, a sessão **vira o humano** e faz a checagem no lugar dele — assume a persona (ele no painel, o
+visitante da página, o lead do quiz), percorre o **caminho real** (HTTP na prévia ou na produção, navegador sem tela, rota,
+banco, script) e relata o **medido** numa seção `🧪 Checagem sintética` (persona · caminho · evidência · veredito · dado de
+teste recolhido · custo). Com as mesmas travas do humano: nada irreversível, nada de dinheiro acima de US$ 0,50 por
+checagem, nada na Meta, nada a pessoa de fora da casa, nada publicado; dado de teste marcado `shs` e apagado ao fim. Só
+sobra pedido quando a fronteira é só dele — credencial ou sessão só dele, aprovação que outra regra exige, juízo humano —
+e aí a sessão vai até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não
+confundir com `!mirofish` (população sintética prevê **público**); SHS simula **o operador conferindo**.
+
+**Norma completa e skill** — no hub, não neste repositório:
+[`.claude/rules/simulacao-humana-sintetica.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/simulacao-humana-sintetica.md) e
+[`.claude/skills/simulacao-humana-sintetica/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/simulacao-humana-sintetica/SKILL.md)
+(a skill é espelhada em cada irmão pelo `sync-rules`; o hook de parada que barra a resposta sem `🧪` só existe no hub).
+
 <!-- HUB-INVARIANTES-END -->
