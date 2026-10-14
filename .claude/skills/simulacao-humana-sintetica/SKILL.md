@@ -31,27 +31,31 @@ outra palavra (`rode !shs na prévia`).
    faria isso (Lucas no painel da Casa X · visitante anônimo da página · lead terminando o quiz · membro logado ·
    Codex lendo o AGENTS.md). A persona decide o caminho e a credencial: visitante usa o que a página pública usa; o
    painel usa a chave que o próprio painel usa no navegador (nunca `service_role` nem chave de servidor: ela pula
-   login e RLS, e a checagem passaria com o caminho real quebrado); nunca credencial que o humano não teria.
+   login e RLS, e a checagem passaria com o caminho real quebrado); nunca credencial que o humano não teria. Persona
+   com erro classe A nos últimos 30 dias (§Erros classe A do histórico da regra, no hub) → pedir o "sim" do Lucas
+   antes de rodar.
 2. **Caminho real, na camada mais externa que alcança.** Ordem de preferência: (a) navegador sem tela sobre a URL
    (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
    print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
    arquivo fora do repositório; (b) HTTP na rota (`URL='https://…/rota'; f=$(mktemp); trap 'rm -f "$f"' EXIT; curl
-   -sSL --fail-with-body -o "$f" -w '%{http_code} %{time_total}\n' "$URL" && jq '.status' "$f"` — `URL` recebe a rota
-   da prévia ou da produção na própria linha; `--fail-with-body` faz 4xx/5xx sair com erro, senão um 500 com JSON
-   passaria; o corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho (`jq`, `grep -c
-   '<marcador>'`), nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial); (c)
-   leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK
-   …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não
-   substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui
-   (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o
-   link da Vercel no próprio PR.
+   -sSL --fail-with-body -o "$f" -w '%{http_code} %{time_total}\n' "$URL" && jq -e '.status' "$f"` — `URL` recebe a
+   rota da prévia ou da produção na própria linha, e `.status` dá lugar ao campo que prova aquele caminho;
+   `--fail-with-body` faz 4xx/5xx sair com erro, senão um 500 com JSON passaria; `jq -e` faz o campo ausente ou nulo
+   sair com erro, senão um `{}` passaria; o corpo fica fora do repositório e fora do chat: dele sai só o campo que
+   prova o caminho (`jq`, `grep -c '<marcador>'`), nunca o corpo inteiro, que em painel ou produção pode trazer dado
+   de cliente ou credencial); (c) leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do
+   $$ … raise exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a
+   rota, desfazer no banco não substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste
+   unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt`
+   (hub); prévia do PR: o link da Vercel no próprio PR.
 3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
    dia em cada chat — não há contador comum entre chats; acima, pergunta com o número) · nada na Meta
    (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de parceiro) · nada
    publicado · nada em conta de cliente · nada que amplie o alcance do agente (`execucao-remota` §exceção). Prévia por
-   padrão para ler; para escrever, só prévia comprovadamente isolada (banco, filas e envios dela não chegam à produção
-   nem a terceiro — há prévia da casa que manda e-mail real); produção quando a pergunta é sobre produção.
+   padrão; produção quando a pergunta é sobre produção. Escrita em prévia, só em prévia comprovadamente isolada
+   (banco, filas e envios dela não chegam à produção nem a terceiro — há prévia da casa que manda e-mail real);
+   escrita em produção, só com o recolhimento confirmado antes (passo 4).
 4. **Dado de teste marcado e recolhido.** `criado_por = 'shs'` · nome/tema/título com prefixo `[shs]` · lead com
    e-mail `shs+AAAA-MM-DD-<código>@alma-petra.test`, com código de 6 caracteres gerado na checagem (`openssl rand -hex
    3`) e anotado na `🧪` — é por ele que se apaga · UTM `utm_source=shs`. **Antes de escrever em produção, confirmar
@@ -98,8 +102,10 @@ não "testa" com dinheiro real acima do teto · não substitui o campo (`!mirofi
   contagem automática: `memoria/` guarda só resumos, e ninguém lê respostas de chat em lote. Quem mede é o F-SHS-1.
 - **F-SHS-1:** duas checagens `🧪` dadas como "passa" que o Lucas depois achou quebradas no mesmo caminho → a evidência
   mínima sobe (print obrigatório em tela; linha do banco obrigatória em escrita) e o caso entra no histórico da regra.
-- **F-SHS-2:** simulação que gastou acima do teto sem perguntar, publicou, mexeu em conta de cliente ou mandou mensagem a
-  pessoa de fora → erro classe A no diário do domínio, e a persona em questão passa a exigir "sim" do Lucas por 30 dias.
+- **F-SHS-2:** simulação que gastou acima do teto sem perguntar, publicou, mexeu em conta de cliente ou mandou
+  mensagem a pessoa de fora → erro classe A anotado no histórico da regra, no hub
+  (`docs/regras/historico/simulacao-humana-sintetica.md` §Erros classe A: data, persona, o que houve, até quando), e a
+  persona em questão passa a exigir "sim" do Lucas por 30 dias — o passo 1 lê essa seção antes de rodar.
 
 *v1.1 · 2026-10-14 (v1.0 em 13/10) · fonte única: `Lucas-Contexto-Geral/.claude/skills/simulacao-humana-sintetica/SKILL.md`,
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
