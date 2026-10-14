@@ -42,51 +42,80 @@ outra palavra (`rode !shs na prévia`).
    recolhimento se conferem antes do primeiro clique ou requisição, nunca depois. Antes de qualquer caminho — navegador
    ou HTTP, prévia ou produção —, ler no código que está no ar — o do commit da prévia ou da produção testada (o MCP da
    Vercel dá o commit do deploy), não o do clone, que pode estar noutra branch — se a página, o middleware ou a rota
-   manda evento pelo próprio servidor (API de Conversões da Meta, analytics no backend) — e, no banco que a rota usa, se
-   a função que ela chama direto (`rpc`), o gatilho das tabelas que ela grava ou o que eles chamam manda algo para fora:
-   `net.http_*` do `pg_net`, o webhook de banco do Supabase (um gatilho que chama `supabase_functions.http_request`,
-   fora do `public`), `pg_notify` para um consumidor — numa consulta que devolve só o nome e o sim ou não, nunca o
-   `prosrc`, que pode trazer a chave ou o endereço assinado da integração e entraria inteiro no histórico da ferramenta,
-   e que segue a cadeia: marca a função, de qualquer esquema fora do `pg_catalog` e do `information_schema`, que traz
-   `net\.http_`, `pg_notify`, o comando `NOTIFY`, `supabase_functions\.http_request`, a chamada da extensão `http`
-   (`http(`, `http_post(`, `http_put(`…) ou o `dblink` — no texto dela (`prosrc`) ou, na função SQL de corpo padrão
-   (`begin atomic`, `return`), cujo `prosrc` vem vazio, no corpo que o `pg_get_function_sqlbody` devolve —, ou que é dos
-   esquemas `net` e `supabase_functions`, e depois, até não achar mais, a que chama pelo nome, com aspas ou sem, uma já
-   marcada (o nome escapado: `+`, `.` ou `(` no nome viravam regra da busca), e a que grava (`insert`, `update`,
-   `delete`, `merge`) numa tabela cujo gatilho é uma já marcada (`with recursive b as materialized (select p.oid,
-   concat(p.prosrc, ' ', case when p.prosqlbody is not null then pg_get_function_sqlbody(p.oid) end) as t from pg_proc p
-   join pg_namespace n on n.oid = p.pronamespace where n.nspname not in ('pg_catalog', 'information_schema')), f(oid) as
-   (select p.oid from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('net',
-   'supabase_functions') union select b.oid from b where b.t ~*
-   'net\.http_|pg_notify|\mnotify\M|supabase_functions\.http_request|\mhttp(_[a-z_]+)?\s*\(|\mdblink' union select b.oid
-   from f join pg_proc q on q.oid = f.oid cross join lateral (select case when q.proname ~ '^[[:alnum:]_]' then '\m'
-   else '' end || regexp_replace(q.proname, '([^[:alnum:]_])', '\\\1', 'g') || '"?\s*\(' as e union all select
-   '\m(insert\s+into|update|delete\s+from|merge\s+into)\s+(only\s+)?([[:alnum:]_$"]+\.)?"?' || regexp_replace(c.relname,
-   '([^[:alnum:]_])', '\\\1', 'g') || '"?([^[:alnum:]_$]|$)' from pg_trigger t join pg_class c on c.oid = t.tgrelid
-   where t.tgfoid = q.oid and not t.tgisinternal) s join b on b.t ~* s.e)`, e no `select` só o `proname` e o `oid in
-   (select oid from f)`) — a consulta só com o texto da própria função não via o webhook nem a função que chama outra
-   (medido no banco da casa: dos 38 gatilhos do `public`, 1 chama `net.http_` direto; das 154 funções do `public`, 10
-   mandam algo para fora, e 9 delas não estão em gatilho nenhum, só se chamam direto; com a cadeia, as mesmas 10 e o
-   mesmo gatilho, em menos de 5 s; numa transação desfeita, com duas funções temporárias — uma que chama o webhook e
-   outra que chama essa —, a consulta anterior não marcou nenhuma, e a nova, as duas; com outras seis — uma com o
-   comando `NOTIFY`, uma `begin atomic` que chama `pg_notify`, uma de nome entre aspas (`"shsGancho"`) que chama
-   `pg_notify`, e a que chama cada uma —, a da rodada anterior marcou só a de nome entre aspas, e a nova, as seis; uma
-   que chama `"net"."http_post"(…)`, com o esquema entre aspas, ficou de fora na da rodada 36 e foi marcada na nova; com
-   outras seis — uma de nome `shs+x` que chama `pg_notify`, a que chama essa, uma que chama `http_put(` da extensão
-   `http`, uma que chama `dblink_exec`, a de um gatilho que chama `pg_notify` e uma que só grava na tabela desse gatilho
-   —, a da rodada 37 marcou só as duas com `pg_notify` no texto, e a nova, as seis; no banco da casa, as mesmas 10 do
-   `public`, em 0,1 s; e o que o banco chama sem o nome no texto — valor padrão de coluna, política de RLS, regra
-   (`rule`), operador e conversão (`cast`) — se confere no catálogo, com o mesmo `f`, numa contagem que, acima de zero,
-   leva à prévia isolada (`select (select count(*) from pg_depend d where d.classid in ('pg_attrdef'::regclass,
-   'pg_policy'::regclass, 'pg_rewrite'::regclass) and d.refclassid = 'pg_proc'::regclass and d.refobjid in (select oid
-   from f)) + (select count(*) from pg_operator where oprcode in (select oid from f)) + (select count(*) from pg_cast
-   where castfunc in (select oid from f))` — medido numa transação desfeita, com um de cada sobre funções temporárias
-   que chamam `pg_notify`: a consulta pelo texto não via nenhum, a contagem deu 5; no banco da casa, 0)) —, que nenhum
-   corte no navegador alcança (sem como saber o commit no ar, fronteira): se manda, a checagem só roda numa prévia
-   comprovadamente sem essas credenciais (as variáveis de ambiente dela não têm o token da API de Conversões, o do
-   analytics nem o endereço do destino, e o código lido não traz chave, pixel ou endereço escrito nele — destino que
+   manda evento pelo próprio servidor (API de Conversões da Meta, analytics no backend) — e se o banco que a rota
+   usa tem por onde mandar algo para fora (o censo do banco, logo abaixo) —, que nenhum corte no navegador alcança
+   (sem como saber o commit no ar, fronteira): se manda, a checagem só roda numa prévia comprovadamente sem essas
+   credenciais (as variáveis de ambiente dela não têm o token da API de Conversões, o do analytics nem o endereço do
+   destino, e o código lido não traz chave, pixel ou endereço escrito nele — destino que
    aceita evento sem chave, ou com a chave no código ou na URL, manda do mesmo jeito, e aí é fronteira); sem essa prova,
-   é fronteira. Ordem de preferência: (a) navegador sem tela sobre a URL (Playwright 1.48 ou mais novo, com o navegador
+   é fronteira.
+
+   **O censo do banco** (rodada 41, no lugar da busca pelo que a rota chama). O banco roda função sem que ninguém a
+   chame pelo nome — gatilho, regra de `CHECK`, índice de expressão, valor padrão, política de RLS, cascata de chave
+   estrangeira, partição, `TRUNCATE`, SQL montado na hora (`execute`) — e manda para fora sem função nenhuma: tabela
+   externa, publicação do Realtime, fila de replicação. Seguir o que a rota chama deixou de fora um desses por rodada,
+   da 36 à 41 (medido num Postgres 16 local, como papel comum, com um caso de cada sobre uma função que chama
+   `pg_notify`: a busca da rodada 39 aprovou 10 dos 11 — `CHECK`, índice, cascata, `TRUNCATE`, nome com aspas
+   dobradas, partição, tabela externa, publicação de uma tabela e de todas, `dblink` instalado — e só pegou o SQL
+   montado porque o `'notify'` estava escrito nele; o censo reprovou os 11, e o banco limpo passou). Por isso o banco
+   se confere pelo que ele **consegue** fazer, e a dúvida reprova, numa consulta que devolve só números e nomes de
+   extensão — nunca o texto das funções (`prosrc`), que pode trazer a chave ou o endereço assinado da integração e
+   entraria inteiro no histórico da ferramenta:
+
+   ```sql
+   with u as (select p.oid, p.proowner, p.prosecdef, concat(p.prosrc, ' ', case when p.prosqlbody is not null then
+     pg_get_function_sqlbody(p.oid) end) as t from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname not in ('pg_catalog', 'information_schema') and p.oid not in (select evtfoid from pg_event_trigger)
+     and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid
+     and d.deptype = 'e'))
+   select (select string_agg(extname, ',' order by extname) from pg_extension where extname not in ('plpgsql',
+     'pgcrypto', 'uuid-ossp', 'pg_stat_statements', 'supabase_vault', 'pgsodium', 'pg_graphql', 'pgjwt', 'pg_trgm',
+     'unaccent', 'citext', 'vector')) as extensoes,
+     (select count(*) from pg_foreign_server) as externo,
+     (select count(*) from pg_publication_tables) as publicado,
+     (select count(*) from pg_replication_slots where slot_type = 'logical') as replicacao,
+     (select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where not l.lanpltrusted
+       and l.lanname not in ('c', 'internal')) as livre,
+     (select count(*) from u where t ~* 'notify|pg_logical_emit_message|\mexecute\M|\mcopy\M|net\.|http|dblink')
+       as texto,
+     (select rolsuper or pg_has_role(oid, 'pg_execute_server_program', 'member') from pg_roles
+       where rolname = current_user) or exists (select 1 from u join pg_roles r on r.oid = u.proowner where u.prosecdef
+       and u.t ~* '\mexecute\M|\mcopy\M' and (r.rolsuper or pg_has_role(r.oid, 'pg_execute_server_program', 'member')))
+       as programa;
+   ```
+
+   **Gravar e confirmar em produção** — a rota ou o `rpc` que grava, ou de que não se sabe se grava — só com
+   `extensoes` vazio, os números em zero e `programa` falso; senão, prévia isolada ou fronteira. `extensoes` lista o
+   que está fora das que nunca falam com a rede nem rodam depois (`pg_net`, `http`, `dblink`, `pg_cron`, `pgmq`, a de
+   tabela externa…); `texto` conta as funções do banco que avisam (`NOTIFY`, `pg_notify`), mandam mensagem à
+   replicação (`pg_logical_emit_message`), montam SQL na hora (`execute`), copiam (`copy`) ou falam de rede — fora as
+   de extensão, julgadas pelo nome, e as de gatilho de evento, que só rodam em DDL, que a checagem não roda (por isso
+   o bloco do código de erro, em (c), não cria mais tabela temporária). **Transação desfeita em produção** (o MCP, em
+   (c)) com `externo`, `replicacao` e `livre` em zero, `programa` falso e, em `extensoes`, no máximo `pg_net`,
+   `pg_cron` e `pgmq`: as três guardam numa tabela o que vai sair, e quem manda só lê o que foi confirmado (lido no
+   catálogo do banco da casa: `net.http_get`, `http_post` e `http_delete`, do `pg_net` 0.19.5, só gravam em
+   `net.http_request_queue`), e o aviso e a publicação também só saem no `commit`; o que sai antes dele — `http`,
+   `dblink`, `pg_background`, tabela externa, linguagem sem trava (`plpython3u`), mensagem à replicação com uma fila
+   aberta, `copy … to program` de quem pode — o `rollback` não desfaz (medido no Postgres local: a linguagem sem
+   trava, a fila de replicação e a tabela externa acenderam cada uma a sua coluna). **Só ler em produção** — a rota no
+   ar só lê, sem `rpc` nem escrita, lido no código — com o censo da transação desfeita e, além dele, zero nas funções
+   que política de RLS e visão rodam a cada leitura:
+
+   ```sql
+   select count(*) as leitura from pg_depend d join pg_proc p on p.oid = d.refobjid where d.classid in
+     ('pg_policy'::regclass, 'pg_rewrite'::regclass) and d.refclassid = 'pg_proc'::regclass and p.pronamespace not in
+     ('pg_catalog'::regnamespace, 'information_schema'::regnamespace) and concat(p.prosrc, ' ', case when p.prosqlbody
+     is not null then pg_get_function_sqlbody(p.oid) end)
+     ~* 'notify|pg_logical_emit_message|\mexecute\M|\mcopy\M|net\.|http|dblink';
+   ```
+
+   Limite declarado: essa contagem olha a função que a política ou a visão chama, não as que essa chama — a política
+   que mandasse algo para fora mandaria a cada leitura de qualquer usuário (medido no Postgres local: política e visão
+   sobre uma função com `pg_notify`, e política com função do `dblink`, deram 1 cada; a função comum, 0). No banco da
+   casa (medido no turno da rodada 41): `extensoes` = `pg_cron,pg_net`, `texto` = 27, o resto em zero, `programa`
+   falso, e a contagem da leitura, 0 — gravar e confirmar em produção não passa; transação desfeita e leitura passam.
+
+   Ordem de preferência: (a) navegador sem tela sobre a URL (Playwright 1.48 ou mais novo, com o navegador
    que o ambiente já tem: na nuvem do Claude Code, `executablePath: '/opt/pw-browsers/chromium'`; fora dela, o que o
    próprio Playwright encontra — o bloco abaixo recebe o `browser` já aberto, `const browser = await chromium.launch({
    executablePath })`, e quem o abriu o fecha num `finally`, `await browser.close()`), com a página testada vinda da
@@ -107,14 +136,20 @@ outra palavra (`rode !shs na prévia`).
    abaixo: a própria página testada; os arquivos do build, por GET (`ESTATICO`: a pasta que só serve arquivo gerado — no
    Next.js, `/_next/static/`); e cada chamada ou página a mais que o caminho testado faz (`PASSA`, uma entrada por
    chamada — `m`, o método, e `url`, o endereço inteiro com a query, montado do ambiente quando leva token, como o
-   `ALVO`; `corpo`, quando o mesmo endereço recebe outras coisas, a condição sobre o campo que só o teste manda e não
+   `ALVO`; `tipo`, no que não é `fetch`, XHR nem `EventSource` (`script`, `image`, `document`), porque o mesmo
+   endereço pedido por `<img>` não é a chamada da página (medido: uma entrada de `fetch` pedida só por `<img>` contava
+   como feita; agora para em `não houve`); `corpo`, quando o mesmo endereço recebe outras coisas, a condição sobre o
+   campo que só o teste manda e não
    sobre um pedaço do texto; chamada que não é GET só entra com a condição que a liga a esta checagem — o código no
    corpo, ou a sessão que nasceu do e-mail `shs+…` (sem ela, o bloco para; a que não grava, lida no código, leva `() =>
    true` com o porquê) —, lida pelo `J`, que devolve `null` em corpo que não é JSON (o `JSON.parse` direto lançou e
    imprimiu o corpo com a senha — medido —, e todo erro dentro do `route` aborta calado, `erro`); e cada entrada passa
    uma vez, GET inclusive, como a própria página: a segunda, de nova tentativa, recarga ou clique duplo, aborta
-   (`repetido`; `vezes` muda o limite, para o GET que a página repete de propósito); e a resposta de cada entrada tem de
-   vir no código esperado (`status`, padrão abaixo de 400) e, na rota que responde 200 com o erro no corpo, com o corpo
+   (`repetido`; `vezes` muda o limite, para o GET que a página repete de propósito) e reprova, de todo tipo (medido: o
+   script da lista pedido duas vezes passava calado; agora reprova); e a resposta de cada entrada tem de vir no código
+   esperado (`status`, padrão abaixo de 400) — e a do arquivo do build também, porque a tela que veio do servidor
+   aparece sem o script (medido: um `/_next/static/` que dava 404 passava com a tela certa; agora para em `GET 404
+   script`) — e, na rota que responde 200 com o erro no corpo, com o corpo
    esperado (`resposta: t => J(t)?.status === 'ok'`), senão o bloco reprova no fim, mesmo com a tela certa, porque a
    tela otimista mostra o sucesso antes da resposta (medido: uma página que mostrava o `[shs]` e chamava uma rota que
    dava 500 passou no bloco anterior; no novo, para em `falhou em conferir as chamadas (POST 500 …)`; e a que mostrava o
@@ -127,10 +162,12 @@ outra palavra (`rode !shs na prévia`).
    conferir as chamadas (não houve: POST …)`), e a que só veio depois do fim, cortada, diz isso (`não houve: POST da
    entrada 0 (só depois do fim)`, medido): a evidência apareceu antes da chamada, e o teste tem de esperar o que vem
    depois dela, e, antes de conferir, o bloco espera as chamadas que ainda estavam no ar quando o teste acabou, cada uma
-   com o prazo dela, e dali em diante nada novo passa, e a chamada de dados que chega depois reprova (`depois`), salvo a
+   com o prazo dela, e dali em diante nada novo passa, e o que chega depois reprova (`depois`), de todo tipo — a página
+   que navega depois da evidência e o script da lista pedido de novo passavam calados (medido: agora param em `depois
+   GET document` e `depois GET script`) —, salvo o arquivo do build, a
    do `PREVISTO` e a da lista que ainda cabe na entrada dela — o mesmo corpo, e as vezes de antes e de depois do fim
    somadas —, com a `FOLGA` para a que a resposta delas dispara — meio segundo, ou o maior prazo que a página espera
-   para chamar de novo (debounce, nova tentativa), lido no código, mais meio segundo —, e a de dados que chega enquanto
+   para chamar de novo (debounce, nova tentativa), lido no código, mais meio segundo —, e o que chega enquanto
    o contexto fecha também reprova (`falhou em conferir o fim`) (medido: com a página repetindo o POST um segundo depois
    de mostrar o resultado, com meio segundo o bloco passou calado, e com `FOLGA = 1500` parou em `depois POST fetch o
    site`, sem a repetida chegar ao servidor; com a página chamando 5 ms depois do fim, o bloco sem a conferência do fim
@@ -159,11 +196,15 @@ outra palavra (`rode !shs na prévia`).
    `SharedWorker` saem da página antes de ela abrir, porque o tráfego deles também não passa pelo `route` (medido: com o
    `route` ligado, o WebSocket aberto por um worker e a chamada do SharedWorker chegaram ao servidor; o `WebTransport`,
    que pede servidor HTTP/3, não foi medido). O que o caminho precisa e ficou de fora quebra o teste, que é o lado
-   seguro — e, como a tela otimista pode mostrar sucesso sem a chamada que faltou, toda chamada de dados cortada
-   (`fetch`, `xhr`, `EventSource` ou que não é GET) reprova no fim (medido: o `EventSource` cortado passava calado;
-   agora reprova), salvo as de `PREVISTO`, o que a página manda e o teste corta de propósito (analytics, pixel, aviso de
-   erro), lido no código, cada uma pelo endereço inteiro, com a query, ou por uma função `u => …` sobre ele, nunca pelo
-   começo, que cobriria também a chamada que importa (medido: na página de teste, com a lista completa o bloco passou;
+   seguro — e, como a tela otimista pode mostrar sucesso sem a chamada que faltou, todo corte reprova no fim, de todo
+   tipo — a chamada de dados (`fetch`, `xhr`, `EventSource` ou que não é GET) e também a imagem, o script e o documento
+   (medido: o `EventSource` cortado passava calado, e, até a rodada 41, a imagem nova `/collect.gif` também; agora os
+   dois reprovam) —, salvo os de `PREVISTO`, o que a página manda e o teste corta de propósito (analytics, pixel, aviso
+   de erro, fonte de fora), lido no código, cada um pelo endereço inteiro, com a query, que só vale para GET, ou por
+   uma função `(u, m, c, t) => …` sobre o endereço, o método, o corpo e o tipo — o mesmo `POST /api/events` leva o
+   evento do analytics e o dado da tela, e pelo endereço o corte do dado passava calado (medido; com a condição sobre o
+   corpo, só o do analytics fica de fora) —, nunca pelo começo, que cobriria também a chamada que importa (medido: na
+   página de teste, com a lista completa o bloco passou;
    sem um endereço que a página chamava, parou em `falhou em conferir o que foi cortado (GET fetch …)`; com
    `${SITE}/api/events` na lista, o corte de `/api/events?mode=data`, chamada de dados da tela, reprovou do mesmo jeito,
    e com os endereços inteiros passou) —: o `CORTADO` mostra o quê — método, tipo (documento, script, imagem, fetch) e
@@ -195,7 +236,10 @@ outra palavra (`rode !shs na prévia`).
    toda chamada a outra origem só chega à página se liberar a origem (com credenciais, a origem exata e
    `Allow-Credentials`) — senão aborta (`cors`), e o servidor recebeu os mesmos `OPTIONS` e `POST` que recebeu do
    navegador sem o `route`, e a página, os mesmos erros (medido); a origem é a de quem chama, lida no `Origin` do
-   pedido, e não a do site: o `iframe` de outra origem que chama o site faz chamada CORS (medido: um `iframe` de
+   pedido ou, no `fetch` que não o manda, na do documento que chamou (`self.origin`: o `iframe` `about:blank` herda a
+   de quem o abriu, e o endereço dele dava `null` — medido: o GET da própria origem num `iframe` assim era cortado como
+   `cors`; agora passa, como no navegador), e não a do site: o `iframe` de outra origem que chama o site faz chamada
+   CORS (medido: um `iframe` de
    `localhost:8797` que chamava `127.0.0.1:8796` sem `Allow-Origin` leu a resposta no bloco anterior; no novo, deu o
    mesmo erro do navegador); cabeçalho simples é o da lista do Fetch com as regras de valor — um `Accept` de mais de 128
    bytes pede preflight, um `Range: bytes=0-` não, e o limite de 128 bytes vale para todos, o `Range` inclusive (medido
@@ -207,8 +251,14 @@ outra palavra (`rode !shs na prévia`).
    o cookie que a página mandou, ou `cred: 'include'` na entrada, quando o código chama a outra origem com `credentials:
    'include'` (sem cookie a mandar, o pedido não mostra o modo); o `fetch` com `mode: 'no-cors'` passa sem pergunta e
    sem `Allow-Origin` e chega opaco à página, como no navegador: o modo não chega ao `route` (nem o `Sec-Fetch-Mode`, e
-   o POST `no-cors` traz `Origin`, medido), então o próprio `fetch` da página o anota antes de sair, sem ler o corpo, e
-   o `route` lê a anotação (medido, a outra origem sem `Allow-Origin`: o navegador entregou a resposta opaca no GET e no
+   o POST `no-cors` traz `Origin`, medido), então o próprio `fetch` da página anota o modo de cada pedido que pode ser
+   `no-cors` (GET, HEAD, POST), sem ler o corpo, do começo até ele acabar, e o `route` só lê: trata como opaco só
+   quando todo `fetch` no ar naquele endereço é `no-cors` — com um `cors` junto, não se sabe qual dos dois chegou, e
+   vale o mais estrito, o preflight (na fila da rodada 39, o `route` tirava a anotação mais antiga, e um `cors`
+   simultâneo podia pegar a do `no-cors` e pular a pergunta; em 12 voltas com os dois ao mesmo tempo a ordem saiu
+   certa, mas a corrida existia, e agora não há o que tirar) —, e o endereço sem nenhum no ar sai do mapa (medido: 200
+   `no-cors` com query nova deixavam 200 listas vazias; agora, nenhuma) (medido, a outra origem sem `Allow-Origin`: o
+   navegador entregou a resposta opaca no GET e no
    POST `no-cors`; o bloco anterior abortava os dois, `cors`, com o POST já recebido pelo servidor; o novo entregou
    opaca, como o navegador; o `fetch` `cors` ao mesmo endereço continua dando erro; e a anotação é de cada `fetch`, sai
    quando ele acaba, e o `no-cors` com método que o `fetch` recusa, como o PUT, não se anota: com um `no-cors` recusado
@@ -242,12 +292,18 @@ outra palavra (`rode !shs na prévia`).
    a página, e o novo abriu pelo proxy; com o `HTTPS_PROXY` vazio ao lado do `ALL_PROXY`, e com o proxy sem esquema, o
    bloco anterior não abriu a página, e o novo abriu com 200 pelo proxy de teste, que viu a senha de cada um), que o
    contexto da página e os de busca recebem (`proxy`, com `localhost`, `127.0.0.1` e o que o `NO_PROXY` do ambiente
-   lista fora dele — a busca, pelo mesmo caminho que a página: lê a mesma lista pela regra do Chromium (`*`, porta,
-   faixa IPv4 como `10.0.0.0/8`, curinga, ponto na frente; o IPv6 sem colchetes, o Chromium ignora) e vai direto ou pelo
+   lista fora dele — a busca, pelo mesmo caminho que a página: lê a mesma lista pela regra do Chromium (vírgula ou
+   ponto e vírgula entre as entradas, `*`, porta, faixa IPv4 como `10.0.0.0/8`, curinga, ponto na frente; o IPv6 sem
+   colchetes e a faixa IPv4 inválida, como `1.999.0.0/8` ou `/33`, o Chromium ignora — e, na faixa inválida, o bloco
+   para) e vai direto ou pelo
    proxy sem lista, porque, na busca, a lista do Playwright só compara o fim do nome (medido num proxy de teste: com
    `NO_PROXY=*` e com `host:porta`, a página foi direto e a busca do bloco anterior, pelo proxy; com o host exato, a
    página mandou o subdomínio pelo proxy e a busca anterior, direto; a regra nova bateu com a página nos 25 casos
-   medidos, e a forma que ela não sabe seguir — `<local>`, esquema, faixa IPv6 — para o bloco) —, e o usuário e a senha
+   medidos, e na rodada 41 em mais 11 — com `a;b`, a página foi direto e a regra anterior, pelo proxy; com
+   `1.999.0.0/8`, a página foi pelo proxy e a regra anterior mandava `4.231.0.1` direto; e, como o Playwright põe
+   `<-loopback>` na lista, `127.0.0.2`, `foo.localhost`, `[::1]` e `169.254.1.1` foram pelo proxy na página, como na
+   regra: o desvio implícito do Chromium não vale ali —, e a forma que ela não sabe seguir — `<local>`, esquema,
+   faixa IPv6 — para o bloco) —, e o usuário e a senha
    do endereço do proxy nos campos próprios, que o Chromium não lê do endereço — medido num proxy de teste que pede
    senha: o bloco anterior nem abriu a página, o novo abriu com 200; com o host no `NO_PROXY`, o anterior foi pelo proxy
    e o novo foi direto; com o endereço do proxy mal escrito e a senha nele, o anterior imprimiu a senha no erro, porque
@@ -380,14 +436,17 @@ outra palavra (`rode !shs na prévia`).
    cada chamada é uma conexão própria, e `begin` numa com `rollback` noutra não desfaz nada —, sabendo que o `rollback`
    não devolve número tirado de sequência (`serial`, `identity`, `nextval`): se o caminho numera algo que alguém vê ou
    que tem de ser contínuo (pedido, protocolo, nota), a escrita vai à prévia isolada ou vira fronteira; e sabendo que o
-   `rollback` desfaz a linha e não o que um gatilho ou função mandou para fora do banco (`pg_net`, e-mail, webhook:
-   lidos no código antes, e havendo, prévia isolada); e que a mensagem de erro do banco traz o valor da linha (`Key
+   `rollback` desfaz a linha e não o que sai do banco antes do `commit` (o censo da transação desfeita, no passo 2,
+   diz se o banco tem por onde; reprovou, prévia isolada); e que a mensagem de erro do banco traz o valor da linha (`Key
    (email)=(…)`, `Failing row contains`) e chega ao histórico da ferramenta antes de qualquer filtro — com dado de
    teste, é o dele, mas na restrição de unicidade ou de exclusão vem também o da linha que já existia, de cliente: as
    escritas do caminho em que alguma pode colidir vão todas, na ordem dele, num bloco que guarda só o código do erro,
-   com o `set constraints` dentro dele, depois da última (`create temp table shs_e(e text) on commit drop; do $$ begin
-   <escritas>; set constraints all immediate; exception when others or query_canceled or assert_failure then insert into
-   shs_e values (sqlstate); end $$; select e from shs_e;`), sem erro no log — fora do bloco, a restrição adiada
+   com o `set constraints` dentro dele, depois da última (`do $$ begin <escritas>; set
+   constraints all immediate; exception when others or query_canceled or assert_failure then perform
+   set_config('shs.e', sqlstate, true); end $$; select current_setting('shs.e', true);` — sem tabela temporária: o
+   `create temp table` é DDL e dispara gatilho de evento, que pode mandar algo para fora — medido num Postgres 16
+   local: com ele, o gatilho de evento disparou; com o `set_config`, não, e saíram só `23505`, `57014` e `P0004`; no MCP
+   do Supabase, um `1 / 0` no bloco devolveu só `22012`), sem erro no log — fora do bloco, a restrição adiada
    (`deferrable initially deferred`) deixa a escrita passar e só se confere no `set constraints` de depois, que devolve
    o erro inteiro (medido no MCP do Supabase, numa tabela temporária desfeita: sem o bloco, o erro trouxe `Key
    (chave)=(…) already exists`; com ele, só `23505`; o `when others` sozinho não pega o prazo estourado (`57014`, do
@@ -458,23 +517,29 @@ outra palavra (`rode !shs na prévia`).
    // maior prazo da página para chamar de novo (debounce, nova tentativa), lido no código, mais 500 ms
    const ESTATICO = [`${SITE}/_next/static/`];       // pasta do build (Next.js; outro framework, a dele), só GET
    const PREVISTO = [];                              // o que a página chama e o teste corta de propósito (analytics,
-   // pixel, aviso de erro), lido no código: endereço inteiro, com a query, ou u => condição; outra cortada reprova
+   // pixel, aviso de erro, fonte de fora), lido no código: o endereço inteiro, com a query, vale só para GET; outro
+   // método, ou mais de um pedido no mesmo endereço, pede (u, m, c, t) => condição sobre endereço, método, corpo e tipo
+   // (o mesmo POST /api/events leva o evento do analytics e o dado da página); o cortado fora daqui reprova, todo tipo
    const J = c => { try { return JSON.parse(c); } catch { return null; } };   // corpo que não é JSON não casa
    let SESSAO = null;                                // o teste guarda aqui a sessão aberta com o e-mail shs+…
    const PASSA = [{ m: 'POST', url: `${SITE}/api/quiz/score`,
      corpo: c => SESSAO !== null && J(c)?.session_id === SESSAO }];
    // m e url inteira, com a query (com token, montada do ambiente, como o ALVO); corpo, no que não é GET: a condição
    // que liga a chamada a esta checagem (o código no corpo, a sessão que nasceu do e-mail shs+…); se preciso: vezes
-   // (padrão 1; GET que a página repete de propósito pede o número), status (padrão s => s < 400), cred: 'include',
+   // (padrão 1; GET que a página repete de propósito pede o número), status (padrão s => s < 400), tipo (padrão:
+   // fetch, XHR ou EventSource no GET; script, imagem, folha de estilo, fonte ou página pedem o dela: tipo: 'script',
+   // porque o mesmo endereço pedido por <img> não é a chamada da página), cred: 'include',
    // quando a página chama outra origem com credentials: 'include' (lido no código: sem cookie, o pedido não o mostra),
    // upload: false, no XHR com corpo sem ouvinte em xhr.upload (lido no código: sem ele, XHR com corpo pergunta antes),
    // resposta: t => condição sobre o corpo, quando a rota responde 200 com o erro dentro (J(t)?.status === 'ok'),
    // e opcional: true na que pode não acontecer — sem ele, a entrada que não houve reprova
    if (![...ESTATICO, ...PASSA.map(p => p.url)].every(SEGURO)) throw new Error('PASSA e ESTATICO: só https://');
    if (PASSA.some(p => p.m !== 'GET' && typeof p.corpo !== 'function')) throw new Error('PASSA: escrita sem condição');
-   const PREV = u => PREVISTO.some(p => { try { return typeof p === 'function' ? p(u) === true : N(p) === u; }
-     catch { return false; } });                     // exato: começo de endereço cobriria a chamada que importa
-   const DADO = (t, m) => ['fetch', 'xhr', 'eventsource'].includes(t) || m !== 'GET';   // dados, não arquivo da página
+   const PREV = (u, m = 'GET', c = '', t = '') => PREVISTO.some(p => { try { return typeof p === 'function'
+     ? p(u, m, c, t) === true : m === 'GET' && N(p) === u; } catch { return false; } });   // exato: começo de endereço
+   const DADO = (t, m) => ['fetch', 'xhr', 'eventsource'].includes(t) || m !== 'GET';   // cobriria a que importa
+   const CASA = (p, m, u, c, t) => m === p.m && N(p.url) === u && (p.tipo ? p.tipo === t : DADO(t, m))
+     && (p.corpo ?? (() => true))(c) === true;       // a entrada da lista: método, endereço, tipo e corpo
    const QUEM = o => { const i = PASSA.findIndex(p => new URL(p.url).origin === o);   // nem o host vai à mensagem,
      return o === SITE ? 'o site' : i >= 0 ? `a origem da entrada ${i}` : 'outra origem'; };   // que pode levar token
    const VEZES = PASSA.map(() => 0), TARDE = PASSA.map(() => 0), CORTADO = new Set(), RUIM = [], FALTOU = new Set();
@@ -519,10 +584,13 @@ outra palavra (`rode !shs na prévia`).
    const E = process.env, PROXY = E.HTTPS_PROXY || E.https_proxy || E.ALL_PROXY || E.all_proxy;   // a nuvem do Claude
    const FORA = E.NO_PROXY || E.no_proxy;            // Code sai por ele: sem ele, a busca não acha host de fora
    let REDE = {}, PELA = () => ({});                 // (medido); a variável vazia passa à próxima; a senha vai no campo
-   const IP4 = s => /^\d{1,3}(\.\d{1,3}){3}$/.test(s) ? s.split('.').reduce((a, b) => a * 256 + +b, 0) : NaN;
+   const IP4 = s => { const p = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);   // quatro números, até 255
+     return p && p.slice(1).every(n => +n < 256) ? p.slice(1).reduce((a, b) => a * 256 + +b, 0) : NaN; };
    const REGRA = s => {                              // uma entrada do NO_PROXY, como o Chromium da página a lê; a busca
      if (s === '*') return () => true;               // só compara o fim do nome, e *, porta e faixa não valiam (medido)
-     const c = /^(\d[\d.]*)\/(\d+)$/.exec(s);        // faixa IPv4 (10.0.0.0/8): só endereço escrito em número
+     const c = /^([\d.]+)\/(\d+)$/.exec(s);           // faixa IPv4 (10.0.0.0/8): só endereço escrito em número; a
+     if (c && (Number.isNaN(IP4(c[1])) || +c[2] > 32))   // que o Chromium não lê (1.999.0.0/8, /33) ele ignora e a
+       throw new Error('NO_PROXY com faixa IPv4 inválida');   // página vai pelo proxy; a conta daqui a mandava direto
      if (c) { const n = 2 ** (32 - c[2]); return x => Math.floor(IP4(x.h) / n) === Math.floor(IP4(c[1]) / n); }
      if (/[/<]/.test(s)) throw new Error('NO_PROXY com esquema, <local> ou faixa IPv6: a busca não sabe seguir');
      if (s.split(':').length > 2 && s[0] !== '[') return () => false;   // IPv6 sem colchetes: o Chromium ignora
@@ -535,8 +603,8 @@ outra palavra (`rode !shs na prévia`).
        so = { server: `${PX.protocol}//${PX.host}`, username: decodeURIComponent(PX.username),
          password: decodeURIComponent(PX.password) };
      } catch { throw new Error('HTTPS_PROXY/ALL_PROXY mal escrito'); }   // sem o valor: o erro do URL traz a senha
-     const lista = [FORA, 'localhost,127.0.0.1'].filter(Boolean).join(), R = lista.split(',').map(s => s.trim())
-       .filter(Boolean).map(REGRA);                  // a página lê a lista; a busca, a mesma lista por esta regra
+     const lista = [FORA, 'localhost,127.0.0.1'].filter(Boolean).join(), R = lista.split(/[,;]/).map(s => s.trim())
+       .filter(Boolean).map(REGRA);                  // a página lê a lista, com , ou ; (medido); a busca, por esta
      REDE = { proxy: { ...so, bypass: lista } };
      PELA = u => { const x = new URL(u), y = { h: x.hostname, p: +(x.port || (x.protocol === 'https:' ? 443 : 80)) };
        return R.some(f => f(y)) ? {} : { proxy: so }; };   // direto, ou pelo proxy sem lista nenhuma
@@ -551,51 +619,56 @@ outra palavra (`rode !shs na prévia`).
        for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport', 'Worker', 'SharedWorker'])
          Object.defineProperty(window, k, { value: undefined });
        const f = window.fetch, S = new Map();          // o modo do fetch não chega ao route (nem o Sec-Fetch-Mode,
-       Object.defineProperty(window, '__shsNoCors', { value: S });   // medido): o no-cors fica anotado aqui, sem ler o
-       window.fetch = function (i, o) {                // corpo nem tocar no pedido, e o route lê; o no-cors com outro
-         let k, x;                                     // método o fetch recusa antes de sair, e não se anota
+       Object.defineProperty(window, '__shsNoCors', { value: S });   // medido): todo fetch que pode ser no-cors fica
+       window.fetch = function (i, o) {                // anotado aqui com o modo, do começo até acabar, sem ler o
+         let k, x;                                     // corpo nem tocar no pedido, e o route lê; com outro método, o
          try { const R = i instanceof Request, md = String(o?.method ?? (R ? i.method : 'GET')).toUpperCase();
-           k = `${md} ${new URL(R ? i.url : String(i), location.href).href.split('#')[0]}`;
-           if ((o?.mode ?? (R ? i.mode : 'cors')) === 'no-cors' && ['GET', 'HEAD', 'POST'].includes(md)) {
-             x = {}; S.set(k, [...(S.get(k) ?? []), x]); } } catch {}
-         const p = f.apply(this, arguments);           // a anotação que o route não leu (abortado antes de sair) sai
-         if (x) p.catch(() => {}).finally(() => { const l = S.get(k) ?? [], j = l.indexOf(x);   // quando o fetch
-           if (j >= 0) l.splice(j, 1); });             // acaba: não vale para o próximo
+           k = `${md} ${new URL(R ? i.url : String(i), location.href).href.split('#')[0]}`;   // no-cors é recusado
+           if (['GET', 'HEAD', 'POST'].includes(md)) { x = { nc: (o?.mode ?? (R ? i.mode : 'cors')) === 'no-cors' };
+             S.set(k, [...(S.get(k) ?? []), x]); } } catch {}   // antes de sair
+         const p = f.apply(this, arguments);           // cada anotação sai quando o próprio fetch acaba (o route só
+         if (x) p.catch(() => {}).finally(() => { const l = (S.get(k) ?? []).filter(y => y !== x);   // lê), e o
+           if (l.length) S.set(k, l); else S.delete(k); });   // endereço sem nenhum no ar sai do mapa
          return p; }; });
      const ROTA = async r => {                       // passa só o que o caminho precisa; todo o resto aborta
-       const q = r.request(); let marca = 'erro ', m = '?', o = '', u = '', resp = null, e, repetido = false;
-       if (FECHADO) {                                  // o teste acabou: nada sai; reprova a de dados não prevista que
-         let i = -1;                                   // não cabe na entrada dela (o corpo e as vezes de antes do fim)
-         try { u = N(q.url()); m = q.method(); o = new URL(u).origin; const c = q.postData() ?? '';
-           i = PASSA.findIndex(p => m === p.m && N(p.url) === u && (p.corpo ?? (() => true))(c) === true);
-         } catch { u = ''; }                           // a nova tentativa da que já passou excede as vezes e reprova
-         if (DADO(q.resourceType(), m) && !PREV(u) && !(i >= 0 && VEZES[i] + ++TARDE[i] <= (PASSA[i].vezes ?? 1)))
-           FALTOU.add(`depois ${m} ${q.resourceType()} ${QUEM(o)}`);
+       const q = r.request(), t = q.resourceType();
+       let marca = 'erro ', m = '?', o = '', u = '', c = '', resp = null, e, repetido = false;
+       if (FECHADO) {                                  // o teste acabou: nada sai; reprova o que não está previsto nem
+         let i = -1;                                   // cabe na entrada dele (o corpo e as vezes de antes do fim), de
+         try { u = N(q.url()); m = q.method(); o = new URL(u).origin; c = q.postData() ?? '';   // todo tipo — a página
+           i = PASSA.findIndex(p => CASA(p, m, u, c, t));   // que navega depois da evidência também; só o arquivo do
+         } catch { u = ''; }                           // build que chega tarde se corta calado
+         const est = m === 'GET' && ESTATICO.some(p => u.startsWith(p));
+         if (!est && !PREV(u, m, c, t) && !(i >= 0 && VEZES[i] + ++TARDE[i] <= (PASSA[i].vezes ?? 1)))
+           FALTOU.add(`depois ${m} ${t} ${QUEM(o)}`);
          return r.abort().catch(() => {});
        }
        try {                                           // erro aqui aborta calado: o do JSON.parse traz o corpo (medido)
-         u = N(q.url()); const c = q.postData() ?? '', h = await q.allHeaders(); m = q.method(); o = new URL(u).origin;
-         const i = PASSA.findIndex(p => m === p.m && N(p.url) === u && (p.corpo ?? (() => true))(c) === true);
-         e = PASSA[i]; const pagina = m === 'GET' && q.resourceType() === 'document' && u === PAGINA;
+         u = N(q.url()); c = q.postData() ?? ''; const h = await q.allHeaders(); m = q.method(); o = new URL(u).origin;
+         const i = PASSA.findIndex(p => CASA(p, m, u, c, t));
+         e = PASSA[i]; const pagina = m === 'GET' && t === 'document' && u === PAGINA;
          repetido = (e && ++VEZES[i] > (e.vezes ?? 1)) || (pagina && ++VISITAS > 1);   // nova tentativa, recarga
          const ok = (pagina || (m === 'GET' && ESTATICO.some(p => u.startsWith(p))) || !!e) && !repetido;
          const cred = !!h.cookie || e?.cred === 'include';   // com credenciais, o Allow-Origin * não vale
-         const de = h.origin ?? (q.resourceType() === 'fetch' ? new URL(q.frame().url()).origin : undefined);
-         const opaca = q.resourceType() === 'fetch' && await q.frame().evaluate(k => !!window.__shsNoCors?.get(k)
-           ?.shift(), `${m} ${u}`).catch(() => false);   // a anotação mais antiga deste endereço, lida uma vez
-         const fora = !!de && o !== de && q.resourceType() !== 'document' && !opaca;   // CORS a quem chamou; o no-cors,
-         const cors = ok && fora && !(await PREFLIGHT(q, m, cred, de, e, h));   // sem pergunta nem Allow-Origin, chega
-         marca = repetido ? 'repetido ' : cors ? 'cors ' : '';   // opaca, como no navegador; sem o sim do preflight,
-         if (ok && !marca) {                         // nada sai
+         const de = h.origin ?? (t === 'fetch' ? await q.frame().evaluate(() => self.origin)   // a do documento: o
+           .catch(() => new URL(q.frame().url()).origin) : undefined);   // about:blank herda a de quem o abriu
+         const opaca = t === 'fetch' && await q.frame().evaluate(k => { const l = window.__shsNoCors?.get(k);
+           return !!l?.length && l.every(x => x.nc); }, `${m} ${u}`).catch(() => false);   // só quando todo fetch no ar
+         // neste endereço é no-cors: com um cors junto, não se sabe qual dos dois é este, e vale o mais estrito
+         const fora = !!de && o !== de && t !== 'document' && !opaca;   // CORS a quem chamou; o no-cors, sem pergunta
+         const cors = ok && fora && !(await PREFLIGHT(q, m, cred, de, e, h));   // nem Allow-Origin, chega opaca, como
+         marca = repetido ? 'repetido ' : cors ? 'cors ' : '';   // no navegador; sem o sim do preflight, nada sai
+         if (ok && !marca) {
            resp = await BUSCA(q.url(), { method: m, headers: h, data: q.postDataBuffer() ?? undefined });
            if (!resp) marca = 'falhou ';
            else if ([301, 302, 303, 307, 308].includes(resp.status())) marca = '3xx ';   // o route só vê o 1º endereço
            else if (pagina && resp.status() !== ESPERA) { marca = 'status '; VEIO = resp.status(); }   // nem roda
            else if (fora && !LIBERA(resp, cred, de)) marca = 'cors ';   // o navegador não entregaria a resposta
            else {                                       // chega como chegaria; fora do status, reprova no fim
-             const certo = e && (e.status ?? (s => s < 400))(resp.status())
-               && (!e.resposta || e.resposta(await resp.text()) === true);   // 200 com o erro no corpo também reprova
-             if (e && !certo) RUIM.push(`${m} ${resp.status()}${e.resposta ? ' ou a resposta' : ''} ${QUEM(o)}`);
+             const certo = e ? (e.status ?? (s => s < 400))(resp.status())
+               && (!e.resposta || e.resposta(await resp.text()) === true)   // 200 com o erro no corpo também reprova,
+               : pagina || resp.status() < 400;           // e o arquivo do build que falha: a tela vem sem o script
+             if (!certo) RUIM.push(`${m} ${resp.status()}${e?.resposta ? ' ou a resposta' : ''} ${t} ${QUEM(o)}`);
              const cab = resp.headers(), rel = ['nel', 'report-to', 'reporting-endpoints'].filter(k => k in cab);
              for (const k of rel) delete cab[k];      // sem endpoint de relatório: o envio dele não passa pelo route
              await r.fulfill(rel.length ? { response: resp, headers: cab } : { response: resp });
@@ -604,15 +677,15 @@ outra palavra (`rode !shs na prévia`).
          }
        } catch { marca = 'erro '; }
        await SOLTA(resp);
-       const linha = `${marca}${m} ${q.resourceType()} ${QUEM(o)}`;   // sem caminho; num Set, a página que tenta
-       CORTADO.add(linha);                             // sem parar não enche a memória. A de dados não prevista reprova
-       if ((DADO(q.resourceType(), m) || (e && !repetido)) && !PREV(u)) FALTOU.add(linha);   // e a da lista que não
+       const linha = `${marca}${m} ${t} ${QUEM(o)}`;   // sem caminho; num Set, a página que tenta sem parar não enche a
+       CORTADO.add(linha);                             // memória. Todo corte fora do PREVISTO reprova, de todo tipo: a
+       if (!PREV(u, m, c, t)) FALTOU.add(linha);       // imagem nova do analytics, a da lista repetida ou a que não
        return r.abort().catch(() => {});               // chegou à página (o script de outra origem que redireciona)
      };
-     await ctx.route('**/*', r => { const t = ROTA(r); VOO.add(t); return t.finally(() => VOO.delete(t)); });
+     await ctx.route('**/*', r => { const v = ROTA(r); VOO.add(v); return v.finally(() => VOO.delete(v)); });
      await ctx.routeWebSocket(/.*/, ws => {           // nenhum WebSocket abre: gravação de sessão vai por ele; o que a
        const w = new URL(ws.url().replace(/^ws/, 'http')).origin;   // página abre sem estar previsto reprova, como a
-       if (!PREV(ws.url())) FALTOU.add(`websocket ${QUEM(w)}`); ws.close(); });   // chamada de dados
+       if (!PREV(ws.url(), 'GET', '', 'websocket')) FALTOU.add(`websocket ${QUEM(w)}`); ws.close(); });   // chamada
      passo = 'abrir a página';
      const page = await ctx.newPage();
      const doc = await page.goto(ALVO).catch(x => { if (VEIO) passo += ` (veio ${VEIO})`; throw x; });   // abortada
@@ -670,7 +743,8 @@ outra palavra (`rode !shs na prévia`).
    que reprocessa, webhook que pode chegar horas depois, job que tenta de novo depois do recolhimento) — → a escrita vai
    à prévia isolada, e, se a pergunta era sobre produção, o veredito diz que a produção não foi provada; transação
    desfeita só quando o caminho inteiro cabe nela, com `set constraints all immediate` depois das instruções, logo antes
-   do `rollback`, e sem efeito fora do banco no caminho; senão, fronteira. Ao fim, com o navegador já fechado, esperar o
+   do `rollback`, e com o censo da transação desfeita passando (passo 2); senão, fronteira. Ao fim, com o navegador
+   já fechado, esperar o
    que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o `quiz_leituras` entra depois do
    `/api/quiz/score` responder) até o sinal de término que se viu antes — a linha adiada já gravada com o código, o job
    desta checagem concluído (fila vazia não basta); apagar sem ele pode vir antes da última gravação; falhou, ou passou
@@ -737,4 +811,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 13:26 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C; rodada 39 nos 13 PRs · #chat-4BNJMe
+🕒 2026-10-14 14:03 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C; rodada 41 nos 13 PRs · #chat-4BNJMe
