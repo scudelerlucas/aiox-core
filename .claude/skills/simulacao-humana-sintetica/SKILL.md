@@ -115,8 +115,14 @@ outra palavra (`rode !shs na prévia`).
      (select count(*) from le where exists (select 1 from alcance a
      where le.t ~* ('\m' || regexp_replace(a.nome, '\W', '\\\&', 'g') || '\M')))
      + (select count(*) from pg_depend d where d.classid in ('pg_policy'::regclass, 'pg_rewrite'::regclass)
-     and d.refclassid = 'pg_operator'::regclass and (select oprcode from pg_operator where oid = d.refobjid)
-     in (select oid from alcance)) as leitura;
+     and (d.refclassid = 'pg_proc'::regclass and d.refobjid in (select oid from alcance)
+     or d.refclassid = 'pg_operator'::regclass and (select oprcode from pg_operator where oid = d.refobjid)
+     in (select oid from alcance)))
+     + (select count(*) from pg_cast where oid >= 16384 and castfunc in (select oid from alcance))
+     + (select count(*) from pg_constraint k where k.oid >= 16384 and k.contypid <> 0
+     and exists (select 1 from alcance a
+     where pg_get_constraintdef(k.oid) ~* ('\m' || regexp_replace(a.nome, '\W', '\\\&', 'g') || '\M')))
+     as leitura;
    ```
 
    O que cada número conta, sobre o que foi criado depois do `initdb` — objeto de número 16384 em diante, em qualquer
@@ -140,7 +146,9 @@ outra palavra (`rode !shs na prévia`).
    `leitura`: as políticas e visões que chegam, por qualquer cadeia de chamadas, a uma função que manda para fora,
    não se desfaz ou manda mensagem, a uma de extensão fora da lista segura (`cron.schedule`, `pgmq.send`) ou a uma do
    catálogo que faz isso (`pg_notify` direto numa visão não deixa rastro de dependência no banco) — a cadeia se segue
-   pelo nome escrito no corpo de cada função, palavra inteira, e o nome que aparece conta como chamada.
+   pelo nome escrito no corpo de cada função, palavra inteira, e o nome que aparece conta como chamada; e contam
+   também a conversão de tipo (`create cast`) e o `CHECK` de domínio que chegam a uma delas, porque a visão que
+   converte mostra só `x::tipo`, sem o nome da função que roda a cada linha lida.
 
    **Gravar e confirmar em produção** — a rota ou o `rpc` que grava, ou de que não se sabe se grava — só com
    `extensoes` vazio, os números em zero e `programa` falso; senão, prévia isolada ou fronteira. **Transação desfeita
@@ -166,7 +174,11 @@ outra palavra (`rode !shs na prévia`).
    turno da rodada 42): `extensoes` = `pg_cron,pg_net`, `texto` = 41, `naodesfaz` = 52, `sequencia` = 44, o resto em
    zero e `programa` falso — gravar e transação desfeita em produção não passam, e a checagem do banco vai a uma
    prévia isolada (um Postgres local com as migrações do repositório, que não prova a produção) ou vira fronteira; a
-   leitura passa.
+   leitura passa. Rodada 43: o censo da 42 aprovava a leitura com visão ou política que converte o tipo por uma
+   função que avisa — explícita ou implícita; a visão, lida, mandou o aviso —, com conversão de superusuário pelo
+   `lo_import` e com visão que converte para um domínio cujo `CHECK` avisa; o novo dá `leitura` acima de zero em
+   cada um, repetiu os 35 casos da 42 e passou a conversão e o domínio inofensivos. No banco da casa, `leitura`
+   segue zero.
 
    Ordem de preferência: (a) navegador sem tela sobre a URL (Playwright 1.48 ou mais novo, com o navegador
    que o ambiente já tem: na nuvem do Claude Code, `executablePath: '/opt/pw-browsers/chromium'`; fora dela, o que o
@@ -874,4 +886,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 14:44 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto e teste do banco; rodada 42 · #chat-4BNJMe
+🕒 2026-10-14 15:01 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto e teste do banco; rodada 43 · #chat-4BNJMe
