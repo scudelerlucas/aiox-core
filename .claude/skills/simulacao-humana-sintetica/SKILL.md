@@ -329,18 +329,21 @@ outra palavra (`rode !shs na prévia`).
    mandou para fora do banco (`pg_net`, e-mail, webhook: lidos no código antes, e havendo, prévia isolada); e que a
    mensagem de erro do banco traz o valor da linha (`Key (email)=(…)`, `Failing row contains`) e chega ao histórico da
    ferramenta antes de qualquer filtro — com dado de teste, é o dele, mas na restrição de unicidade ou de exclusão vem
-   também o da linha que já existia, de cliente: a escrita que pode colidir vai num bloco que guarda só o código do
-   erro, com o `set constraints` dentro dele, logo depois da escrita (`create temp table shs_e(e text) on commit drop;
-   do $$ begin <escrita>; set constraints all immediate; exception when others then insert into shs_e values (sqlstate);
-   end $$; select e from shs_e;`), sem erro no log — fora do bloco, a restrição adiada (`deferrable initially deferred`)
-   deixa a escrita passar e só se confere no `set constraints` de depois, que devolve o erro inteiro (medido no MCP do
-   Supabase, numa tabela temporária desfeita: sem o bloco, o erro trouxe `Key (chave)=(…) already exists`; com ele, só
-   `23505`; numa restrição adiada, com o `set constraints` fora do bloco, o erro trouxe a chave de novo; dentro dele, só
-   `23505`, e a linha repetida saiu desfeita); se um gatilho ou função copia dado de cliente para a linha de teste,
-   prévia isolada; nunca `raise exception` para desfazer em produção, que deixa um erro no log do banco e pode disparar
-   alerta; prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la). (d)
-   script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não
-   o caminho. Sites públicos da casa: `vigia/dominios.txt` do hub (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
+   também o da linha que já existia, de cliente: as escritas do caminho em que alguma pode colidir vão todas, na ordem
+   dele, num bloco que guarda só o código do erro, com o `set constraints` dentro dele, depois da última (`create temp
+   table shs_e(e text) on commit drop; do $$ begin <escritas>; set constraints all immediate; exception when others then
+   insert into shs_e values (sqlstate); end $$; select e from shs_e;`), sem erro no log — fora do bloco, a restrição
+   adiada (`deferrable initially deferred`) deixa a escrita passar e só se confere no `set constraints` de depois, que
+   devolve o erro inteiro (medido no MCP do Supabase, numa tabela temporária desfeita: sem o bloco, o erro trouxe `Key
+   (chave)=(…) already exists`; com ele, só `23505`; numa restrição adiada, com o `set constraints` fora do bloco, o
+   erro trouxe a chave de novo; dentro dele, só `23505`, e a linha repetida saiu desfeita; numa troca de dois valores
+   únicos em duas instruções, só a primeira no bloco, com o `set constraints` logo depois dela, reprovou com `23505` a
+   troca que o `commit` aceitaria, e as duas no bloco passaram, enquanto a colisão de verdade continuou saindo só como
+   `23505`); se um gatilho ou função copia dado de cliente para a linha de teste, prévia isolada; nunca `raise
+   exception` para desfazer em produção, que deixa um erro no log do banco e pode disparar alerta; prova o banco, não a
+   rota: se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la). (d) script do repositório (`npm run`,
+   `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa:
+   `vigia/dominios.txt` do hub (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
    https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/vigia/dominios.txt); prévia do PR: o link da Vercel
    no próprio PR.
    ```bash
@@ -632,4 +635,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 12:08 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C; rodada 36 nos 13 PRs · #chat-4BNJMe
+🕒 2026-10-14 12:17 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C; rodada 37 nos 13 PRs · #chat-4BNJMe
