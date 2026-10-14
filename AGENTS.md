@@ -254,16 +254,17 @@ entra pelo stdin ou por arquivo temporário, com o `set -x` desligado); persona 
 lida na `main` do hub no GitHub, mais os PRs do hub com `SHS-QUARENTENA` no título atualizados nos últimos 30 dias,
 de qualquer estado) pede o "sim" do Lucas antes, e sem como ler essa lista também; dado de teste marcado `shs` com o
 código da checagem, dito no chat antes da primeira escrita (a checagem interrompida deixa no histórico o código para
-apagar), e apagado ao fim só por esse código, depois que termina, com sinal dela que se veja (fila vazia não basta),
-o que o fluxo grava mais tarde (`after()`, fila, webhook), e com as linhas desse código reconferidas — sem como
-apagar em produção tudo o que o caminho grava, telemetria interna (`agent_metrics`, eventos) inclusive, a escrita
-vai a uma prévia comprovadamente isolada (que não alcança produção nem terceiro), ou a uma transação desfeita se o
-caminho inteiro couber nela sem efeito fora do banco, ou vira fronteira. Erro classe A da própria checagem (a lista
-está na norma) entra nessa lista no mesmo ato, num PR do hub com `SHS-QUARENTENA` no título. Só sobra pedido quando
-a fronteira é só dele — credencial ou sessão só dele, gasto acima do teto, juízo humano; Meta, ação irreversível e
-mensagem a pessoa de fora não entram na checagem nem com o "sim" — ou quando o ambiente não alcança, e aí a sessão
-vai até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não confundir
-com `!mirofish` (população sintética prevê **público**); SHS simula **o operador conferindo**.
+apagar), e apagado ao fim só por esse código, depois que termina, com sinal dela que se veja num prazo conhecido
+(fila vazia não basta), o que o fluxo grava mais tarde (`after()`, fila, webhook), e com as linhas desse código
+reconferidas — sem como apagar em produção tudo o que o caminho grava, telemetria interna (`agent_metrics`, eventos)
+inclusive, a escrita vai a uma prévia comprovadamente isolada (que não alcança produção nem terceiro), ou a uma
+transação desfeita se o caminho inteiro couber nela sem efeito fora do banco, ou vira fronteira. Erro classe A da
+própria checagem (a lista está na norma) entra nessa lista no mesmo ato, num PR do hub com `SHS-QUARENTENA` no
+título. Só sobra pedido quando a fronteira é só dele — credencial ou sessão só dele, gasto acima do teto, juízo
+humano; Meta, ação irreversível e mensagem a pessoa de fora não entram na checagem nem com o "sim" — ou quando o
+ambiente não alcança, e aí a sessão vai até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X;
+falta só Y, porque Z`). Não confundir com `!mirofish` (população sintética prevê **público**); SHS simula **o
+operador conferindo**.
 
 **Norma completa e skill** — no hub, não neste repositório:
 [`.claude/rules/simulacao-humana-sintetica.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/simulacao-humana-sintetica.md) e
