@@ -322,12 +322,14 @@ outra palavra (`rode !shs na prévia`).
    `EventSource` não passa por este bloco, mesmo listado: a busca espera o fim do corpo, e o fluxo aberto não acaba — o
    anterior
    esperava o prazo inteiro; o novo corta na hora, com `fluxo` no que foi cortado, e a página que depende dele se prova
-   por HTTP; o `fetch` que manda o corpo em fluxo (`ReadableStream`, com `duplex: 'half'`) também é cortado com `fluxo`,
+   por HTTP quando o fluxo acaba — o `curl` do bloco também espera o fim e, no fluxo sem fim, para no `MAX` com
+   `curl=28` (medido) —, ou vira fronteira; o `fetch` que manda o corpo em fluxo (`ReadableStream`, com `duplex:
+   'half'`) também é cortado com `fluxo`,
    porque o corpo não chega ao `route` e o navegador pergunta antes dele a outra origem — medido: sem o `route`, o
    Chromium mandou só o `OPTIONS`; o bloco anterior mandou o POST direto, de corpo vazio; o novo não manda nada —; e a
    resposta em fluxo lida pelo `fetch` (texto que chega aos poucos, sem fim) a busca espera inteira, até o prazo da
    rota, e reprova — medido: o navegador leu os cabeçalhos e o primeiro pedaço em menos de um segundo; o bloco, com o
-   prazo em 8 s, parou em `falhou em abrir a página (TimeoutError)` aos 8 s —, e essa página também se prova por HTTP);
+   prazo em 8 s, parou em `falhou em abrir a página (TimeoutError)` aos 8 s —, e essa página vai pelo mesmo caminho);
    `corpo`, quando o mesmo endereço recebe outras coisas, a condição sobre o
    campo que só o teste manda e não
    sobre um pedaço do texto; chamada que não é GET só entra com a condição que a liga a esta checagem — o código no
