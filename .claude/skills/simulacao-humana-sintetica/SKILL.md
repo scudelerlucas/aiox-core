@@ -56,14 +56,17 @@ outra palavra (`rode !shs na prévia`).
    (`PASSA` — método, endereço inteiro com a query e, quando o mesmo endereço recebe outras coisas, a condição do corpo;
    nunca prefixo nem host inteiro: `/api/quiz/` deixaria passar o `/api/quiz/analytics`, `/api/eventos` sem a query
    deixaria passar o `?modo=track`, e o host do banco que serve o dado também recebe o aviso de erro do site); todo o
-   resto aborta, GET do próprio domínio inclusive — o pixel próprio em `/collect.gif` é um GET de imagem como o logo.
-   Lista do que passa, e não do que se corta, porque a medição que ninguém listou é justamente a que escapa: o analytics
-   que o próprio domínio recebe num caminho gerado a cada build, o aviso de erro que a página manda ao banco, o pixel
-   novo. `context.route` pega abas novas e popups, que o `page.route` perde; o `routeWebSocket` fecha todo WebSocket (a
-   gravação de sessão vai por ele, e o `route` não o vê), e o Playwright anterior ao 1.48 não o tem: aí o bloco para
-   antes da primeira página; o WebRTC (vídeo, chamada, canal de dados) sai da página antes de ela abrir, porque o
-   tráfego dele também não passa pelo `route`. O que o caminho precisa e ficou de fora quebra o teste, que é o lado
-   seguro: o `CORTADO` mostra o quê (método, host e só o primeiro trecho do caminho — o resto e a query podem levar
+   resto aborta, GET do próprio domínio inclusive — o pixel próprio em `/collect.gif` é um GET de imagem como o logo. O
+   que passa, o próprio Playwright busca sem seguir redirecionamento (`route.fetch` com `maxRedirects: 0`), e um 3xx
+   aborta: o `route` só vê o primeiro endereço, e o redirecionamento que o navegador seguisse levaria a visita a um
+   destino fora da lista (medido: uma rota listada que mandava a um pixel de fora fez o pixel receber a visita; com o
+   3xx abortado, não). Lista do que passa, e não do que se corta, porque a medição que ninguém listou é justamente a que
+   escapa: o analytics que o próprio domínio recebe num caminho gerado a cada build, o aviso de erro que a página manda
+   ao banco, o pixel novo. `context.route` pega abas novas e popups, que o `page.route` perde; o `routeWebSocket` fecha
+   todo WebSocket (a gravação de sessão vai por ele, e o `route` não o vê), e o Playwright anterior ao 1.48 não o tem:
+   aí o bloco para antes da primeira página; o WebRTC (vídeo, chamada, canal de dados) sai da página antes de ela abrir,
+   porque o tráfego dele também não passa pelo `route`. O que o caminho precisa e ficou de fora quebra o teste, que é o
+   lado seguro: o `CORTADO` mostra o quê (método, host e só o primeiro trecho do caminho — o resto e a query podem levar
    token ou e-mail, como em `/magic-link/<token>` —), e entra em `PASSA` depois de lido no código e conferido que não é
    medição. O preflight do CORS das chamadas que passam, o Playwright responde sozinho, e o das que abortam não sai
    (medido com o Playwright 1.58: POST com JSON e PUT com cabeçalho próprio a outra origem, fora do `PASSA` — o servidor
@@ -85,7 +88,8 @@ outra palavra (`rode !shs na prévia`).
    outro processo da máquina lê (`ps`): URL assinada vem de variável já carregada no ambiente (`URL="$ROTA_ASSINADA"`),
    cabeçalho com chave também (`CAB="x-api-key: $CHAVE"`, com aspas duplas, para o comando guardar o nome e não o
    valor), e os dois entram no `curl` pelo stdin (`-K -`), montados pelo `printf`, que é do próprio shell e não vira
-   processo, com aspas e barra escapadas e recusados se tiverem quebra de linha — senão uma URL com `"` e quebra de
+   processo, com aspas e barra escapadas e recusados se tiverem quebra de linha, e a URL só `https://` (o `http://` só
+   vale para `127.0.0.1` e `localhost`, porque chave e senha iriam em texto aberto) — senão uma URL com `"` e quebra de
    linha vira outra instrução para o `curl` (medido: um `upload-file = /etc/hostname` escondido na URL mandou o arquivo
    da máquina ao servidor) —; o rastreio do shell (`set -x`) se desliga antes de tudo, porque ele imprime o comando com
    a credencial já expandida; o corpo, que pode levar senha ou token, vai por um arquivo temporário que só o dono lê
@@ -142,7 +146,7 @@ outra palavra (`rode !shs na prévia`).
    CAB=''                 # chave: CAB="x-api-key: $CHAVE" — a variável, nunca o valor; vai pelo stdin
    ( f=$(mktemp); c=$(mktemp); trap 'rm -f "$f" "$c"' EXIT
      case "$URL$CAB" in *[[:cntrl:]]*) echo 'URL ou CAB com quebra de linha'; exit 1;; esac
-     case "$URL" in http://*|https://*) ;; *) echo 'URL sem http(s)://'; exit 1;; esac
+     case "$URL" in https://*|http://127.0.0.1[:/]*|http://localhost[:/]*) ;; *) echo 'só https:// (http só local)'; exit 1;; esac
      e() { local s=${1//\\/\\\\}; printf '"%s"' "${s//\"/\\\"}"; }   # aspas e barra escapadas para o -K
      [ -n "$CORPO" ] && { printf '%s' "$CORPO" > "$c"; EXTRA+=(--data-binary "@$c"); }
      ulimit -f 5000; ulimit -c 0    # depois do corpo gravado; sem core dump, que guardaria a credencial
@@ -157,20 +161,22 @@ outra palavra (`rode !shs na prévia`).
    const N = s => { const x = new URL(s); x.hash = ''; return x.href; };   // endereço inteiro, com a query, sem o #
    const SITE = new URL(ALVO).origin, PAGINA = N(ALVO);
    const ESTATICO = [`${SITE}/_next/static/`];       // pasta dos arquivos do build (Next.js; outro framework, a dele), só GET
-   const PASSA = [['POST', `${SITE}/api/quiz/score`, c => c.includes('[shs]')]];  // o resto do caminho: método, endereço
-                                                      // inteiro (com a query) e, se o endereço recebe outras coisas, o corpo
+   const PASSA = [['POST', `${SITE}/api/quiz/score`]];  // o resto do caminho: método e endereço inteiro, com a query;
+   // endereço que também recebe outra coisa ganha a condição do corpo: [m, url, c => c.includes('<só o teste manda>')]
    const CORTADO = [];                                // o que abortou (método, host e o 1º trecho do caminho), para conferir
    const ctx = await browser.newContext({ serviceWorkers: 'block' });   // antes de qualquer página
    await ctx.addInitScript(() => { for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection'])
      Object.defineProperty(window, k, { value: undefined }); });   // sem WebRTC: o tráfego dele não passa pelo route
-   await ctx.route('**/*', r => {                     // passa só o que o caminho precisa; todo o resto aborta
+   await ctx.route('**/*', async r => {               // passa só o que o caminho precisa; todo o resto aborta
      const q = r.request(), u = N(q.url()), m = q.method(), c = q.postData() ?? '';
      const ok = (m === 'GET' && q.resourceType() === 'document' && u === PAGINA)
        || (m === 'GET' && ESTATICO.some(p => u.startsWith(p)))
        || PASSA.some(([pm, pu, corpo = () => true]) => m === pm && N(pu) === u && corpo(c));
-     if (ok) return r.continue();
-     const { origin, pathname } = new URL(u), [, s1 = ''] = pathname.split('/');   // só o 1º trecho: o resto pode ser token
-     CORTADO.push(`${m} ${origin}/${/@|^.{25,}$/.test(s1) ? '…' : s1}${pathname.split('/').length > 2 ? '/…' : ''}`); return r.abort();
+     const resp = ok ? await r.fetch({ maxRedirects: 0 }).catch(() => null) : null;   // o route só vê o 1º endereço:
+     if (resp && (resp.status() < 300 || resp.status() > 399)) return r.fulfill({ response: resp });   // 3xx aborta
+     const { origin, pathname } = new URL(u), [, s1 = '', ...resto] = pathname.split('/');   // o resto pode ser token
+     CORTADO.push(`${resp ? '3xx ' : ''}${m} ${origin}/${/@|^.{25,}$/.test(s1) ? '…' : s1}${resto.length ? '/…' : ''}`);
+     return r.abort();
    });
    if (typeof ctx.routeWebSocket !== 'function') throw new Error('Playwright < 1.48: sem como cortar WebSocket');
    await ctx.routeWebSocket(/.*/, ws => ws.close());  // nenhum WebSocket abre: gravação de sessão vai por ele
@@ -261,4 +267,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 08:22 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
+🕒 2026-10-14 08:27 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
