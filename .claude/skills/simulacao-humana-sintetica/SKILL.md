@@ -39,35 +39,37 @@ outra palavra (`rode !shs na prévia`).
    (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
    print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
-   arquivo fora do repositório; em produção, antes de abrir a página, cortar as chamadas de medição de terceiros
-   (`page.route` abortando `connect.facebook.net`, `facebook.com/tr`, `google-analytics.com`, `googletagmanager.com`,
-   `clarity.ms`, `hotjar.com` e o que mais a página carregar para medir visita), porque a visita sintética não pode
-   virar evento na Meta nem sujar a métrica da campanha — sem como cortar, só na prévia isolada; (b) HTTP na rota, com
-   o bloco abaixo — `URL` recebe a rota da prévia ou da produção, e `.status == "ok"` dá lugar à condição de sucesso
-   daquela rota (o valor certo, não só o campo presente). O que cada peça evita: o `( … )` dá a cada checagem o seu
-   arquivo e a sua limpeza, mesmo com várias no mesmo terminal; `--fail-with-body` faz 4xx/5xx sair com erro (senão um
-   500 com JSON passaria) e guarda o corpo; `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o
-   prazo da própria rota (o `maxDuration` dela; 30 s se ela não declarar), para não reprovar rota lenta que está
-   dentro do prazo; `jq -e` faz a condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na
-   falha, antes de apagar, sai do corpo só o código ou a mensagem de erro, com URL, e-mail e sequência longa (cara de
-   token) trocados por marcador e cortada em 120 caracteres — tamanho não é limpeza —, para a seção `🧪` mostrar o
-   trecho sem dado sensível. O corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho,
-   nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial; (c) leitura/escrita no
-   banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se
-   desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui
-   chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele
-   prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel
-   no próprio PR.
+   arquivo fora do repositório; em produção, antes de abrir a página, criar o contexto do navegador com
+   `serviceWorkers: 'block'` (o `page.route` não vê o que um service worker manda) e cortar as chamadas de medição de
+   terceiros (`page.route` abortando `connect.facebook.net`, `facebook.com/tr`, `google-analytics.com`,
+   `googletagmanager.com`, `clarity.ms`, `hotjar.com` e o que mais a página carregar para medir visita), porque a
+   visita sintética não pode virar evento na Meta nem sujar a métrica da campanha — sem como cortar, só na prévia
+   isolada; (b) HTTP na rota, com o bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método
+   e o corpo quando a rota não é GET (um POST testado com GET dá 405 e reprova à toa), e o corpo leva o dado de teste
+   marcado `shs`; `.status == "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o campo
+   presente). O que cada peça evita: o `( … )` dá a cada checagem o seu arquivo e a sua limpeza, mesmo com várias no
+   mesmo terminal; `--fail-with-body` faz 4xx/5xx sair com erro (senão um 500 com JSON passaria) e guarda o corpo;
+   `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o prazo da própria rota (o `maxDuration`
+   dela; sem ele, o da hospedagem — na Vercel, 300 s), para não reprovar rota lenta que está dentro do prazo; `jq -e`
+   faz a condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha, sai do corpo só o
+   código de erro (`.code` ou `.error.code`, e só se for um código curto de letras, números, `_`, `.` e `-`); a
+   mensagem livre não sai, porque nenhuma limpeza garante que ela não traz segredo — fica no arquivo, que se apaga, e
+   o diagnóstico segue pelo log do servidor. O corpo fica fora do repositório e fora do chat: dele sai só o campo que
+   prova o caminho, nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial; (c)
+   leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK
+   …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não
+   substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui
+   (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o
+   link da Vercel no próprio PR.
 
    ```bash
    URL='https://…/rota'   # a rota da prévia ou da produção
-   MAX=30                 # o prazo da própria rota (o maxDuration dela); 30 s se ela não declarar
+   MAX=300                # o prazo da própria rota (o maxDuration dela); sem ele, o da hospedagem (Vercel: 300 s)
+   EXTRA=()               # rota POST: EXTRA=(-X POST -H 'Content-Type: application/json' --data '{"campo":"[shs] …"}')
    ( f=$(mktemp); trap 'rm -f "$f"' EXIT
-     curl -sS -L --fail-with-body --max-time "$MAX" -o "$f" -w '%{http_code} %{time_total}\n' "$URL" \
+     curl -sS -L --fail-with-body --max-time "$MAX" "${EXTRA[@]}" -o "$f" -w '%{http_code} %{time_total}\n' "$URL" \
        && jq -e '.status == "ok"' "$f" \
-       || { jq -r '(.code? // (.error|objects|.code)? // (.error|strings)? // (.message|strings)? // empty) | tostring' "$f" 2>/dev/null \
-              | sed -E 's#https?://[^[:space:]"]+#<url>#g; s/[[:alnum:]._%+-]+@[[:alnum:].-]+/<email>/g; s/[[:alnum:]_.=-]{20,}/<segredo>/g' \
-              | head -c 120; echo; exit 1; } )
+       || { jq -r '[.code?, (.error|objects|.code)?] | map(select(type == "string" or type == "number") | tostring | select(test("^[A-Za-z0-9_.-]{1,40}$"))) | first // empty' "$f" 2>/dev/null; exit 1; } )
    ```
 
 3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
@@ -104,7 +106,7 @@ outra palavra (`rode !shs na prévia`).
 - **Veredito:** passa — a reserva atômica está no ar; nenhum 503.
 - **Dado de teste:** linha apagada (`delete … where id = …`); custo US$ 0,03.
 ```
-Falhou? A seção mostra o erro medido (status, trecho) e o diagnóstico começa na mesma resposta — a falha é da sessão
+Falhou? A seção mostra o erro medido (status e código de erro, nunca a mensagem livre) e o diagnóstico começa na mesma resposta — a falha é da sessão
 resolver, não do Lucas reportar.
 
 ## 5. Personas da casa (ponto de partida; a sessão descobre o caminho no repositório, nunca inventa URL)
@@ -134,4 +136,4 @@ não "testa" com dinheiro real acima do teto · não substitui o campo (`!mirofi
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 05:59 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 06:07 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
