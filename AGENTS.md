@@ -235,29 +235,31 @@ e quebrado: teste A, e só então escolha. Norma completa, no hub:
 
 Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**: *"Sempre que for me pedir para checar
 algo, vc já checa antes e me tira esse trabalho."* Antes de terminar uma resposta com *confira, teste, abra e veja,
-gere um e me avise, pronto quando você…*, a sessão **vira o humano** e faz a checagem no lugar dele — assume a persona
-(ele no painel, o visitante da página, o lead do quiz), percorre o **caminho real** (HTTP na prévia ou na produção,
-navegador sem tela, rota, banco, script) com a credencial que a persona teria (nunca chave de servidor, que pula login
-e regras de acesso) e relata o **medido** numa seção `🧪 Checagem sintética` (persona · caminho · evidência · veredito
-· dado de teste recolhido · custo). Com as mesmas travas do humano: nada irreversível (fora apagar ao fim o dado de
-teste que a própria checagem criou, achado pelo código dela), dinheiro só até US$ 0,50 por checagem e US$ 2,00 por dia
-em cada chat (acima, pergunta antes, com o número), nada na Meta, nada a pessoa de fora da casa, nada publicado, nada
-em conta de cliente; navegador, prévia inclusive, só com toda a medição de visita cortada no contexto antes da
-primeira página (pixel da Meta, analytics de terceiros e do próprio domínio, como `/_vercel/insights`, gravação de
-sessão), e nenhum caminho (navegador ou HTTP, prévia ou produção) que dispare evento pelo próprio servidor, salvo numa
-prévia provada sem essas credenciais; credencial nunca escrita no comando, que fica no histórico (vem de variável já
-carregada no ambiente); persona com erro classe A nos últimos 30 dias (lista vigente em
+gere um e me avise, pronto quando você…*, a sessão **vira o humano** e faz a checagem no lugar dele — assume a
+persona (ele no painel, o visitante da página, o lead do quiz), percorre o **caminho real** (HTTP na prévia ou na
+produção, navegador sem tela, rota, banco, script) com a credencial que a persona teria (nunca chave de servidor, que
+pula login e regras de acesso) e relata o **medido** numa seção `🧪 Checagem sintética` (persona · caminho · evidência
+· veredito · dado de teste recolhido · custo). Com as mesmas travas do humano: nada irreversível (fora apagar ao fim
+o dado de teste que a própria checagem criou, achado pelo código dela), dinheiro só até US$ 0,50 por checagem e
+US$ 2,00 por dia em cada chat (acima, pergunta antes, com o número), nada na Meta, nada a pessoa de fora da casa,
+nada publicado, nada em conta de cliente; navegador, prévia inclusive, só com o contexto deixando passar, antes da
+primeira página, o que o caminho testado precisa e mais nada (pixel da Meta, analytics de terceiros e do próprio
+domínio, aviso de erro, gravação de sessão: tudo cortado), e print só do elemento do teste, nunca da tela inteira;
+nenhum caminho (navegador ou HTTP, prévia ou produção) que dispare evento pelo próprio servidor, salvo numa prévia
+provada sem essas credenciais; credencial nunca escrita no comando, que fica no histórico, nem passada como
+argumento, que outro processo lê (vem de variável já carregada no ambiente e entra pelo stdin); persona com erro
+classe A nos últimos 30 dias (lista vigente em
 [`docs/ops/SHS-QUARENTENA.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/SHS-QUARENTENA.md),
 lida na `main` do hub no GitHub, mais os PRs abertos do hub com `SHS-QUARENTENA` no título) pede o "sim" do Lucas
 antes, e sem como ler essa lista também; dado de teste marcado `shs` com o código da checagem e apagado ao fim só por
 esse código, depois do que o fluxo grava mais tarde (`after()`, fila, webhook), com as linhas desse código
 reconferidas — sem como apagar em produção tudo o que o caminho grava, telemetria interna (`agent_metrics`, eventos)
 inclusive, a escrita vai a uma prévia comprovadamente isolada (que não alcança produção nem terceiro), ou a uma
-transação desfeita se o caminho inteiro couber nela, ou vira fronteira. Só sobra pedido quando a fronteira é só dele —
-credencial ou sessão só dele, gasto acima do teto, juízo humano; Meta, ação irreversível e mensagem a pessoa de fora
-não entram na checagem nem com o "sim" — ou quando o ambiente não alcança, e aí a sessão vai até a borda e pede **um
-passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não confundir com `!mirofish` (população
-sintética prevê **público**); SHS simula **o operador conferindo**.
+transação desfeita se o caminho inteiro couber nela, ou vira fronteira. Só sobra pedido quando a fronteira é só dele
+— credencial ou sessão só dele, gasto acima do teto, juízo humano; Meta, ação irreversível e mensagem a pessoa de
+fora não entram na checagem nem com o "sim" — ou quando o ambiente não alcança, e aí a sessão vai até a borda e pede
+**um passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não confundir com `!mirofish`
+(população sintética prevê **público**); SHS simula **o operador conferindo**.
 
 **Norma completa e skill** — no hub, não neste repositório:
 [`.claude/rules/simulacao-humana-sintetica.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/simulacao-humana-sintetica.md) e
