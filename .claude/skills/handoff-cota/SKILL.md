@@ -32,7 +32,7 @@ antes de usar). Sem evento nenhum → "sem leitura" (não é zero); fora da nuve
 Remote) → a skill vale só sob demanda, e a mão 2 cobre.
 
 ## 3. O que escrever — um arquivo, autocontido
-Caminho: `docs/ops/HANDOFF-COTA/<conta>--<AAAA-MM-DD da renovação da semana>/chats/<AAAA-MM-DD>--<8 últimos do id>--<slug>.md`
+Caminho: `docs/ops/HANDOFF-COTA/<conta>--<AAAA-MM-DD da renovação da semana>/chats/<AAAA-MM-DD>--<8 últimos do id>.md` (sem o título no nome: o caminho fica no git para sempre)
 (`<conta>` = nome antes do `@`; a data é a do `resetsAt` da janela `seven_day`, em São Paulo; a data do arquivo é a de
 hoje; o slug são 2–4 palavras do tema). Arquivo já existe para este chat → substituir. Formato (o mesmo dos 125 de 12/10 e
 dos 71 de 09/10, que a outra conta já retomou):
@@ -68,7 +68,7 @@ Régua: o Lucas-leigo lê uma vez e retoma sem reler o chat. Links de PR com rep
    branch da sessão. A camada `REPOS.md` do vigia lista a branch; a memória compartilhada também o lê.
 
 ## 5. Travas
-- **Nunca** segredo, token, senha, chave, nem dado de cliente além do nome e do que já está no repositório. Antes do commit:
+- **Nunca** segredo, token, senha, chave, nem dado de cliente: pessoa que não é o Lucas (cliente, membro, equipe) vira **iniciais** no arquivo inteiro, título incluído. Antes do commit:
   `grep -nE '(sk-|eyJ[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{12,}|-----BEGIN|password=|senha:)' <arquivo>` tem de voltar vazio.
 - O handoff descreve; não executa nada: não mergeia, não arquiva, não interrompe, não mexe na Meta, não manda mensagem
   a pessoa de fora.
