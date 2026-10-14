@@ -64,6 +64,7 @@ outra palavra (`rode !shs na prévia`).
 
    ```sql
    begin; set local search_path to pg_catalog, pg_temp;   -- caminho fixo: nada de outro esquema passa por catálogo
+   set local lock_timeout = '5s'; set local statement_timeout = '60s';   -- tabela travada ou catálogo enorme: para
    select 1 / (current_setting('standard_conforming_strings'::text) = 'on'::text   -- a barra das regex chega inteira
      and not exists (select from pg_proc where pronamespace = 11::oid and oid >= 16384::oid)   -- nada posto no
      and not exists (select from pg_operator where oprnamespace = 11::oid and oid >= 16384::oid)   -- catálogo,
@@ -83,9 +84,18 @@ outra palavra (`rode !shs na prévia`).
      from pg_proc p),
    chamadas(nome) as (values (null::name)),   -- a função que a rota chama direto: (values ('f'), ('g'))
    grava(rel) as (values (null::regclass)),   -- a tabela que a rota grava: (values ('public.leads'::regclass))
-   gr as (select oid from pg_class where oid in (select rel from grava)   -- sem ela (o null), toda tabela conta
-     or exists (select from grava where rel is null)),
+   filha(pai, oid) as (select confrelid, conrelid from pg_constraint where contype = 'f'   -- a chave estrangeira
+     and (confdeltype in ('c', 'n', 'd') or confupdtype in ('c', 'n', 'd'))   -- que apaga ou muda a filha junto
+     union all select inhparent, inhrelid from pg_inherits   -- a partição e a tabela herdeira
+     union all select w.ev_class, d.refobjid from pg_rewrite w join pg_depend d on d.classid = 'pg_rewrite'::regclass
+     and d.objid = w.oid and d.refclassid = 'pg_class'::regclass where w.rulename = '_RETURN'),   -- e a da visão
+   gr(oid) as (select oid from pg_class where oid in (select rel from grava)   -- sem ela (o null), toda tabela conta
+     or exists (select from grava where rel is null) union select h.oid from gr join filha h on h.pai = gr.oid),
    papel(nome) as (values (current_user::text)),   -- o papel da rota, além deste: (values ('anon'), ('authenticated'))
+   lg(k) as (values ('log_statement'), ('log_min_duration_statement'), ('log_min_duration_sample'),   -- o que põe o
+     ('log_transaction_sample_rate'), ('pgaudit.log'), ('pgaudit.role'), ('auto_explain.log_min_duration'),   -- texto
+     ('debug_print_parse'), ('debug_print_rewritten'), ('debug_print_plan'), ('log_parser_stats'),   -- no log (o
+     ('log_planner_stats'), ('log_executor_stats'), ('log_statement_stats')),   -- log_min_messages = fatal, não)
    seguras(x) as (values ('plpgsql'), ('pgcrypto'), ('uuid-ossp'), ('pg_stat_statements'), ('supabase_vault'),
      ('pgsodium'), ('pg_graphql'), ('pgjwt'), ('pg_trgm'), ('unaccent'), ('citext'), ('vector')),
    u as (select * from f where oid >= 16384 and ext is null),   -- 16384: o 1º objeto que não vem do initdb
@@ -104,14 +114,16 @@ outra palavra (`rode !shs na prévia`).
    semente as (select oid, nome, re from f where oid >= 16384 and (t ~* ('notify|emit_message|\mexecute\M|'
      || '\mcopy\M|net\.|http|dblink|cron\.|pgmq|lo_export|lo_import|_backend|nextval|setval|advisory|'
      || 'replication_(slot|origin)|logical_slot_|\mraise\M(?!\s+exception\M)(?!\s*;)|'
-     || '\m(insert|update|delete|merge|truncate)\M|\m(create|alter|drop)\s+(or\s+replace\s+|temp\w*\s+|unlogged\s+|'
-     || 'unique\s+)?(table|index|view|materialized|function|procedure|trigger|schema|type|role|user|group|policy|'
+     || '\m(insert|update|delete|merge|truncate)\M|\m(create|alter|drop)\s+((or\s+replace|global|local|temp\w*|'
+     || 'unlogged|unique|recursive|constraint|trusted|procedural|default)\s+)*(table|index|view|materialized|function|'
+     || 'procedure|trigger|schema|type|role|user|group|policy|'
      || 'extension|sequence|event|publication|subscription|server|foreign|domain|rule|aggregate|operator|cast|'
      || 'database|statistics|collation|conversion|text|transform|access|language|tablespace)\M|\mrefresh\s+'
      || 'materialized\M|\m(grant|revoke|vacuum|reindex|cluster|checkpoint|load)\M|\mcomment\s+on\M|'
-     || '\mimport\s+foreign\M|\msecurity\s+label\M|\mreassign\s+owned\M|\mset_config\s*\([^;]*\mfalse\M|'
-     || '\mset\s+(session\s+)?(?!local\M)[\w."]+\s*(=|\mto\M)|\mset\s+(session\s+)?role\M|'   -- a conexão
-     || '\mreset\s+(all|role|session)\M|\mdiscard\s+all\M')   -- volta ao pool mudada
+     || '\mimport\s+foreign\M|\msecurity\s+label\M|\mreassign\s+owned\M|'
+     || '\mset\s+(session\s+)?(?!local\M)[\w."]+\s*(=|\mto\M)|\mset\s+(session\s+)?(role|schema|names|time\s+'
+     || 'zone|xml\s+option|session\s+authorization|characteristics)\M|'   -- a conexão volta ao pool mudada
+     || '\mreset\s+(all|role|session|[\w."]+\s*(;|$))|\mdiscard\s+(all|plans|sequences|temp\w*)\M')
      or ext not in (select x from seguras) or ext is null and prokind <> 'a' and prolang not in (select oid
      from pg_language where lanname in ('sql', 'plpgsql'))) or oid < 16384 and provolatile = 'v' and concedida
      or (oid < 16384 or ext is not null) and nome ~ ('^(pg_notify|pg_logical_emit_message|lo_(creat|create|put|unlink|'
@@ -120,7 +132,7 @@ outra palavra (`rode !shs na prévia`).
      || 'pg_promote|pg_rotate_logfile|pg_create_restore_point|pg_log_backend_memory_contexts|pg_\w*replication_(slot|'
      || 'origin)\w*|pg_logical_slot_\w+|pg_stat\w*_reset\w*|pg_backup_(start|stop)|pg_wal_replay_(pause|resume)|'
      || 'pg_read_(binary_)?file|pg_ls_\w+|pg_stat_file|brin_(de)?summarize\w*|gin_clean_pending_list|(query|'
-     || 'cursor)_to_xml\w*|pg_export_snapshot|pg_import_system_collations|pg_file_\w+)$')),
+     || 'cursor)_to_xml\w*|pg_export_snapshot|pg_import_system_collations|pg_file_\w+|set_config|setseed)$')),
    alcance(oid, nome, re) as (select * from semente union select g.oid, g.nome, g.re from f g, alcance a
      where g.oid >= 16384 and (g.t ~* a.re
      or exists (select 1 from pg_aggregate ag where ag.aggfnoid = g.oid and a.oid in (ag.aggtransfn, ag.aggfinalfn,
@@ -157,9 +169,14 @@ outra palavra (`rode !shs na prévia`).
      + (select count(*) from unnest(array['debug_print_parse', 'debug_print_rewritten', 'debug_print_plan',
      'log_parser_stats', 'log_planner_stats', 'log_executor_stats', 'log_statement_stats']) g
      where current_setting(g) = 'on')   -- a árvore da consulta e a estatística, com o texto
-     + (select count(*) from pg_db_role_setting, unnest(setconfig) c where c ~* ('^(log_|debug_print|pgaudit\.|'
-     || 'auto_explain\.)') and lower(split_part(c, '=', 2)) not in ('none', '-1', 'off', '0', 'false', ''))
-     as registro,   -- o que um papel ou um banco liga só para si (alter role … set log_statement)
+     + (select count(*) from (select unnest(setconfig) from pg_db_role_setting union all select unnest(proconfig)
+     from pg_proc) z(c) where lower(split_part(c, '=', 1)) in (select k from lg)   -- o que um papel, um banco ou uma
+     and lower(split_part(c, '=', 2)) not in ('none', '-1', 'off', '0', 'false', ''))   -- função liga para si
+     + (select count(*) from ut where t ~* ('\mset\s+(local\s+|session\s+)?"?(log_statement|log_min_duration_\w+|'
+     || 'log_transaction_sample_rate|pgaudit\.(log|role)|auto_explain\.log_min_duration|debug_print_\w+|log_\w+_stats)'
+     || '\M|\mset_config\s*\(\s*(?!''(?!(log_statement|log_min_duration_\w+|log_transaction_sample_rate|pgaudit\.'
+     || '(log|role)|auto_explain\.log_min_duration|debug_print_\w+|log_\w+_stats)''))'))   -- e o SET, o SET LOCAL e o
+     as registro,   -- set_config de dentro dela, e o set_config de nome que não se lê
      exists (select from papel where nome not in (select rolname from pg_roles))   -- o nome errado reprova
      or exists (select from pg_roles r where (r.rolname = current_user or r.rolname in (select nome from papel))
      and r.oid in (select oid from priv)) or exists (select 1 from u where prosecdef and proowner in (select oid
@@ -189,8 +206,11 @@ outra palavra (`rode !shs na prévia`).
    commit;
    ```
 
-   O censo vai numa chamada só, do `begin` ao `commit`, com o caminho de busca fixo no catálogo (`set local search_path
-   to pg_catalog, pg_temp`): o papel que põe outro esquema antes do `pg_catalog` fazia o `count`, o `concat` e os outros
+   O censo vai numa chamada só, do `begin` ao `commit`, com prazo — 5 s para esperar uma trava e 60 s para tudo, porque
+   a tabela travada por um `alter table` em produção fazia o censo esperar sem fim (medido num Postgres 16 local: o
+   censo da 46 ficou parado até ser morto aos 15 s; o novo parou com `lock timeout` em 5 s, e sem os números nada segue)
+   — e com o caminho de busca fixo no catálogo (`set local search_path to pg_catalog, pg_temp`): o papel que põe outro
+   esquema antes do `pg_catalog` fazia o `count`, o `concat` e os outros
    nomes do censo chamarem as funções dele (medido num Postgres 16 local, com funções-sombra em `public` que anotam cada
    chamada: o censo da rodada 44 as chamou 3.298 vezes; o novo, nenhuma). Antes dele, no mesmo `begin`, uma conta divide
    por zero — e nada segue — se o `standard_conforming_strings` está desligado (a barra das expressões regulares some
@@ -205,13 +225,19 @@ outra palavra (`rode !shs na prévia`).
    de tabela externa…). `externo`, `publicado` e `replicacao`: servidor externo, tabela publicada, fila de
    replicação. `login`: gatilho que roda a cada conexão (Postgres 17) — acima de zero, a conexão do próprio censo já
    o disparou, e nenhum caminho segue nesse banco; por isso ele se procura antes, nas migrações do repositório, no
-   arquivo inteiro e não linha a linha (`find supabase/migrations -type f -exec perl -0777 -ne 'print "$ARGV\n" if
-   /event\s+trigger\b[^;]*?\bon\s+login\b/i' {} +`, com o Perl, que vem no Linux e no Mac, e não o `grep -P`, que no Mac
+   arquivo inteiro e não linha a linha (`find supabase/migrations -type f -exec perl -0777 -ne '$r = $_;
+   s{/\*.*?\*/}{ }gs; s{--[^\n]*}{ }g; print "$ARGV\n" if grep {
+   /event\s+trigger\b[^;]*?\bon\s+(login\b|"login")/i } ($r, $_)' {} +`, com o Perl, que vem no Linux e no Mac, e não o
+   `grep -P`, que no Mac
    não existe: o `create event trigger … on login` quebrado em quatro linhas escapava da busca anterior, por linha, e
    desta não — medido; e as duas palavras na mesma instrução, porque o gatilho de DDL comum, `on ddl_command_end`,
    acendia a busca da 45 e o banco virava fronteira sem gatilho de login nenhum: medido, a busca da 45 achou o
    gatilho de DDL e o comentário que só cita as palavras; a nova, só os dois de login, o de uma linha e o quebrado em
-   cinco), e com um,
+   cinco; e o arquivo se olha duas vezes, com e sem os comentários, porque o comentário entre as palavras — `create
+   event /* nota */ trigger`, o `-- …` no meio, o `;` dentro de um `/* */` — e o `"login"` entre aspas escapavam da
+   busca da 46: medido, dos quatro, a da 46 não achou nenhum e a nova os quatro; o gatilho de DDL e o arquivo sem
+   gatilho seguem de fora, e o texto que cita a instrução inteira num comentário ou num texto ainda acende, que é o lado
+   seguro), e com um,
    ou sem as migrações, o banco de produção que esta sessão ainda não abriu vira fronteira antes da primeira conexão (no
    banco da casa, as conexões desta sessão mediram zero, e as migrações do hub, do quiz-diagnosys e do vsl-mastery não
    têm nenhum, na busca nova também); o gatilho criado fora das migrações — à mão, no painel — a busca não vê, e a
@@ -254,8 +280,14 @@ outra palavra (`rode !shs na prévia`).
    amostra `log_min_duration_sample` com `log_statement_sample_rate` acima de zero, `log_transaction_sample_rate`,
    `pgaudit.log`, `pgaudit.role`, `auto_explain.log_min_duration`, e a árvore e a estatística da consulta —
    `debug_print_parse`, `debug_print_rewritten`, `debug_print_plan` e os quatro `log_*_stats` —, que vão ao log com o
-   texto) ou que um papel ou um banco liga só para si (`alter role … set log_statement = 'all'`, que a conexão do censo
-   não vê e a da rota sim), porque o log guarda os valores do teste depois do `rollback`. `programa`: se o papel desta
+   texto) ou que um papel, um banco ou uma função liga só para si (`alter role … set log_statement = 'all'`, que a
+   conexão do censo não vê e a da rota sim; o `set` da própria função, `create function … set debug_print_parse = on`; e
+   o `set local` e o `set_config` de dentro dela, e o `set_config` de nome que não se lê, uma variável: medido, os
+   quatro jeitos da função passavam no censo da 46, e o novo dá `registro` 1 em cada; o `set_config('app.x', …, true)`
+   segue zero), porque o log guarda os valores do teste depois do `rollback`; a conta é pelos nomes que põem o texto no
+   log, e não por todo nome que começa com `log_`: o `log_min_messages = fatal` de uma função do `realtime`, no banco da
+   casa, diminui o log e não conta (medido: posto na função e no papel, o do papel o censo da 46 contava; o novo não
+   conta nenhum dos dois). `programa`: se o papel desta
    conexão ou o da rota — posto na lista `papel` do censo (`anon`, `authenticated`), porque o MCP entra como outro
    papel; o nome que não existe reprova —, ou o dono de uma função `security definer` que alguém alcança (um desses
    papéis pode chamá-la, ou um gatilho, política ou visão
@@ -267,8 +299,16 @@ outra palavra (`rode !shs na prévia`).
    não se desfaz, manda mensagem, grava ou muda o esquema (`insert`, `update`, `delete`, e o DDL — `create`, `alter`,
    `drop`, `refresh materialized view`, `grant` —: a política que conta acesso grava a cada leitura, a gravação dispara
    o gatilho da tabela, e o DDL fica no `commit` da leitura), que muda a conexão, que volta assim ao pool para o próximo
-   (`set_config(…, false)`, `set` sem `local`, `set role`, `reset all`, `discard all`: medido, a visão que chama uma
-   função com `set_config(…, false)` ou `set search_path` passava no censo da 45; o novo dá `leitura` 2), a uma de
+   (o `set_config` e o `setseed`, que valem pelo resto da sessão, entram pelo nome, como as do catálogo abaixo — o
+   `set_config` com o terceiro argumento que for, porque `1 = 0` ou uma variável também dão falso e um comentário com
+   `;` no meio quebrava a busca do texto; o com `true`, que só vale na transação, conta também, porque o censo não prova
+   o literal —, `set` sem `local`, `set role`, `set schema`, `set names`, `set time zone`, `reset` de um nome ou de tudo
+   e `discard`: medido, a visão que chama o `set_config(…, false)` ou o `setseed` direto e a função com `set_config(…, 1
+   = 0)`, com `/* ; */` no meio, com `reset search_path`, `set schema`, `set time zone` ou `set names` passavam no censo
+   da 46, e o novo dá `leitura` acima de zero em cada; o comentário que diz `reset the counter` segue zero; no banco da
+   casa, a única função com `set_config` não é alcançada por visão nem política, e `leitura` segue zero), e o DDL com
+   modificador antes do objeto (`create global temporary table`, `create local temp table`, `create constraint trigger`:
+   medido, a visão que chama a função que cria o temporário assim passava no censo da 46), a uma de
    extensão fora da lista segura (`cron.schedule`,
    `pgmq.send`) ou a uma do
    catálogo que faz isso, pelo nome (`pg_notify`, `lo_create`, `pg_logical_slot_get_changes`, `pg_read_file`,
@@ -288,7 +328,16 @@ outra palavra (`rode !shs na prévia`).
    tabela que a rota grava, posta na lista `grava` do censo — o gatilho cuja função está no alcance (grava em outra
    tabela, muda o esquema, avisa), a regra (`do also`) e o valor padrão, o `CHECK` e a política dela que chegam a uma
    função assim —, porque a linha que o gatilho de auditoria grava noutra tabela não leva a marca do teste, e o
-   recolhimento não a acha; sem `grava` (o `null`), conta toda tabela do banco (medido: o gatilho que grava noutra
+   recolhimento não a acha; com ela, conta também o que a gravação alcança, até o fim da cadeia: a tabela filha da chave
+   estrangeira que apaga ou muda junto (`on delete`/`on update` com `cascade`, `set null` ou `set default`), a partição
+   e a herdeira, e a tabela por baixo da visão gravada (medido: o gatilho de auditoria na filha da cascata, na neta, na
+   filha do `set null`, na partição, na herdeira e na tabela de baixo da visão, e o padrão da filha que grava, passavam
+   a gravação no censo da 46 com a tabela de cima em `grava`; o novo dá `gatilho` 1 em cada; com `on delete restrict`,
+   que não mexe na filha, e com a filha que só tem gatilho comum, segue zero); o operador e a conversão de tipo que
+   levam a uma função assim já reprovam a gravação pela `leitura`, que o veredito de gravar também pede em zero (medido:
+   com a tabela em `grava`, o padrão, o `CHECK` e a política que usam um operador cuja função grava na auditoria, e o
+   padrão com uma conversão de tipo assim, reprovam a gravação nos censos da 46 e da 47); sem `grava` (o `null`), conta
+   toda tabela do banco (medido: o gatilho que grava noutra
    tabela, o que cria tabela e a regra `do also insert` passavam a gravação no censo da 45; o novo dá `gatilho` 1, e 0
    quando a rota grava a outra tabela; o gatilho comum, que só mexe no `new`, segue zero; no banco da casa, sem `grava`,
    `gatilho` = 49).
@@ -491,7 +540,10 @@ outra palavra (`rode !shs na prévia`).
    `status`, `erro`, `sem tipo`; e `desistiu`, que só reprova na entrada da lista sem `opcional`, como `não houve`), e
    sai
    na própria mensagem de erro, até 10 linhas diferentes, para o teste que falhou dizer o que faltou —, e entra em
-   `PASSA` depois de lido no código e conferido que não é medição. O preflight do CORS, o Playwright responde sozinho, e
+   `PASSA` depois de lido no código e conferido que não é medição. O nome do erro que sai junto é de uma lista fechada
+   (`Error`, `TypeError`, `TimeoutError`…), porque é texto que o código pode escolher (medido: o erro que a página joga
+   com nome próprio no `page.evaluate` chega ao Node como `Error`; a lista fecha o que o teste e as condições da lista
+   jogarem). O preflight do CORS, o Playwright responde sozinho, e
    o das chamadas que abortam não sai (medido com o Playwright 1.58: POST com JSON e PUT com cabeçalho próprio a outra
    origem, fora do `PASSA` — o servidor dela não recebeu nem o `OPTIONS`; e, com o `route`, um POST cujo `OPTIONS` o
    servidor recusa chegou ao servidor e a página leu a resposta, o que o navegador sem o `route` não deixa); então, na
@@ -507,9 +559,13 @@ outra palavra (`rode !shs na prévia`).
    que o navegador não manda), a resposta liberada fica guardada pelo tempo que ela diz (`Access-Control-Max-Age`, só
    número inteiro; 5 s sem ele ou com ele mal escrito, até 2 h — medido com `Max-Age: 600junk` e duas chamadas a 6,5 s:
    o navegador sem o `route` e o novo perguntaram duas vezes; o anterior guardou 600 s e mandou o segundo POST sem
-   pergunta), pela origem, o endereço, a credencial, o método e os cabeçalhos, e a chamada igual dentro desse
-   tempo não pergunta de novo, como no navegador (medido: duas chamadas iguais com `Max-Age: 60` — o navegador mandou um
-   `OPTIONS` e dois POST; o bloco anterior, dois e dois; o novo, um e dois), a chamada que a página desiste enquanto a
+   pergunta), uma por origem e endereço, com os métodos e os cabeçalhos que ela liberou e trocada pela última pergunta
+   ao mesmo endereço, como no Chromium — com credenciais, só a que as liberou (`Allow-Credentials: true`) vale —, e a
+   chamada que cabe no que ela liberou não pergunta de novo (medido: duas chamadas iguais com `Max-Age: 60` — o
+   navegador mandou um `OPTIONS` e dois POST, e o novo também; e PUT, DELETE, PATCH e PUT, com o primeiro `OPTIONS`
+   liberando PUT e DELETE e o do PATCH só o PATCH: o navegador perguntou no 1º PUT, no PATCH e no 2º PUT; o bloco
+   anterior perguntou também no DELETE, um `OPTIONS` a mais, e mandou o 2º PUT sem pergunta; o novo perguntou como o
+   navegador), a chamada que a página desiste enquanto a
    pergunta corre (`AbortController`) não segue, como no navegador (`desistiu`: medido, o navegador e o bloco mandaram
    só o `OPTIONS`; o da rodada 44 mandou o POST depois), e a entrada da lista sem `opcional` de que a página desistiu
    conta como não houve (medido: o bloco anterior passava a checagem com a gravação obrigatória cancelada; o novo para
@@ -535,8 +591,12 @@ outra palavra (`rode !shs na prévia`).
    (`bytes=10-2`) pergunta antes, como no navegador, comparado em `BigInt` (medido: o navegador mandou o `OPTIONS`; o
    bloco anterior foi direto ao GET; o novo pergunta; com `bytes=9223372036854775809-9223372036854775808`, que em
    `Number` dá dois números iguais, o navegador perguntou, o bloco anterior foi direto, e o novo pergunta); credencial é
-   o cookie que a página mandou, ou `cred: 'include'` na entrada, quando o código chama a outra origem com `credentials:
-   'include'` (sem cookie a mandar, o pedido não mostra o modo); o `fetch` com `mode: 'no-cors'` passa sem pergunta e
+   o cookie que a página mandou, o `credentials: 'include'` do `fetch` e o `withCredentials` do XHR — que o pedido sem
+   cookie a mandar não mostra, e a própria página anota, como o modo —, ou `cred: 'include'` na entrada, no elemento com
+   `crossorigin="use-credentials"` (medido: o XHR com `withCredentials` e o `fetch` com `credentials: 'include'`, sem
+   cookie, com a pergunta respondida com `Allow-Origin: *` — o navegador mandou só o `OPTIONS` e deu erro; o bloco
+   anterior mandou o POST depois; o novo para em `cors`, como ele; o XHR sem credenciais segue com o `OPTIONS` e o
+   POST); o `fetch` com `mode: 'no-cors'` passa sem pergunta e
    sem `Allow-Origin` e chega opaco à página, como no navegador: o modo não chega ao `route` (nem o `Sec-Fetch-Mode`, e
    o POST `no-cors` traz `Origin`, medido), então o próprio `fetch` da página anota o modo de cada pedido que pode ser
    `no-cors` (GET, HEAD, POST) — o `Request` criado noutro quadro da mesma origem também, reconhecido pelo tipo e não
@@ -610,29 +670,43 @@ outra palavra (`rode !shs na prévia`).
    pelo `route` e aborta como o resto (medido: sem o `route`, o servidor recebeu o `POST` do relatório; com o bloco,
    não). O `Sec-Fetch-Site`, o `Sec-Fetch-Mode` e o `Sec-Fetch-Dest` não chegam ao servidor pelo `route.fetch` (medido:
    o navegador manda os três; pelo bloco, nenhum, e o `allHeaders()` dentro do `route` também não os mostra, então não
-   há o que repor): rota que decide por eles (proteção contra pedido de outro site) não se prova assim, e o veredito diz
-   isso; e o corpo binário sem tipo (um `ArrayBuffer`, um `Blob` sem tipo) é cortado (`sem tipo`), porque a busca o
+   há o que repor): rota que decide por eles (proteção contra pedido de outro site, lida no código antes — a dela e a do
+   que roda na frente dela) não entra em `PASSA` na produção, porque a busca grava o que o navegador teria recusado
+   antes de o veredito dizer qualquer coisa: ela se prova pela prévia isolada ou vira fronteira; e o corpo binário sem
+   tipo (um `ArrayBuffer`, um `Blob` sem tipo) é cortado (`sem tipo`), porque a busca o
    mandaria como `application/octet-stream`, que o Playwright põe sem como tirar, e a rota que só grava com esse tipo
    gravaria o que o navegador não mandou (medido: o navegador não manda `Content-Type`; pelo bloco anterior, o servidor
    recebeu `application/octet-stream` e respondeu 200; com o campo vazio, um `Content-Type` vazio; pelo novo, nada
    chegou): rota assim se prova pela prévia isolada ou vira fronteira. A chamada de um quadro da internet à rede local
    (`localhost`, `127.x`, `10.x`, `172.16` a `172.31`, `192.168.x`, `169.254.x`, `100.64` a `100.127` — a rede da
-   operadora —, o IPv6 local, o nome `.local` e o nome que resolve para um deles, quando a busca vai direto) é cortada
-   (`rede local`), porque o Chrome novo pede licença à pessoa antes (Local Network Access) e a busca do bloco não
+   operadora —, o IPv6 local, o nome `.local` e o nome que resolve para um deles, quando a busca vai direto — e o que
+   não resolve, porque a busca pode achar o endereço depois) é cortada (`rede local`), porque o Chrome novo pede licença
+   à pessoa antes (Local Network Access) e a busca do bloco não
    pediria; quem chama é o quadro — a origem que o pedido leva, ou a do documento que pediu —, e não o site, porque o
    `iframe` público numa página local também pede a licença (conferido com pedidos e DNS de mentira: o `iframe` público
    numa página local, o `.local`, o `100.64.1.1` e o nome que resolve para `10.x` ou `fd00::1` passavam no bloco
    anterior, e o novo corta; a origem opaca e o quadro que não responde também cortam; o `iframe` local numa página
-   pública passa, e a página cujo nome resolve local chamando outro que resolve local também; a busca de nomes do Node,
-   pelo `/etc/hosts`, devolveu o endereço local). Pelo proxy do ambiente, quem resolve o nome é o proxy, e o bloco não
-   vê o endereço — nem o DNS que muda entre a conta e a busca —: o nome assim não entra em `PASSA` (o Chromium do
+   pública passa; a busca de nomes do Node, pelo `/etc/hosts`, devolveu o endereço local); quem chama só é local escrito
+   como tal, sem DNS, porque o nome dele poderia resolver local só na conta (conferido: a página cujo nome resolve local
+   chamando outro que resolve local, e o nome que não resolve, passavam no bloco anterior, e o novo corta). Pelo proxy
+   do ambiente, quem resolve o nome é o proxy, e o bloco não
+   vê o endereço — nem o DNS que muda entre a conta e a busca, porque o `APIRequestContext` do Playwright não deixa
+   prender o endereço conferido —: o nome assim não entra em `PASSA`, e aceitar esse resto é decisão do Lucas (o
+   Chromium do
    ambiente é o 141). Medido sem mudança: o cabeçalho que a outra origem não expõe (`Access-Control-Expose-Headers`) o
    Chromium esconde da página depois do `route` (`null` com e sem o bloco); o 304 de um arquivo do build sem cópia
    guardada dá `onload` também no navegador comum. A dica de cliente (`DPR`, `Width`, `Viewport-Width`, `Device-Memory`,
    `RTT`, `Downlink`, `ECT`, `Save-Data`), no valor que o Chromium aceita, vai sem pergunta, como no navegador (medido
    no Chromium 141 sem o `route`: `DPR: 2`, `Save-Data: on` e `ECT: 4g` foram direto ao POST; `DPR: abc`, `Save-Data:
    off` e `ECT: 9g` perguntaram antes; o bloco anterior perguntava nos três primeiros, e esse `OPTIONS` a mais chegava
-   ao servidor; o novo faz como o navegador nos seis). O `DEBUG=pw:…` do Playwright imprime
+   ao servidor; o novo faz como o navegador nos seis), com o número que o Chromium aceita em cada uma — `Width`,
+   `Viewport-Width` e `RTT` só inteiro, `DPR`, `Device-Memory` e `Downlink` com casa decimal — e o `Save-Data` sem caixa
+   (medido no Chromium 141 sem o `route`: `Width: 1.5`, `Viewport-Width: 1.5` e `RTT: 1.5` perguntaram antes; `DPR:
+   1.5`, `Device-Memory: 0.5`, `Downlink: 1.5` e `Save-Data: ON` foram direto; o bloco anterior mandava `Width` e `RTT`
+   direto e perguntava no `Save-Data: ON`; o novo, como o navegador); e os cabeçalhos simples que somam mais de 1024
+   bytes perguntam todos, como no Fetch e no Chromium (medido: dez de 120 bytes — o navegador perguntou com os dez
+   nomes; o anterior foi direto ao POST; o novo perguntou igual; quatro deles, 480 bytes, foram direto nos três). O
+   `DEBUG=pw:…` do Playwright imprime
    cada URL inteira, token incluso: ligado, o bloco para antes de
    tudo; e o `NODE_DEBUG` também, com qualquer valor, porque o do Node imprime a URL, o cookie e o `Authorization` no
    erro padrão (medido: com `NODE_DEBUG=http,https,net,tls,http2`, o token da query, o cookie e a chave apareceram lá; o
@@ -863,8 +937,9 @@ outra palavra (`rode !shs na prévia`).
    // que liga a chamada a esta checagem (o código no corpo, a sessão que nasceu do e-mail shs+…); se preciso: vezes
    // (padrão 1; GET que a página repete de propósito pede o número), status (padrão s => s < 400), tipo (padrão:
    // fetch, XHR ou EventSource no GET; script, imagem, folha de estilo, fonte ou página pedem o dela: tipo: 'script',
-   // porque o mesmo endereço pedido por <img> não é a chamada da página), cred: 'include',
-   // quando a página chama outra origem com credentials: 'include' (lido no código: sem cookie, o pedido não o mostra),
+   // porque o mesmo endereço pedido por <img> não é a chamada da página), cred: 'include', no elemento de outra origem
+   // com crossorigin="use-credentials" (lido no código; o fetch com credentials: 'include' e o XHR com withCredentials
+   // a própria página anota),
    // upload: false, no XHR com corpo sem ouvinte em xhr.upload (lido no código: sem ele, XHR com corpo pergunta antes),
    // resposta: t => condição sobre o corpo, quando a rota responde 200 com o erro dentro (J(t)?.status === 'ok'),
    // e opcional: true na que pode não acontecer — sem ele, a entrada que não houve reprova
@@ -898,9 +973,9 @@ outra palavra (`rode !shs na prévia`).
      : k === 'content-type' ? !INSEGURO.test(v)
        && ['text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded'].includes(tipo)
      : k === 'range' ? (r => !!r && (!r[2] || BigInt(r[1]) <= BigInt(r[2])))(/^bytes=(\d+)-(\d*)$/.exec(v))
-     : k === 'save-data' ? v === 'on' : k === 'ect' ? /^(slow-2g|2g|3g|4g)$/.test(v)   // a dica de cliente que o
-     : ['dpr', 'device-memory', 'width', 'viewport-width', 'rtt', 'downlink'].includes(k) && /^\d+(\.\d+)?$/.test(v));
-   // Chromium põe também vai sem pergunta
+     : k === 'save-data' ? /^on$/i.test(v) : k === 'ect' ? /^(slow-2g|2g|3g|4g)$/.test(v)   // a dica de cliente que o
+     : ['dpr', 'device-memory', 'downlink'].includes(k) ? /^\d+(\.\d+)?$/.test(v)   // Chromium põe também vai sem
+     : ['width', 'viewport-width', 'rtt'].includes(k) && /^\d+$/.test(v));   // pergunta, com o número que ele aceita
    // a lista simples do Fetch: 128 bytes para todos; o Range invertido (bytes=10-2) pergunta antes, como no navegador,
    // comparado em BigInt: em Number, dois números de 19 dígitos diferentes saem iguais
    const ABERTO = new Map();                         // resposta → o contexto só dela, fechado junto (SOLTA)
@@ -916,24 +991,27 @@ outra palavra (`rode !shs na prévia`).
    const GUARDA = new Map();                         // a resposta da pergunta, guardada pelo tempo que ela diz (o
    const PREFLIGHT = async (q, m, cred, de, e, h) => {   // o Playwright finge o preflight (medido): este vai à rota
      const tipo = (h['content-type'] ?? '').split(';')[0].trim().toLowerCase();   // com os cabeçalhos que a BUSCA manda
-     const meus = Object.keys(h).filter(k => !PROIBIDO.test(k) && !SIMPLES(k, h[k], tipo)).sort();   // (o allHeaders)
-     const sobe = q.resourceType() === 'xhr' && !!q.postDataBuffer() && e?.upload !== false;   // o Chromium pergunta
-     if (['GET', 'HEAD', 'POST'].includes(m) && !meus.length && !sobe) return true;   // no XHR com corpo e ouvinte de
-     const chave = [de, q.url(), cred, m, ...meus].join('\n');   // Max-Age, 5 s sem ele, até 2 h): o navegador não
-     if ((GUARDA.get(chave) ?? 0) > Date.now()) return true;   // pergunta de novo (medido: uma pergunta, dois POST)
-     const p = await BUSCA(q.url(), { method: 'OPTIONS', headers: { origin: de,   // upload (medido), que o route não
+     const ks = Object.keys(h).filter(k => !PROIBIDO.test(k)), so = ks.filter(k => SIMPLES(k, h[k], tipo));   // (o
+     const meus = (so.reduce((n, k) => n + Buffer.byteLength(h[k]), 0) > 1024 ? ks : ks.filter(k => !so.includes(k)))
+       .sort();                                        // allHeaders); os simples que passam de 1024 bytes somados
+     const sobe = q.resourceType() === 'xhr' && !!q.postDataBuffer() && e?.upload !== false;   // perguntam todos; o
+     if (['GET', 'HEAD', 'POST'].includes(m) && !meus.length && !sobe) return true;   // Chromium pergunta no XHR com
+     const vale = (met, cab) => (['GET', 'HEAD', 'POST'].includes(m) || met.includes(m)   // corpo e ouvinte de upload
+       || (!cred && met.includes('*'))) && meus.every(k => cab.includes(k)   // (medido), que o route não vê: sem o
+       || (!cred && cab.includes('*') && k !== 'authorization'));   // upload: false, pergunta. O método na caixa
+     const chave = `${de}\n${q.url()}`, g = GUARDA.get(chave);   // exata (o navegador recusa o put); o * não cobre o
+     if (g && g.ate > Date.now() && (!cred || g.cred) && vale(g.met, g.cab)) return true;   // Authorization
+     const p = await BUSCA(q.url(), { method: 'OPTIONS', headers: { origin: de,   // Max-Age, 5 s sem ele, até 2 h),
        'access-control-request-method': m, ...(meus.length && { 'access-control-request-headers': meus.join() }) } });
-     // vê: sem o upload: false da entrada, pergunta. Sem Cookie, como o do navegador
-     const tem = (k, v, caixa) => { const l = (p.headers()[k] ?? '').split(',').map(s => s.trim());   // nome de método:
-       return (caixa ? l : l.map(s => s.toLowerCase())).includes(v)   // na caixa exata (o navegador recusa o put)
-         || (!cred && l.includes('*') && v !== 'authorization'); };   // * não cobre o Authorization
-     const ok = !!p && p.status() >= 200 && p.status() < 300 && LIBERA(p, cred, de)
-       && (['GET', 'HEAD', 'POST'].includes(m) || tem('access-control-allow-methods', m, true))
-       && meus.every(k => tem('access-control-allow-headers', k));
-     const ma = (p?.headers()['access-control-max-age'] ?? '').trim(), s = /^\d+$/.test(ma) ? +ma : 5;   // 600junk
-     if (ok && s > 0) GUARDA.set(chave, Date.now() + 1000 * Math.min(s, 7200));   // não é número: os 5 s do padrão
-     await SOLTA(p); return ok;
-   };
+     const lista = (k, caixa) => (p?.headers()[k] ?? '').split(',').map(s => s.trim())   // uma por origem e endereço,
+       .map(s => caixa ? s : s.toLowerCase()).filter(Boolean);   // com o que ela liberou e trocada pela última, como
+     const met = lista('access-control-allow-methods', true), cab = lista('access-control-allow-headers');   // no
+     const ok = !!p && p.status() >= 200 && p.status() < 300 && LIBERA(p, cred, de) && vale(met, cab);   // Chromium
+     const ma = (p?.headers()['access-control-max-age'] ?? '').trim(), s = /^\d+$/.test(ma) ? +ma : 5;   // (medido:
+     if (ok && s > 0) GUARDA.set(chave, { ate: Date.now() + 1000 * Math.min(s, 7200), met, cab,   // PUT, DELETE,
+       cred: p.headers()['access-control-allow-credentials'] === 'true' });   // PATCH e PUT perguntaram no 1º PUT, no
+     await SOLTA(p); return ok;                      // PATCH e no 2º PUT); o Max-Age que não é número vale os 5 s. A
+   };                                                // pergunta vai sem Cookie, como a do navegador
    const E = process.env, PROXY = E.HTTPS_PROXY || E.https_proxy || E.ALL_PROXY || E.all_proxy;   // a nuvem do Claude
    const FORA = E.NO_PROXY || E.no_proxy;            // Code sai por ele: sem ele, a busca não acha host de fora
    let PELA = () => ({});                            // (medido); a variável vazia passa à próxima; a senha vai no campo
@@ -967,8 +1045,10 @@ outra palavra (`rode !shs na prévia`).
    const LOCAL = s => { let x; try { x = new URL(s); } catch { return false; }   // (a origem opaca, null, não é);
      if (REDE(x.hostname)) return true; if (PELA(x.href).proxy) return false;   // o Chromium decide pelo endereço;
      const h = x.hostname; if (!VISTO.has(h)) VISTO.set(h, lookup(h, { all: true })   // pelo proxy, quem resolve
-       .then(l => l.some(a => REDE(a.family === 6 ? `[${a.address}]` : a.address)), () => false));   // é ele, e o
-     return VISTO.get(h); };                         // bloco não vê (nem o DNS que muda entre esta conta e a busca)
+       .then(l => l.some(a => REDE(a.family === 6 ? `[${a.address}]` : a.address)), () => true));   // é ele, e o
+     return VISTO.get(h); };                         // bloco não vê (nem o DNS que muda entre esta conta e a busca); o
+   const DONO = s => { try { return REDE(new URL(s).hostname); } catch { return false; } };   // nome que não resolve
+   // conta como local, e quem chama só é local escrito como tal, sem DNS: o nome dele não abre a rede local
    const { createServer } = await import('node:net');   // a porta fechada é nossa: numa fixa, outro programa podia
    const MORTO = createServer(s => s.destroy()).unref();   // estar ouvindo e encaminhar; esta derruba toda conexão
    await new Promise((ok, nao) => MORTO.once('error', nao).listen(0, '127.0.0.1', ok));
@@ -994,18 +1074,26 @@ outra palavra (`rode !shs na prévia`).
          return r; } });                               // começo até acabar, sem
        const cl = Q.prototype.clone;                   // a cópia (clone, new Request(r)) leva o corpo em fluxo junto
        Q.prototype.clone = function () { const r = cl.call(this); if (this[FL]) r[FL] = true; return r; };
+       const NM = s => { const u = String(s).toUpperCase();   // o método como o navegador o manda: só os seis do
+         return ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT'].includes(u) ? u : String(s); };   // padrão sobem
+       const PO = (k, x) => S.set(k, [...(S.get(k) ?? []), x]);   // cada anotação sai quando o próprio pedido acaba (o
+       const TIRA = (k, x) => { const l = (S.get(k) ?? []).filter(y => y !== x);   // route só lê), e o endereço sem
+         if (l.length) S.set(k, l); else S.delete(k); };   // nenhum no ar sai do mapa
        window.fetch = function (i, o) {                // ler o corpo nem tocar no pedido, e o route lê; com outro
          let k, x;                                     // método, o no-cors é recusado antes de sair. O Request de
-         try { const R = T(i) === '[object Request]', md = String(o?.method ?? (R ? i.method : 'GET')).toUpperCase();
-           k = `${md} ${new URL(R ? i.url : String(i), location.href).href.split('#')[0]}`;   // outro quadro (iframe)
-           const fl = T(o?.body) === '[object ReadableStream]' || (R && !!i[FL]);   // não é instanceof daqui (medido);
-           if (['GET', 'HEAD', 'POST'].includes(md) || fl) {   // o corpo em fluxo o route não vê: fica anotado
-             x = { nc: (o?.mode ?? (R ? i.mode : 'cors')) === 'no-cors', fl };
-             S.set(k, [...(S.get(k) ?? []), x]); } } catch {}
-         const p = f.apply(this, arguments);           // cada anotação sai quando o próprio fetch acaba (o route só
-         if (x) p.catch(() => {}).finally(() => { const l = (S.get(k) ?? []).filter(y => y !== x);   // lê), e o
-           if (l.length) S.set(k, l); else S.delete(k); });   // endereço sem nenhum no ar sai do mapa
-         return p; }; });
+         try { const R = T(i) === '[object Request]', md = NM(o?.method ?? (R ? i.method : 'GET'));
+           k = `${md} ${new URL(R ? i.url : String(i), document.baseURI).href.split('#')[0]}`;   // outro quadro
+           const fl = T(o?.body) === '[object ReadableStream]' || (R && !!i[FL]);   // (iframe) não é instanceof daqui
+           x = { nc: ['GET', 'HEAD', 'POST'].includes(md) && (o?.mode ?? (R ? i.mode : 'cors')) === 'no-cors', fl,
+             cr: (o?.credentials ?? (R ? i.credentials : 'same-origin')) === 'include' }; PO(k, x); } catch {}
+         const p = f.apply(this, arguments);           // (medido); o corpo em fluxo o route não vê, nem a credencial
+         if (x) p.catch(() => {}).finally(() => TIRA(k, x));   // sem cookie a mandar: ficam anotados
+         return p; };
+       const X = XMLHttpRequest.prototype, ab = X.open, ev = X.send, K = Symbol('shs.xhr');   // o XHR com
+       X.open = function (md, url) { try { this[K] = `${NM(md)} ${new URL(url, document.baseURI).href.split('#')[0]}`; }
+         catch { this[K] = null; } return ab.apply(this, arguments); };   // withCredentials também
+       X.send = function () { const k = this[K]; if (k && this.withCredentials) { const x = { cr: true }; PO(k, x);
+         this.addEventListener('loadend', () => TIRA(k, x), { once: true }); } return ev.apply(this, arguments); }; });
      const ROTA = async r => {                       // passa só o que o caminho precisa; todo o resto aborta
        const q = r.request(), t = q.resourceType();
        let marca = 'erro ', m = '?', o = '', u = '', c = '', resp = null, e, repetido = false;
@@ -1024,21 +1112,22 @@ outra palavra (`rode !shs na prévia`).
          e = PASSA[i]; const pagina = m === 'GET' && t === 'document' && u === PAGINA;
          repetido = (e && ++VEZES[i] > (e.vezes ?? 1)) || (pagina && ++VISITAS > 1);   // nova tentativa, recarga
          const ok = (pagina || (m === 'GET' && ESTATICO.some(p => u.startsWith(p))) || !!e) && !repetido;
-         const cred = !!h.cookie || e?.cred === 'include' || t === 'ping';   // com credenciais (o sendBeacon sempre
-         // as leva), o Allow-Origin * não vale
          const de = h.origin ?? (t === 'fetch' ? await q.frame().evaluate(() => self.origin)   // a do documento: o
            .catch(() => new URL(q.frame().url()).origin) : undefined);   // about:blank herda a de quem o abriu
-         const ct = h['content-type'], [nc, fl] = t === 'fetch' ? await q.frame().evaluate(k => {
-           const l = window.__shsNoCors?.get(k) ?? []; return [!!l.length && l.every(x => x.nc), l.some(x => x.fl)];
-         }, `${m} ${u}`).catch(() => [false, true]) : [false, false];   // sem ler a anotação, vale o mais estrito
+         const ct = h['content-type'], [nc, fl, cr] = t === 'fetch' || t === 'xhr' ? await q.frame().evaluate(k => {
+           const l = window.__shsNoCors?.get(k) ?? [];
+           return [!!l.length && l.every(x => x.nc), l.some(x => x.fl), l.some(x => x.cr)];
+         }, `${m} ${u}`).catch(() => [false, true, true]) : [false, false, false];   // sem a anotação, o mais estrito
+         const cred = !!h.cookie || cr || e?.cred === 'include' || t === 'ping';   // com credenciais (o sendBeacon
+         // sempre as leva), o Allow-Origin * não vale
          const opaca = t === 'ping' ? !ct || SIMPLES('content-type', ct, ct.split(';')[0].trim().toLowerCase())
-           : nc;                                       // o sendBeacon de tipo simples (texto, formulário) vai no-cors,
+           : t === 'fetch' && nc;                      // o sendBeacon de tipo simples (texto, formulário) vai no-cors,
          // como no navegador; o fetch, só quando todo fetch no ar neste endereço é no-cors: com um cors junto, não se
          // sabe qual dos dois é este, e vale o mais estrito
          const fora = !!de && o !== de && t !== 'document' && !opaca;   // CORS a quem chamou; o no-cors, sem pergunta
          const fluxo = t === 'eventsource' || fl;      // a busca espera o fim do corpo, e o fluxo aberto não acaba; o
          // corpo em fluxo (ReadableStream) não chega ao route, e o navegador pergunta antes dele (medido)
-         const local = await LOCAL(u) && !(await LOCAL(await CHAMA(q, t, de)));   // da internet à rede local: o
+         const local = await LOCAL(u) && !DONO(await CHAMA(q, t, de));   // da internet à rede local: o
          // Chrome pede licença à pessoa antes (Local Network Access); a busca não pede
          const semtipo = !!q.postDataBuffer()?.length && !h['content-type'];   // corpo sem tipo: a busca poria o
          // application/octet-stream, que o navegador não manda (medido)
@@ -1092,7 +1181,9 @@ outra palavra (`rode !shs na prévia`).
      if (RUIM.length) { passo = `conferir as chamadas (${RUIM.join(', ')})`; throw new Error(); }   // a tela mente
    } catch (e) {                                     // a mensagem do erro traz URL e texto da página: sai só o passo
      const c = [...CORTADO].slice(0, 10).join(', ');   // e o que foi cortado, que não tem caminho nem host
-     throw (ERRO = new Error(`falhou em ${passo} (${e.name})` + (c ? ` · cortado: ${c}` : '')));
+     const nome = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'TimeoutError', 'AbortError']
+       .includes(e?.name) ? e.name : 'outro';          // o nome do erro é texto que a página escolhe: só os conhecidos
+     throw (ERRO = new Error(`falhou em ${passo} (${nome})` + (c ? ` · cortado: ${c}` : '')));
    }                                                 // fecha também na falha; antes do adiado e do apagar (passo 4),
    finally {                                         // mas só depois das que estão no ar: fechar com uma no meio fez o
      FECHADO = true; const sem = await ctx.setOffline(true).then(() => true, () => false);   // a pausada que o route
@@ -1203,4 +1294,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 17:34 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto e teste do banco (rodada 46) · #chat-4BNJMe
+🕒 2026-10-14 18:30 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto e teste do banco (rodada 47) · #chat-4BNJMe
