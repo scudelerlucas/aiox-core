@@ -65,42 +65,44 @@ outra palavra (`rode !shs na prévia`).
    isso. Sem como cortar tudo — Playwright velho, service worker necessário, medição que não se acha —, só na prévia
    isolada; e, se a pergunta era sobre produção, o veredito diz que a produção não foi provada, em vez de usar a prévia
    como prova dela. A visita sintética não pode virar evento na Meta nem sujar a métrica da campanha ou do site. (b)
-   HTTP na rota, com o primeiro bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método e o
-   corpo quando a rota não é GET (um POST testado com GET dá 405 e reprova à toa), e o corpo leva o dado de teste
-   marcado `shs`; `ESPERA` é o código que prova o caminho (200, 201; quando a checagem é a recusa — anônimo recebe 401,
-   recurso apagado dá 404 —, é esse o código, e a condição do corpo passa a ser a da recusa, ou sai, e o código basta);
-   credencial nunca vai escrita no comando, que fica no histórico da sessão, nem como argumento do `curl`, que outro
-   processo da máquina lê (`ps`): URL assinada vem de variável já carregada no ambiente (`URL="$ROTA_ASSINADA"`),
-   cabeçalho com chave também (`CAB="header = \"x-api-key: $CHAVE\""`, com aspas duplas, para o comando guardar o nome
-   e não o valor), e os dois entram no `curl` pelo stdin (`-K -`), montados pelo `printf`, que é do próprio shell e não
-   vira processo; credencial que só existe como texto a colar é fronteira; `.status == "ok"` dá lugar à condição de
-   sucesso daquela rota (o valor certo, não só o campo presente) — rota que não devolve JSON troca o `jq -e` por `grep
-   -qF '[shs] <código>' "$f"` (HTML com o texto do teste) ou `[ ! -s "$f" ]` (204, corpo vazio). O que cada peça evita:
-   o `( … )` dá a cada checagem o seu arquivo e a sua limpeza, mesmo com várias no mesmo terminal; `-q`, que tem de vir
-   primeiro, faz o `curl` ignorar o `.curlrc` da conta, que poderia religar o seguir-redirecionamento; `--globoff` faz
-   o `curl` tomar `[` e `{` da URL como texto, e o erro dele vai para `/dev/null` — senão uma URL assinada com colchete
-   sai inteira, token incluso, na mensagem de erro; do `curl` sai só o código de saída (`curl=7` sem conexão, `28`
-   prazo estourado, `6` nome que não resolve, `63` ou `153` resposta maior que o limite); sem `-L`, redirecionamento
-   não é seguido (o `curl` repetiria o cabeçalho de credencial para o outro endereço, e um POST viraria GET); comparar
-   o código com `ESPERA` reprova todo o resto — 3xx, 4xx e 5xx —, mesmo com corpo `{"status":"ok"}`, e usa só o `-w
-   '%{http_code}'`, que todo `curl` tem (o `--fail-with-body` só existe do 7.76 em diante); `--max-time "$MAX"` impede
-   que uma rota travada prenda a checagem, com o prazo da própria rota (o `maxDuration` dela; sem ele, o padrão do
-   projeto — na Vercel, 300 s, ou o que o painel do projeto definir, até 800 s, e o MCP da Vercel lê; sem como ler,
-   815) mais 15 s de folga para rede e partida a frio, para não reprovar rota lenta que está dentro do prazo;
-   `--max-filesize` (no `curl` 8.4 em diante) e o `ulimit -f` (em qualquer versão, porque o antigo só confere o tamanho
-   declarado) impedem que uma resposta enorme encha o disco; `jq -e` faz a condição falsa sair com erro (senão um `{}`
-   ou um `{"status":"error"}` passaria); na falha, do corpo não sai nada — nem o código de erro, que pode ser token ou
-   dado de cliente com cara de código —: sai só o status HTTP e o código do `curl`, e o diagnóstico segue pelo log do
-   servidor — filtrado pela janela exata da chamada ou pelo código da checagem, e dele também só sai o campo fixo que
-   prova (status, nome do erro), nunca a linha inteira, que pode trazer token e dado de cliente (no quiz-diagnosys, a
-   rota de retomada registra o token cru). O corpo fica fora do repositório e fora do chat: dele sai só o campo que
-   prova o caminho, nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial. (c)
-   leitura/escrita no banco (MCP do Supabase; `begin … rollback` numa única chamada do `execute_sql` — cada chamada é
-   uma conexão própria, e `begin` numa com `rollback` noutra não desfaz nada —, nunca `raise exception` para desfazer
-   em produção, que deixa um erro no log do banco e pode disparar alerta; prova o banco, não a rota: se a pergunta é
-   sobre a rota, desfazer no banco não substitui chamá-la). (d) script do repositório (`npm run`, `scripts/*.sh`).
-   Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa:
-   `vigia/dominios.txt` do hub (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
+   HTTP na rota, com o primeiro bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método e os
+   cabeçalhos quando a rota não é GET (um POST testado com GET dá 405 e reprova à toa), e `CORPO` leva o corpo, com o
+   dado de teste marcado `shs`; `ESPERA` é o código que prova o caminho (200, 201; quando a checagem é a recusa —
+   anônimo recebe 401, recurso apagado dá 404 —, é esse o código, e a condição do corpo passa a ser a da recusa, ou
+   sai, e o código basta); credencial nunca vai escrita no comando, que fica no histórico da sessão, nem como argumento
+   do `curl`, que outro processo da máquina lê (`ps`): URL assinada vem de variável já carregada no ambiente
+   (`URL="$ROTA_ASSINADA"`), cabeçalho com chave também (`CAB="header = \"x-api-key: $CHAVE\""`, com aspas duplas, para
+   o comando guardar o nome e não o valor), e os dois entram no `curl` pelo stdin (`-K -`), montados pelo `printf`, que
+   é do próprio shell e não vira processo; o corpo, que pode levar senha ou token, vai por um arquivo temporário que só
+   o dono lê (`--data-binary @arquivo`), nunca pela linha de comando; credencial que só existe como texto a colar é
+   fronteira; `.status == "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o campo presente) —
+   rota que não devolve JSON troca o `jq -e` por `grep -qF '[shs] <código>' "$f"` (HTML com o texto do teste) ou `[ !
+   -s "$f" ]` (204, corpo vazio). O que cada peça evita: o `( … )` dá a cada checagem os seus arquivos e a sua limpeza,
+   mesmo com várias no mesmo terminal; `-q`, que tem de vir primeiro, faz o `curl` ignorar o `.curlrc` da conta, que
+   poderia religar o seguir-redirecionamento; `--globoff` faz o `curl` tomar `[` e `{` da URL como texto, e o erro dele
+   vai para `/dev/null` — senão uma URL assinada com colchete sai inteira, token incluso, na mensagem de erro; do
+   `curl` sai só o código de saída (`curl=7` sem conexão, `28` prazo estourado, `6` nome que não resolve, `63` ou `153`
+   resposta maior que o limite); sem `-L`, redirecionamento não é seguido (o `curl` repetiria o cabeçalho de credencial
+   para o outro endereço, e um POST viraria GET); comparar o código com `ESPERA` reprova todo o resto — 3xx, 4xx e 5xx
+   —, mesmo com corpo `{"status":"ok"}`, e usa só o `-w '%{http_code}'`, que todo `curl` tem (o `--fail-with-body` só
+   existe do 7.76 em diante); `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o prazo da própria
+   rota (o `maxDuration` dela; sem ele, o padrão do projeto — na Vercel, 300 s, ou o que o painel do projeto definir,
+   até 800 s, e o MCP da Vercel lê; sem como ler, 815) mais 15 s de folga para rede e partida a frio, para não reprovar
+   rota lenta que está dentro do prazo; `--max-filesize` (no `curl` 8.4 em diante) e o `ulimit -f` (em qualquer versão,
+   porque o antigo só confere o tamanho declarado) impedem que uma resposta enorme encha o disco; `jq -e` faz a
+   condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha, do corpo não sai nada —
+   nem o código de erro, que pode ser token ou dado de cliente com cara de código —: sai só o status HTTP e o código do
+   `curl`, e o diagnóstico segue pelo log do servidor — filtrado pela janela exata da chamada ou pelo código da
+   checagem, e dele também só sai o campo fixo que prova (status, nome do erro), nunca a linha inteira, que pode trazer
+   token e dado de cliente (no quiz-diagnosys, a rota de retomada registra o token cru). O corpo fica fora do
+   repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo inteiro, que em painel ou
+   produção pode trazer dado de cliente ou credencial. (c) leitura/escrita no banco (MCP do Supabase; `begin …
+   rollback` numa única chamada do `execute_sql` — cada chamada é uma conexão própria, e `begin` numa com `rollback`
+   noutra não desfaz nada —, nunca `raise exception` para desfazer em produção, que deixa um erro no log do banco e
+   pode disparar alerta; prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui
+   chamá-la). (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele
+   prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` do hub
+   (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
    https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/vigia/dominios.txt); prévia do PR: o link da Vercel
    no próprio PR.
 
@@ -108,9 +110,11 @@ outra palavra (`rode !shs na prévia`).
    URL='https://…/rota'   # a rota da prévia ou da produção; com credencial na URL: URL="$ROTA_ASSINADA" (nunca o valor)
    MAX=315                # prazo da rota (maxDuration; sem ele, o padrão do projeto — Vercel 300 s ou o do painel) + 15 s
    ESPERA=200             # o código que prova o caminho (200, 201…; 401 ou 404 quando a checagem é a recusa)
-   EXTRA=()               # rota POST: EXTRA=(-X POST -H 'Content-Type: application/json' --data '{"campo":"[shs] <código> …"}')
+   EXTRA=()               # rota POST: EXTRA=(-X POST -H 'Content-Type: application/json')
+   CORPO=''               # corpo do POST: CORPO='{"campo":"[shs] <código> …"}' — vai por arquivo, nunca pela linha de comando
    CAB=''                 # chave: CAB="header = \"x-api-key: $CHAVE\"" — a variável, nunca o valor; vai pelo stdin
-   ( f=$(mktemp); trap 'rm -f "$f"' EXIT; ulimit -f 5000
+   ( f=$(mktemp); c=$(mktemp); trap 'rm -f "$f" "$c"' EXIT; ulimit -f 5000
+     [ -n "$CORPO" ] && { printf '%s' "$CORPO" > "$c"; EXTRA+=(--data-binary "@$c"); }
      w=$(printf 'url = "%s"\n%s\n' "$URL" "$CAB" | curl -q -s --globoff --max-time "$MAX" --max-filesize 5000000 \
            "${EXTRA[@]}" -K - -o "$f" -w '%{http_code} %{time_total}' 2>/dev/null); r=$?; echo "$w curl=$r"
      [ "$r" -eq 0 ] && [ "${w%% *}" = "$ESPERA" ] && jq -e '.status == "ok"' "$f" || exit 1 )
@@ -210,4 +214,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 07:37 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 07:43 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe

@@ -247,8 +247,8 @@ primeira página, o que o caminho testado precisa e mais nada (pixel da Meta, an
 domínio, aviso de erro, gravação de sessão: tudo cortado), e print só do elemento do teste, nunca da tela inteira;
 nenhum caminho (navegador ou HTTP, prévia ou produção) que dispare evento pelo próprio servidor, salvo numa prévia
 provada sem essas credenciais; credencial nunca escrita no comando, que fica no histórico, nem passada como
-argumento, que outro processo lê (vem de variável já carregada no ambiente e entra pelo stdin); persona com erro
-classe A nos últimos 30 dias (lista vigente em
+argumento, que outro processo lê (vem de variável já carregada no ambiente e entra pelo stdin ou por arquivo
+temporário); persona com erro classe A nos últimos 30 dias (lista vigente em
 [`docs/ops/SHS-QUARENTENA.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/SHS-QUARENTENA.md),
 lida na `main` do hub no GitHub, mais os PRs do hub com `SHS-QUARENTENA` no título dos últimos 30 dias, de qualquer
 estado) pede o "sim" do Lucas antes, e sem como ler essa lista também; dado de teste marcado `shs` com o código da
