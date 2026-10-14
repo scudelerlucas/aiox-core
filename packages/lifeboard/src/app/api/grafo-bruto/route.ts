@@ -31,12 +31,16 @@ function jsonResponse(body: unknown, status = 200): Response {
 export async function GET(): Promise<Response> {
   try {
     const repo = getTasksRepository();
-    const [tasks, edges, conversasMaterializadas] = await Promise.all([
+    const [tasks, edges, conversasMaterializadas, branchesColadas] = await Promise.all([
       repo.listAll(),
       repo.listEdges(),
       repo.listConversasMaterializadas?.() ?? Promise.resolve(new Set<string>()),
+      repo.listBranchesColadas?.() ?? Promise.resolve(new Map<string, string>()),
     ]);
-    const { tasksDoGrafo, goalId, cpm } = montarGrafoDoDia(tasks, edges, conversasMaterializadas);
+    const { tasksDoGrafo, edgesDoGrafo, goalId, cpm } = montarGrafoDoDia(tasks, edges, {
+      conversasMaterializadas,
+      branchesColadas,
+    });
 
     return jsonResponse({
       tarefas: tasksDoGrafo.map((t) => ({
@@ -46,7 +50,7 @@ export async function GET(): Promise<Response> {
         successorIds: t.successorIds,
         status: t.status,
       })),
-      arestas: edges.map((e) => ({
+      arestas: edgesDoGrafo.map((e) => ({
         id: e.id,
         origem: e.origem,
         destino: e.destino,

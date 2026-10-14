@@ -32,7 +32,10 @@ describe("montarGrafoDoDia com poda", () => {
   it("calcula CPM e scores somente sobre as tarefas que ficam no grafo", () => {
     const conversa = tarefa("conversa-solta");
     const goal = tarefa("goal", true);
-    const grafo = montarGrafoDoDia([conversa, goal], [], new Set([conversa.id]));
+    const grafo = montarGrafoDoDia([conversa, goal], [], {
+      conversasMaterializadas: new Set([conversa.id]),
+      branchesColadas: new Map(),
+    });
 
     expect(grafo.tasksDoGrafo.map((t) => t.id)).toEqual(["goal"]);
     expect(grafo.cpm.janelas.has(conversa.id)).toBe(false);
@@ -42,7 +45,10 @@ describe("montarGrafoDoDia com poda", () => {
 
   it("com proveniência vazia mantém a lista inteira e o resultado anterior", () => {
     const tasks = [tarefa("conversa-solta"), tarefa("goal", true)];
-    const grafo = montarGrafoDoDia(tasks, [], new Set());
+    const grafo = montarGrafoDoDia(tasks, [], {
+      conversasMaterializadas: new Set(),
+      branchesColadas: new Map(),
+    });
 
     expect(grafo.tasksDoGrafo).toEqual(tasks);
     expect(grafo.goalId).toBe("goal");
@@ -62,7 +68,8 @@ describe("fiação da poda", () => {
 
   it("a página usa a proveniência e publica só tasksDoGrafo, mas Hoje recebe tasks", () => {
     expect(pagina).toMatch(/listConversasMaterializadas\?\.\(\)/);
-    expect(pagina).toMatch(/montarGrafoDoDia\(tasks, edges, conversasMaterializadas\)/);
+    expect(pagina).toMatch(/listBranchesColadas\?\.\(\)/);
+    expect(pagina).toMatch(/montarGrafoDoDia\(tasks, edges, \{/);
     expect(pagina).toMatch(/buildTodayList\(tasks\)/);
     expect(pagina).toMatch(/tasks=\{tasksDoGrafo\}/);
     expect(pagina).toMatch(/grafoV3=\{grafoV3\}/);
@@ -70,7 +77,9 @@ describe("fiação da poda", () => {
 
   it("a rota usa a proveniência e serializa tarefas a partir de tasksDoGrafo", () => {
     expect(rota).toMatch(/listConversasMaterializadas\?\.\(\)/);
-    expect(rota).toMatch(/montarGrafoDoDia\(tasks, edges, conversasMaterializadas\)/);
+    expect(rota).toMatch(/listBranchesColadas\?\.\(\)/);
+    expect(rota).toMatch(/montarGrafoDoDia\(tasks, edges, \{/);
     expect(rota).toMatch(/tarefas: tasksDoGrafo\.map/);
+    expect(rota).toMatch(/arestas: edgesDoGrafo\.map/);
   });
 });
