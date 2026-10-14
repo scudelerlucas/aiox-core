@@ -75,56 +75,61 @@ outra palavra (`rode !shs na prévia`).
    outras seis — uma de nome `shs+x` que chama `pg_notify`, a que chama essa, uma que chama `http_put(` da extensão
    `http`, uma que chama `dblink_exec`, a de um gatilho que chama `pg_notify` e uma que só grava na tabela desse gatilho
    —, a da rodada 37 marcou só as duas com `pg_notify` no texto, e a nova, as seis; no banco da casa, as mesmas 10 do
-   `public`, em 0,1 s; e ela não vê o que o banco chama sem o nome no texto — operador, conversão (`cast`), valor padrão
-   de coluna, política de RLS e regra (`rule`) da tabela gravada —, que se lê no esquema dela e, havendo chamada para
-   fora, leva à prévia isolada) —, que nenhum corte no navegador alcança (sem como saber o commit no ar, fronteira): se
-   manda, a checagem só roda numa prévia comprovadamente sem essas credenciais (as variáveis de ambiente dela não têm o
-   token da API de Conversões, o do analytics nem o endereço do destino, e o código lido não traz chave, pixel ou
-   endereço escrito nele — destino que aceita evento sem chave, ou com a chave no código ou na URL, manda do mesmo
-   jeito, e aí é fronteira); sem essa prova, é fronteira. Ordem de preferência: (a) navegador sem tela sobre a URL
-   (Playwright 1.48 ou mais novo, com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
-   '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra — o bloco abaixo recebe o `browser` já
-   aberto, `const browser = await chromium.launch({ executablePath })`, e quem o abriu o fecha num `finally`, `await
-   browser.close()`), com a página testada vinda da variável `ALVO_URL`, já carregada no ambiente — link assinado ou
-   link mágico escrito no script fica no histórico —, só `https://` (o `http://` só para `127.0.0.1` e `localhost`,
-   conferidos no host que o `URL` leu e não no texto: em `http://localhost:@outro.com` o host é o `outro.com`; e nada
-   antes do `@`, no `https` também, porque em `https://confiavel@outro` quem recebe a chave é o `outro` — medido: os
-   dois blocos anteriores seguiam para o host depois do `@`, e os novos param antes) — ela e todo endereço de `PASSA` e
-   `ESTATICO`, porque o `route.fetch` manda o que passa sem a recusa do navegador a `http://` dentro de página
-   `https://` (medido: um `PASSA` com `http://example.com` agora para o bloco antes da página) —, e todo erro do
-   navegador relançado só com o passo e o tipo (`falhou em <passo> (<tipo>)`): o do Playwright traz a URL inteira, token
-   incluso, e o do teste traz o texto da página (medido); link de uso único (link mágico, convite) se gasta na visita:
-   só um gerado para a checagem, nunca o do Lucas nem o de cliente. Clique, formulário, texto na tela, print — sempre só
-   do elemento do teste (recorte do `[shs]`), nunca a tela inteira, porque produção e prévia que lê banco real mostram
-   dado de cliente, e o arquivo fora do repositório. Em toda checagem com navegador, prévia inclusive (que costuma
-   carregar o mesmo pixel e o mesmo analytics da produção), o contexto nasce com `serviceWorkers: 'block'`, sem WebRTC,
-   `WebTransport`, `Worker` nem `SharedWorker` e com uma lista do que pode passar, registrada antes de abrir qualquer
-   página — o segundo bloco abaixo: a própria página testada; os arquivos do build, por GET (`ESTATICO`: a pasta que só
-   serve arquivo gerado — no Next.js, `/_next/static/`); e cada chamada ou página a mais que o caminho testado faz
-   (`PASSA`, uma entrada por chamada — `m`, o método, e `url`, o endereço inteiro com a query, montado do ambiente
-   quando leva token, como o `ALVO`; `corpo`, quando o mesmo endereço recebe outras coisas, a condição sobre o campo que
-   só o teste manda e não sobre um pedaço do texto; chamada que não é GET só entra com a condição que a liga a esta
-   checagem — o código no corpo, ou a sessão que nasceu do e-mail `shs+…` (sem ela, o bloco para; a que não grava, lida
-   no código, leva `() => true` com o porquê) —, lida pelo `J`, que devolve `null` em corpo que não é JSON (o
-   `JSON.parse` direto lançou e imprimiu o corpo com a senha — medido —, e todo erro dentro do `route` aborta calado,
-   `erro`); e cada entrada passa uma vez, GET inclusive, como a própria página: a segunda, de nova tentativa, recarga ou
-   clique duplo, aborta (`repetido`; `vezes` muda o limite, para o GET que a página repete de propósito); e a resposta
-   de cada entrada tem de vir no código esperado (`status`, padrão abaixo de 400) e, na rota que responde 200 com o erro
-   no corpo, com o corpo esperado (`resposta: t => J(t)?.status === 'ok'`), senão o bloco reprova no fim, mesmo com a
-   tela certa, porque a tela otimista mostra o sucesso antes da resposta (medido: uma página que mostrava o `[shs]` e
-   chamava uma rota que dava 500 passou no bloco anterior; no novo, para em `falhou em conferir as chamadas (POST 500
-   …)`; e a que mostrava o `[shs]` antes da resposta e recebia `{"status":"error"}` com 200 passava, e com `resposta`
-   para em `conferir as chamadas (POST 200 ou a resposta …)`), e cada entrada tem de acontecer: a que não houve reprova
-   no fim, salvo com `opcional: true`, e a que houve e não chegou à página também (`3xx`, `falhou`, `cors`, de qualquer
-   tipo: medido com um script de outra origem, na lista, que redirecionava, o bloco anterior passou com a tela certa e o
-   script cortado, e o novo parou em `3xx GET script`), porque a regressão que nem chama a rota deixaria a tela estática
-   ou otimista passar (medido: com uma entrada que a página nunca chamava, o bloco anterior passou; o novo parou em
-   `falhou em conferir as chamadas (não houve: POST …)`), e a que só veio depois do fim, cortada, diz isso (`não houve:
-   POST da entrada 0 (só depois do fim)`, medido): a evidência apareceu antes da chamada, e o teste tem de esperar o que
-   vem depois dela, e, antes de conferir, o bloco espera as chamadas que ainda estavam no ar quando o teste acabou, cada
-   uma com o prazo dela, e dali em diante nada novo passa, e a chamada de dados que chega depois reprova (`depois`),
-   salvo a do `PREVISTO` e a da lista que ainda cabe na entrada dela — o mesmo corpo, e as vezes de antes e de depois do
-   fim somadas —, com a `FOLGA` para a que a resposta delas dispara — meio segundo, ou o maior prazo que a página espera
+   `public`, em 0,1 s; e o que o banco chama sem o nome no texto — valor padrão de coluna, política de RLS, regra
+   (`rule`), operador e conversão (`cast`) — se confere no catálogo, com o mesmo `f`, numa contagem que, acima de zero,
+   leva à prévia isolada (`select (select count(*) from pg_depend d where d.classid in ('pg_attrdef'::regclass,
+   'pg_policy'::regclass, 'pg_rewrite'::regclass) and d.refclassid = 'pg_proc'::regclass and d.refobjid in (select oid
+   from f)) + (select count(*) from pg_operator where oprcode in (select oid from f)) + (select count(*) from pg_cast
+   where castfunc in (select oid from f))` — medido numa transação desfeita, com um de cada sobre funções temporárias
+   que chamam `pg_notify`: a consulta pelo texto não via nenhum, a contagem deu 5; no banco da casa, 0)) —, que nenhum
+   corte no navegador alcança (sem como saber o commit no ar, fronteira): se manda, a checagem só roda numa prévia
+   comprovadamente sem essas credenciais (as variáveis de ambiente dela não têm o token da API de Conversões, o do
+   analytics nem o endereço do destino, e o código lido não traz chave, pixel ou endereço escrito nele — destino que
+   aceita evento sem chave, ou com a chave no código ou na URL, manda do mesmo jeito, e aí é fronteira); sem essa prova,
+   é fronteira. Ordem de preferência: (a) navegador sem tela sobre a URL (Playwright 1.48 ou mais novo, com o navegador
+   que o ambiente já tem: na nuvem do Claude Code, `executablePath: '/opt/pw-browsers/chromium'`; fora dela, o que o
+   próprio Playwright encontra — o bloco abaixo recebe o `browser` já aberto, `const browser = await chromium.launch({
+   executablePath })`, e quem o abriu o fecha num `finally`, `await browser.close()`), com a página testada vinda da
+   variável `ALVO_URL`, já carregada no ambiente — link assinado ou link mágico escrito no script fica no histórico —,
+   só `https://` (o `http://` só para `127.0.0.1` e `localhost`, conferidos no host que o `URL` leu e não no texto: em
+   `http://localhost:@outro.com` o host é o `outro.com`; e nada antes do `@`, no `https` também, porque em
+   `https://confiavel@outro` quem recebe a chave é o `outro` — medido: os dois blocos anteriores seguiam para o host
+   depois do `@`, e os novos param antes) — ela e todo endereço de `PASSA` e `ESTATICO`, porque o `route.fetch` manda o
+   que passa sem a recusa do navegador a `http://` dentro de página `https://` (medido: um `PASSA` com
+   `http://example.com` agora para o bloco antes da página) —, e todo erro do navegador relançado só com o passo e o
+   tipo (`falhou em <passo> (<tipo>)`): o do Playwright traz a URL inteira, token incluso, e o do teste traz o texto da
+   página (medido); link de uso único (link mágico, convite) se gasta na visita: só um gerado para a checagem, nunca o
+   do Lucas nem o de cliente. Clique, formulário, texto na tela, print — sempre só do elemento do teste (recorte do
+   `[shs]`), nunca a tela inteira, porque produção e prévia que lê banco real mostram dado de cliente, e o arquivo fora
+   do repositório. Em toda checagem com navegador, prévia inclusive (que costuma carregar o mesmo pixel e o mesmo
+   analytics da produção), o contexto nasce com `serviceWorkers: 'block'`, sem WebRTC, `WebTransport`, `Worker` nem
+   `SharedWorker` e com uma lista do que pode passar, registrada antes de abrir qualquer página — o segundo bloco
+   abaixo: a própria página testada; os arquivos do build, por GET (`ESTATICO`: a pasta que só serve arquivo gerado — no
+   Next.js, `/_next/static/`); e cada chamada ou página a mais que o caminho testado faz (`PASSA`, uma entrada por
+   chamada — `m`, o método, e `url`, o endereço inteiro com a query, montado do ambiente quando leva token, como o
+   `ALVO`; `corpo`, quando o mesmo endereço recebe outras coisas, a condição sobre o campo que só o teste manda e não
+   sobre um pedaço do texto; chamada que não é GET só entra com a condição que a liga a esta checagem — o código no
+   corpo, ou a sessão que nasceu do e-mail `shs+…` (sem ela, o bloco para; a que não grava, lida no código, leva `() =>
+   true` com o porquê) —, lida pelo `J`, que devolve `null` em corpo que não é JSON (o `JSON.parse` direto lançou e
+   imprimiu o corpo com a senha — medido —, e todo erro dentro do `route` aborta calado, `erro`); e cada entrada passa
+   uma vez, GET inclusive, como a própria página: a segunda, de nova tentativa, recarga ou clique duplo, aborta
+   (`repetido`; `vezes` muda o limite, para o GET que a página repete de propósito); e a resposta de cada entrada tem de
+   vir no código esperado (`status`, padrão abaixo de 400) e, na rota que responde 200 com o erro no corpo, com o corpo
+   esperado (`resposta: t => J(t)?.status === 'ok'`), senão o bloco reprova no fim, mesmo com a tela certa, porque a
+   tela otimista mostra o sucesso antes da resposta (medido: uma página que mostrava o `[shs]` e chamava uma rota que
+   dava 500 passou no bloco anterior; no novo, para em `falhou em conferir as chamadas (POST 500 …)`; e a que mostrava o
+   `[shs]` antes da resposta e recebia `{"status":"error"}` com 200 passava, e com `resposta` para em `conferir as
+   chamadas (POST 200 ou a resposta …)`), e cada entrada tem de acontecer: a que não houve reprova no fim, salvo com
+   `opcional: true`, e a que houve e não chegou à página também (`3xx`, `falhou`, `cors`, de qualquer tipo: medido com
+   um script de outra origem, na lista, que redirecionava, o bloco anterior passou com a tela certa e o script cortado,
+   e o novo parou em `3xx GET script`), porque a regressão que nem chama a rota deixaria a tela estática ou otimista
+   passar (medido: com uma entrada que a página nunca chamava, o bloco anterior passou; o novo parou em `falhou em
+   conferir as chamadas (não houve: POST …)`), e a que só veio depois do fim, cortada, diz isso (`não houve: POST da
+   entrada 0 (só depois do fim)`, medido): a evidência apareceu antes da chamada, e o teste tem de esperar o que vem
+   depois dela, e, antes de conferir, o bloco espera as chamadas que ainda estavam no ar quando o teste acabou, cada uma
+   com o prazo dela, e dali em diante nada novo passa, e a chamada de dados que chega depois reprova (`depois`), salvo a
+   do `PREVISTO` e a da lista que ainda cabe na entrada dela — o mesmo corpo, e as vezes de antes e de depois do fim
+   somadas —, com a `FOLGA` para a que a resposta delas dispara — meio segundo, ou o maior prazo que a página espera
    para chamar de novo (debounce, nova tentativa), lido no código, mais meio segundo —, e a de dados que chega enquanto
    o contexto fecha também reprova (`falhou em conferir o fim`) (medido: com a página repetindo o POST um segundo depois
    de mostrar o resultado, com meio segundo o bloco passou calado, e com `FOLGA = 1500` parou em `depois POST fetch o
@@ -732,4 +737,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 13:23 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C; rodada 39 nos 13 PRs · #chat-4BNJMe
+🕒 2026-10-14 13:26 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C; rodada 39 nos 13 PRs · #chat-4BNJMe
