@@ -1,6 +1,6 @@
 ---
 name: simulacao-humana-sintetica
-description: "!shs [alvo] · alias !simular — Simulação Humana Sintética: antes de pedir ao Lucas que confira, teste, abra ou gere algo 'e avise', a sessão vira o humano e faz a checagem no lugar dele — persona (ele no painel, o visitante, o lead), caminho real (HTTP, navegador sem tela, rota, banco, script) e o medido numa seção `🧪 Checagem sintética`. Mesmas travas do humano: nada irreversível; dinheiro só até US$ 0,50 por checagem e US$ 2,00 por dia em cada chat; nada na Meta, a pessoa de fora, publicado ou em conta de cliente; dado de teste marcado `shs` e recolhido. Só sobra pedido na fronteira dele (credencial/2FA, aprovação exigida por regra, juízo humano) ou quando o ambiente não alcança — um passo só, com o porquê. Ativar SEMPRE que a resposta for pedir checagem ao operador, em qualquer repositório e conta, e em !shs, !simular, 'simula o humano', 'checa antes de me pedir', 'testa você', 'simulação humana sintética'. Não é !mirofish (que prevê reação de público)."
+description: "!shs [alvo] · alias !simular — Simulação Humana Sintética: antes de pedir ao Lucas que confira, teste, abra ou gere algo 'e avise', a sessão vira o humano e faz a checagem no lugar dele — persona (ele no painel, o visitante, o lead), caminho real (HTTP, navegador sem tela, rota, banco, script) e o medido numa seção `🧪 Checagem sintética`. Mesmas travas do humano: nada irreversível (apagar o próprio dado de teste não conta); dinheiro só até US$ 0,50 por checagem e US$ 2,00 por dia em cada chat; nada na Meta, a pessoa de fora, publicado ou em conta de cliente; dado de teste marcado `shs` e recolhido. Só sobra pedido na fronteira dele (credencial/2FA, aprovação exigida por regra, juízo humano) ou quando o ambiente não alcança — um passo só, com o porquê. Ativar SEMPRE que a resposta for pedir checagem ao operador, em qualquer repositório e conta, e em !shs, !simular, 'simula o humano', 'checa antes de me pedir', 'testa você', 'simulação humana sintética'. Não é !mirofish (que prevê reação de público)."
 ---
 
 # !SHS — Simulação Humana Sintética (ordem do operador, 13/10/2026)
@@ -32,61 +32,67 @@ outra palavra (`rode !shs na prévia`).
    Codex lendo o AGENTS.md). A persona decide o caminho e a credencial: visitante usa o que a página pública usa; o
    painel usa a chave que o próprio painel usa no navegador (nunca `service_role` nem chave de servidor: ela pula
    login e RLS, e a checagem passaria com o caminho real quebrado); nunca credencial que o humano não teria. Persona
-   com erro classe A nos últimos 30 dias (§Erros classe A do histórico da regra, no hub ou no GitHub
-   `scudelerlucas/lucas-contexto-geral`) → pedir o "sim" do Lucas antes de rodar; sem como ler essa seção, pedir o
-   "sim" também.
+   com erro classe A nos últimos 30 dias (tabela de `docs/ops/SHS-QUARENTENA.md`, no hub ou no GitHub
+   `scudelerlucas/lucas-contexto-geral` — estado vigente, não histórico) → pedir o "sim" do Lucas antes de rodar; sem
+   como ler esse arquivo, pedir o "sim" também.
 2. **Caminho real, na camada mais externa que alcança.** Ordem de preferência: (a) navegador sem tela sobre a URL
    (Playwright com o navegador que o ambiente já tem: na nuvem do Claude Code, `executablePath:
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
    print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
    arquivo fora do repositório; em produção, antes de abrir a página, criar o contexto do navegador com
-   `serviceWorkers: 'block'` (o `page.route` não vê o que um service worker manda) e cortar as chamadas de medição de
-   terceiros (`page.route` abortando `connect.facebook.net`, `facebook.com/tr`, `google-analytics.com`,
-   `googletagmanager.com`, `clarity.ms`, `hotjar.com` e o que mais a página carregar para medir visita), porque a
-   visita sintética não pode virar evento na Meta nem sujar a métrica da campanha — sem como cortar, só na prévia
-   isolada; (b) HTTP na rota, com o bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método
-   e o corpo quando a rota não é GET (um POST testado com GET dá 405 e reprova à toa), e o corpo leva o dado de teste
-   marcado `shs`; `.status == "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o campo
-   presente). O que cada peça evita: o `( … )` dá a cada checagem o seu arquivo e a sua limpeza, mesmo com várias no
-   mesmo terminal; `--fail-with-body` faz 4xx/5xx sair com erro (senão um 500 com JSON passaria) e guarda o corpo;
-   `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o prazo da própria rota (o `maxDuration`
-   dela; sem ele, o da hospedagem — na Vercel, 300 s), para não reprovar rota lenta que está dentro do prazo; `jq -e`
-   faz a condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha, sai do corpo só o
-   código de erro (`.code` ou `.error.code`, e só se for um código curto de letras, números, `_`, `.` e `-`); a
-   mensagem livre não sai, porque nenhuma limpeza garante que ela não traz segredo — fica no arquivo, que se apaga, e
-   o diagnóstico segue pelo log do servidor. O corpo fica fora do repositório e fora do chat: dele sai só o campo que
-   prova o caminho, nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial; (c)
-   leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK
-   …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não
-   substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui
-   (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o
-   link da Vercel no próprio PR.
+   `serviceWorkers: 'block'` (o `page.route` não vê o que um service worker manda) e cortar toda chamada de medição,
+   de terceiros e do próprio domínio (`page.route` abortando `connect.facebook.net`, `facebook.com/tr`,
+   `google-analytics.com`, `googletagmanager.com`, `clarity.ms`, `hotjar.com`, e os caminhos do mesmo site como
+   `/_vercel/insights/` e `/_vercel/speed-insights/` do analytics da Vercel), depois de ler no código da página o que
+   ela carrega para medir visita (o `layout`, as tags do `<head>`), porque a visita sintética não pode virar evento na
+   Meta nem sujar a métrica da campanha ou do site — sem como cortar tudo, só na prévia isolada; (b) HTTP na rota, com
+   o bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método e o corpo quando a rota não é
+   GET (um POST testado com GET dá 405 e reprova à toa), e o corpo leva o dado de teste marcado `shs`; `.status ==
+   "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o campo presente). O que cada peça evita:
+   o `( … )` dá a cada checagem o seu arquivo e a sua limpeza, mesmo com várias no mesmo terminal; sem `-L`,
+   redirecionamento não é seguido (o `curl` repetiria o cabeçalho de credencial do `EXTRA` para o outro endereço, e um
+   POST viraria GET) e um 3xx reprova — a `URL` certa é a do destino; `--fail-with-body` faz 4xx/5xx sair com erro
+   (senão um 500 com JSON passaria) e guarda o corpo; o teste do código abaixo de 300 reprova o 3xx mesmo com corpo
+   `{"status":"ok"}`; `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o prazo da própria rota
+   (o `maxDuration` dela; sem ele, o da hospedagem — na Vercel, 300 s), para não reprovar rota lenta que está dentro
+   do prazo; `jq -e` faz a condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha,
+   sai do corpo só o código de erro (`.code` ou `.error.code`, e só se for um código curto de letras, números, `_`,
+   `.` e `-`); a mensagem livre não sai, porque nenhuma limpeza garante que ela não traz segredo — fica no arquivo, que
+   se apaga, e o diagnóstico segue pelo log do servidor. O corpo fica fora do repositório e fora do chat: dele sai só o
+   campo que prova o caminho, nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou
+   credencial; (c) leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise
+   exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer
+   no banco não substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não**
+   substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do
+   PR: o link da Vercel no próprio PR.
 
    ```bash
    URL='https://…/rota'   # a rota da prévia ou da produção
    MAX=300                # o prazo da própria rota (o maxDuration dela); sem ele, o da hospedagem (Vercel: 300 s)
-   EXTRA=()               # rota POST: EXTRA=(-X POST -H 'Content-Type: application/json' --data '{"campo":"[shs] …"}')
+   EXTRA=()               # rota POST: EXTRA=(-X POST -H 'Content-Type: application/json' --data '{"campo":"[shs] <código> …"}')
    ( f=$(mktemp); trap 'rm -f "$f"' EXIT
-     curl -sS -L --fail-with-body --max-time "$MAX" "${EXTRA[@]}" -o "$f" -w '%{http_code} %{time_total}\n' "$URL" \
-       && jq -e '.status == "ok"' "$f" \
+     w=$(curl -sS --fail-with-body --max-time "$MAX" "${EXTRA[@]}" -o "$f" -w '%{http_code} %{time_total}' "$URL"); r=$?; echo "$w"
+     [ "$r" -eq 0 ] && [ "${w%% *}" -lt 300 ] && jq -e '.status == "ok"' "$f" \
        || { jq -r '[.code?, (.error|objects|.code)?] | map(select(type == "string" or type == "number") | tostring | select(test("^[A-Za-z0-9_.-]{1,40}$"))) | first // empty' "$f" 2>/dev/null; exit 1; } )
    ```
 
-3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
-   dia em cada chat — não há contador comum entre chats; acima, pergunta com o número) · nada na Meta
-   (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de parceiro) · nada
-   publicado · nada em conta de cliente · nada que amplie o alcance do agente (`execucao-remota` §exceção). Prévia por
-   padrão; produção quando a pergunta é sobre produção. Escrita em prévia, só em prévia comprovadamente isolada
-   (banco, filas e envios dela não chegam à produção nem a terceiro — há prévia da casa que manda e-mail real);
-   escrita em produção, só com o recolhimento confirmado antes (passo 4).
-4. **Dado de teste marcado e recolhido.** `criado_por = 'shs'` · nome/tema/título com prefixo `[shs]` · lead com
-   e-mail `shs+AAAA-MM-DD-<código>@alma-petra.test`, com código de 6 caracteres gerado na checagem (`openssl rand -hex
-   3`) e anotado na `🧪` — é por ele que se apaga · UTM `utm_source=shs`. **Antes de escrever em produção, confirmar
-   que dá para recolher** (apagar a linha, desfazer a transação). Não dá — log imutável, fila que se consome, envio a
-   terceiro — → a escrita vai à prévia isolada; transação desfeita só quando o caminho inteiro cabe nela; senão,
-   fronteira. Ao fim, esperar o que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o
-   `quiz_leituras` entra depois do `/api/quiz/score` responder), apagar, e reconferir todas as linhas marcadas antes
-   de dizer que recolheu.
+3. **Mesmas travas do humano.** Nada irreversível — apagar ao fim o que esta checagem criou, achado pelo código dela
+   (passo 4), é o recolhimento e não conta; apagar ou mudar o que já existia, nunca · nada de dinheiro fora do teto
+   (US$ 0,50 por checagem, US$ 2,00 por dia em cada chat — não há contador comum entre chats; acima, pergunta com o
+   número) · nada na Meta (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de
+   parceiro) · nada publicado · nada em conta de cliente · nada que amplie o alcance do agente (`execucao-remota`
+   §exceção). Prévia por padrão; produção quando a pergunta é sobre produção. Escrita em prévia, só em prévia
+   comprovadamente isolada (banco, filas e envios dela não chegam à produção nem a terceiro — há prévia da casa que
+   manda e-mail real); escrita em produção, só com o recolhimento confirmado antes (passo 4).
+4. **Dado de teste marcado e recolhido.** Código de 6 caracteres gerado na checagem (`openssl rand -hex 3`) e anotado
+   na `🧪`, presente em toda linha que ela cria — é por ele que se apaga · `criado_por = 'shs'` · nome/tema/título com
+   prefixo `[shs] <código>` · lead com e-mail `shs+AAAA-MM-DD-<código>@alma-petra.test` · UTM `utm_source=shs`.
+   **Antes de escrever em produção, confirmar que dá para recolher** (apagar a linha, desfazer a transação). Não dá —
+   log imutável, fila que se consome, envio a terceiro — → a escrita vai à prévia isolada; transação desfeita só
+   quando o caminho inteiro cabe nela; senão, fronteira. Ao fim, esperar o que o fluxo grava depois da resposta
+   (`after()`, fila, webhook — no quiz-diagnosys, o `quiz_leituras` entra depois do `/api/quiz/score` responder),
+   apagar só as linhas com o código desta checagem (o filtro do `delete` é o código, nunca só a marca `shs`, que outra
+   checagem pode estar usando agora), e reconferir todas as linhas com esse código antes de dizer que recolheu.
 5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de
    teste recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo
    "confira".
@@ -102,9 +108,9 @@ outra palavra (`rode !shs na prévia`).
 ## 🧪 Checagem sintética
 - **Persona · caminho:** Lucas no painel da Casa Magna → aba Roteiros → "Gerar" (POST /api/casas/magna/roteiros), produção.
 - **Evidência:** 201 em 6,8 s; corpo com os 5 blocos (gancho, dor, virada, evidencia, cta); linha `casas_roteiros`
-  id `…` status `rascunho`, tema `[shs] teste pós-merge #1664`; contador do dia 1/20.
+  id `…` status `rascunho`, tema `[shs] a3f9c1 teste pós-merge #1664`; contador do dia 1/20.
 - **Veredito:** passa — a reserva atômica está no ar; nenhum 503.
-- **Dado de teste:** linha apagada (`delete … where id = …`); custo US$ 0,03.
+- **Dado de teste:** código `a3f9c1`; linha apagada (`delete … where tema like '[shs] a3f9c1 %'`), nenhuma sobrando; custo US$ 0,03.
 ```
 Falhou? A seção mostra o erro medido (status e código de erro, nunca a mensagem livre) e o diagnóstico começa na mesma resposta — a falha é da sessão
 resolver, não do Lucas reportar.
@@ -128,12 +134,12 @@ não "testa" com dinheiro real acima do teto · não substitui o campo (`!mirofi
 - **F-SHS-1:** duas checagens `🧪` dadas como "passa" que o Lucas depois achou quebradas no mesmo caminho → a evidência
   mínima sobe (print obrigatório em tela; linha do banco obrigatória em escrita) e o caso entra no histórico da regra.
 - **F-SHS-2:** simulação que gastou acima do teto sem perguntar, publicou, mexeu em conta de cliente ou mandou
-  mensagem a pessoa de fora → erro classe A anotado no histórico da regra, no hub
-  (`docs/regras/historico/simulacao-humana-sintetica.md` §Erros classe A: data, persona, o que houve, até quando), e a
-  persona em questão passa a exigir "sim" do Lucas por 30 dias — o passo 1 lê essa seção antes de rodar.
+  mensagem a pessoa de fora → erro classe A: linha nova em `docs/ops/SHS-QUARENTENA.md` (hub; data, persona, o que
+  houve, até quando), no mesmo ato e em PR próprio, e a história do caso no histórico da regra. A persona passa a exigir
+  "sim" do Lucas por 30 dias — o passo 1 lê esse arquivo antes de rodar; a linha só sai pela data.
 
 *v1.1 · 2026-10-14 (v1.0 em 13/10) · fonte única: `Lucas-Contexto-Geral/.claude/skills/simulacao-humana-sintetica/SKILL.md`,
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 06:07 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 06:15 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
