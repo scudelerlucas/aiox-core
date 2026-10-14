@@ -48,89 +48,92 @@ outra palavra (`rode !shs na prévia`).
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra), com a página testada vinda da variável
    `ALVO_URL`, já carregada no ambiente — link assinado ou link mágico escrito no script fica no histórico —, só
    `https://` (o `http://` só para `127.0.0.1` e `localhost`, conferidos no host que o `URL` leu e não no texto: em
-   `http://localhost:@outro.com` o host é o `outro.com`), com o erro do `goto` relançado sem o endereço (o do Playwright
-   traz a URL inteira, token incluso — medido); link de uso único (link mágico, convite) se gasta na visita: só um
-   gerado para a checagem, nunca o do Lucas nem o de cliente. Clique, formulário, texto na tela, print — sempre só do
-   elemento do teste (recorte do `[shs]`), nunca a tela inteira, porque produção e prévia que lê banco real mostram dado
-   de cliente, e o arquivo fora do repositório. Em toda checagem com navegador, prévia inclusive (que costuma carregar o
-   mesmo pixel e o mesmo analytics da produção), o contexto nasce com `serviceWorkers: 'block'`, sem WebRTC,
-   `WebTransport`, `Worker` nem `SharedWorker` e com uma lista do que pode passar, registrada antes de abrir qualquer
-   página — o segundo bloco abaixo: a própria página testada; os arquivos do build, por GET (`ESTATICO`: a pasta que só
-   serve arquivo gerado — no Next.js, `/_next/static/`); e cada chamada ou página a mais que o caminho testado faz
-   (`PASSA` — método e endereço inteiro com a query, montado do ambiente quando leva token, como o `ALVO`; quando o
-   mesmo endereço recebe outras coisas, a condição do corpo, sobre o campo que só o teste manda e não sobre um pedaço do
-   texto; chamada que grava só entra se a linha que ela grava leva o código da checagem — no corpo, ou porque nasce de
-   algo que o leva, como a sessão aberta com o e-mail `shs+…` —, e passa uma vez: a segunda, de nova tentativa ou clique
-   duplo, aborta (o quarto item da entrada muda o limite; GET não tem); nunca prefixo nem host inteiro: `/api/quiz/`
-   deixaria passar o `/api/quiz/analytics`, `/api/eventos` sem a query deixaria passar o `?modo=track`, e o host do
-   banco que serve o dado também recebe o aviso de erro do site); todo o resto aborta, GET do próprio domínio inclusive
-   — o pixel próprio em `/collect.gif` é um GET de imagem como o logo. O que passa, o próprio Playwright busca sem
-   seguir redirecionamento (`route.fetch` com `maxRedirects: 0`), e um 3xx aborta: o `route` só vê o primeiro endereço,
-   e o redirecionamento que o navegador seguisse levaria a visita a um destino fora da lista (medido: uma rota listada
-   que mandava a um pixel de fora fez o pixel receber a visita; com o 3xx abortado, não). Lista do que passa, e não do
-   que se corta, porque a medição que ninguém listou é justamente a que escapa: o analytics que o próprio domínio recebe
-   num caminho gerado a cada build, o aviso de erro que a página manda ao banco, o pixel novo. `context.route` pega abas
-   novas e popups, que o `page.route` perde; o `routeWebSocket` fecha todo WebSocket (a gravação de sessão vai por ele,
-   e o `route` não o vê), e o Playwright anterior ao 1.48 não o tem: aí o bloco para antes da primeira página; o WebRTC
-   (vídeo, chamada, canal de dados), o `WebTransport`, o `Worker` e o `SharedWorker` saem da página antes de ela abrir,
-   porque o tráfego deles também não passa pelo `route` (medido: com o `route` ligado, o WebSocket aberto por um worker
-   e a chamada do SharedWorker chegaram ao servidor; o `WebTransport`, que pede servidor HTTP/3, não foi medido). O que
-   o caminho precisa e ficou de fora quebra o teste, que é o lado seguro: o `CORTADO` mostra o quê — método, tipo
-   (documento, script, imagem, fetch) e host, sem o caminho nem a query, que podem levar token, e-mail ou nome
+   `http://localhost:@outro.com` o host é o `outro.com`), e todo erro do navegador relançado só com o passo e o tipo
+   (`falhou em <passo> (<tipo>)`): o do Playwright traz a URL inteira, token incluso, e o do teste traz o texto da
+   página (medido); link de uso único (link mágico, convite) se gasta na visita: só um gerado para a checagem, nunca o
+   do Lucas nem o de cliente. Clique, formulário, texto na tela, print — sempre só do elemento do teste (recorte do
+   `[shs]`), nunca a tela inteira, porque produção e prévia que lê banco real mostram dado de cliente, e o arquivo fora
+   do repositório. Em toda checagem com navegador, prévia inclusive (que costuma carregar o mesmo pixel e o mesmo
+   analytics da produção), o contexto nasce com `serviceWorkers: 'block'`, sem WebRTC, `WebTransport`, `Worker` nem
+   `SharedWorker` e com uma lista do que pode passar, registrada antes de abrir qualquer página — o segundo bloco
+   abaixo: a própria página testada; os arquivos do build, por GET (`ESTATICO`: a pasta que só serve arquivo gerado — no
+   Next.js, `/_next/static/`); e cada chamada ou página a mais que o caminho testado faz (`PASSA` — método e endereço
+   inteiro com a query, montado do ambiente quando leva token, como o `ALVO`; quando o mesmo endereço recebe outras
+   coisas, a condição do corpo, sobre o campo que só o teste manda e não sobre um pedaço do texto; chamada que grava só
+   entra se a linha que ela grava leva o código da checagem — no corpo, ou porque nasce de algo que o leva, como a
+   sessão aberta com o e-mail `shs+…` —, e passa uma vez: a segunda, de nova tentativa ou clique duplo, aborta (o quarto
+   item da entrada muda o limite; GET não tem); nunca prefixo nem host inteiro: `/api/quiz/` deixaria passar o
+   `/api/quiz/analytics`, `/api/eventos` sem a query deixaria passar o `?modo=track`, e o host do banco que serve o dado
+   também recebe o aviso de erro do site); todo o resto aborta, GET do próprio domínio inclusive — o pixel próprio em
+   `/collect.gif` é um GET de imagem como o logo. O que passa, o próprio Playwright busca sem seguir redirecionamento
+   (`route.fetch` com `maxRedirects: 0`), e um 3xx aborta: o `route` só vê o primeiro endereço, e o redirecionamento que
+   o navegador seguisse levaria a visita a um destino fora da lista (medido: uma rota listada que mandava a um pixel de
+   fora fez o pixel receber a visita; com o 3xx abortado, não). Lista do que passa, e não do que se corta, porque a
+   medição que ninguém listou é justamente a que escapa: o analytics que o próprio domínio recebe num caminho gerado a
+   cada build, o aviso de erro que a página manda ao banco, o pixel novo. `context.route` pega abas novas e popups, que
+   o `page.route` perde; o `routeWebSocket` fecha todo WebSocket (a gravação de sessão vai por ele, e o `route` não o
+   vê), e o Playwright anterior ao 1.48 não o tem: aí o bloco para antes da primeira página; o WebRTC (vídeo, chamada,
+   canal de dados), o `WebTransport`, o `Worker` e o `SharedWorker` saem da página antes de ela abrir, porque o tráfego
+   deles também não passa pelo `route` (medido: com o `route` ligado, o WebSocket aberto por um worker e a chamada do
+   SharedWorker chegaram ao servidor; o `WebTransport`, que pede servidor HTTP/3, não foi medido). O que o caminho
+   precisa e ficou de fora quebra o teste, que é o lado seguro: o `CORTADO` mostra o quê — método, tipo (documento,
+   script, imagem, fetch) e host, sem o caminho nem a query, que podem levar token, e-mail ou nome
    (`/magic-link/<token>`, `/maria/pedidos`), e a marca do que estava na lista e abortou mesmo assim (`3xx`, `falhou`,
-   `repetido`) —, e entra em `PASSA` depois de lido no código e conferido que não é medição. O preflight do CORS das
-   chamadas que passam, o Playwright responde sozinho, e o das que abortam não sai (medido com o Playwright 1.58: POST
-   com JSON e PUT com cabeçalho próprio a outra origem, fora do `PASSA` — o servidor dela não recebeu nem o `OPTIONS`);
-   e a chamada a outra origem que passa sai do Playwright com os cookies do contexto mesmo quando a página não os
-   mandaria (medido: com `credentials: 'omit'`, o servidor recebeu o cookie; o navegador sem o `route` mandou o
-   `OPTIONS` e nenhum cookie). A regra de CORS do servidor e a política de cookie da chamada não se provam assim.
-   Caminho que depende de service worker (offline, cache, API interceptada), de worker, de WebSocket ou de WebRTC
-   (progresso ao vivo, chat, chamada) não se prova com eles cortados; resposta em fluxo (SSE, texto gerado aos poucos)
-   chega à página de uma vez, no fim, porque o `route.fetch` lê a resposta inteira antes de entregar; e o `route`
-   desliga o cache HTTP do navegador, então o que só quebra com cache (o visitante que volta) também não se prova assim,
-   e o veredito diz isso. Sem como cortar tudo — Playwright velho, service worker, worker, WebSocket ou WebRTC
-   necessário —, só na prévia isolada; e, se a pergunta era sobre produção, o veredito diz que a produção não foi
-   provada, em vez de usar a prévia como prova dela. O contexto fecha no `finally` (`await ctx.close()`), também quando
-   o teste falha (medido: sem o `finally`, o teste que falhou deixou o contexto aberto), antes de esperar o que o fluxo
-   grava depois e de apagar o dado de teste (passo 4): página aberta ainda repete chamada, sonda e salva sozinha. O que
-   passa vai pelo `route.fetch` com o prazo da rota (`MAX_MS`, o mesmo do `MAX` do HTTP): no padrão dele, 30 s, uma rota
-   listada de 35 s abortou (medido). A visita sintética não pode virar evento na Meta nem sujar a métrica da campanha ou
-   do site. (b) HTTP na rota, com o primeiro bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o
-   método e os cabeçalhos quando a rota não é GET (um POST testado com GET dá 405 e reprova à toa), e `CORPO` leva o
-   corpo, com o dado de teste marcado `shs`; `ESPERA` é o código que prova o caminho (200, 201; quando a checagem é a
-   recusa — anônimo recebe 401, recurso apagado dá 404 —, é esse o código, e a condição do corpo passa a ser a da recusa
-   da própria aplicação — o campo ou a mensagem que só ela devolve —, nunca só o código: a proteção de prévia da Vercel,
-   um proxy ou uma rota digitada errado devolvem o mesmo 401 ou 404 sem o código da rota rodar); credencial nunca vai
-   escrita no comando, que fica no histórico da sessão, nem como argumento do `curl`, que outro processo da máquina lê
-   (`ps`): URL assinada vem de variável já carregada no ambiente (`URL="$ROTA_ASSINADA"`), cabeçalho com chave também
-   (`CAB=("x-api-key: $CHAVE" "Authorization: Bearer $TOKEN")`, com aspas duplas, para o comando guardar o nome e não o
-   valor; todo cabeçalho com credencial vai no `CAB`, nunca no `EXTRA`, que vira argumento — medido: o segundo cabeçalho
-   posto no `EXTRA` apareceu na lista de processos), e todos entram no `curl` pelo stdin (`-K -`), montados pelo
-   `printf`, que é do próprio shell e não vira processo, com aspas e barra escapadas e recusados se tiverem quebra de
-   linha, e a URL só `https://` (o `http://` só vale para `127.0.0.1` e `localhost`, porque chave e senha iriam em texto
-   aberto, conferidos no host como o `curl` o lê: em `http://localhost:x@127.0.0.1:8775/` o host é o de depois do `@`, e
-   o bloco anterior mandou a chave a ele — medido) — senão uma URL com `"` e quebra de linha vira outra instrução para o
-   `curl` (medido: um `upload-file = /etc/hostname` escondido na URL mandou o arquivo da máquina ao servidor) —; o
-   rastreio do shell (`set -x`) se desliga antes de tudo, porque ele imprime o comando com a credencial já expandida; o
-   corpo, que pode levar senha ou token, vai por um arquivo temporário que só o dono lê (`--data-binary @arquivo`),
-   nunca pela linha de comando, e a senha ou o token entram no `CORPO` pelo `jq`, que lê a variável já exportada no
-   ambiente e escapa aspas e barra (`CORPO=$(jq -cn '{senha: env.SENHA}')`) — montado à mão, uma senha com `"` quebra o
-   JSON (medido: o servidor recebeu JSON inválido e a chamada caiu com `curl=52`), e o `--arg` do `jq` poria o valor na
-   lista de processos —, nunca pelo valor; credencial que só existe como texto a colar é fronteira; `.status == "ok"` dá
-   lugar à condição de sucesso daquela rota (o valor certo, não só o campo presente) — rota que não devolve JSON troca o
-   `jq -e` por `grep -qF '[shs] <código>' "$f"` (HTML com o texto do teste) ou `[ ! -s "$f" ]` (204, corpo vazio). O que
-   cada peça evita: o `( … )` dá a cada checagem os seus arquivos e a sua limpeza, mesmo com várias no mesmo terminal; o
-   `&& r=0 || r=$?` guarda o código do `curl` mesmo com `set -e` ligado, que mataria o subshell antes do `echo`; `-q`,
-   que tem de vir primeiro, faz o `curl` ignorar o `.curlrc` da conta, que poderia religar o seguir-redirecionamento;
-   `--globoff` faz o `curl` tomar `[` e `{` da URL como texto, e o erro dele vai para `/dev/null` — senão uma URL
-   assinada com colchete sai inteira, token incluso, na mensagem de erro; do `curl` sai só o código de saída (`curl=7`
-   sem conexão, `28` prazo estourado, `6` nome que não resolve, `63` ou `153` resposta maior que o limite); sem `-L`,
-   redirecionamento não é seguido (o `curl` repetiria o cabeçalho de credencial para o outro endereço, e um POST viraria
-   GET); comparar o código com `ESPERA` reprova todo o resto — 3xx, 4xx e 5xx —, mesmo com corpo `{"status":"ok"}`, e
-   usa só o `-w '%{http_code}'`, que todo `curl` tem (o `--fail-with-body` só existe do 7.76 em diante); `--max-time
-   "$MAX"` impede que uma rota travada prenda a checagem, com o prazo da própria rota (o `maxDuration` dela; sem ele, o
-   padrão do projeto — na Vercel, 300 s, ou o que o painel do projeto definir, até 800 s, e o MCP da Vercel lê; sem como
-   ler, 815) mais 15 s de folga para rede e partida a frio, para não reprovar rota lenta que está dentro do prazo;
+   `repetido`, `cookie`) —, e entra em `PASSA` depois de lido no código e conferido que não é medição. O preflight do
+   CORS das chamadas que passam, o Playwright responde sozinho, e o das que abortam não sai (medido com o Playwright
+   1.58: POST com JSON e PUT com cabeçalho próprio a outra origem, fora do `PASSA` — o servidor dela não recebeu nem o
+   `OPTIONS`); e o `route.fetch` manda os cookies do contexto mesmo onde a página não os mandaria (medido: com
+   `credentials: 'omit'`, o servidor recebeu o cookie; o navegador sem o `route` mandou o `OPTIONS` e nenhum cookie),
+   então a chamada a outra origem para a qual o contexto tem cookie aborta (`cookie`), e esse caminho vira prévia sem
+   sessão ou fronteira (medido: com o cookie no contexto, o servidor de fora não recebeu nada; sem ele, a chamada
+   passou). A regra de CORS do servidor não se prova assim. Caminho que depende de service worker (offline, cache, API
+   interceptada), de worker, de WebSocket ou de WebRTC (progresso ao vivo, chat, chamada) não se prova com eles
+   cortados; resposta em fluxo (SSE, texto gerado aos poucos) chega à página de uma vez, no fim, porque o `route.fetch`
+   lê a resposta inteira antes de entregar; e o `route` desliga o cache HTTP do navegador, então o que só quebra com
+   cache (o visitante que volta) também não se prova assim, e o veredito diz isso. Sem como cortar tudo — Playwright
+   velho, service worker, worker, WebSocket ou WebRTC necessário —, só na prévia isolada; e, se a pergunta era sobre
+   produção, o veredito diz que a produção não foi provada, em vez de usar a prévia como prova dela. O contexto fecha no
+   `finally` (`await ctx.close()`), também quando o teste falha (medido: sem o `finally`, o teste que falhou deixou o
+   contexto aberto), antes de esperar o que o fluxo grava depois e de apagar o dado de teste (passo 4): página aberta
+   ainda repete chamada, sonda e salva sozinha. O que passa vai pelo `route.fetch` com o prazo da rota (`MAX_MS`, o
+   mesmo do `MAX` do HTTP): no padrão dele, 30 s, uma rota listada de 35 s abortou (medido). A visita sintética não pode
+   virar evento na Meta nem sujar a métrica da campanha ou do site. (b) HTTP na rota, com o primeiro bloco abaixo —
+   `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método e os cabeçalhos quando a rota não é GET (um POST
+   testado com GET dá 405 e reprova à toa), e `CORPO` leva o corpo, com o dado de teste marcado `shs`; `ESPERA` é o
+   código que prova o caminho (200, 201; quando a checagem é a recusa — anônimo recebe 401, recurso apagado dá 404 —, é
+   esse o código, e a condição do corpo passa a ser a da recusa da própria aplicação — o campo ou a mensagem que só ela
+   devolve —, nunca só o código: a proteção de prévia da Vercel, um proxy ou uma rota digitada errado devolvem o mesmo
+   401 ou 404 sem o código da rota rodar); credencial nunca vai escrita no comando, que fica no histórico da sessão, nem
+   como argumento do `curl`, que outro processo da máquina lê (`ps`): URL assinada vem de variável já carregada no
+   ambiente (`URL="$ROTA_ASSINADA"`), cabeçalho com chave também (`CAB=("x-api-key: $CHAVE" "Authorization: Bearer
+   $TOKEN")`, com aspas duplas, para o comando guardar o nome e não o valor; todo cabeçalho com credencial vai no `CAB`,
+   nunca no `EXTRA`, que vira argumento — medido: o segundo cabeçalho posto no `EXTRA` apareceu na lista de processos),
+   e todos entram no `curl` pelo stdin (`-K -`), montados pelo `printf`, que é do próprio shell e não vira processo, com
+   aspas e barra escapadas e recusados se tiverem quebra de linha, e a URL só `https://` (o `http://` só vale para
+   `127.0.0.1` e `localhost`, porque chave e senha iriam em texto aberto, conferidos no host como o `curl` o lê: em
+   `http://localhost:x@127.0.0.1:8775/` o host é o de depois do `@`, e o bloco anterior mandou a chave a ele — medido) —
+   senão uma URL com `"` e quebra de linha vira outra instrução para o `curl` (medido: um `upload-file = /etc/hostname`
+   escondido na URL mandou o arquivo da máquina ao servidor) —; o rastreio do shell (`set -x`) se desliga antes de tudo,
+   porque ele imprime o comando com a credencial já expandida; o corpo, que pode levar senha ou token, vai por um
+   arquivo temporário que só o dono lê (`--data-binary @arquivo`), nunca pela linha de comando, e a senha ou o token
+   entram no `CORPO` pelo `jq`, que lê a variável já exportada no ambiente e escapa aspas e barra (`CORPO=$(jq -cn
+   '{senha: env.SENHA}')`) — montado à mão, uma senha com `"` quebra o JSON (medido: o servidor recebeu JSON inválido e
+   a chamada caiu com `curl=52`), e o `--arg` do `jq` poria o valor na lista de processos —, nunca pelo valor;
+   credencial que só existe como texto a colar é fronteira; `.status == "ok"` dá lugar à condição de sucesso daquela
+   rota (o valor certo, não só o campo presente) — rota que não devolve JSON troca o `jq -e` por `grep -qF '[shs]
+   <código>' "$f"` (HTML com o texto do teste) ou `[ ! -s "$f" ]` (204, corpo vazio). O que cada peça evita: o `( … )`
+   dá a cada checagem os seus arquivos e a sua limpeza, mesmo com várias no mesmo terminal; o `&& r=0 || r=$?` guarda o
+   código do `curl` mesmo com `set -e` ligado, que mataria o subshell antes do `echo`; `-q`, que tem de vir primeiro,
+   faz o `curl` ignorar o `.curlrc` da conta, que poderia religar o seguir-redirecionamento; `--globoff` faz o `curl`
+   tomar `[` e `{` da URL como texto, e o erro dele vai para `/dev/null` — senão uma URL assinada com colchete sai
+   inteira, token incluso, na mensagem de erro; do `curl` sai só o código de saída (`curl=7` sem conexão, `28` prazo
+   estourado, `6` nome que não resolve, `63` ou `153` resposta maior que o limite); sem `-L`, redirecionamento não é
+   seguido (o `curl` repetiria o cabeçalho de credencial para o outro endereço, e um POST viraria GET); comparar o
+   código com `ESPERA` reprova todo o resto — 3xx, 4xx e 5xx —, mesmo com corpo `{"status":"ok"}`, e usa só o `-w
+   '%{http_code}'`, que todo `curl` tem (o `--fail-with-body` só existe do 7.76 em diante); `--max-time "$MAX"` impede
+   que uma rota travada prenda a checagem, com o prazo da própria rota (o `maxDuration` dela; sem ele, o padrão do
+   projeto — na Vercel, 300 s, ou o que o painel do projeto definir, até 800 s, e o MCP da Vercel lê; sem como ler, 815)
+   mais 15 s de folga para rede e partida a frio, para não reprovar rota lenta que está dentro do prazo;
    `--max-filesize` (no `curl` 8.4 em diante) e o `ulimit -f` (em qualquer versão, porque o antigo só confere o tamanho
    declarado) impedem que uma resposta enorme encha o disco — o `ulimit` vem depois de o corpo estar no arquivo (antes,
    um corpo grande derrubava a checagem sem a chamada sair), com `ulimit -c 0`, porque o `curl` morto pelo limite
@@ -144,17 +147,20 @@ outra palavra (`rode !shs na prévia`).
    da ferramenta. Rota que grava credencial na linha do log (no quiz-diagnosys, a de retomada registra o token cru), com
    ferramenta que só devolve a linha inteira: o log não se lê, e o diagnóstico fica no código. O corpo fica fora do
    repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo inteiro, que em painel ou produção
-   pode trazer dado de cliente ou credencial. (c) leitura/escrita no banco (MCP do Supabase; `begin; set constraints all
-   immediate; … rollback` numa única chamada do `execute_sql` — sem o `set constraints`, a restrição adiada, que só se
-   confere no `commit`, passa sem ser testada, e cada chamada é uma conexão própria, e `begin` numa com `rollback`
-   noutra não desfaz nada —, sabendo que o `rollback` não devolve número tirado de sequência (`serial`, `identity`,
-   `nextval`): se o caminho numera algo que alguém vê ou que tem de ser contínuo (pedido, protocolo, nota), a escrita
-   vai à prévia isolada ou vira fronteira; e sabendo que o `rollback` desfaz a linha e não o que um gatilho ou função
-   mandou para fora do banco (`pg_net`, e-mail, webhook: lidos no código antes, e havendo, prévia isolada); nunca `raise
-   exception` para desfazer em produção, que deixa um erro no log do banco e pode disparar alerta; prova o banco, não a
-   rota: se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la). (d) script do repositório (`npm run`,
-   `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa:
-   `vigia/dominios.txt` do hub (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
+   pode trazer dado de cliente ou credencial. (c) leitura/escrita no banco (MCP do Supabase; `begin; …; set constraints
+   all immediate; rollback` numa única chamada do `execute_sql` — sem o `set constraints`, a restrição adiada, que só se
+   confere no `commit`, passa sem ser testada, e ele vem depois das instruções testadas, logo antes do `rollback`,
+   porque antes delas mudaria o modo da restrição e reprovaria a troca que o `commit` aceitaria; se uma instrução falha,
+   o `rollback` do fim não roda, e quem desfaz é o fim da conexão (medido com o MCP do Supabase: a trava pega antes do
+   erro saiu livre, e não sobrou conexão parada em transação), e cada chamada é uma conexão própria, e `begin` numa com
+   `rollback` noutra não desfaz nada —, sabendo que o `rollback` não devolve número tirado de sequência (`serial`,
+   `identity`, `nextval`): se o caminho numera algo que alguém vê ou que tem de ser contínuo (pedido, protocolo, nota),
+   a escrita vai à prévia isolada ou vira fronteira; e sabendo que o `rollback` desfaz a linha e não o que um gatilho ou
+   função mandou para fora do banco (`pg_net`, e-mail, webhook: lidos no código antes, e havendo, prévia isolada); nunca
+   `raise exception` para desfazer em produção, que deixa um erro no log do banco e pode disparar alerta; prova o banco,
+   não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la). (d) script do repositório (`npm
+   run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da
+   casa: `vigia/dominios.txt` do hub (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
    https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/vigia/dominios.txt); prévia do PR: o link da Vercel
    no próprio PR.
    ```bash
@@ -202,9 +208,11 @@ outra palavra (`rode !shs na prévia`).
      const q = r.request(), u = N(q.url()), m = q.method(), c = q.postData() ?? '';
      const i = PASSA.findIndex(([pm, pu, corpo = () => true]) => m === pm && N(pu) === u && corpo(c));
      const repetido = i >= 0 && ++VEZES[i] > (PASSA[i][3] ?? (m === 'GET' ? Infinity : 1));   // nova tentativa
+     const cookie = i >= 0 && new URL(u).origin !== SITE && (await ctx.cookies(u)).length > 0;   // o route.fetch
+     // mandaria o cookie do contexto mesmo onde a página não o mandaria (medido): outra origem com cookie não passa
      const ok = (m === 'GET' && q.resourceType() === 'document' && u === PAGINA)
-       || (m === 'GET' && ESTATICO.some(p => u.startsWith(p))) || (i >= 0 && !repetido);
-     let resp = null, marca = repetido ? 'repetido ' : '';   // marca: por que abortou o que estava na lista
+       || (m === 'GET' && ESTATICO.some(p => u.startsWith(p))) || (i >= 0 && !repetido && !cookie);
+     let resp = null, marca = repetido ? 'repetido ' : cookie ? 'cookie ' : '';   // por que abortou o da lista
      if (ok) resp = await r.fetch({ maxRedirects: 0, timeout: MAX_MS }).catch(() => { marca = 'falhou '; return null });
      if (resp && (resp.status() < 300 || resp.status() > 399)) return r.fulfill({ response: resp });
      if (resp) marca = '3xx ';                         // o route só vê o 1º endereço: redirecionamento aborta
@@ -213,11 +221,13 @@ outra palavra (`rode !shs na prévia`).
    });
    if (typeof ctx.routeWebSocket !== 'function') throw new Error('Playwright < 1.48: sem como cortar WebSocket');
    await ctx.routeWebSocket(/.*/, ws => ws.close());  // nenhum WebSocket abre: gravação de sessão vai por ele
+   let passo = 'abrir a página';                     // o teste troca antes de cada ação: passo = 'clicar em Gerar'
    try {
      const page = await ctx.newPage();
-     await page.goto(ALVO).catch(e => { throw new Error(`a página não abriu (${e.name})`); });   // o erro traz a URL
+     await page.goto(ALVO);
      // … o teste e a evidência …
-   } finally { await ctx.close(); }   // mesmo se o teste falha; antes de esperar o adiado e apagar (passo 4)
+   } catch (e) { throw new Error(`falhou em ${passo} (${e.name})`); }   // a mensagem traz URL e texto da página
+   finally { await ctx.close(); }   // mesmo se o teste falha; antes de esperar o adiado e apagar (passo 4)
    ```
 
 3. **Mesmas travas do humano.** Nada irreversível — apagar ao fim o que esta checagem criou, achado pelo código dela
@@ -243,13 +253,14 @@ outra palavra (`rode !shs na prévia`).
    contador ou cota que a chamada gasta e que não volta sozinho quando a linha sai (as vagas do dia: devolvê-las mexeria
    num contador que já existia), gravação adiada sem sinal de término (fila que reprocessa, webhook que pode chegar
    horas depois) — → a escrita vai à prévia isolada, e, se a pergunta era sobre produção, o veredito diz que a produção
-   não foi provada; transação desfeita só quando o caminho inteiro cabe nela, com `set constraints all immediate` antes
-   do `rollback` e sem efeito fora do banco no caminho; senão, fronteira. Ao fim, com o navegador já fechado, esperar o
-   que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o `quiz_leituras` entra depois do
-   `/api/quiz/score` responder) até o sinal de término que se viu antes — a linha adiada já gravada com o código, o job
-   desta checagem concluído (fila vazia não basta); apagar sem ele pode vir antes da última gravação —, apagar só as
-   linhas com o código desta checagem (o filtro do `delete` é o código, nunca só a marca `shs`, que outra checagem pode
-   estar usando agora), e reconferir todas as linhas com esse código antes de dizer que recolheu.
+   não foi provada; transação desfeita só quando o caminho inteiro cabe nela, com `set constraints all immediate` depois
+   das instruções, logo antes do `rollback`, e sem efeito fora do banco no caminho; senão, fronteira. Ao fim, com o
+   navegador já fechado, esperar o que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o
+   `quiz_leituras` entra depois do `/api/quiz/score` responder) até o sinal de término que se viu antes — a linha adiada
+   já gravada com o código, o job desta checagem concluído (fila vazia não basta); apagar sem ele pode vir antes da
+   última gravação —, apagar só as linhas com o código desta checagem (o filtro do `delete` é o código, nunca só a marca
+   `shs`, que outra checagem pode estar usando agora), e reconferir todas as linhas com esse código antes de dizer que
+   recolheu.
 5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de
    teste recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo
    "confira".
@@ -307,4 +318,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 08:53 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
+🕒 2026-10-14 09:10 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
