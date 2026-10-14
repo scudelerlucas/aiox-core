@@ -244,8 +244,9 @@ teste que a própria checagem criou, achado pelo código dela), dinheiro só at�
 em cada chat (acima, pergunta antes, com o número), nada na Meta, nada a pessoa de fora da casa, nada publicado, nada
 em conta de cliente; navegador, prévia inclusive, só com toda a medição de visita cortada no contexto antes da
 primeira página (pixel da Meta, analytics de terceiros e do próprio domínio, como `/_vercel/insights`, gravação de
-sessão), e em produção só sem evento disparado pelo servidor; persona com erro classe A nos últimos 30 dias (lista
-vigente em
+sessão), e nenhum caminho (navegador ou HTTP, prévia ou produção) que dispare evento pelo próprio servidor, salvo numa
+prévia provada sem essas credenciais; credencial nunca escrita no comando, que fica no histórico (vem de variável já
+carregada no ambiente); persona com erro classe A nos últimos 30 dias (lista vigente em
 [`docs/ops/SHS-QUARENTENA.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/SHS-QUARENTENA.md),
 lida na `main` do hub no GitHub, mais os PRs abertos do hub com `SHS-QUARENTENA` no título) pede o "sim" do Lucas
 antes, e sem como ler essa lista também; dado de teste marcado `shs` com o código da checagem e apagado ao fim só por
