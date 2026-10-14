@@ -88,18 +88,20 @@ outra palavra (`rode !shs na prévia`).
    URL mandou o arquivo da máquina ao servidor) —; o rastreio do shell (`set -x`) se desliga antes de tudo, porque ele
    imprime o comando com a credencial já expandida; o corpo, que pode levar senha ou token, vai por um arquivo
    temporário que só o dono lê (`--data-binary @arquivo`), nunca pela linha de comando, e a senha ou o token entram no
-   `CORPO` pela variável (`CORPO="{\"senha\":\"$SENHA\"}"`), nunca pelo valor; credencial que só existe como texto a
-   colar é fronteira; `.status == "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o campo
-   presente) — rota que não devolve JSON troca o `jq -e` por `grep -qF '[shs] <código>' "$f"` (HTML com o texto do
-   teste) ou `[ ! -s "$f" ]` (204, corpo vazio). O que cada peça evita: o `( … )` dá a cada checagem os seus arquivos e
-   a sua limpeza, mesmo com várias no mesmo terminal; o `&& r=0 || r=$?` guarda o código do `curl` mesmo com `set -e`
-   ligado, que mataria o subshell antes do `echo`; `-q`, que tem de vir primeiro, faz o `curl` ignorar o `.curlrc` da
-   conta, que poderia religar o seguir-redirecionamento; `--globoff` faz o `curl` tomar `[` e `{` da URL como texto, e o
-   erro dele vai para `/dev/null` — senão uma URL assinada com colchete sai inteira, token incluso, na mensagem de erro;
-   do `curl` sai só o código de saída (`curl=7` sem conexão, `28` prazo estourado, `6` nome que não resolve, `63` ou
-   `153` resposta maior que o limite); sem `-L`, redirecionamento não é seguido (o `curl` repetiria o cabeçalho de
-   credencial para o outro endereço, e um POST viraria GET); comparar o código com `ESPERA` reprova todo o resto — 3xx,
-   4xx e 5xx —, mesmo com corpo `{"status":"ok"}`, e usa só o `-w '%{http_code}'`, que todo `curl` tem (o
+   `CORPO` pelo `jq`, que lê a variável já exportada no ambiente e escapa aspas e barra (`CORPO=$(jq -cn '{senha:
+   env.SENHA}')`) — montado à mão, uma senha com `"` quebra o JSON (medido: o servidor recebeu JSON inválido e a chamada
+   caiu com `curl=52`), e o `--arg` do `jq` poria o valor na lista de processos —, nunca pelo valor; credencial que só
+   existe como texto a colar é fronteira; `.status == "ok"` dá lugar à condição de sucesso daquela rota (o valor certo,
+   não só o campo presente) — rota que não devolve JSON troca o `jq -e` por `grep -qF '[shs] <código>' "$f"` (HTML com o
+   texto do teste) ou `[ ! -s "$f" ]` (204, corpo vazio). O que cada peça evita: o `( … )` dá a cada checagem os seus
+   arquivos e a sua limpeza, mesmo com várias no mesmo terminal; o `&& r=0 || r=$?` guarda o código do `curl` mesmo com
+   `set -e` ligado, que mataria o subshell antes do `echo`; `-q`, que tem de vir primeiro, faz o `curl` ignorar o
+   `.curlrc` da conta, que poderia religar o seguir-redirecionamento; `--globoff` faz o `curl` tomar `[` e `{` da URL
+   como texto, e o erro dele vai para `/dev/null` — senão uma URL assinada com colchete sai inteira, token incluso, na
+   mensagem de erro; do `curl` sai só o código de saída (`curl=7` sem conexão, `28` prazo estourado, `6` nome que não
+   resolve, `63` ou `153` resposta maior que o limite); sem `-L`, redirecionamento não é seguido (o `curl` repetiria o
+   cabeçalho de credencial para o outro endereço, e um POST viraria GET); comparar o código com `ESPERA` reprova todo o
+   resto — 3xx, 4xx e 5xx —, mesmo com corpo `{"status":"ok"}`, e usa só o `-w '%{http_code}'`, que todo `curl` tem (o
    `--fail-with-body` só existe do 7.76 em diante); `--max-time "$MAX"` impede que uma rota travada prenda a checagem,
    com o prazo da própria rota (o `maxDuration` dela; sem ele, o padrão do projeto — na Vercel, 300 s, ou o que o painel
    do projeto definir, até 800 s, e o MCP da Vercel lê; sem como ler, 815) mais 15 s de folga para rede e partida a
@@ -134,7 +136,7 @@ outra palavra (`rode !shs na prévia`).
    ESPERA=200             # o código que prova o caminho (200, 201…; 401 ou 404 quando a checagem é a recusa)
    EXTRA=()               # rota POST: EXTRA=(-X POST -H 'Content-Type: application/json')
    CORPO=''               # corpo do POST: CORPO='{"campo":"[shs] <código> …"}' — vai por arquivo, nunca pela linha de comando
-                          # com senha ou token: CORPO="{\"senha\":\"$SENHA\"}" — a variável, nunca o valor
+                          # com senha ou token: CORPO=$(jq -cn '{senha: env.SENHA}') — o jq lê do ambiente e escapa
    CAB=''                 # chave: CAB="x-api-key: $CHAVE" — a variável, nunca o valor; vai pelo stdin
    ( f=$(mktemp); c=$(mktemp); trap 'rm -f "$f" "$c"' EXIT
      case "$URL$CAB" in *[[:cntrl:]]*) echo 'URL ou CAB com quebra de linha'; exit 1;; esac
@@ -256,4 +258,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 08:06 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
+🕒 2026-10-14 08:14 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
