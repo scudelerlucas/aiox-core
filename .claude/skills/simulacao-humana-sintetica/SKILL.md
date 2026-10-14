@@ -46,22 +46,28 @@ outra palavra (`rode !shs na prévia`).
    o bloco abaixo — `URL` recebe a rota da prévia ou da produção, e `.status == "ok"` dá lugar à condição de sucesso
    daquela rota (o valor certo, não só o campo presente). O que cada peça evita: o `( … )` dá a cada checagem o seu
    arquivo e a sua limpeza, mesmo com várias no mesmo terminal; `--fail-with-body` faz 4xx/5xx sair com erro (senão um
-   500 com JSON passaria) e guarda o corpo; `--max-time` impede que uma rota travada prenda a checagem; `jq -e` faz a
-   condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha, antes de apagar, sai do
-   corpo só o campo de erro, cortado em 200 caracteres, para a seção `🧪` mostrar o trecho. O corpo fica fora do
-   repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo inteiro, que em painel ou
-   produção pode trazer dado de cliente ou credencial; (c) leitura/escrita no banco (MCP do Supabase; preferir `begin
-   … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota:
-   se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la); (d) script do repositório (`npm run`,
-   `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da
-   casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel no próprio PR.
+   500 com JSON passaria) e guarda o corpo; `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o
+   prazo da própria rota (o `maxDuration` dela; 30 s se ela não declarar), para não reprovar rota lenta que está
+   dentro do prazo; `jq -e` faz a condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na
+   falha, antes de apagar, sai do corpo só o código ou a mensagem de erro, com URL, e-mail e sequência longa (cara de
+   token) trocados por marcador e cortada em 120 caracteres — tamanho não é limpeza —, para a seção `🧪` mostrar o
+   trecho sem dado sensível. O corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho,
+   nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial; (c) leitura/escrita no
+   banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se
+   desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui
+   chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele
+   prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel
+   no próprio PR.
 
    ```bash
    URL='https://…/rota'   # a rota da prévia ou da produção
+   MAX=30                 # o prazo da própria rota (o maxDuration dela); 30 s se ela não declarar
    ( f=$(mktemp); trap 'rm -f "$f"' EXIT
-     curl -sS -L --fail-with-body --max-time 30 -o "$f" -w '%{http_code} %{time_total}\n' "$URL" \
+     curl -sS -L --fail-with-body --max-time "$MAX" -o "$f" -w '%{http_code} %{time_total}\n' "$URL" \
        && jq -e '.status == "ok"' "$f" \
-       || { jq -r '.error? // .message? // empty' "$f" 2>/dev/null | head -c 200; echo; exit 1; } )
+       || { jq -r '(.code? // (.error|objects|.code)? // (.error|strings)? // (.message|strings)? // empty) | tostring' "$f" 2>/dev/null \
+              | sed -E 's#https?://[^[:space:]"]+#<url>#g; s/[[:alnum:]._%+-]+@[[:alnum:].-]+/<email>/g; s/[[:alnum:]_.=-]{20,}/<segredo>/g' \
+              | head -c 120; echo; exit 1; } )
    ```
 
 3. **Mesmas travas do humano.** Nada irreversível · nada de dinheiro fora do teto (US$ 0,50 por checagem, US$ 2,00 por
@@ -128,4 +134,4 @@ não "testa" com dinheiro real acima do teto · não substitui o campo (`!mirofi
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 02:11 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 05:59 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
