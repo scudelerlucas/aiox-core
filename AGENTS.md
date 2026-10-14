@@ -244,12 +244,13 @@ apagar ao fim o dado de teste que a própria checagem criou, achado pelo código
 checagem e US$ 2,00 por dia em cada chat (acima, pergunta antes, com o número), nada na Meta, nada a pessoa de fora
 da casa, nada publicado, nada em conta de cliente; navegador, prévia inclusive, só com o contexto deixando passar,
 antes da primeira página, o que o caminho testado precisa e mais nada (pixel da Meta, analytics de terceiros e do
-próprio domínio, aviso de erro, gravação de sessão: tudo cortado), e print só do elemento do teste, nunca da tela
-inteira; nenhum caminho (navegador ou HTTP, prévia ou produção) que dispare evento pelo próprio servidor, salvo numa
-prévia provada sem essas credenciais; credencial nunca escrita no comando, que fica no histórico, nem passada como
-argumento, que outro processo lê, nem impressa pelo rastreio do shell (vem de variável já carregada no ambiente e
-entra pelo stdin ou por arquivo temporário, com o `set -x` desligado); persona com erro classe A nos últimos 30 dias
-(lista vigente em
+próprio domínio, aviso de erro, gravação de sessão: tudo cortado — requisição, WebSocket, WebRTC e worker; sem como
+cortar um deles, como no Playwright antes do 1.48, o navegador não abre), e print só do elemento do teste, nunca da
+tela inteira; nenhum caminho (navegador ou HTTP, prévia ou produção) que dispare evento pelo próprio servidor, salvo
+numa prévia provada sem essas credenciais; credencial nunca escrita no comando, que fica no histórico, nem passada
+como argumento, que outro processo lê, nem impressa pelo rastreio do shell (vem de variável já carregada no ambiente
+e entra pelo stdin ou por arquivo temporário, com o `set -x` desligado); persona com erro classe A nos últimos 30
+dias (lista vigente em
 [`docs/ops/SHS-QUARENTENA.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/SHS-QUARENTENA.md),
 lida na `main` do hub no GitHub, mais os PRs do hub com `SHS-QUARENTENA` no título atualizados nos últimos 30 dias,
 de qualquer estado) pede o "sim" do Lucas antes, e sem como ler essa lista também; dado de teste marcado `shs` com o
