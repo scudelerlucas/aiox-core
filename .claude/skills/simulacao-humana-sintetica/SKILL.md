@@ -40,31 +40,32 @@ outra palavra (`rode !shs na prévia`).
    '/opt/pw-browsers/chromium'`; fora dela, o que o próprio Playwright encontra): clique, formulário, texto na tela,
    print — em produção, print só do elemento do teste (recorte do `[shs]`), nunca a tela inteira com dado real, e o
    arquivo fora do repositório; em produção, antes de abrir a página, criar o contexto do navegador com
-   `serviceWorkers: 'block'` (o `page.route` não vê o que um service worker manda) e cortar toda chamada de medição,
-   de terceiros e do próprio domínio (`page.route` abortando `connect.facebook.net`, `facebook.com/tr`,
-   `google-analytics.com`, `googletagmanager.com`, `clarity.ms`, `hotjar.com`, e os caminhos do mesmo site como
-   `/_vercel/insights/` e `/_vercel/speed-insights/` do analytics da Vercel), depois de ler no código da página o que
-   ela carrega para medir visita (o `layout`, as tags do `<head>`), porque a visita sintética não pode virar evento na
-   Meta nem sujar a métrica da campanha ou do site — sem como cortar tudo, só na prévia isolada; (b) HTTP na rota, com
-   o bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva o método e o corpo quando a rota não é
-   GET (um POST testado com GET dá 405 e reprova à toa), e o corpo leva o dado de teste marcado `shs`; `.status ==
-   "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o campo presente). O que cada peça evita:
-   o `( … )` dá a cada checagem o seu arquivo e a sua limpeza, mesmo com várias no mesmo terminal; sem `-L`,
-   redirecionamento não é seguido (o `curl` repetiria o cabeçalho de credencial do `EXTRA` para o outro endereço, e um
-   POST viraria GET) e um 3xx reprova — a `URL` certa é a do destino; `--fail-with-body` faz 4xx/5xx sair com erro
-   (senão um 500 com JSON passaria) e guarda o corpo; o teste do código abaixo de 300 reprova o 3xx mesmo com corpo
-   `{"status":"ok"}`; `--max-time "$MAX"` impede que uma rota travada prenda a checagem, com o prazo da própria rota
-   (o `maxDuration` dela; sem ele, o da hospedagem — na Vercel, 300 s), para não reprovar rota lenta que está dentro
-   do prazo; `jq -e` faz a condição falsa sair com erro (senão um `{}` ou um `{"status":"error"}` passaria); na falha,
-   sai do corpo só o código de erro (`.code` ou `.error.code`, e só se for um código curto de letras, números, `_`,
-   `.` e `-`); a mensagem livre não sai, porque nenhuma limpeza garante que ela não traz segredo — fica no arquivo, que
-   se apaga, e o diagnóstico segue pelo log do servidor. O corpo fica fora do repositório e fora do chat: dele sai só o
-   campo que prova o caminho, nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou
-   credencial; (c) leitura/escrita no banco (MCP do Supabase; preferir `begin … rollback` ou bloco `do $$ … raise
-   exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o banco, não a rota: se a pergunta é sobre a rota, desfazer
-   no banco não substitui chamá-la); (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não**
-   substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do
-   PR: o link da Vercel no próprio PR.
+   `serviceWorkers: 'block'` (o roteamento não vê o que um service worker manda) e cortar toda chamada de medição, de
+   terceiros e do próprio domínio — `connect.facebook.net`, `facebook.com/tr`, `google-analytics.com`,
+   `googletagmanager.com`, `clarity.ms`, `hotjar.com` e caminhos do mesmo site como `/_vercel/insights/` e
+   `/_vercel/speed-insights/` (analytics da Vercel) —, abortada por `context.route` registrado no contexto antes de
+   abrir qualquer página (o `page.route` não pega a primeira chamada de uma aba nova ou de um popup), depois de ler
+   no código da página o que ela carrega para medir visita (o `layout`, as tags do `<head>`), porque a visita
+   sintética não pode virar evento na Meta nem sujar a métrica da campanha ou do site — sem como cortar tudo, só na
+   prévia isolada; (b) HTTP na rota, com o bloco abaixo — `URL` recebe a rota da prévia ou da produção; `EXTRA` leva
+   o método e o corpo quando a rota não é GET (um POST testado com GET dá 405 e reprova à toa), e o corpo leva o dado
+   de teste marcado `shs`; `.status == "ok"` dá lugar à condição de sucesso daquela rota (o valor certo, não só o
+   campo presente). O que cada peça evita: o `( … )` dá a cada checagem o seu arquivo e a sua limpeza, mesmo com
+   várias no mesmo terminal; sem `-L`, redirecionamento não é seguido (o `curl` repetiria o cabeçalho de credencial
+   do `EXTRA` para o outro endereço, e um POST viraria GET) e um 3xx reprova — a `URL` certa é a do destino;
+   `--fail-with-body` faz 4xx/5xx sair com erro (senão um 500 com JSON passaria) e guarda o corpo; o teste do código
+   abaixo de 300 reprova o 3xx mesmo com corpo `{"status":"ok"}`; `--max-time "$MAX"` impede que uma rota travada
+   prenda a checagem, com o prazo da própria rota (o `maxDuration` dela; sem ele, o da hospedagem — na Vercel,
+   300 s), para não reprovar rota lenta que está dentro do prazo; `jq -e` faz a condição falsa sair com erro (senão um
+   `{}` ou um `{"status":"error"}` passaria); na falha, sai do corpo só o código de erro (`.code` ou `.error.code`, e
+   só se for um código curto de letras, números, `_`, `.` e `-`); a mensagem livre não sai, porque nenhuma limpeza
+   garante que ela não traz segredo — fica no arquivo, que se apaga, e o diagnóstico segue pelo log do servidor. O
+   corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo inteiro, que
+   em painel ou produção pode trazer dado de cliente ou credencial; (c) leitura/escrita no banco (MCP do Supabase;
+   preferir `begin … rollback` ou bloco `do $$ … raise exception 'TESTE_OK …' $$` que se desfaz sozinho — prova o
+   banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui chamá-la); (d) script do
+   repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova o código, não o
+   caminho. Sites públicos da casa: `vigia/dominios.txt` (hub); prévia do PR: o link da Vercel no próprio PR.
 
    ```bash
    URL='https://…/rota'   # a rota da prévia ou da produção
@@ -87,12 +88,14 @@ outra palavra (`rode !shs na prévia`).
 4. **Dado de teste marcado e recolhido.** Código de 6 caracteres gerado na checagem (`openssl rand -hex 3`) e anotado
    na `🧪`, presente em toda linha que ela cria — é por ele que se apaga · `criado_por = 'shs'` · nome/tema/título com
    prefixo `[shs] <código>` · lead com e-mail `shs+AAAA-MM-DD-<código>@alma-petra.test` · UTM `utm_source=shs`.
-   **Antes de escrever em produção, confirmar que dá para recolher** (apagar a linha, desfazer a transação). Não dá —
-   log imutável, fila que se consome, envio a terceiro — → a escrita vai à prévia isolada; transação desfeita só
-   quando o caminho inteiro cabe nela; senão, fronteira. Ao fim, esperar o que o fluxo grava depois da resposta
-   (`after()`, fila, webhook — no quiz-diagnosys, o `quiz_leituras` entra depois do `/api/quiz/score` responder),
-   apagar só as linhas com o código desta checagem (o filtro do `delete` é o código, nunca só a marca `shs`, que outra
-   checagem pode estar usando agora), e reconferir todas as linhas com esse código antes de dizer que recolheu.
+   **Antes de escrever em produção, confirmar que dá para recolher tudo o que o caminho grava** — inclusive
+   telemetria e métrica interna (`agent_metrics`, eventos), que costuma ir sem a marca nem a sessão — (apagar a
+   linha, desfazer a transação). Não dá — log imutável, fila que se consome, envio a terceiro, gravação sem como
+   achar pelo código — → a escrita vai à prévia isolada; transação desfeita só quando o caminho inteiro cabe nela;
+   senão, fronteira. Ao fim, esperar o que o fluxo grava depois da resposta (`after()`, fila, webhook — no
+   quiz-diagnosys, o `quiz_leituras` entra depois do `/api/quiz/score` responder), apagar só as linhas com o código
+   desta checagem (o filtro do `delete` é o código, nunca só a marca `shs`, que outra checagem pode estar usando
+   agora), e reconferir todas as linhas com esse código antes de dizer que recolheu.
 5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de
    teste recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo
    "confira".
@@ -120,7 +123,7 @@ resolver, não do Lucas reportar.
 |---|---|---|---|
 | Lucas no painel de uma casa / CRM | tela estática gerada (`npm run tela:casas`), rotas `/api/casas/*` | a mesma chave do painel (variável do ambiente) | tema `[shs]`, `criado_por='shs'` |
 | Visitante de página pública / VSL | URL de `vigia/dominios.txt` ou prévia da Vercel | nenhuma | — (só leitura) |
-| Lead terminando um quiz | fluxo inteiro até a carta | nenhuma (anon) | e-mail `shs+data-<código>@alma-petra.test`; apagar lead e leitura ao fim; parceiro de destino **não** recebe (`nossa-base-e-a-fonte`): prévia isolada (conferida antes), ou supressão só do lead `shs` pelo marcador, se o fluxo já tiver — **nunca** desligar o envio compartilhado (lead real chegando no meio se perderia) |
+| Lead terminando um quiz | fluxo inteiro até a carta, **na prévia isolada** — no quiz-diagnosys o `/api/quiz/score` também grava `agent_metrics` e um evento Koinonia do `composite-scorer` depois da resposta, sem sessão nem marca, e isso em produção não se recolhe | nenhuma (anon) | e-mail `shs+data-<código>@alma-petra.test`; apagar lead e leitura ao fim; parceiro de destino **não** recebe (`nossa-base-e-a-fonte`): prévia isolada (conferida antes), ou supressão só do lead `shs` pelo marcador, se o fluxo já tiver — **nunca** desligar o envio compartilhado (lead real chegando no meio se perderia) |
 | Membro logado / área restrita | login de teste **já existente** da casa | só se já existir; nunca criar conta em sistema de terceiro | — |
 | Codex / outra CLI lendo regra | no hub (`../Lucas-Contexto-Geral` ou um clone dele): `node scripts/sync-rules.mjs --check`, `bash scripts/rules-drift.sh`; num irmão esses scripts não existem — lá, `diff` do arquivo contra o do hub | — | — |
 
@@ -142,4 +145,4 @@ não "testa" com dinheiro real acima do teto · não substitui o campo (`!mirofi
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 06:15 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 06:20 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
