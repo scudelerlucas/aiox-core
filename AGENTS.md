@@ -267,3 +267,5 @@ confundir com `!mirofish` (população sintética prevê **público**); SHS simu
 (a skill é espelhada em cada irmão pelo `sync-rules`; o hook de parada que barra a resposta sem `🧪` só existe no hub).
 
 <!-- HUB-INVARIANTES-END -->
+
+🕒 2026-10-14 07:44 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
