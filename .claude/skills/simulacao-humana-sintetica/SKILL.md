@@ -91,14 +91,16 @@ outra palavra (`rode !shs na prévia`).
    declarado) impedem que uma resposta enorme encha o disco; `jq -e` faz a condição falsa sair com erro (senão um `{}`
    ou um `{"status":"error"}` passaria); na falha, do corpo não sai nada — nem o código de erro, que pode ser token ou
    dado de cliente com cara de código —: sai só o status HTTP e o código do `curl`, e o diagnóstico segue pelo log do
-   servidor. O corpo fica fora do repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo
-   inteiro, que em painel ou produção pode trazer dado de cliente ou credencial. (c) leitura/escrita no banco (MCP do
-   Supabase; `begin … rollback` numa única chamada do `execute_sql` — cada chamada é uma conexão própria, e `begin`
-   numa com `rollback` noutra não desfaz nada —, nunca `raise exception` para desfazer em produção, que deixa um erro
-   no log do banco e pode disparar alerta; prova o banco, não a rota: se a pergunta é sobre a rota, desfazer no banco
-   não substitui chamá-la). (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui
-   (a)–(c): ele prova o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` do hub
-   (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
+   servidor — filtrado pela janela exata da chamada ou pelo código da checagem, e dele também só sai o campo fixo que
+   prova (status, nome do erro), nunca a linha inteira, que pode trazer token e dado de cliente (no quiz-diagnosys, a
+   rota de retomada registra o token cru). O corpo fica fora do repositório e fora do chat: dele sai só o campo que
+   prova o caminho, nunca o corpo inteiro, que em painel ou produção pode trazer dado de cliente ou credencial. (c)
+   leitura/escrita no banco (MCP do Supabase; `begin … rollback` numa única chamada do `execute_sql` — cada chamada é
+   uma conexão própria, e `begin` numa com `rollback` noutra não desfaz nada —, nunca `raise exception` para desfazer
+   em produção, que deixa um erro no log do banco e pode disparar alerta; prova o banco, não a rota: se a pergunta é
+   sobre a rota, desfazer no banco não substitui chamá-la). (d) script do repositório (`npm run`, `scripts/*.sh`).
+   Teste unitário **não** substitui (a)–(c): ele prova o código, não o caminho. Sites públicos da casa:
+   `vigia/dominios.txt` do hub (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
    https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/vigia/dominios.txt); prévia do PR: o link da Vercel
    no próprio PR.
 
@@ -208,4 +210,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 07:32 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 07:37 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
