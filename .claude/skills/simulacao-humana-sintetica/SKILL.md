@@ -34,8 +34,9 @@ outra palavra (`rode !shs na prévia`).
    login e RLS, e a checagem passaria com o caminho real quebrado); nunca credencial que o humano não teria. Persona
    com erro classe A nos últimos 30 dias → pedir o "sim" do Lucas antes de rodar. A lista é `docs/ops/SHS-QUARENTENA.md`
    (estado vigente, não histórico), lida na `main` do hub no GitHub na hora — clone local pode estar velho —, mais os
-   PRs abertos do hub com `SHS-QUARENTENA` no título, cuja linha já vale antes do merge; sem como fazer essas duas
-   leituras, pedir o "sim" também.
+   PRs do hub com `SHS-QUARENTENA` no título dos últimos 30 dias, de qualquer estado (aberto, mergeado ou fechado sem
+   merge), cuja linha já vale antes do merge e não some se o PR fechar; sem como fazer essas duas leituras, pedir o
+   "sim" também.
 2. **Caminho real, na camada mais externa que alcança.** Os passos 3 e 4 valem antes deste: travas, teto, isolamento e
    recolhimento se conferem antes do primeiro clique ou requisição, nunca depois. Antes de qualquer caminho — navegador
    ou HTTP, prévia ou produção —, ler no código se a página, o middleware ou a rota manda evento pelo próprio servidor
@@ -203,4 +204,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 07:18 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
+🕒 2026-10-14 07:28 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 16/10 · A75 · CANON SHS → liberar app no TEMPLO-FE e mergear PRs · #chat-4BNJMe
