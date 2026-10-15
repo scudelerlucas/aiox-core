@@ -1,0 +1,106 @@
+# MERGE REVERSÍVEL — LIGADO para a classe 1 (ordem do Lucas, 14/10/2026: "Automatize agora!! eu aprovo").
+# Antes: modo ensaio (decisão D2-B, 11/10). A classe 3 (Dependabot) continua só no registro.
+#
+# POR QUE EXISTE
+#   Plano docs/ops/PLANO-MERGE-AUTONOMO-4-CONTAS-2026-10-11.md: o merge do que é reversível pode morar
+#   no GitHub, e não num chat de uma conta do Claude — roda de graça e vale para as 4 contas. Antes de
+#   ligar, 7 dias de ensaio: a Action diz o que MERGEARIA e por quê, e isso se compara com o que o
+#   Regente mergeou de fato. Ligar é decisão do Lucas, com a comparação na mesa (D2-B).
+#
+# O QUE FAZ
+#   De hora em hora e a cada PR tirado do rascunho (D5-A, 14/10; a cadência por CI/revisão da D15-A esgotou a cota da API), roda scripts/regente/merge-reversivel.sh (classes 1 e 3 do PLANO-MESTRE §5) e guarda
+#   o veredito de cada PR como anexo da execução (artefato `ensaio-<data>-<execução>`, 30 dias) e no resumo
+#   da execução. Não grava em branch nenhuma: cada push numa branch deste repositório abre entradas de
+#   deploy na Vercel (medido em 11/10 na branch regente-fila: todas BLOCKED, sem build, só barulho).
+#
+# O QUE NÃO FAZ
+#   Não aprova, não comenta, não mexe em PR de pessoa, de código ou do Dependabot (classe 3 fica no
+#   registro). Mergeia só a classe 1, por merge commit e preso ao SHA avaliado; nunca empurra na main.
+
+name: "Merge reversível"
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch: {}
+  # Decisão D5-A do Lucas (14/10/2026, 21:57, #chat-jD3axV): a cadência por evento da D15-A (a cada CI terminado e a cada
+  # revisão) esgotou a cota de chamadas do token do Actions no mesmo dia — cada disparo relê os ~79 PRs abertos, e o
+  # repositório recebe dezenas de CI e revisões por hora. Medido às 00:51 e 00:54 UTC de 15/10: `API rate limit exceeded
+  # for installation` (HTTP 403) derrubou esta Action e a checagem do carimbo. Volta a acordar de hora em hora e quando um
+  # PR sai do rascunho (um evento raro). O que mergeia o reversível na hora, sem esperar a hora cheia, é a sessão (classe 4).
+  # Achado P2 do Codex no #1782: PR que sai do rascunho antes do CI terminar seria recusado e só voltaria pelo horário (que o
+  # GitHub atrasa ou descarta). Então a Action acorda também quando termina o CI só-de-documentação — o único que interessa à
+  # classe 1 (só texto) —, e não mais a cada CI de código nem a cada revisão, que eram o grosso dos disparos.
+  workflow_run:
+    workflows: ["CI/CD Pipeline (docs-only)"]
+    types: [completed]
+  pull_request:
+    types: [ready_for_review]
+
+concurrency:
+  group: merge-reversivel
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  merge:
+    # 15/10/2026 (D7-A do Lucas): este arquivo é espelhado byte a byte nos irmãos (3º canal do sync-rules). No hub o
+    # horário continua de hora em hora; nos irmãos, que quase não têm PR, o horário só executa quando o último dígito do
+    # run_number é 0, 3, 6 ou 9 (cerca de uma rodada a cada 2,5 h). O job pulado por `if` não usa runner nem gasta minuto
+    # de Actions. A linguagem de expressões do GitHub Actions NÃO tem aritmética (achado do CodeRabbit no #1814: `%` torna
+    # o workflow inválido), por isso o filtro usa só format() e endsWith(). Os gatilhos por evento e o manual rodam sempre.
+    if: >-
+      github.event_name != 'schedule'
+      || github.repository == 'scudelerlucas/Lucas-Contexto-Geral'
+      || endsWith(format('{0}', github.run_number), '0')
+      || endsWith(format('{0}', github.run_number), '3')
+      || endsWith(format('{0}', github.run_number), '6')
+      || endsWith(format('{0}', github.run_number), '9')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+
+      - name: Avaliar os PRs abertos e mergear a classe 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MERGE_REAL: "1"
+          # Branch padrão do repositório (main no hub, master no templo-os-frontend). Vazia (ex.: evento sem o objeto
+          # repository) → o script pergunta ao GitHub e, se não conseguir, NÃO avalia nada (falha fechada).
+          BASE: ${{ github.event.repository.default_branch }}
+          # Pausa por repositório, sem PR: Settings → Secrets and variables → Actions → Variables →
+          # MERGE_AUTONOMO_PAUSADO = true. Qualquer valor que não seja "false" pausa o robô naquele repositório.
+          PAUSA_REPO: ${{ vars.MERGE_AUTONOMO_PAUSADO }}
+        run: |
+          bash scripts/regente/merge-reversivel.sh "$RUNNER_TEMP/agora.jsonl"
+          echo "PRs avaliados: $(wc -l < "$RUNNER_TEMP/agora.jsonl")"
+
+      - name: Data do registro
+        id: dia
+        run: echo "dia=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar o registro (anexo da execução, 30 dias)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ensaio-${{ steps.dia.outputs.dia }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/agora.jsonl
+          retention-days: 30
+
+      - name: Resumo da execução
+        if: always()
+        run: |
+          [ -s "$RUNNER_TEMP/agora.jsonl" ] || { echo "sem registro" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          {
+            echo "## Merge reversível — classe 1 ligada"
+            echo
+            echo "| PR | classe | veredito | motivo |"
+            echo "|---|---|---|---|"
+            jq -r 'select(.veredito != "fora") | "| #\(.pr) | \(.classe) | \(.veredito) | \(.motivo) |"' "$RUNNER_TEMP/agora.jsonl"
+          } >> "$GITHUB_STEP_SUMMARY"
