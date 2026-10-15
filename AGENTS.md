@@ -196,9 +196,13 @@ declarada, **mesmo em PR já revisado por robô** — o Claude corrige direto; a
 achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
 suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
 escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
-**(4)** commit em português dizendo o achado e a correção, sobre o head atual da branch do PR, e a entrega é um **PR
-publicado pela tarefa** (o ambiente do Codex não tem credencial de escrita para empurrar direto — decisão A do operador,
-26/09/2026; o Claude re-aponta a base para a branch do PR original e mescla depois de validar);
+**(4)** commit em português dizendo o achado e a correção, sobre o head atual da branch do PR, e **a entrega é o patch
+completo desse commit colado na resposta da própria thread** — `git format-patch -1 --stdout`, dentro de
+`<details><summary>patch</summary>`, em bloco ` ```diff `, inteiro (acima de 60 mil caracteres, em respostas numeradas) —
+mais o PR publicado pela tarefa quando o ambiente conseguir (ele não tem credencial de escrita para empurrar direto —
+decisão A do operador, 26/09/2026). **Resposta sem o patch é não-entrega:** o que fica só dentro da tarefa não chega ao
+repositório (ordem do operador, 14/10/2026 — 10 correções certas presas no sandbox em 3 episódios; o Claude aplica o
+patch com `git am`, valida por fora e empurra na branch do PR);
 **(5)** nunca escrever na `main`, nunca aplicar migration em produção; **(6)** dizer no PR o que rodou e o que não
 conseguiu rodar — a validação por fora é do Claude, e ela decide se a thread fecha. Modelo: GPT-6 Astra Pro, esforço
 `max`, escolhido pelo operador nas configurações do Codex. Um autor por branch enquanto a tarefa estiver aberta.
