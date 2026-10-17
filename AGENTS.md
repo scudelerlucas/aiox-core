@@ -258,10 +258,10 @@ de qualquer estado) pede o "sim" do Lucas antes, e sem como ler essa lista tamb�
 código da checagem, dito no chat antes da primeira escrita (a checagem interrompida deixa no histórico o código para
 apagar), e apagado ao fim só por esse código, depois que termina, com sinal dela que se veja dentro do limite que a
 plataforma impõe e que a encerra (fila vazia não basta), o que o fluxo grava mais tarde (`after()`, fila, webhook), e
-com as linhas desse código reconferidas — sem como apagar em produção tudo o que o caminho grava, telemetria interna
-(`agent_metrics`, eventos) inclusive, a escrita vai a uma prévia comprovadamente isolada (que não alcança produção
-nem terceiro), ou a uma transação desfeita se o caminho inteiro couber nela sem efeito fora do banco, ou vira
-fronteira. Erro classe A da própria checagem (a lista está na norma) entra nessa lista no mesmo ato, num PR do hub
+com as linhas desse código reconferidas — em produção, a checagem só lê, e só pelo caminho da persona, sem SQL da
+sessão no banco (nem pelo MCP do Supabase); gravar, desfazer transação e consultar o banco direto vão a uma prévia
+comprovadamente isolada (que não alcança produção nem terceiro) ou viram fronteira (decisão 1-A do operador,
+16/10/2026). Erro classe A da própria checagem (a lista está na norma) entra nessa lista no mesmo ato, num PR do hub
 com `SHS-QUARENTENA` no título. Só sobra pedido quando a fronteira é só dele — credencial ou sessão só dele, gasto
 acima do teto, juízo humano; Meta, ação irreversível e mensagem a pessoa de fora não entram na checagem nem com o
 "sim" — ou quando o ambiente não alcança, e aí a sessão vai até a borda e pede **um passo só, com o porquê**
@@ -299,4 +299,4 @@ cota: para ele a skill vale só sob demanda.
 
 <!-- HUB-INVARIANTES-END -->
 
-🕒 2026-10-14 08:06 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto A/B/C e liberar app TEMPLO-FE · #chat-4BNJMe
+🕒 2026-10-16 21:18 (São Paulo) · ✍ lucasscudeler · 💬 !! 16/10 · A75 · CANON SHS → aplicar 1-A no banco e fechar a rodada 49 · #chat-4BNJMe

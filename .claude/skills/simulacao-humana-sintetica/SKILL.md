@@ -1,6 +1,6 @@
 ---
 name: simulacao-humana-sintetica
-description: "!shs [alvo] · alias !simular — Simulação Humana Sintética: antes de pedir ao Lucas que confira, teste, abra ou gere algo 'e avise', a sessão vira o humano e faz a checagem no lugar dele — persona (ele no painel, o visitante, o lead), caminho real (HTTP, navegador sem tela, rota, banco, script) e o medido numa seção `🧪 Checagem sintética`. Mesmas travas do humano: nada irreversível (apagar o próprio dado de teste não conta); dinheiro só até US$ 0,50 por checagem e US$ 2,00 por dia em cada chat; nada na Meta, a pessoa de fora, publicado ou em conta de cliente; dado de teste marcado `shs` e recolhido. Só sobra pedido na fronteira dele (credencial/2FA, aprovação exigida por regra, juízo humano) ou quando o ambiente não alcança — um passo só, com o porquê. Ativar SEMPRE que a resposta for pedir checagem ao operador, em qualquer repositório e conta, e em !shs, !simular, 'simula o humano', 'checa antes de me pedir', 'testa você', 'simulação humana sintética'. Não é !mirofish (que prevê reação de público)."
+description: "!shs [alvo] · alias !simular — Simulação Humana Sintética: antes de pedir ao Lucas que confira, teste, abra ou gere algo 'e avise', a sessão vira o humano e faz a checagem no lugar dele — persona (ele no painel, o visitante, o lead), caminho real (HTTP, navegador sem tela, rota, banco, script — em produção, só leitura pelo caminho da persona; o banco direto, só em prévia isolada) e o medido numa seção `🧪 Checagem sintética`. Mesmas travas do humano: nada irreversível (apagar o próprio dado de teste não conta); dinheiro só até US$ 0,50 por checagem e US$ 2,00 por dia em cada chat; nada na Meta, a pessoa de fora, publicado ou em conta de cliente; dado de teste marcado `shs` e recolhido. Só sobra pedido na fronteira dele (credencial/2FA, aprovação exigida por regra, juízo humano) ou quando o ambiente não alcança — um passo só, com o porquê. Ativar SEMPRE que a resposta for pedir checagem ao operador, em qualquer repositório e conta, e em !shs, !simular, 'simula o humano', 'checa antes de me pedir', 'testa você', 'simulação humana sintética'. Não é !mirofish (que prevê reação de público)."
 ---
 
 # !SHS — Simulação Humana Sintética (ordem do operador, 13/10/2026)
@@ -42,438 +42,73 @@ outra palavra (`rode !shs na prévia`).
    recolhimento se conferem antes do primeiro clique ou requisição, nunca depois. Antes de qualquer caminho — navegador
    ou HTTP, prévia ou produção —, ler no código que está no ar — o do commit da prévia ou da produção testada (o MCP da
    Vercel dá o commit do deploy), não o do clone, que pode estar noutra branch — se a página, o middleware ou a rota
-   manda evento pelo próprio servidor (API de Conversões da Meta, analytics no backend) — e se o banco que a rota
-   usa tem por onde mandar algo para fora (o censo do banco, logo abaixo) —, que nenhum corte no navegador alcança
-   (sem como saber o commit no ar, fronteira): se manda, a checagem só roda numa prévia comprovadamente sem essas
+   manda evento pelo próprio servidor (API de Conversões da Meta, analytics no backend) — e se o que a rota faz no
+   banco, lido no código e nas migrações, grava ou avisa alguém (o banco, logo abaixo) —, que nenhum corte no
+   navegador alcança (sem como saber o commit no ar, fronteira): se manda, a checagem só roda numa prévia
+   comprovadamente sem essas
    credenciais (as variáveis de ambiente dela não têm o token da API de Conversões, o do analytics nem o endereço do
    destino, e o código lido não traz chave, pixel ou endereço escrito nele — destino que
    aceita evento sem chave, ou com a chave no código ou na URL, manda do mesmo jeito, e aí é fronteira); sem essa prova,
    é fronteira.
 
-   **O censo do banco** (rodadas 41 e 42, no lugar da busca pelo que a rota chama). O banco roda função sem que
-   ninguém a chame pelo nome — gatilho, gatilho de DDL, regra de `CHECK`, índice de expressão, valor padrão, política
-   de RLS, cascata de chave estrangeira, partição, `TRUNCATE`, SQL montado na hora (`execute`) — e manda para fora
-   sem função nenhuma: tabela externa, publicação do Realtime, fila de replicação. Seguir o que a rota chama deixou
-   de fora um desses por rodada, da 36 à 41 (medido num Postgres 16 local, como papel comum, com um caso de cada
-   sobre uma função que chama `pg_notify`: a busca da rodada 39 aprovou 10 dos 11 — `CHECK`, índice, cascata,
-   `TRUNCATE`, nome com aspas dobradas, partição, tabela externa, publicação de uma tabela e de todas, `dblink`
-   instalado — e só pegou o SQL montado porque o `'notify'` estava escrito nele). Por isso o banco se confere pelo
-   que ele **consegue** fazer, e a dúvida reprova, numa consulta que devolve só números e nomes de extensão — nunca o
-   texto das funções (`prosrc`), que pode trazer a chave ou o endereço assinado da integração e entraria inteiro no
-   histórico da ferramenta:
+   **O banco, pela decisão 1-A do Lucas (16/10/2026).** Em produção, a checagem só chega ao banco pelo caminho da
+   persona — a página, a rota da aplicação, ou a API pública do Supabase com a chave que a persona tem (a pública, ou
+   a sessão de um login de teste que já existe) — e só para ler: no navegador, o `PASSA` de produção leva só GET e
+   HEAD, e no HTTP o `EXTRA` também; a página ou a rota que grava ao abrir, lida no código e nas migrações (contador
+   de visita, log de acesso, gatilho que chama fora), vai à prévia. Numa checagem, o banco de produção não recebe SQL
+   da sessão: nem pelo MCP do Supabase (`execute_sql`), nem pela chave de serviço, nem para gravar, desfazer uma
+   transação ou tirar evidência por consulta; do MCP, em produção, vale só o que lê a plataforma sem rodar SQL escrito
+   pela sessão — a lista de migrações aplicadas, o log por campos fixos (em (b), abaixo), os avisos de segurança.
+   Escrever em produção também sai, pela rota da persona inclusive, porque recolher o dado de teste pediria apagar
+   direto no banco: o que grava vai à prévia do banco, e o veredito diz que a produção não foi provada; o login de
+   teste também grava (a sessão, o registro de acesso), e por isso, em produção, a checagem só lê o que é público.
+   Fora da checagem — publicar o custo, uma migração que o Lucas aprovou — cada trabalho segue a regra dele.
+
+   Por quê: o banco roda código que ninguém chama pelo nome — gatilho, política, índice, cascata, valor padrão,
+   gatilho de conexão — e manda para fora sem função nenhuma (tabela externa, publicação, fila de replicação). Das
+   rodadas 41 a 48, um censo do catálogo tentou provar, antes de cada escrita, transação desfeita ou leitura direta em
+   produção, que nada disso mandava algo para fora, ficava depois do `rollback` ou punha o valor no log; cada rodada
+   achou um caminho novo (47, ~67, ~40, 38 e 48 achados nas rodadas 44 a 48, e 23 dos 46 da 49 ainda sobre o censo),
+   porque a lista do que é perigoso no PostgreSQL não fecha. A leitura pelo caminho da persona faz o que qualquer
+   visitante faz e não precisa dele. O censo da rodada 48 fica no commit `872b905c5` do hub; a história, no histórico
+   da regra.
+
+   **A prévia do banco** — o único lugar onde a checagem grava, desfaz ou consulta direto — é uma destas, e o veredito
+   diz qual: (i) um Postgres criado nesta sessão, vazio, só com as migrações do repositório, nunca com cópia de dado
+   de produção — a migração que pede o que ele não tem (extensão, papel do Supabase) para a montagem, e aí não há
+   prévia —; (ii) uma branch do Supabase do projeto, criada para a checagem e apagada ao fim, com o custo lido antes e
+   dentro do teto, e, quando a prévia da Vercel entra no caminho, com as variáveis dela apontando para a branch, nunca
+   para a produção; ou (iii) fronteira. Antes da primeira escrita, a consulta abaixo, rodada na própria prévia, prova
+   que esse banco não fala com fora: uma extensão de rede, um servidor externo, uma assinatura de replicação ou uma
+   função em linguagem sem trava, que pode abrir conexão, levariam a escrita da prévia à produção ou a terceiro, e com
+   qualquer um a prévia não serve. Na casa, as migrações criam o `pg_net` e o `pg_cron` (no hub, a
+   `20260924_varredura_cartas_presas.sql`): a branch do Supabase não serve, e a prévia possível é o Postgres local,
+   quando as migrações o montam.
 
    ```sql
-   begin; set local search_path to pg_catalog, pg_temp;   -- caminho fixo: nada de outro esquema passa por catálogo
-   set local lock_timeout = '5s'; set local statement_timeout = '60s';   -- tabela travada ou catálogo enorme: para
-   select 1 / (current_setting('standard_conforming_strings'::text) = 'on'::text   -- a barra das regex chega inteira
-     and not exists (select from pg_proc where pronamespace = 11::oid and oid >= 16384::oid)   -- nada posto no
-     and not exists (select from pg_operator where oprnamespace = 11::oid and oid >= 16384::oid)   -- catálogo,
-     and not exists (select from pg_type y where y.typtype = 'b'::"char" and y.typoutput::oid >= 16384::oid and not
-     exists (select from pg_depend d where d.classid = 1255::oid and d.objid = y.typoutput::oid   -- nem tipo
-     and d.deptype = 'e'::"char")))::int;
-   -- de fora de extensão, que o censo imprimiria (roda a função dele): senão, divisão por zero e nada segue
-   with recursive f as (select p.oid, p.proname as nome, p.prolang, p.prokind, p.proowner, p.prosecdef, p.provolatile,
-     p.proargtypes::oid[] as args, p.probin, (select e.extname from pg_depend d join pg_extension e
-     on e.oid = d.refobjid where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e') as ext,
-     p.proacl is distinct from (select i.initprivs from pg_init_privs i where i.objoid = p.oid   -- permissão dada
-     and i.classoid = 'pg_proc'::regclass and i.objsubid = 0) as concedida,   -- depois do initdb ou da extensão
-     replace(concat(p.prosrc, ' ', pg_get_function_arguments(p.oid), ' ', case when p.prosqlbody is not null   -- o
-     then pg_get_function_sqlbody(p.oid) end), '""', '"') as t,   -- argumento padrão também chama
-     case when p.proname ~ '^\w' then '\m' else '' end   -- \m e \M só na borda que é letra
-     || regexp_replace(p.proname, '\W', '\\\&', 'g') || case when p.proname ~ '\w$' then '\M' else '' end as re
-     from pg_proc p),
-   chamadas(nome) as (values (null::name)),   -- a função que a rota chama direto: (values ('f'), ('g'))
-   grava(rel) as (values (null::regclass)),   -- a tabela que a rota grava: (values ('public.leads'::regclass))
-   filha(pai, oid) as (select confrelid, conrelid from pg_constraint where contype = 'f'   -- a chave estrangeira
-     and (confdeltype in ('c', 'n', 'd') or confupdtype in ('c', 'n', 'd'))   -- que apaga ou muda a filha junto
-     union all select inhparent, inhrelid from pg_inherits   -- a partição e a tabela herdeira
-     union all select w.ev_class, d.refobjid from pg_rewrite w join pg_depend d on d.classid = 'pg_rewrite'::regclass
-     and d.objid = w.oid and d.refclassid = 'pg_class'::regclass where w.rulename = '_RETURN'),   -- e a da visão
-   gr(oid) as (select oid from pg_class where oid in (select rel from grava)   -- sem ela (o null), toda tabela conta
-     or exists (select from grava where rel is null) union select h.oid from gr join filha h on h.pai = gr.oid),
-   tr(oid) as (select oid from gr union select h.f from tr join (select confrelid, conrelid from pg_constraint
-     where contype = 'f' union all select inhparent, inhrelid from pg_inherits) h(p, f) on h.p = tr.oid),   -- o
-     -- truncate … cascade esvazia toda filha da chave, qualquer que seja a ação, e roda o on truncate dela
-   dom(oid) as (select atttypid from pg_attribute where attrelid in (select oid from gr) and attnum > 0
-     and not attisdropped union select y.typbasetype from dom join pg_type y on y.oid = dom.oid
-     where y.typtype = 'd'),   -- o domínio da coluna gravada, e o de que ele é feito: o padrão dele vale nela
-   papel(nome) as (values (current_user::text)),   -- o papel da rota, além deste: (values ('anon'), ('authenticated'))
-   lg(k) as (values ('log_statement'), ('log_min_duration_statement'), ('log_min_duration_sample'),   -- o que põe o
-     ('log_transaction_sample_rate'), ('pgaudit.log'), ('pgaudit.role'), ('auto_explain.log_min_duration'),   -- texto
-     ('debug_print_parse'), ('debug_print_rewritten'), ('debug_print_plan'), ('log_parser_stats'),   -- no log (o
-     ('log_planner_stats'), ('log_executor_stats'), ('log_statement_stats')),   -- log_min_messages = fatal, não)
-   seguras(x) as (values ('plpgsql'), ('pgcrypto'), ('uuid-ossp'), ('pg_stat_statements'), ('supabase_vault'),
-     ('pgsodium'), ('pgjwt'), ('pg_trgm'), ('unaccent'), ('citext'), ('vector')),   -- o pg_graphql não: o resolve grava
-   vao(e) as (values ('(?:\s|/\*.*\*/|--[^\n\r]*[\n\r])')),   -- o % das regex: o branco, ou o comentário no lugar dele
-   u as (select * from f where oid >= 16384 and ext is null),   -- 16384: o 1º objeto que não vem do initdb
-   ut as (select * from f where oid >= 16384 and (ext is null or ext in (select x from seguras)   -- o texto das
-     and prolang in (select oid from pg_language where lanname in ('sql', 'plpgsql')))),   -- seguras também se lê
-   le as (select concat(pg_get_expr(polqual, polrelid), ' ', pg_get_expr(polwithcheck, polrelid)) as t   -- conta a
-     from pg_policy union all select pg_get_ruledef(r.oid) from pg_rewrite r where r.ev_class >= 16384),   -- extensão
-   x as (select t from le
-     union all select pg_get_expr(adbin, adrelid) from pg_attrdef a where a.adrelid >= 16384
-     union all select pg_get_constraintdef(o.oid) from pg_constraint o where o.oid >= 16384
-     union all select pg_get_indexdef(i.indexrelid) from pg_index i where i.indexrelid >= 16384
-     union all select regexp_replace(pg_get_triggerdef(g.oid), ' EXECUTE (FUNCTION|PROCEDURE) .*$', '')
-     from pg_trigger g where not g.tgisinternal and g.oid >= 16384),
-   priv as (select oid from pg_roles where rolsuper or pg_has_role(oid, 'pg_execute_server_program', 'member')
-     or pg_has_role(oid, 'pg_write_server_files', 'member') or pg_has_role(oid, 'pg_read_server_files', 'member')),
-   semente as (select oid, nome, re from f where oid >= 16384 and (t ~* replace('notify|emit_message|\mexecute\M|'
-     || '\mcopy\M|net\.|http|dblink|cron\.|pgmq|lo_export|lo_import|_backend|nextval|setval|advisory|'
-     || 'replication_(slot|origin)|logical_slot_|\mraise\M(?!\s+exception\M)(?!\s*;)|'
-     || '\m(insert|update|delete|merge|truncate)\M|\m(create|alter|drop)%+((or%+replace|global|local|temp\w*|'
-     || 'unlogged|unique|recursive|constraint|trusted|procedural|default)%+)*(table|index|view|materialized|function|'
-     || 'procedure|trigger|schema|type|role|user|group|policy|owned|'
-     || 'extension|sequence|event|publication|subscription|server|foreign|domain|rule|aggregate|operator|cast|'
-     || 'database|statistics|collation|conversion|text|transform|access|language|tablespace)\M|\mrefresh%+'
-     || 'materialized\M|\m(grant|revoke|vacuum|reindex|cluster|checkpoint|load|listen|unlisten)\M|\mcomment%+on\M|'
-     || '\mimport%+foreign\M|\msecurity%+label\M|\mreassign%+owned\M|'
-     || '\mset%+(session%+)?(?!local\M)[\w."]+%*(=|\mto\M)|\mset%+(session%+)?(role|schema|names|time%+'
-     || 'zone|xml%+option|session%+authorization|characteristics)\M|'   -- a conexão volta ao pool mudada, e o listen
-     || '\mreset%+(all|role|session|[\w."]+%*(;|$))|\mdiscard%+(all|plans|sequences|temp\w*)\M', '%',
-     (select e from vao))   -- fica nela; o drop owned; e o comentário entre as palavras (set/**/schema) não esconde
-     or ext not in (select x from seguras) or ext is null and prokind <> 'a' and prolang not in (select oid
-     from pg_language where lanname in ('sql', 'plpgsql'))) or oid < 16384 and provolatile = 'v' and concedida
-     or (oid < 16384 or ext is not null) and nome ~ ('^(pg_notify|pg_logical_emit_message|lo_(creat|create|put|unlink|'
-     || 'truncate|truncate64|from_bytea|import|export|open)|lowrite|pg_(terminate|cancel)_backend|nextval|setval|'
-     || 'pg_(try_)?advisory_(xact_)?(lock|unlock)(_shared|_all)?|pg_advisory_unlock_all|pg_reload_conf|pg_switch_wal|'
-     || 'pg_promote|pg_rotate_logfile|pg_create_restore_point|pg_log_backend_memory_contexts|pg_\w*replication_(slot|'
-     || 'origin)\w*|pg_logical_slot_\w+|pg_stat\w*_reset\w*|pg_backup_(start|stop)|pg_wal_replay_(pause|resume)|'
-     || 'pg_read_(binary_)?file|pg_ls_\w+|pg_stat_file|brin_(de)?summarize\w*|gin_clean_pending_list|(query|'
-     || 'cursor)_to_xml\w*|pg_export_snapshot|pg_import_system_collations|pg_file_\w+|set_config|setseed)$')),
-   alcance(oid, nome, re) as (select * from semente union select g.oid, g.nome, g.re from f g, alcance a
-     where g.oid >= 16384 and (g.t ~* a.re
-     or exists (select 1 from pg_aggregate ag where ag.aggfnoid = g.oid and a.oid in (ag.aggtransfn, ag.aggfinalfn,
-     ag.aggcombinefn, ag.aggserialfn, ag.aggdeserialfn, ag.aggmtransfn, ag.aggminvtransfn, ag.aggmfinalfn))))
-   select (select string_agg(extname, ',' order by extname) from pg_extension
-     where extname not in (select x from seguras)) as extensoes,
+   begin; set local search_path to pg_catalog, pg_temp;   -- nada de outro esquema passa pelos nomes da consulta
+   select (select string_agg(extname, ',' order by extname) from pg_extension where extname not in ('plpgsql',
+     'pgcrypto', 'uuid-ossp', 'pg_stat_statements', 'supabase_vault', 'pgsodium', 'pgjwt', 'pg_trgm', 'unaccent',
+     'citext', 'vector', 'pg_graphql', 'pg_cron', 'pgmq')) as rede,   -- fora da lista reprova: na dúvida, fala com fora
      (select count(*) from pg_foreign_server) as externo,
-     (select count(*) from pg_publication_tables) as publicado,
-     (select count(*) from pg_replication_slots where slot_type = 'logical') as replicacao,
-     (select count(*) from pg_event_trigger where evtevent = 'login' and evtenabled <> 'D') as login,
-     (select count(*) from u where prokind <> 'a' and prolang not in (select oid from pg_language
-     where lanname in ('sql', 'plpgsql'))) + (select count(*) from f where ext is not null and prokind <> 'a'
-     and prolang not in (select oid from pg_language where lanname in ('sql', 'plpgsql')) and not (prolang =
-     (select oid from pg_language where lanname = 'c') and probin in ('$libdir/' || ext, ext))) as livre,
-     (select count(*) from (select t from ut union all select t from x) y
-     where t ~* 'notify|emit_message|\mexecute\M|\mcopy\M|net\.|http|dblink|(query|cursor)_to_xml') as texto,
-     (select count(*) from (select t from ut union all select t from x) y
-     where t ~* replace('\mexecute\M|\mcopy\M|lo_export|lo_import|_backend|nextval|setval|advisory|emit_message|'
-     || 'pg_(switch_wal|reload_conf|promote|rotate_logfile|create_restore_point|log_backend_memory_contexts)|'
-     || 'replication_(slot|origin)|logical_slot_|pg_stat\w*_reset|pg_backup_(start|stop)|pg_wal_replay_|'
-     || 'brin_(de)?summarize|gin_clean_pending_list|(query|cursor)_to_xml|\mload\M%*(e|u&)?(''|\$)|'
-     || '\mraise\M(?!\s+exception\M)(?!\s*;)', '%', (select e from vao)))
-     as naodesfaz,   -- o load /* c */ 'x' e o load'x' também
-     (select count(*) from pg_class c where relkind = 'S' and c.oid >= 16384 and not exists (select 1
-     from pg_depend d join pg_extension e on e.oid = d.refobjid where d.classid = 'pg_class'::regclass
-     and d.objid = c.oid and d.deptype = 'e' and e.extname in (select x from seguras))) as sequencia,
-     (select count(*) from f where oid < 16384 and provolatile = 'v' and concedida) as concessao,
-     (current_setting('log_statement') <> 'none')::int + (current_setting('log_min_duration_statement') <> '-1')::int
-     + (coalesce(current_setting('log_min_duration_sample', true), '-1') <> '-1' and coalesce(nullif(current_setting(
-     'log_statement_sample_rate', true), ''), '0')::float > 0)::int   -- a amostra também grava o texto
-     + (current_setting('log_transaction_sample_rate')::float > 0)::int + (lower(coalesce(nullif(current_setting(
-     'pgaudit.log', true), ''), 'none')) <> 'none')::int + (coalesce(current_setting('pgaudit.role', true), '')
-     <> '')::int + (coalesce(current_setting('auto_explain.log_min_duration', true), '-1') <> '-1')::int
-     + (select count(*) from unnest(array['debug_print_parse', 'debug_print_rewritten', 'debug_print_plan',
-     'log_parser_stats', 'log_planner_stats', 'log_executor_stats', 'log_statement_stats']) g
-     where current_setting(g) = 'on')   -- a árvore da consulta e a estatística, com o texto
-     + (select count(*) from (select unnest(setconfig) from pg_db_role_setting union all select unnest(proconfig)
-     from pg_proc) z(c) where lower(split_part(c, '=', 1)) in (select k from lg)   -- o que um papel, um banco ou uma
-     and lower(split_part(c, '=', 2)) not in ('none', '-1', 'off', '0', 'false', ''))   -- função liga para si
-     + (select count(*) from ut where t ~* replace('\mset%+(local%+|session%+)?"?(log_statement|log_min_duration_\w+|'
-     || 'log_transaction_sample_rate|pgaudit\.(log|role)|auto_explain\.log_min_duration|debug_print_\w+|log_\w+_stats)'
-     || '\M|\mset_config%*\(%*(?!''(?!(log_statement|log_min_duration_\w+|log_transaction_sample_rate|pgaudit\.'
-     || '(log|role)|auto_explain\.log_min_duration|debug_print_\w+|log_\w+_stats)''))', '%', (select e from vao)))
-     -- e o SET, o SET LOCAL e o
-     as registro,   -- set_config de dentro dela, e o set_config de nome que não se lê
-     exists (select from papel where nome not in (select rolname from pg_roles))   -- o nome errado reprova
-     or exists (select from pg_roles r where (r.rolname = current_user or r.rolname in (select nome from papel))
-     and r.oid in (select oid from priv)) or exists (select 1 from u where prosecdef and proowner in (select oid
-     from priv) and (exists (select from pg_roles r where (r.rolname = current_user or r.rolname in (select nome
-     from papel)) and has_function_privilege(r.oid, u.oid, 'execute'))
-     or exists (select 1 from pg_depend d where d.refclassid = 'pg_proc'::regclass and d.refobjid = u.oid)))
-     as programa,
-     (select count(*) from le where exists (select 1 from alcance a where le.t ~* a.re))
-     + (select count(*) from pg_depend d where d.classid in ('pg_policy'::regclass, 'pg_rewrite'::regclass)
-     and d.refclassid = 'pg_proc'::regclass and d.refobjid in (select oid from alcance))
-     + (select count(*) from pg_operator where oprcode in (select oid from alcance))
-     + (select count(*) from pg_cast where castfunc in (select oid from alcance))
-     + (select count(*) from pg_amproc where amproc in (select oid from alcance))
-     + (select count(*) from pg_constraint k where k.oid >= 16384 and k.contypid <> 0
-     and exists (select 1 from alcance a where pg_get_constraintdef(k.oid) ~* a.re))
-     + (select count(*) from f where oid in (select oid from alcance) and exists (select 1 from pg_type y
-     where y.oid = any (f.args) and y.typrelid <> 0))
-     + (select count(*) from alcance where nome in (select nome from chamadas)) as leitura,
-     (select count(*) from pg_trigger g where not g.tgisinternal and g.tgfoid in (select oid from alcance)
-     and (g.tgrelid in (select oid from gr) or g.tgtype & 32 <> 0 and g.tgrelid in (select oid from tr)))   -- 32: o
-     + (select count(*) from pg_rewrite w where w.ev_class >= 16384   -- on truncate da filha que o cascade esvazia
-     and w.rulename <> '_RETURN' and w.ev_class in (select oid from gr)) + (select count(*) from (select
-     pg_get_expr(adbin, adrelid) as t from pg_attrdef where adrelid >= 16384 and adrelid in (select oid from gr)
-     union all select pg_get_constraintdef(oid) from pg_constraint where contype = 'c' and conrelid in (select oid
-     from gr) union all select concat(pg_get_expr(polqual, polrelid), ' ', pg_get_expr(polwithcheck, polrelid))
-     from pg_policy where polrelid in (select oid from gr) union all select pg_get_indexdef(indexrelid) from pg_index
-     where indexrelid >= 16384 and indrelid in (select oid from gr) union all select substring(pg_get_triggerdef(g.oid)
-     from ' WHEN \((.*)\) EXECUTE (FUNCTION|PROCEDURE) ') from pg_trigger g where not g.tgisinternal and g.tgqual
-     is not null and (g.tgrelid in (select oid from gr) or g.tgtype & 32 <> 0 and g.tgrelid in (select oid from tr))
-     union all select pg_get_expr(typdefaultbin, 0) from pg_type where oid in (select oid from dom)) z
-     where exists (select 1 from alcance a where z.t ~* a.re)) as gatilho;   -- o gatilho e o WHEN dele, a regra, o
-     -- padrão (o da coluna e o do domínio), o CHECK, a política e o índice da tabela gravada
+     (select count(*) from pg_subscription) as assinatura,
+     (select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where not l.lanpltrusted
+       and p.oid >= 16384 and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass
+       and d.objid = p.oid and d.deptype = 'e')) as livre;   -- C, internal ou plpython3u das migrações, fora de extensão
    commit;
    ```
 
-   O censo vai numa chamada só, do `begin` ao `commit`, com prazo — 5 s para esperar uma trava e 60 s para tudo, porque
-   a tabela travada por um `alter table` em produção fazia o censo esperar sem fim (medido num Postgres 16 local: o
-   censo da 46 ficou parado até ser morto aos 15 s; o novo parou com `lock timeout` em 5 s, e sem os números nada segue)
-   — e com o caminho de busca fixo no catálogo (`set local search_path to pg_catalog, pg_temp`): o papel que põe outro
-   esquema antes do `pg_catalog` fazia o `count`, o `concat` e os outros
-   nomes do censo chamarem as funções dele (medido num Postgres 16 local, com funções-sombra em `public` que anotam cada
-   chamada: o censo da rodada 44 as chamou 3.298 vezes; o novo, nenhuma). Antes dele, no mesmo `begin`, uma conta divide
-   por zero — e nada segue — se o `standard_conforming_strings` está desligado (a barra das expressões regulares some
-   antes de chegar a elas: medido, com ele desligado, o censo da 45 deu `leitura` 0 numa visão que grava, que com ele
-   ligado dá 2), se alguém pôs função ou operador no `pg_catalog` (o caminho fixo não protege dele: uma `concat` de
-   cinco textos posta lá, o censo da 45 a chamou 3.298 vezes) ou se há tipo base com função de saída fora de extensão,
-   que o censo rodaria ao imprimir um valor dele; a própria conta usa o tipo exato (`11::oid`, `'b'::"char"`), que nada
-   no catálogo sobrepõe. O que cada número conta, sobre o que foi
-   criado depois do `initdb` — objeto de número 16384 em diante, em qualquer
-   esquema, o `pg_catalog` inclusive (a função que alguém põe lá conta) — e fora das extensões. `extensoes`: as
-   instaladas fora das que nunca falam com a rede nem rodam depois (`pg_net`, `http`, `dblink`, `pg_cron`, `pgmq`, a de
-   tabela externa…), e o `pg_graphql`, porque o `graphql.resolve` roda mutação (rodada 48, emulado num Postgres 16
-   local: a visão e a política que o chamam passavam nos três vereditos no censo da 47; o novo reprova os três, e
-   reprova também o banco que só o tem instalado, de propósito; na casa ele não está instalado). `externo`, `publicado`
-   e `replicacao`: servidor externo, tabela publicada, fila de
-   replicação. `login`: gatilho que roda a cada conexão (Postgres 17) — acima de zero, a conexão do próprio censo já
-   o disparou, e nenhum caminho segue nesse banco; por isso ele se procura antes, nas migrações do repositório, no
-   arquivo inteiro e não linha a linha (`find supabase/migrations -type f -exec perl -0777 -ne '$r = $_; 1 while
-   s{/\*(?:(?!/\*|\*/).)*\*/}{ }gs; s{--[^\n\r]*}{ }g; $t = "$r\n$_"; if (grep {
-   /event\s+trigger\b[^;]*?\bon\s+(login\b|"login")/i } ($r, $_)) { print "login: $ARGV\n" } elsif ($r =~ /\bevent\b/i
-   && $r =~ /\btrigger\b/i && $r =~ /\blogin\b/i) { print "conferir-palavras: $ARGV\n" } elsif (grep {
-   !/^(plpgsql|pgcrypto|uuid-ossp|pg_stat_statements|supabase_vault|pgsodium|pgjwt|pg_trgm|unaccent|citext|vector)$/i }
-   $t =~ /\b(?:create|alter)\s+extension\s+(?:if\s+not\s+exists\s+)?"?([\w-]+)/gi) { print "conferir-extensao: $ARGV\n"
-   }' {} +`, com o Perl, que vem no Linux e no Mac, e não o
-   `grep -P`, que no Mac
-   não existe: o `create event trigger … on login` quebrado em quatro linhas escapava da busca anterior, por linha, e
-   desta não — medido; e as duas palavras na mesma instrução, porque o gatilho de DDL comum, `on ddl_command_end`,
-   acendia a busca da 45 e o banco virava fronteira sem gatilho de login nenhum: medido, a busca da 45 achou o
-   gatilho de DDL e o comentário que só cita as palavras; a nova, só os dois de login, o de uma linha e o quebrado em
-   cinco; e o arquivo se olha duas vezes, com e sem os comentários, porque o comentário entre as palavras — `create
-   event /* nota */ trigger`, o `-- …` no meio, o `;` dentro de um `/* */` — e o `"login"` entre aspas escapavam da
-   busca da 46: medido, dos quatro, a da 46 não achou nenhum e a da 47 os quatro; e o texto que cita a instrução inteira
-   num comentário ou num texto ainda acende, que é o lado seguro; rodada 48: o comentário aninhado sai inteiro, de
-   dentro para fora — `create event /* a /* b */ c */ trigger … on login` escapava da busca da 47, e a nova o acha —, e
-   dois testes largos, depois do preciso, não acusam, mandam conferir: `conferir-palavras:` no arquivo com as três
-   palavras inteiras *event*, *trigger* e *login* em qualquer lugar, que pega o gatilho montado por SQL dinâmico
-   (`execute 'CREATE EVENT ' || 'TRIGGER … ON login'`, o `format(…, 'login')`), e `conferir-extensao:` no que cria ou
-   atualiza uma extensão fora da lista segura do censo, cujo script de instalação pode criar o gatilho — os dois
-   escapavam da busca da 47; arquivo marcado assim faz da primeira conexão de produção uma fronteira até uma pessoa
-   lê-lo; o custo: o comentário que cita as três palavras e o gatilho de DDL com `login` num comentário, que a busca da
-   46 deixou de acender, voltam como `conferir-palavras`, e o gatilho de DDL sem a palavra segue calado; nas 218
-   migrações da casa, a da 47 dava 0, e a nova dá 0 `login`, 0 `conferir-palavras` e 1 `conferir-extensao`, a do hub que
-   cria o `pg_net` e o `pg_cron`, um conferir verdadeiro; o SQL dinâmico que parte as próprias palavras, `'trig' ||
-   'ger'`, ainda escapa), e com um, com um `conferir` não lido ou sem as migrações, o banco de produção que esta sessão
-   ainda não abriu vira fronteira antes da primeira conexão (no banco da casa, as conexões desta sessão mediram `login`
-   zero com o `pg_net` e o `pg_cron` instalados, que é o que o `conferir-extensao` do hub manda olhar); o gatilho criado
-   fora das migrações — à mão, no painel — a busca não vê, e a
-   primeira conexão o dispara uma vez, como o dispara cada conexão que o próprio app abre; o censo então dá `login`
-   acima de zero e nada segue (fechar isso de vez é não abrir conexão de produção sem o Lucas: decisão dele). `livre`:
-   função em
-   linguagem que não seja `sql` nem `plpgsql` (C,
-   `internal`, `plpython3u`), cujo texto é só o nome de um símbolo e que pode fazer qualquer coisa — e a que alguém
-   juntou a uma extensão (`alter extension pgcrypto add function …`), salvo a em C do próprio módulo dela
-   (`$libdir/pgcrypto`; o `pg_net` usa `pg_net`): medido, a função C de outro módulo e a `internal` que é o `pg_notify`,
-   postas no `pgcrypto`, passavam no censo da 45, e o novo as conta; no banco da casa, os 67 membros em C das extensões
-   são todos do próprio módulo, e `livre` segue zero. `texto`: função — as
-   de gatilho de DDL inclusive, porque o caminho testado pode rodar DDL, e as em `sql` ou `plpgsql` das extensões da
-   lista segura, porque o dono do banco pode juntar uma função dele ao `pgcrypto` (medido: a que avisava, posta lá e
-   chamada por gatilho, passava a gravação) — e expressão do banco (valor padrão,
-   `CHECK`, índice, `WHEN` de gatilho, política, visão, regra — `create rule … do also notify` não chama função
-   nenhuma) que avisa (`NOTIFY`, `pg_notify`), manda mensagem à replicação, monta SQL (o `execute`, e o `query_to_xml`,
-   que roda o texto que recebe), copia ou fala de rede.
-   `naodesfaz`: as que fazem o que o `rollback` não desfaz — SQL montado (`execute`, `query_to_xml`), que pode fazer
-   qualquer coisa, `copy`,
-   arquivo no servidor (`lo_export`), derrubar outra conexão (`pg_terminate_backend`), trava de sessão, número de
-   sequência (`nextval`, `setval`, o `serial` no valor padrão), mensagem ao cliente e ao log do servidor — todo
-   `raise` que não é `exception`, com comentário no meio inclusive (`raise /* … */ notice`) —, que sai antes do
-   `rollback` e pode levar valor da linha, e o que mexe no servidor e não volta — troca de WAL, recarga da
-   configuração, promoção, slot e origem de replicação, estatística zerada (`pg_switch_wal`, `pg_reload_conf`,
-   `pg_promote`, `pg_create_logical_replication_slot`, `pg_stat_reset`, o `pg_stat_statements_reset` da extensão), ler
-   um slot lógico, que o consome (`pg_logical_slot_get_changes`), cópia de segurança e pausa da réplica
-   (`pg_backup_start`, `pg_wal_replay_pause`), resumo do índice BRIN e limpeza da lista do GIN
-   (`brin_summarize_new_values`, `gin_clean_pending_list`) —, que o dono do banco pode liberar a um papel comum, e o
-   `load` de uma biblioteca, que roda o código dela na hora (medido: numa função com `load`, o censo da 45 dava
-   `naodesfaz` 0; o novo, 1), com comentário ou sem espaço antes do nome também (rodada 48: `load /* c */
-   'auto_explain'`, `load'auto_explain'`, o `load -- c` com quebra e o comentário aninhado passavam a gravação e a
-   transação desfeita no censo da 47; o novo reprova as duas em cada um, e a coluna chamada `load` segue zero). Nos
-   nomes de mais de uma palavra — `set schema`, `create table`, `set local log_statement` —, o comentário no lugar do
-   espaço conta como espaço, na semente da `leitura`, no `naodesfaz` e no `registro`: o censo aceita, entre as palavras,
-   o branco, o comentário de bloco (o aninhado também) ou o de linha, em vez de tirar os comentários, que pediria ler o
-   texto como o Postgres lê (rodada 48: `set/**/schema`, `create/**/table`, `create -- c` com quebra e `temp table`, o
-   aninhado e o `-- /*` … `-- */` montado em volta passavam na leitura no censo da 47; o novo dá `leitura` acima de zero
-   em cada, e a função com `set local /* c */ log_statement = 'all'`, `registro` 1; na casa, nada mudou).
-   `sequencia`: as sequências do banco, as das extensões fora da
-   lista segura inclusive (o `pg_net` tira um número a cada pedido, o `pg_cron` a cada agendamento), porque o `rollback`
-   não devolve o número que o caminho tirou. `concessao`: as funções do catálogo que mudam algo além da linha (as
-   voláteis) e cuja permissão alguém mudou depois do `initdb` ou da instalação da extensão — o `pg_init_privs` guarda a
-   de fábrica —, porque a lista de nomes não fecha (cada rodada achou mais uma: `pg_wal_replay_pause`,
-   `pg_backup_start`, `lo_create`, `pg_read_file`) e a permissão dada é o que põe uma delas ao alcance do papel comum;
-   elas entram também na semente da `leitura`. `registro`: se o servidor grava no log o texto das instruções
-   (`log_statement` diferente de `none` — o `ddl` também grava a instrução de DDL —, `log_min_duration_statement`, a
-   amostra `log_min_duration_sample` com `log_statement_sample_rate` acima de zero, `log_transaction_sample_rate`,
-   `pgaudit.log`, `pgaudit.role`, `auto_explain.log_min_duration`, e a árvore e a estatística da consulta —
-   `debug_print_parse`, `debug_print_rewritten`, `debug_print_plan` e os quatro `log_*_stats` —, que vão ao log com o
-   texto) ou que um papel, um banco ou uma função liga só para si (`alter role … set log_statement = 'all'`, que a
-   conexão do censo não vê e a da rota sim; o `set` da própria função, `create function … set debug_print_parse = on`; e
-   o `set local` e o `set_config` de dentro dela, e o `set_config` de nome que não se lê, uma variável: medido, os
-   quatro jeitos da função passavam no censo da 46, e o novo dá `registro` 1 em cada; o `set_config('app.x', …, true)`
-   segue zero), porque o log guarda os valores do teste depois do `rollback`; a conta é pelos nomes que põem o texto no
-   log, e não por todo nome que começa com `log_`: o `log_min_messages = fatal` de uma função do `realtime`, no banco da
-   casa, diminui o log e não conta (medido: posto na função e no papel, o do papel o censo da 46 contava; o novo não
-   conta nenhum dos dois). `programa`: se o papel desta
-   conexão ou o da rota — posto na lista `papel` do censo (`anon`, `authenticated`), porque o MCP entra como outro
-   papel; o nome que não existe reprova —, ou o dono de uma função `security definer` que alguém alcança (um desses
-   papéis pode chamá-la, ou um gatilho, política ou visão
-   a usa), pode rodar programa, gravar ou ler arquivo no servidor (superusuário, `pg_execute_server_program`,
-   `pg_write_server_files`, `pg_read_server_files`) — sem olhar o texto dela, porque a que só chama outra empresta o
-   papel à outra (medido: a de superusuário liberada só ao papel da rota passava no censo da 45, rodado como outro
-   papel; com o da rota em `papel`, `programa` verdadeiro).
-   `leitura`: as políticas e visões que chegam, por qualquer cadeia de chamadas, a uma função que manda para fora,
-   não se desfaz, manda mensagem, grava ou muda o esquema (`insert`, `update`, `delete`, e o DDL — `create`, `alter`,
-   `drop`, o `drop owned` inclusive, `refresh materialized view`, `grant` —: a política que conta acesso grava a cada
-   leitura, a gravação dispara o gatilho da tabela, e o DDL fica no `commit` da leitura; rodada 48: a visão que chama
-   uma função com `drop owned by` passava no censo da 47, e o novo dá `leitura` acima de zero), que muda a conexão, que
-   volta assim ao pool para o próximo
-   (o `set_config` e o `setseed`, que valem pelo resto da sessão, entram pelo nome, como as do catálogo abaixo — o
-   `set_config` com o terceiro argumento que for, porque `1 = 0` ou uma variável também dão falso e um comentário com
-   `;` no meio quebrava a busca do texto; o com `true`, que só vale na transação, conta também, porque o censo não prova
-   o literal —, `set` sem `local`, `set role`, `set schema`, `set names`, `set time zone`, `reset` de um nome ou de tudo
-   e `discard`: medido, a visão que chama o `set_config(…, false)` ou o `setseed` direto e a função com `set_config(…, 1
-   = 0)`, com `/* ; */` no meio, com `reset search_path`, `set schema`, `set time zone` ou `set names` passavam no censo
-   da 46, e o novo dá `leitura` acima de zero em cada; o comentário que diz `reset the counter` segue zero; no banco da
-   casa, a única função com `set_config` não é alcançada por visão nem política, e `leitura` segue zero; e, rodada 48, o
-   `listen` e o `unlisten`, porque o ouvinte vale no `commit` e fica na conexão — a visão que chama uma função com
-   `listen canal` ou `unlisten *` passava no censo da 47, e o novo dá `leitura` acima de zero; a que só lê a tabela
-   `listeners` segue zero), e o DDL com modificador antes do objeto (`create global temporary table`, `create local temp
-   table`, `create constraint trigger`:
-   medido, a visão que chama a função que cria o temporário assim passava no censo da 46), a uma de
-   extensão fora da lista segura (`cron.schedule`,
-   `pgmq.send`) ou a uma do
-   catálogo que faz isso, pelo nome (`pg_notify`, `lo_create`, `pg_logical_slot_get_changes`, `pg_read_file`,
-   `query_to_xml`, `pg_wal_replay_pause`…) ou pela permissão que alguém mudou (`concessao`; o `pg_notify` direto numa
-   visão não deixa rastro de dependência no banco) — a cadeia se segue pelo nome escrito no corpo e nos argumentos
-   padrão de cada função (o padrão que chama `pg_notify` roda na chamada que o omite), palavra inteira (a borda de
-   palavra só onde o nome começa ou acaba em
-   letra: `"+send"` também casa), e o nome que aparece conta como chamada; e contam também, em qualquer lugar do
-   banco, a conversão de tipo (`create cast`), o operador, a função de suporte de índice e o `CHECK` de domínio que
-   chegam a uma delas — a visão mostra só `x::tipo` ou `a === b`, e a busca pelo índice chama a função dele, sem nome
-   em texto nenhum —, e a função alcançada que recebe a linha de uma tabela, que o PostgREST chama como coluna
-   calculada, sem política nem visão, e a que a própria rota chama direto (`select f(col)`, o `rpc` de leitura), posta
-   na lista `chamadas` do censo; a política e a visão das extensões contam também, porque o dono do banco pode juntar
-   uma visão dele a uma extensão (`alter extension … add view`: medido, a visão que avisa posta no `pgcrypto` passava no
-   censo da 45, e o novo dá `leitura` 2; no banco da casa, as três visões das extensões — duas do `pg_stat_statements` e
-   a `decrypted_secrets` do cofre — não acendem nada, e `leitura` segue zero). `gatilho`: o que a gravação dispara na
-   tabela que a rota grava, posta na lista `grava` do censo — o gatilho cuja função está no alcance (grava em outra
-   tabela, muda o esquema, avisa) e o `WHEN` dele, a regra (`do also`) e o valor padrão — o da coluna e o do domínio
-   dela, até o domínio de baixo —, o `CHECK`, a política e o índice dela, de expressão ou parcial, que chegam a uma
-   função assim —, porque a linha que o gatilho de auditoria grava noutra tabela não leva a marca do teste, e o
-   recolhimento não a acha; com ela, conta também o que a gravação alcança, até o fim da cadeia: a tabela filha da chave
-   estrangeira que apaga ou muda junto (`on delete`/`on update` com `cascade`, `set null` ou `set default`), a partição
-   e a herdeira, e a tabela por baixo da visão gravada (medido: o gatilho de auditoria na filha da cascata, na neta, na
-   filha do `set null`, na partição, na herdeira e na tabela de baixo da visão, e o padrão da filha que grava, passavam
-   a gravação no censo da 46 com a tabela de cima em `grava`; o novo dá `gatilho` 1 em cada; com `on delete restrict`,
-   que não mexe na filha, e com a filha que só tem gatilho comum, segue zero); e, para o `truncate … cascade`, que
-   esvazia toda filha da chave, qualquer que seja a ação, o gatilho `on truncate` de cada uma (rodada 48, com a tabela
-   em `grava`: o índice de expressão ou parcial que chama uma função que grava, o `WHEN` que a chama, a coluna de
-   domínio cujo padrão grava e o `on truncate` que grava na filha `no action`, na neta ou na partição dela passavam a
-   gravação no censo da 47; o novo dá `gatilho` acima de zero em cada; o índice e o `WHEN` com função limpa, o `on
-   truncate` limpo, o padrão `0` e a filha `no action` com `after delete` que grava seguem zero; na casa, sem `grava`,
-   `gatilho` segue 49); o operador e a conversão de tipo que
-   levam a uma função assim já reprovam a gravação pela `leitura`, que o veredito de gravar também pede em zero (medido:
-   com a tabela em `grava`, o padrão, o `CHECK` e a política que usam um operador cuja função grava na auditoria, e o
-   padrão com uma conversão de tipo assim, reprovam a gravação nos censos da 46 e da 47); sem `grava` (o `null`), conta
-   toda tabela do banco (medido: o gatilho que grava noutra
-   tabela, o que cria tabela e a regra `do also insert` passavam a gravação no censo da 45; o novo dá `gatilho` 1, e 0
-   quando a rota grava a outra tabela; o gatilho comum, que só mexe no `new`, segue zero; no banco da casa, sem `grava`,
-   `gatilho` = 49).
-
-   **Gravar e confirmar em produção** — a rota ou o `rpc` que grava, ou de que não se sabe se grava — só com `extensoes`
-   vazio, os números em zero — `concessao`, `registro` e `gatilho` inclusive, com a tabela que a rota grava em `grava` —
-   e `programa` falso; senão, prévia isolada ou fronteira. A rota que manda DDL ela mesma — `create`, `alter`, `drop`, o
-   `create temp table` inclusive — não grava em produção: prévia isolada ou fronteira, porque o censo não vê o SQL da
-   rota, e o gatilho de evento de DDL roda nesse DDL (rodada 48, num Postgres 16 local com um gatilho `on
-   ddl_command_end` que grava: a rota que só faz `insert` não o disparou; a que chama uma função que cria o temporário
-   já reprovava pelo censo; a que manda o `create temp table` ela mesma passava nos censos da 47 e da 48 e disparou o
-   gatilho; contar os gatilhos de evento em `gatilho` reprovaria gravar em todo banco do Supabase — na casa há 6, todos
-   com a função no alcance). **Transação desfeita
-   em produção** (o MCP, em (c)) com `externo`, `replicacao`, `login`, `livre`, `naodesfaz`, `sequencia`, `concessao` e
-   `registro` em zero,
-   `programa` falso e, em `extensoes`, no máximo `pg_net`, `pg_cron` e `pgmq`: as três guardam numa tabela o que vai
-   sair, e quem manda só lê o que foi confirmado (lido no catálogo do banco da casa: `net.http_get`, `http_post` e
-   `http_delete`, do `pg_net` 0.19.5, só gravam em `net.http_request_queue`), e o aviso e a publicação também só saem
-   no `commit`; o que sai antes dele — `http`, `dblink`, `pg_background`, tabela externa, linguagem sem trava,
-   mensagem à replicação com uma fila aberta, `copy … to program` de quem pode — o `rollback` não desfaz (medido no
-   Postgres local: a linguagem sem trava, a fila de replicação e a tabela externa acenderam cada uma a sua coluna).
-   **Só ler em produção** — a rota no ar só lê, sem escrita, lido no código, e a função que ela chama direto (o `rpc` de
-   leitura, a função no `select`) vai em `chamadas` — com `extensoes` no máximo `pg_net`, `pg_cron` e `pgmq`, `externo`,
-   `login`, `livre` e `leitura` em zero e `programa` falso (a visão que chama uma função `security definer` de
-   superusuário lhe empresta o que ele pode, sem nome nenhum a seguir); e a consulta da sessão ao banco
-   vai no bloco que guarda só o código do erro ((c), abaixo), porque a política que levanta exceção com o valor da linha
-   o mandaria ao histórico. A leitura não olha o `registro`: na casa ele é 2 — o `log_statement` em `ddl`, que não
-   registra leitura, e o `auto_explain`, que registra o texto e os parâmetros da instrução de 10 s em diante —, e o
-   bloco põe 5 s; se a leitura passa a exigir em zero o que registra uma leitura dentro do prazo dela é decisão do
-   Lucas, aberta (rodada 48: a proposta dá 0 na casa com os prazos de 3, 5 e 8 s, e 1 com os 120 s da chave de serviço).
-
-   Medido no Postgres local, como papel comum, um caso de cada (rodada 42): o censo da rodada 41 aprovava gravar com
-   gatilho de DDL que avisa, com `CHECK` ou `WHEN` de gatilho que chama `pg_notify` direto, com regra que faz
-   `NOTIFY`, com função do usuário posta no `pg_catalog`, com `lo_export`, `pg_terminate_backend`, `raise notice` ou
-   `serial` e com o papel em `pg_write_server_files`; aprovava a transação desfeita com função C ou `internal` fora
-   de extensão, com SQL montado e com `security definer` de superusuário que só chama a função com `copy … to
-   program`, ou que é ele mesmo o gatilho de DDL; e aprovava a leitura com política que chama uma função que chama
-   outra com `pg_notify` ou `cron.schedule`, e com visão que chama `pg_notify` direto, por agregado ou por operador.
-   O novo reprovou cada um no veredito certo, repetiu os 11 da rodada 41, passou o banco limpo e o gatilho comum, e a
-   função `send`, que avisa, não acendeu a política que só tem `sender_id`. No banco da casa (Postgres 17, medido no
-   turno da rodada 42): `extensoes` = `pg_cron,pg_net`, `texto` = 41, `naodesfaz` = 52, `sequencia` = 44, o resto em
-   zero e `programa` falso — gravar e transação desfeita em produção não passam, e a checagem do banco vai a uma
-   prévia isolada (um Postgres local com as migrações do repositório, que não prova a produção) ou vira fronteira; a
-   leitura passa. Rodada 43: o censo da 42 aprovava a leitura com visão ou política que converte o tipo por uma
-   função que avisa — explícita ou implícita; a visão, lida, mandou o aviso —, com conversão de superusuário pelo
-   `lo_import` e com visão que converte para um domínio cujo `CHECK` avisa; o novo dá `leitura` acima de zero em
-   cada um, repetiu os 35 casos da 42 e passou a conversão e o domínio inofensivos. No banco da casa, `leitura` segue
-   zero. Rodada 44: o censo da 43 aprovava a leitura com visão ou política que chama, por uma função comum, outra de
-   nome entre aspas que começa ou acaba fora de letra (`"+send"`, `"send!"`), com função que usa um operador que
-   avisa (a visão, lida, mandou o aviso), com índice cuja função de suporte avisa (a busca pelo índice mandou o
-   aviso), com coluna calculada que avisa e com política que grava (a leitura gravou a linha) ou grava numa tabela
-   com gatilho que avisa; aprovava gravar e desfazer com `raise /* … */ notice` (a mensagem saiu), `pg_switch_wal`,
-   `pg_reload_conf`, `pg_stat_reset` e slot de replicação; e não contava a sequência de extensão. O novo reprova cada
-   um no veredito certo, repete os 43 casos das rodadas 42 e 43 e passa a função comum com `raise exception`. No
-   banco da casa: `naodesfaz` = 54, `sequencia` = 47 (entraram as do `pg_net` e do `pg_cron`), `leitura` = 0 — a leitura
-   segue passando. Rodada 45: o censo da 44 aprovava a leitura com visão que chama uma função que cria tabela, que chama
-   `lo_create`, que consome um slot lógico, que lê arquivo com `pg_read_file` liberado, que pausa a réplica com
-   `pg_wal_replay_pause` liberado, que roda `query_to_xml` ou que chama outra cujo argumento padrão avisa, com `security
-   definer` de superusuário numa visão e com a rota chamando direto uma função que avisa; aprovava gravar e desfazer com
-   `pg_backup_start` liberado e chamado por gatilho e com `log_statement = mod`, e gravar com uma função que avisa posta
-   no `pgcrypto` e chamada por gatilho. O novo reprova cada um no veredito certo, repete os 59 casos das rodadas 42 a 44
-   — 56 iguais; os 3 de leitura com `programa` verdadeiro agora reprovam, de propósito — e passa o banco limpo e a
-   função comum com `raise exception`. No banco da casa, com o texto final: `concessao` = 1 (o `pg_reload_conf`, que o
-   Supabase dá ao `postgres`), `registro` = 1 (o `auto_explain`, a partir de 10 s), `naodesfaz` = 55, `leitura` = 0 — a
-   leitura segue passando; gravar e desfazer, não. Rodada 46: o censo da 45 aprovava gravar e desfazer com
-   `log_statement = ddl`, com a amostra (`log_min_duration_sample = 0` e `log_statement_sample_rate = 1`), com
-   `pgaudit.role`, com `debug_print_parse` ou `log_statement_stats` ligado e com `alter role … set log_statement =
-   'all'`, e desfazer com `load`; aprovava os três vereditos com uma função C de outro módulo ou `internal` posta no
-   `pgcrypto` e com o papel da rota podendo chamar uma função de superusuário; a leitura com visão que avisa posta no
-   `pgcrypto` e com visão que muda a conexão; e gravar com gatilho ou regra que grava noutra tabela ou cria tabela. O
-   novo reprova cada um no veredito certo, repete os 74 casos das rodadas 42 a 45 — 73 iguais; a função do usuário no
-   `pg_catalog`, que já reprovava gravar, agora para na conta de antes do censo — e passa o banco limpo, o gatilho comum
-   e o `log_statement = none` do papel. No banco da casa, com o texto final: `registro` = 2 (o `log_statement` é `ddl`,
-   e o `auto_explain`), `livre` = 0, `leitura` = 0 e, sem `grava`, `gatilho` = 49 — a leitura segue passando; gravar e
-   desfazer, não.
+   Passa com `rede` vazio e os três números em zero; o `pg_cron`, sem extensão de rede, roda o agendado dentro da
+   prévia, e ele não sai dela.
 
    Ordem de preferência: (a) navegador sem tela sobre a URL (Playwright 1.48 ou mais novo, com o navegador
    que o ambiente já tem: na nuvem do Claude Code, `executablePath: '/opt/pw-browsers/chromium'`; fora dela, o que o
    próprio Playwright encontra — o bloco abaixo recebe o `browser` já aberto, `const browser = await chromium.launch({
    executablePath })`, e quem o abriu o fecha num `finally`, `await browser.close()`, e antes do `require('playwright')`
    recusa as variáveis que o Playwright lê na importação e o Chromium no `launch`, com as duas linhas que o bloco também
-   tem, porque para elas o bloco chega tarde: ``for (const k of ['PWDEBUG', 'PWDEBUGIMPL', 'SELENIUM_REMOTE_URL',
-   'PW_TEST_CONNECT_WS_ENDPOINT', 'SSLKEYLOGFILE']) if (process.env[k]) throw new Error(`${k}: desligue antes do require
-   do Playwright`);``), com a página testada vinda da
+   tem, porque para elas o bloco chega tarde: ``for (const k of ['DEBUG', 'PWDEBUG', 'PWDEBUGIMPL',
+   'SELENIUM_REMOTE_URL', 'PW_TEST_CONNECT_WS_ENDPOINT', 'SSLKEYLOGFILE']) if (process.env[k]) throw new Error(`${k}:
+   desligue antes do require do Playwright`);``), com a página testada vinda da
    variável `ALVO_URL`, já carregada no ambiente — link assinado ou link mágico escrito no script fica no histórico —,
    só `https://` (o `http://` só para `127.0.0.1` e `localhost`, conferidos no host que o `URL` leu e não no texto: em
    `http://localhost:@outro.com` o host é o `outro.com`; e nada antes do `@`, no `https` também, porque em
@@ -509,7 +144,10 @@ outra palavra (`rode !shs na prévia`).
    POST por `fetch` passa; o `sendBeacon` a outra origem segue o navegador: de texto ou formulário, sem pergunta e
    sem olhar a resposta; de outro tipo, com a pergunta antes e com credenciais — medido sem o `route`: o Chromium
    mandou o POST de texto e, no de JSON, só o `OPTIONS`; o bloco anterior reprovou o de texto em `cors` e mandou o
-   POST do JSON depois da pergunta; o novo passa o de texto e para o de JSON na pergunta, como o navegador; e o
+   POST do JSON depois da pergunta; o novo passa o de texto e para o de JSON na pergunta, como o navegador; o
+   `<a ping>` (a auditoria de link: `text/ping`, com o `Ping-To` que o `sendBeacon` não põe) vai como no navegador,
+   sem pergunta, com cookie e sem olhar a resposta — rodada 49: o navegador mandou o POST com o cookie e sem `OPTIONS`;
+   o bloco da 48 mandou só um `OPTIONS` e cortou em `cors`; o novo mandou o POST, como ele —; e o
    `EventSource` não passa por este bloco, mesmo listado: a busca espera o fim do corpo, e o fluxo aberto não acaba — o
    anterior
    esperava o prazo inteiro; o novo corta na hora, com `fluxo` no que foi cortado, e a página que depende dele se prova
@@ -573,7 +211,10 @@ outra palavra (`rode !shs na prévia`).
    (com `maxRedirects: 0`, e a resposta e o contexto dela liberados depois), e um redirecionamento (301, 302, 303, 307,
    308) aborta — o 304 da chamada que pergunta se o dado mudou passa (medido) —: o `route` só vê o primeiro endereço, e
    o redirecionamento que o navegador seguisse levaria a visita a um destino fora da lista (medido: uma rota listada que
-   mandava a um pixel de fora fez o pixel receber a visita; com o 3xx abortado, não). Lista do que passa, e não do que
+   mandava a um pixel de fora fez o pixel receber a visita; com o 3xx abortado, não), salvo no `fetch` com `redirect:
+   'manual'` (todo pedido no ar àquele endereço assim): o 3xx chega à página como veio, `opaqueredirect`, e o navegador
+   não o segue (rodada 49: o navegador e o novo deram `opaqueredirect 0` sem pedir o destino, e o bloco da 48 cortava
+   em `3xx`; sem `Allow-Origin`, os três dão erro de CORS; o `follow` segue abortado). Lista do que passa, e não do que
    se corta, porque a medição que ninguém listou é justamente a que escapa: o analytics que o próprio domínio recebe num
    caminho gerado a cada build, o aviso de erro que a página manda ao banco, o pixel novo. `context.route` pega abas
    novas e popups, que o `page.route` perde; o `routeWebSocket` fecha todo WebSocket (a gravação de sessão vai por ele,
@@ -621,11 +262,18 @@ outra palavra (`rode !shs na prévia`).
    resposta dele não chega ao navegador, e só segue se o servidor liberar a origem, o método e os cabeçalhos (o `*` não
    libera o `Authorization`, nem nada quando a chamada vai com credenciais; o método, na caixa exata, como o navegador:
    medido, com `Allow-Methods: put, delete` o navegador recusou o PUT e o DELETE, o bloco anterior deixou passar, o novo
-   recusa), sem `Access-Control-Request-Headers` quando a página não pôs cabeçalho (o anterior mandava o campo vazio,
+   recusa; e a lista com um membro que não é palavra do HTTP reprova inteira — rodada 49: com
+   `Allow-Methods: PUT, bad method` ou `Allow-Headers: x-shs, bad header`, o navegador mandou só o `OPTIONS` e o bloco
+   da 48 mandou o PUT; o novo para em `cors`), sem `Access-Control-Request-Headers` quando a página não pôs cabeçalho
+   (o anterior mandava o campo vazio,
    que o navegador não manda), a resposta liberada fica guardada pelo tempo que ela diz (`Access-Control-Max-Age`, só
    número inteiro; 5 s sem ele ou com ele mal escrito, até 2 h — medido com `Max-Age: 600junk` e duas chamadas a 6,5 s:
    o navegador sem o `route` e o novo perguntaram duas vezes; o anterior guardou 600 s e mandou o segundo POST sem
-   pergunta), uma por origem e endereço, com os métodos e os cabeçalhos que ela liberou e trocada pela última pergunta
+   pergunta; o negativo vale 0, sem guardar, o que passa do int64 vale os 5 s, e o `+60` vale 60; rodada 49, dois
+   PUT: com `-1`, o navegador perguntou nos dois e o bloco da 48 só no primeiro; com `99999999999999999999` e 6,5 s,
+   o navegador perguntou de novo e o da 48 guardou 2 h; com `+60`, o navegador guardou e o da 48 perguntou de novo; o
+   novo, como o navegador nos três), uma por origem e endereço, com os métodos e os cabeçalhos que ela liberou e
+   trocada pela última pergunta
    ao mesmo endereço, como no Chromium — e vale pelo modo do pedido que perguntou, e não pelo `Allow-Credentials` da
    resposta: a feita sem credenciais não serve ao pedido que as leva (rodada 48: um `PUT` com `credentials: 'omit'` e
    outro com `'include'`, com a pergunta respondida com `Allow-Origin: *` e `Allow-Credentials: true` — o navegador
@@ -721,8 +369,9 @@ outra palavra (`rode !shs na prévia`).
    `proxy:3128`, que o Playwright aceita, vale como `http://` — medido: só com o `ALL_PROXY`, o bloco anterior não abriu
    a página, e o novo abriu pelo proxy; com o `HTTPS_PROXY` vazio ao lado do `ALL_PROXY`, e com o proxy sem esquema, o
    bloco anterior não abriu a página, e o novo abriu com 200 pelo proxy de teste, que viu a senha de cada um), que o
-   contexto da página e os de busca recebem (`proxy`, com `localhost`, `127.0.0.1` e o que o `NO_PROXY` do ambiente
-   lista fora dele — a busca, pelo mesmo caminho que a página: lê a mesma lista pela regra do Chromium (vírgula ou
+   contexto da página e os de busca recebem (`proxy`, com o que o `NO_PROXY` do ambiente lista e o que o Chromium
+   manda direto sozinho fora dele — a busca, pelo mesmo caminho que a página: lê a mesma lista pela regra do
+   Chromium (vírgula ou
    ponto e vírgula entre as entradas, `*`, porta, faixa IPv4 como `10.0.0.0/8`, curinga, ponto na frente; o IPv6 sem
    colchetes e a faixa IPv4 inválida, como `1.999.0.0/8` ou `/33`, o Chromium ignora — e, na faixa inválida, o bloco
    para) e vai direto ou pelo
@@ -730,9 +379,13 @@ outra palavra (`rode !shs na prévia`).
    `NO_PROXY=*` e com `host:porta`, a página foi direto e a busca do bloco anterior, pelo proxy; com o host exato, a
    página mandou o subdomínio pelo proxy e a busca anterior, direto; a regra nova bateu com a página nos 25 casos
    medidos, e na rodada 41 em mais 11 — com `a;b`, a página foi direto e a regra anterior, pelo proxy; com
-   `1.999.0.0/8`, a página foi pelo proxy e a regra anterior mandava `4.231.0.1` direto; e, como o Playwright põe
-   `<-loopback>` na lista, `127.0.0.2`, `foo.localhost`, `[::1]` e `169.254.1.1` foram pelo proxy na página, como na
-   regra: o desvio implícito do Chromium não vale ali —, e a forma que ela não sabe seguir — `<local>`, esquema,
+   `1.999.0.0/8`, a página foi pelo proxy e a regra anterior mandava `4.231.0.1` direto; rodada 49: a referência passa
+   a ser o Chromium que lê o proxy do ambiente, como o da pessoa no Linux, e não a página do Playwright, que põe
+   `<-loopback>` na lista e hoje vai ao proxy morto do bloco — nele, `localhost`, `*.localhost`, `127/8`, `[::1]`,
+   `169.254/16`, `[fe80::]/10` e o `::ffff:` de `127` e de `169.254` vão direto sem estar na lista, e a entrada de nome
+   casa pelo fim (`example.test` levou direto `api.example.test` e até `badexample.test`), a de IP, só o IP (`10.1` é
+   `10.0.0.1`): medido no Chromium puro com um proxy de teste, o bloco da 48 bateu em 17 de 29 casos, e o novo em 29
+   —, e a forma que ela não sabe seguir — `<local>`, esquema,
    faixa IPv6 — para o bloco, e o IPv6 entre colchetes mal escrito também, com mensagem fixa, porque o erro do `URL`
    do Node traz a entrada inteira (medido: com `NO_PROXY=[abcd:token]`, o bloco da rodada 41 caiu em `Invalid URL`
    com a entrada no erro; o novo, em `NO_PROXY com IPv6 mal escrito`, sem ela)) —, e o usuário e a senha
@@ -759,8 +412,10 @@ outra palavra (`rode !shs na prévia`).
    recebeu `application/octet-stream` e respondeu 200; com o campo vazio, um `Content-Type` vazio; pelo novo, nada
    chegou): rota assim se prova pela prévia isolada ou vira fronteira. A chamada de um quadro da internet à rede local
    (`localhost`, `127.x`, `10.x`, `172.16` a `172.31`, `192.168.x`, `169.254.x`, `100.64` a `100.127` — a rede da
-   operadora —, o IPv6 local — `fc00::/7`, `fe80::/10`, `::1` e `::`, lido como número, e o `::ffff:a.b.c.d` pelo IPv4
-   de dentro —, o nome `.local` e o nome que resolve para um deles, quando a busca vai direto — e o que
+   operadora —, `0/8` inteiro, `198.18/15` e, na dúvida, as faixas de documentação, reservadas e de multicast, o IPv6
+   que não é público — só é público o de `2000::/3` fora de `2001::/23`, `2001:db8::/32`, `2002::/16` e `3fff::/20` —,
+   lido como número, e o `::ffff:a.b.c.d` pelo IPv4 de dentro, o nome `.local` e o nome que resolve para um deles,
+   quando a busca vai direto — e o que
    não resolve, porque a busca pode achar o endereço depois) é cortada (`rede local`), porque o Chrome novo pede licença
    à pessoa antes (Local Network Access) e a busca do bloco não
    pediria; quem chama é o quadro — a origem que o pedido leva, ou a do documento que pediu —, e não o site, porque o
@@ -776,7 +431,13 @@ outra palavra (`rode !shs na prévia`).
    ULA (todo ULA começa por um grupo de quatro dígitos, de `fc00` a `fdff`, e esses a regra antiga já pegava); e o IPv6
    escrito não vai mais ao DNS, que não lê colchetes e devolvia `ENOTFOUND`, contado como local (medido em 33 endereços:
    só os quatro IPv4 mapeados públicos mudaram; no navegador o IPv6 não se mediu, porque o núcleo do contêiner não tem
-   IPv6). Pelo proxy
+   IPv6). Rodada 49: a tabela vai pelo número e é a larga no destino, e quem chama segue pela de antes, porque ali o
+   público tomado por local deixaria passar; o mesmo IP escrito dos dois lados é o mesmo espaço; e o nome do pedido
+   que vai abortar não vai mais ao DNS (medido: o `lookup` recebia `segredo-abc123.invalid` de um `fetch` fora da
+   lista; o novo não o chama). No Chromium 141 sem o `route`, a página pública em `https` que chamava `0.1.2.3` e
+   `100.64.0.1` ficou esperando a licença, sem pedido nenhum, e a `198.18.0.1` recebeu o pedido (o 141 ainda a lê
+   pública; a regra do Local Network Access, local); o bloco da 48 entregou o de `0.1.2.3`, e o novo corta os três (em
+   51 endereços, 22 mudam no destino, todos de público para local, e nenhum em quem chama). Pelo proxy
    do ambiente, quem resolve o nome é o proxy, e o bloco não
    vê o endereço — nem o DNS que muda entre a conta e a busca, porque o `APIRequestContext` do Playwright não deixa
    prender o endereço conferido —: o nome assim não entra em `PASSA`, e aceitar esse resto é decisão do Lucas (o
@@ -794,9 +455,11 @@ outra palavra (`rode !shs na prévia`).
    direto e perguntava no `Save-Data: ON`; o novo, como o navegador); e os cabeçalhos simples que somam mais de 1024
    bytes perguntam todos, como no Fetch e no Chromium (medido: dez de 120 bytes — o navegador perguntou com os dez
    nomes; o anterior foi direto ao POST; o novo perguntou igual; quatro deles, 480 bytes, foram direto nos três). O
-   `DEBUG=pw:…` do Playwright imprime
-   cada URL inteira, token incluso: ligado, o bloco para antes de
-   tudo; e o `NODE_DEBUG` também, com qualquer valor, porque o do Node imprime a URL, o cookie e o `Authorization` no
+   `DEBUG` do Playwright (`pw:api`) imprime cada URL inteira, token incluso: com qualquer valor, o bloco para antes de
+   tudo, porque o curinga do meio também o liga (rodada 49: com `DEBUG=p*:api`, o bloco da 48 seguiu e imprimiu 53
+   linhas `pw:api`, três com o token da URL; o novo para em `DEBUG: desligue…`, como a linha de antes do
+   `require`); e o `NODE_DEBUG` também, com qualquer valor, porque o do Node imprime a URL, o cookie e o
+   `Authorization` no
    erro padrão (medido: com `NODE_DEBUG=http,https,net,tls,http2`, o token da query, o cookie e a chave apareceram lá; o
    bloco anterior seguia, o novo para em `NODE_DEBUG imprime …`). E o `PWDEBUG`, o `PWDEBUGIMPL`, o
    `SELENIUM_REMOTE_URL`, o `PW_TEST_CONNECT_WS_ENDPOINT` e o `SSLKEYLOGFILE` também: o Playwright lê o `PWDEBUG` na
@@ -912,77 +575,17 @@ outra palavra (`rode !shs na prévia`).
    histórico da ferramenta. Rota que grava credencial na linha do log (no quiz-diagnosys, a de retomada registra o token
    cru), com ferramenta que só devolve a linha inteira: o log não se lê, e o diagnóstico fica no código. O corpo fica
    fora do repositório e fora do chat: dele sai só o campo que prova o caminho, nunca o corpo inteiro, que em painel ou
-   produção pode trazer dado de cliente ou credencial. (c) leitura/escrita no banco (MCP do Supabase; `begin; set local
-   statement_timeout = '5s'; set local lock_timeout = '2s'; …; set constraints all immediate; rollback` numa única
-   chamada do `execute_sql` — os dois prazos, desligados por padrão no Postgres, impedem que a trava de outra transação
-   prenda a checagem, e com ela as travas que ela já pegou (conferido no MCP do Supabase: `5s` e `2s` valem dentro da
-   chamada); a consulta devolve só o que prova o caminho — contagem, status, ou as colunas do teste nas linhas com o
-   código desta checagem, e o `returning` também —, nunca `select *` nem linha de cliente, porque o resultado entra
-   inteiro no histórico da ferramenta antes de qualquer filtro; sem como projetar assim, fronteira; sem o `set
-   constraints`, a restrição adiada, que só se confere no `commit`, passa sem ser testada, e ele vem depois das
-   instruções testadas, logo antes do `rollback`, porque antes delas mudaria o modo da restrição e reprovaria a troca
-   que o `commit` aceitaria; se uma instrução falha, o `rollback` do fim não roda, e quem desfaz é o fim da conexão
-   (medido com o MCP do Supabase: a trava pega antes do erro saiu livre, e não sobrou conexão parada em transação), e
-   cada chamada é uma conexão própria, e `begin` numa com `rollback` noutra não desfaz nada —, sabendo que o
-   `rollback` não devolve número tirado de sequência (`serial`, `identity`, `nextval`) — por isso o censo, no passo
-   2, reprova a transação desfeita em banco com sequência —; e sabendo que o
-   `rollback` desfaz a linha e não o que sai do banco antes do `commit` (o censo da transação desfeita, no passo 2,
-   diz se o banco tem por onde; reprovou, prévia isolada); e que a mensagem de erro do banco traz o valor da linha (`Key
-   (email)=(…)`, `Failing row contains`) e chega ao histórico da ferramenta antes de qualquer filtro — com dado de
-   teste, é o dele, mas na restrição de unicidade ou de exclusão vem também o da linha que já existia, de cliente: as
-   escritas do caminho em que alguma pode colidir vão todas, na ordem dele, num bloco que guarda só o código do erro,
-   com o `set constraints` dentro dele, depois da última (`do $$ begin <escritas>; set constraints all immediate;
-   perform pg_catalog.set_config('shs.e', 'ok', true); exception when others or query_canceled or assert_failure then
-   perform pg_catalog.set_config('shs.e', case when sqlstate operator(pg_catalog.=) any
-   ('{23502,23503,23505,23514,23P01,22001,22003,22012,22P02,
-   25006,40001,40P01,42501,42P01,42703,42883,55P03,57014,P0001,P0004}'::pg_catalog.text[]) then sqlstate else 'outro'
-   end, true); end $$; select pg_catalog.current_setting('shs.e', true);` —
-   os nomes do bloco vão com o esquema, porque o papel cujo caminho de busca põe outro esquema antes do catálogo faria o
-   `current_setting` devolver o que a função-sombra quiser (medido num Postgres 16 local: com uma `current_setting` num
-   esquema à frente, o bloco anterior devolveu o CPF de mentira da tabela; o novo, `ok`); o `ok` do fim apaga o que a
-   função, o gatilho ou a política testados tenham posto em `shs.e`, que sairia inteiro no resultado (medido num
-   Postgres 16 local: com um gatilho que põe um texto em `shs.e`, o bloco anterior devolveu o texto; o novo, `ok`; com
-   erro depois da escrita, só `22012`); o código do erro só sai se for de uma lista fixa — os que esta seção cita e os
-   de diagnóstico comum —, senão `outro`, porque a função ou o gatilho escolhem o `ERRCODE` e podem fazê-lo do dado da
-   linha (rodada 48, num Postgres 16 local: com um gatilho cujo código de erro são os 5 primeiros dígitos do CPF da
-   linha, o bloco da 47 devolveu os dígitos, e com um código inventado, `AB123`, o próprio; o novo, `outro` nos dois; a
-   colisão de verdade segue `23505`, e o caminho limpo, `ok`); e sem tabela temporária: o
-   `create temp table` é DDL e dispara gatilho de evento, que pode mandar algo para fora — medido num Postgres 16
-   local: com ele, o gatilho de evento disparou; com o `set_config`, não, e saíram só `23505`, `57014` e `P0004`; no MCP
-   do Supabase, um `1 / 0` no bloco devolveu só `22012`), sem erro no log — fora do bloco, a restrição adiada
-   (`deferrable initially deferred`) deixa a escrita passar e só se confere no `set constraints` de depois, que devolve
-   o erro inteiro (medido no MCP do Supabase, numa tabela temporária desfeita: sem o bloco, o erro trouxe `Key
-   (chave)=(…) already exists`; com ele, só `23505`; o `when others` sozinho não pega o prazo estourado (`57014`, do
-   `statement_timeout`) nem o `assert` (`P0004`), e os dois saíram com o texto da instrução do gatilho no contexto do
-   erro (`SQL statement "…"`) ou a mensagem do `assert`; com os dois nomeados, só `57014` e `P0004`; numa restrição
-   adiada, com o `set constraints` fora do bloco, o erro trouxe a chave de novo; dentro dele, só `23505`, e a linha
-   repetida saiu desfeita; numa troca de dois valores únicos em duas instruções, só a primeira no bloco, com o `set
-   constraints` logo depois dela, reprovou com `23505` a troca que o `commit` aceitaria, e as duas no bloco passaram,
-   enquanto a colisão de verdade continuou saindo só como `23505`); a leitura em produção vai num bloco igual, com o
-   resultado guardado do mesmo jeito (`do $$ begin perform pg_catalog.set_config('shs.r', (select
-   pg_catalog.count(<coluna>) from …)::pg_catalog.text, true); perform pg_catalog.set_config('shs.e', 'ok', true);
-   exception when others or query_canceled or assert_failure then perform pg_catalog.set_config('shs.e', case when
-   sqlstate operator(pg_catalog.=) any ('{23502,23503,23505,23514,23P01,22001,22003,22012,22P02,
-   25006,40001,40P01,42501,42P01,42703,42883,55P03,57014,P0001,P0004}'::pg_catalog.text[]) then sqlstate else 'outro'
-   end, true); end $$; select case when pg_catalog.current_setting('shs.e', true) operator(pg_catalog.=) 'ok' then
-   pg_catalog.current_setting('shs.r', true) end, pg_catalog.current_setting('shs.e', true);`, dentro do mesmo `begin …
-   rollback`; o `shs.r` só sai com o `shs.e` em `ok`, gravado depois dele, na mesma subtransação, porque a conexão do
-   pool pode trazer um `shs.r` de antes — rodada 48: com um `shs.r` de sessão na conexão e a leitura dando `22012` antes
-   do `set_config`, o bloco da 47 devolveu o valor velho; o novo, nulo; e a leitura certa, a contagem e `ok`),
-   porque a política ou a visão que levanta exceção traz na mensagem o que a função pôs nela (medido num Postgres 16
-   local, com uma política que chama `raise exception 'linha secreta %', $1.cpf`: fora do bloco, o erro trouxe o
-   valor; dentro, só `P0001`; sem a política, a contagem), e a contagem é da coluna que a rota lê, não das linhas: o
-   `count(*)` não calcula as colunas da visão, e a que dá erro ou avisa passava calada (medido: numa visão com `1 / x` e
-   uma linha com zero, o `count(*)` deu 2 e o da coluna, `22012`; numa coluna que põe um texto em `shs.e`, o bloco
-   anterior o devolveu, e o novo, `ok`); se um gatilho ou função copia dado de cliente para a
-   linha de teste, prévia isolada; nunca `raise exception` para desfazer em produção, que deixa um erro no log do banco
-   e pode disparar alerta; o que protege do log de erro é o bloco: toda escrita e leitura de produção vai dentro dele, e
-   o que falha fora dele, o bloco mal escrito inclusive, vai inteiro ao log — por isso o bloco só leva valor de teste (o
-   código `shs`), nunca dado de cliente (rodada 48, num Postgres 16 local com o `log_min_error_statement` no padrão,
-   `error`: o erro pego no bloco não foi ao log; fora dele, a colisão foi com a chave e o texto, e o erro de sintaxe do
-   próprio bloco, com o `do` inteiro; contar o padrão em `registro` poria 1 em todo banco, e ele não conta); prova o
-   banco, não a rota: se a pergunta é sobre a rota, desfazer no banco não substitui
-   chamá-la). (d) script do repositório (`npm run`, `scripts/*.sh`). Teste unitário **não** substitui (a)–(c): ele prova
+   produção pode trazer dado de cliente ou credencial. (c) consulta, escrita e transação desfeita no banco — só na
+   prévia do banco (passo 2, acima), nunca em produção: `begin; set local statement_timeout = '5s'; set local
+   lock_timeout = '2s'; …; set constraints all immediate; rollback` numa única chamada (no Postgres local, pelo
+   `psql`; na branch, pelo `execute_sql` do MCP com o id da branch, nunca o da produção) — os dois prazos impedem que
+   a trava de outra transação prenda a checagem; o `set constraints` vem depois das instruções testadas, logo antes do
+   `rollback`, porque a restrição adiada só se confere no `commit` e passaria sem ser testada; cada chamada é uma
+   conexão própria, e `begin` numa com `rollback` noutra não desfaz nada —; a consulta devolve só o que prova o
+   caminho — contagem, status ou as colunas do teste nas linhas com o código desta checagem —, nunca `select *`,
+   porque o resultado entra inteiro no histórico da ferramenta; prova o banco, não a rota: se a pergunta é sobre a
+   rota, desfazer no banco não substitui chamá-la. (d) script do repositório (`npm run`, `scripts/*.sh`). Teste
+   unitário **não** substitui (a)–(c): ele prova
    o código, não o caminho. Sites públicos da casa: `vigia/dominios.txt` do hub
    (`../Lucas-Contexto-Geral/vigia/dominios.txt` ou
    https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/vigia/dominios.txt); prévia do PR: o link da Vercel
@@ -1033,11 +636,11 @@ outra palavra (`rode !shs na prévia`).
      || (x.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(x.hostname))); } catch { return false; } };
    // o host já lido, não o texto; e nada antes do @: em https://confiavel@outro, quem recebe é o outro
    const ALVO = process.env.ALVO_URL ?? '';          // a página testada, do ambiente: link assinado nunca no script
-   if (/(^|[\s,])(pw|\*)/.test(process.env.DEBUG ?? '')) throw new Error('DEBUG=pw:… imprime a URL inteira: desligue');
    if (/\S/.test(process.env.NODE_DEBUG ?? '')) throw new Error('NODE_DEBUG imprime URL, cookie e chave: desligue');
-   for (const k of ['PWDEBUG', 'PWDEBUGIMPL', 'SELENIUM_REMOTE_URL', 'PW_TEST_CONNECT_WS_ENDPOINT', 'SSLKEYLOGFILE'])
-     if (process.env[k]) throw new Error(`${k}: desligue antes do require do Playwright`);   // PWDEBUG, lido na
-   // importação, põe o objeto playwright na página e abre o inspetor; os dois seguintes levam o navegador a outra
+   for (const k of ['DEBUG', 'PWDEBUG', 'PWDEBUGIMPL', 'SELENIUM_REMOTE_URL', 'PW_TEST_CONNECT_WS_ENDPOINT',
+     'SSLKEYLOGFILE']) if (process.env[k]) throw new Error(`${k}: desligue antes do require do Playwright`);   // o DEBUG,
+   // de todo valor: o curinga do meio (p*:api) também liga o pw:api, que imprime a URL inteira (medido); o PWDEBUG,
+   // lido na importação, põe o objeto playwright na página e abre o inspetor; os dois seguintes levam o navegador a outra
    // máquina; no SSLKEYLOGFILE o Chromium grava as chaves do TLS (medido). Quem abre o browser confere o mesmo antes
    if (process.env.PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK)   // sem ela, o localhost sai do proxy morto e
      throw new Error('PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK: desligue');   // vai direto (medido)
@@ -1089,14 +692,21 @@ outra palavra (`rode !shs na prévia`).
      if (r.length || (b === undefined ? z : z < 1)) return null;   // vira os dois últimos; um :: só, valendo um grupo
      const g = [...A, ...Array(b === undefined ? 0 : z).fill('0'), ...B];   // ou mais
      return g.every(x => /^[\da-f]{1,4}$/i.test(x)) ? g.map(x => parseInt(x, 16)) : null; };
-   const REDE = h => /^(localhost|.+\.localhost|.+\.local|0\.0\.0\.0|127(\.\d+){3}|10(\.\d+){3})$/i.test(h)
-     || /^(192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2}|169\.254(\.\d+){2})$/.test(h)
-     || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])(\.\d+){2}$/.test(h)   // 100.64/10, a rede da operadora
-     || (g => !!g && (g.slice(0, 7).every(n => !n) && g[7] < 2 || (g[0] & 65024) === 64512   // :: e ::1, fc00::/7 e
-       || (g[0] & 65472) === 65152 || g.slice(0, 5).every(n => !n) && g[5] === 65535   // fe80::/10 pelo número (fd::1
-       && REDE([g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255].join('.'))))(V6(h));   // é 00fd::1, fora); no ::ffff:,
-   // o IPv4 de dentro decide (::ffff:8.8.8.8 é público, ::ffff:10.0.0.1 é local)
-   // endereço da rede local escrito como tal, e o nome .local; o nome que resolve para um deles, a LOCAL abaixo
+   const QUEM4 = ['0.0.0.0/32', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12',
+     '192.168.0.0/16'], DESTINO4 = [...QUEM4, '0.0.0.0/8', '192.0.0.0/24', '192.0.2.0/24', '192.88.99.0/24',
+     '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/3'];   // 224/3: multicast, reservado, broadcast
+   const EM4 = (n, l) => l.some(f => { const [a, b] = f.split('/'), d = 2 ** (32 - b);   // por divisão: em JS, o >>> 32
+     return Math.floor(n / d) === Math.floor(IP4(a) / d); });   // não desloca nada
+   const REDE = (h, quem) => /^(localhost|.+\.localhost|.+\.local)$/i.test(h) || EM4(IP4(h), quem ? QUEM4 : DESTINO4)
+     || (g => !!g && (g.slice(0, 5).every(n => !n) && g[5] === 65535 ? EM4(g[6] * 65536 + g[7], quem ? QUEM4 : DESTINO4)
+       : quem ? g.slice(0, 7).every(n => !n) && g[7] < 2 || (g[0] & 65024) === 64512 || (g[0] & 65472) === 65152
+       : (g[0] & 57344) !== 8192 || g[0] === 8193 && (g[1] < 512 || g[1] === 3512) || g[0] === 8194
+         || g[0] === 16383 && g[1] < 4096))(V6(h));
+   // o destino, pela tabela larga: a do Local Network Access (198.18/15 e 0/8 inteiro inclusive) mais as de
+   // documentação e reservadas, na dúvida local; do IPv6, só é público o de 2000::/3 fora de 2001::/23, 2001:db8::/32,
+   // 2002::/16 e 3fff::/20 (fec0::1, 64:ff9b:: e fd::1, que é 00fd::1, saem locais); quem chama, só pela de antes (::,
+   // ::1, fc00::/7, fe80::/10 e o IPv4 privado), porque ali o público tomado por local deixaria passar; no
+   // ::ffff:a.b.c.d, o IPv4 de dentro decide. Endereço escrito como tal, e o nome .local; o que resolve, a LOCAL abaixo
    const CHAMA = async (q, t, de) => { if (de) return de;   // quem chama é o quadro, não o site: a origem que o pedido
      const f = t === 'document' ? q.frame().parentFrame() : q.frame();   // leva, ou a do documento que pediu (o
      return f ? f.evaluate(() => self.origin).catch(() => '') : SITE; };   // iframe público numa página local
@@ -1145,14 +755,17 @@ outra palavra (`rode !shs na prévia`).
      const lista = (k, caixa) => (p?.headers()[k] ?? '').split(',').map(s => s.trim())   // uma por origem e endereço,
        .map(s => caixa ? s : s.toLowerCase()).filter(Boolean);   // com o que ela liberou e trocada pela última, como
      const met = lista('access-control-allow-methods', true), cab = lista('access-control-allow-headers');   // no
-     const ok = !!p && p.status() >= 200 && p.status() < 300 && LIBERA(p, cred, de) && vale(met, cab);   // Chromium
-     const ma = (p?.headers()['access-control-max-age'] ?? '').trim(), s = /^\d+$/.test(ma) ? +ma : 5;   // (medido:
-     if (ok && s > 0) GUARDA.set(chave, { ate: Date.now() + 1000 * Math.min(s, 7200), met, cab,   // PUT, DELETE,
+     const ok = !!p && p.status() >= 200 && p.status() < 300 && LIBERA(p, cred, de)   // Chromium
+       && [...met, ...cab].every(x => /^[!#$%&'*+.^`|~\w-]+$/.test(x)) && vale(met, cab);   // (medido:
+     const ma = (p?.headers()['access-control-max-age'] ?? '').trim(), b = /^[-+]?\d+$/.test(ma) ? BigInt(ma) : null;
+     const s = b === null || b >= 2n ** 63n || b < -(2n ** 63n) ? 5 : b < 0n ? 0 : Number(b < 7200n ? b : 7200n);
+     if (ok && s > 0) GUARDA.set(chave, { ate: Date.now() + 1000 * s, met, cab,   // PUT, DELETE,
        cred });                                      // PATCH e PUT perguntaram no 1º PUT, no
      await SOLTA(p); return ok;                      // PATCH e no 2º PUT); o Max-Age que não é número vale os 5 s. A
    };                                                // pergunta vai sem Cookie, como a do navegador; e vale pelo modo do
    // pedido que a fez, não pelo Allow-Credentials: a feita sem credencial não serve à que leva (o Chromium pergunta de
-   // novo, medido)
+   // novo, medido); a lista com um membro que não é palavra do HTTP (PUT, bad method) reprova inteira, e o Max-Age
+   // negativo vale 0, sem guardar, e o que passa do int64 vale os 5 s, como no Chromium (medido nos dois)
    const E = process.env, PROXY = E.HTTPS_PROXY || E.https_proxy || E.ALL_PROXY || E.all_proxy;   // a nuvem do Claude
    const FORA = E.NO_PROXY || E.no_proxy;            // Code sai por ele: sem ele, a busca não acha host de fora
    let PELA = () => ({});                            // (medido); a variável vazia passa à próxima; a senha vai no campo
@@ -1169,19 +782,26 @@ outra palavra (`rode !shs na prévia`).
      const [, h, p] = /^\[(.+)\](?::(\d+))?$/.exec(s) ?? /^([^:]*)(?::(\d+))?$/.exec(s);   // host, porta
      let v6; try { v6 = h.includes(':') && new URL(`http://[${h}]`).hostname; }   // o erro do URL traz a entrada
      catch { throw new Error('NO_PROXY com IPv6 mal escrito'); }
-     const g = new RegExp(`^${(h[0] === '.' ? `*${h}` : h)
-       .toLowerCase().replace(/[.+^$()|{}\\[\]]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);   // curinga
-     return x => (v6 ? x.h === v6 : g.test(x.h)) && (!p || +p === x.p); };
+     let n4 = ''; if (/^[\da-fx.]+$/i.test(h)) try { n4 = new URL(`http://${h}`).hostname; } catch {}
+     const ip = v6 || (IP4(n4) >= 0 && n4);          // IP escrito (127.1 e 0x7f.0.0.1 também): só ele, sem curinga
+     const g = new RegExp(`^${(h[0] === '*' ? h : `*${h}`)   // a de nome casa pelo fim, como o Chromium do Linux lê a
+       .toLowerCase().replace(/[.+^$()|{}\\[\]]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);   // variável:
+     return x => (ip ? x.h === ip : g.test(x.h)) && (!p || +p === x.p); };   // exemplo.com casa api.exemplo.com e
+   // outroexemplo.com (o * na frente, no código dele)
    if (PROXY) {                                      // sem esquema (proxy:3128) vale http://, como no Playwright
      let so; try { const PX = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(PROXY) ? PROXY : `http://${PROXY}`);
        so = { server: `${PX.protocol}//${PX.host}`, username: decodeURIComponent(PX.username),
          password: decodeURIComponent(PX.password) };
      } catch { throw new Error('HTTPS_PROXY/ALL_PROXY mal escrito'); }   // sem o valor: o erro do URL traz a senha
-     const lista = [FORA, 'localhost,127.0.0.1'].filter(Boolean).join(), R = lista.split(/[,;]/).map(s => s.trim())
-       .filter(Boolean).map(REGRA);                  // a página lê a lista, com , ou ; (medido); a busca, por esta
+     const R = (FORA ?? '').split(/[,;]/).map(s => s.trim()).filter(Boolean).map(REGRA);   // a página lê a lista, com ,
+     const PERTO = ({ h }) => /^(.+\.)?localhost\.?$/i.test(h) || (n => n >= 0 && (Math.floor(n / 2 ** 24) === 127
+       || Math.floor(n / 2 ** 16) === 43518))(IP4(h)) || (g => !!g && (g.slice(0, 7).every(v => !v) && g[7] === 1
+       || (g[0] & 65472) === 65152 || g.slice(0, 5).every(v => !v) && g[5] === 65535
+       && (g[6] >> 8 === 127 || g[6] === 43518)))(V6(h));   // ou ; (medido); e o que o Chromium manda direto sem estar
      PELA = u => { const x = new URL(u), y = { h: x.hostname, p: +(x.port || (x.protocol === 'https:' ? 443 : 80)) };
-       return R.some(f => f(y)) ? {} : { proxy: so }; };   // direto, ou pelo proxy sem lista nenhuma
-   }
+       return PERTO(y) || R.some(f => f(y)) ? {} : { proxy: so }; };   // nela: localhost e *.localhost, 127/8, [::1],
+   }                                                 // 169.254/16, [fe80::]/10 e o ::ffff: de 127 e 169.254 (medido);
+   // a busca, por esta lista e por esse desvio: direto, ou pelo proxy sem lista nenhuma
    const { lookup } = await import('node:dns/promises'), VISTO = new Map();   // conta o nome que vai à rede local
    const LOCAL = s => { let x; try { x = new URL(s); } catch { return false; }   // (a origem opaca, null, não é);
      if (REDE(x.hostname)) return true; if (V6(x.hostname) || PELA(x.href).proxy) return false;   // o Chromium
@@ -1190,8 +810,10 @@ outra palavra (`rode !shs na prévia`).
      return VISTO.get(h); };                         // se decidiu pelo número (o DNS não lê colchetes: ENOTFOUND,
    // medido, e contava como local); pelo proxy, quem resolve é ele, e o bloco não vê (nem o DNS que muda entre esta
    // conta e a busca); o
-   const DONO = s => { try { return REDE(new URL(s).hostname); } catch { return false; } };   // nome que não resolve
-   // conta como local, e quem chama só é local escrito como tal, sem DNS: o nome dele não abre a rede local
+   const DONO = (s, u) => { try { const h = new URL(s).hostname; return REDE(h, true)   // nome que não resolve conta
+       || h === new URL(u).hostname && (IP4(h) >= 0 || !!V6(h)); } catch { return false; } };   // como local, e quem
+   // chama só é local escrito como tal, sem DNS: o nome dele não abre a rede local; o mesmo IP escrito dos dois lados é
+   // o mesmo espaço (com as duas tabelas, a página em 192.0.2.2 se cortava a si mesma: medido)
    const { createServer } = await import('node:net');   // a porta fechada é nossa: numa fixa, outro programa podia
    const MORTO = createServer(s => s.destroy()).unref();   // estar ouvindo e encaminhar; esta derruba toda conexão
    await new Promise((ok, nao) => MORTO.once('error', nao).listen(0, '127.0.0.1', ok));
@@ -1230,11 +852,12 @@ outra palavra (`rode !shs na prévia`).
          let R, b, k, x; try { R = new Q(i, LE(o, v => { b = v; })); } catch (y) { return PR.reject(y); }   // verdade, e é
          try { k = `${R.method} ${R.url.split('#')[0]}`;   // esse mesmo que vai ao fetch: cada campo do init é lido uma
            x = { nc: R.mode === 'no-cors', fl: b != null ? T(b) === '[object ReadableStream]' : !!i?.[FL],   // vez, como
-             cr: R.credentials === 'include' }; PO(k, x); } catch {}   // no fetch puro (medido: o método que muda na
-         const p = f.call(this, R);                    // 2ª leitura saía PUT aqui e GET lá); o erro do construtor
-         if (x) p.catch(() => {}).finally(() => TIRA(k, x));   // rejeita como o do fetch. O corpo em fluxo o route não
-         return p; };                                  // vê, nem a credencial sem cookie a mandar: ficam anotados
-       const X = XMLHttpRequest.prototype, ab = X.open, ev = X.send, K = Symbol('shs.xhr');   // o XHR com
+             cr: R.credentials === 'include', rd: R.redirect === 'manual' }; PO(k, x); } catch {}   // no fetch puro
+         const p = f.call(this, R);                    // (medido: o método que muda na 2ª leitura saía PUT aqui e GET
+         if (x) p.catch(() => {}).finally(() => TIRA(k, x));   // lá); o erro do construtor rejeita como o do fetch. O
+         return p; };                                  // corpo em fluxo o route não vê, nem a credencial sem cookie a
+       const X = XMLHttpRequest.prototype, ab = X.open, ev = X.send, K = Symbol('shs.xhr');   // mandar, nem o
+       // redirect: 'manual': ficam anotados; o XHR com
        const WC = Object.getOwnPropertyDescriptor(X, 'withCredentials').get;   // withCredentials também, lido de dentro
        X.open = function () { const a = [...arguments];   // (a propriedade posta na instância mente: medido), e o
          if (a.length > 1) { a[0] = `${a[0]}`; a[1] = `${a[1]}`; this[K] = null;   // método e o endereço viram texto
@@ -1264,21 +887,25 @@ outra palavra (`rode !shs na prévia`).
          const ok = (pagina || (m === 'GET' && ESTATICO.some(p => u.startsWith(p))) || !!e) && !repetido;
          const de = h.origin ?? (t === 'fetch' ? await q.frame().evaluate(() => self.origin)   // a do documento: o
            .catch(() => new URL(q.frame().url()).origin) : undefined);   // about:blank herda a de quem o abriu
-         const ct = h['content-type'], [nc, fl, cr] = t === 'fetch' || t === 'xhr' ? await q.frame().evaluate(k => {
+         const ct = h['content-type'], [nc, fl, cr, rd] = t === 'fetch' || t === 'xhr' ? await q.frame().evaluate(k => {
            const l = window.__shsNoCors?.get(k) ?? [];
-           return [!!l.length && l.every(x => x.nc), l.some(x => x.fl), l.some(x => x.cr)];
-         }, `${m} ${u}`).catch(() => [false, true, true]) : [false, false, false];   // sem a anotação, o mais estrito
+           return [!!l.length && l.every(x => x.nc), l.some(x => x.fl), l.some(x => x.cr),
+             !!l.length && l.every(x => x.rd)];
+         }, `${m} ${u}`).catch(() => [false, true, true, false]) : [false, false, false, false];   // sem a anotação, o
+         // mais estrito
          const cred = !!h.cookie || cr || e?.cred === 'include' || t === 'ping';   // com credenciais (o sendBeacon
          // sempre as leva), o Allow-Origin * não vale
-         const opaca = t === 'ping' ? !ct || SIMPLES('content-type', ct, ct.split(';')[0].trim().toLowerCase())
-           : t === 'fetch' && nc;                      // o sendBeacon de tipo simples (texto, formulário) vai no-cors,
-         // como no navegador; o fetch, só quando todo fetch no ar neste endereço é no-cors: com um cors junto, não se
-         // sabe qual dos dois é este, e vale o mais estrito
+         const opaca = t === 'ping' ? !!h['ping-to'] || !ct || SIMPLES('content-type', ct, ct.split(';')[0].trim()
+           .toLowerCase()) : t === 'fetch' && nc;      // o <a ping> (text/ping, com Ping-To) e o sendBeacon de tipo
+         // simples (texto, formulário) vão no-cors, como no navegador (medido: o <a ping> manda o POST com cookie e sem
+         // pergunta); o fetch, só quando todo fetch no ar neste endereço é no-cors: com um cors junto, não se sabe qual
+         // dos dois é este, e vale o mais estrito
          const fora = !!de && o !== de && t !== 'document' && !opaca;   // CORS a quem chamou; o no-cors, sem pergunta
          const fluxo = t === 'eventsource' || fl;      // a busca espera o fim do corpo, e o fluxo aberto não acaba; o
          // corpo em fluxo (ReadableStream) não chega ao route, e o navegador pergunta antes dele (medido)
-         const local = await LOCAL(u) && !DONO(await CHAMA(q, t, de));   // da internet à rede local: o
-         // Chrome pede licença à pessoa antes (Local Network Access); a busca não pede
+         const local = ok && await LOCAL(u) && !DONO(await CHAMA(q, t, de), u);   // da internet à rede local: o
+         // Chrome pede licença à pessoa antes (Local Network Access); a busca não pede. Só o que vai passar: o nome do
+         // que aborta não vai ao DNS (medido: o pixel de fora da lista ia)
          const semtipo = !!q.postDataBuffer()?.length && !h['content-type'];   // corpo sem tipo: a busca poria o
          // application/octet-stream, que o navegador não manda (medido)
          const cors = ok && !fluxo && !local && !semtipo && fora && (await PREFLIGHT(q, m, cred, de, e, h)) === false;
@@ -1288,7 +915,9 @@ outra palavra (`rode !shs na prévia`).
          if (ok && !marca) {
            resp = await BUSCA(q.url(), { method: m, headers: h, data: q.postDataBuffer() ?? undefined }, q);
            if (!resp) marca = CAIU.has(q) ? 'desistiu ' : 'falhou ';   // desistiu no meio: a busca caiu junto
-           else if ([301, 302, 303, 307, 308].includes(resp.status())) marca = '3xx ';   // o route só vê o 1º endereço
+           else if ([301, 302, 303, 307, 308].includes(resp.status()) && !(t === 'fetch' && rd)) marca = '3xx ';   // o
+           // route só vê o 1º endereço; o fetch em que todo pedido no ar é redirect: 'manual' recebe o 3xx como veio, e
+           // o navegador não o segue (opaqueredirect: medido, o destino não é pedido)
            else if (pagina && resp.status() !== ESPERA) { marca = 'status '; VEIO = resp.status(); }   // nem roda
            else if (fora && !LIBERA(resp, cred, de)) marca = 'cors ';   // o navegador não entregaria a resposta
            else {                                       // chega como chegaria; fora do status, reprova no fim
@@ -1352,16 +981,16 @@ outra palavra (`rode !shs na prévia`).
    (US$ 0,50 por checagem, US$ 2,00 por dia em cada chat — não há contador comum entre chats; acima, pergunta com o
    número) · nada na Meta (`chave-meta-acesso-total`) · nada a pessoa de fora da casa (e-mail, WhatsApp, DM, lista de
    parceiro) · nada publicado · nada em conta de cliente · nada que amplie o alcance do agente (`execucao-remota`
-   §exceção). Prévia por padrão; produção quando a pergunta é sobre produção. Escrita em prévia, só em prévia
-   comprovadamente isolada (banco, filas e envios dela não chegam à produção nem a terceiro — há prévia da casa que
-   manda e-mail real); escrita em produção, só com o recolhimento confirmado antes (passo 4).
+   §exceção). Prévia por padrão; produção quando a pergunta é sobre produção, e aí só leitura, pelo caminho da persona
+   (passo 2, decisão 1-A). Escrita, só em prévia comprovadamente isolada (banco, filas e envios dela não chegam à
+   produção nem a terceiro — há prévia da casa que manda e-mail real).
 4. **Dado de teste marcado e recolhido.** Código de 6 caracteres gerado na checagem (`openssl rand -hex 3`), dito no
    chat antes da primeira escrita — checagem interrompida no meio ainda deixa no histórico o código para apagar — e
    anotado na `🧪`, presente em toda linha que ela cria — é por ele que se apaga, e por isso toda marca o leva:
    `criado_por = 'shs-<código>'` · nome/tema/título com prefixo `[shs] <código>` · lead com e-mail
    `shs+AAAA-MM-DD-<código>@alma-petra.test` · UTM `utm_source=shs&utm_content=<código>`; marca sem o código (`'shs'`
    sozinho) não acha a linha desta checagem sem pegar a de outra.
-   **Antes de escrever em produção, confirmar que dá para recolher tudo o que o caminho grava** — inclusive telemetria e
+   **Antes de escrever na prévia, confirmar que dá para recolher tudo o que o caminho grava** — inclusive telemetria e
    métrica interna (`agent_metrics`, eventos), que costuma ir sem a marca nem a sessão — (apagar a linha, desfazer a
    transação), e qual sinal mostra que a gravação adiada desta checagem terminou — sinal dela, achado pelo código: a
    linha adiada com o código gravada, o job dela concluído; fila vazia não basta, porque o job pode já ter saído da fila
@@ -1373,10 +1002,10 @@ outra palavra (`rode !shs na prévia`).
    consome, envio a terceiro, gravação sem como achar pelo código, número tirado de sequência, contador ou cota que a
    chamada gasta e que não volta sozinho quando a linha sai (as vagas do dia: devolvê-las mexeria num contador que já
    existia), gravação adiada sem sinal de término, sem limite que a encerre ou com nova tentativa depois da falha (fila
-   que reprocessa, webhook que pode chegar horas depois, job que tenta de novo depois do recolhimento) — → a escrita vai
-   à prévia isolada, e, se a pergunta era sobre produção, o veredito diz que a produção não foi provada; transação
-   desfeita só quando o caminho inteiro cabe nela, com `set constraints all immediate` depois das instruções, logo antes
-   do `rollback`, e com o censo da transação desfeita passando (passo 2); senão, fronteira. Ao fim, com o navegador
+   que reprocessa, webhook que pode chegar horas depois, job que tenta de novo depois do recolhimento) — → só serve a
+   prévia que nasceu para esta checagem e se apaga inteira ao fim (o Postgres local, a branch criada agora), ou a
+   transação desfeita nela, quando o caminho inteiro cabe nela (`set constraints all immediate` depois das instruções,
+   logo antes do `rollback`); senão, fronteira. Ao fim, com o navegador
    já fechado, esperar o
    que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o `quiz_leituras` entra depois do
    `/api/quiz/score` responder) até o sinal de término que se viu antes — a linha adiada já gravada com o código, o job
@@ -1402,7 +1031,7 @@ outra palavra (`rode !shs na prévia`).
 ```
 ## 🧪 Checagem sintética
 - **Persona · caminho:** Lucas no painel da Casa Magna → aba Roteiros → "Gerar" (POST /api/casas/magna/roteiros), prévia
-  isolada do PR — na produção, a geração gastaria uma das 20 vagas do dia, que apagar a linha não devolve.
+  isolada do PR — em produção a checagem não grava (decisão 1-A), e a geração gastaria uma das 20 vagas do dia.
 - **Evidência:** 201 em 6,8 s; corpo com os 5 blocos (gancho, dor, virada, evidencia, cta); linha `casas_roteiros`
   id `…` status `rascunho`, tema `[shs] a3f9c1 teste pós-merge #1664`; contador do dia da prévia 1/20.
 - **Veredito:** passa na prévia — a reserva atômica funciona; nenhum 503. A produção não foi provada.
@@ -1414,10 +1043,10 @@ resolver, não do Lucas reportar.
 ## 5. Personas da casa (ponto de partida; a sessão descobre o caminho no repositório, nunca inventa URL)
 | Persona | Caminho típico | Credencial | Marca do dado |
 |---|---|---|---|
-| Lucas no painel de uma casa / CRM | tela estática gerada (`npm run tela:casas`), rotas `/api/casas/*` | a mesma chave do painel (variável do ambiente) | tema `[shs] <código>`, `criado_por='shs-<código>'` |
+| Lucas no painel de uma casa / CRM | tela estática gerada (`npm run tela:casas`), rotas `/api/casas/*` | a mesma chave do painel (variável do ambiente); o que grava, só na prévia | tema `[shs] <código>`, `criado_por='shs-<código>'` |
 | Visitante de página pública / VSL | URL de `vigia/dominios.txt` do hub (caminho no passo 2) ou prévia da Vercel | nenhuma | — (só leitura) |
 | Lead terminando um quiz | fluxo inteiro até a carta, **na prévia isolada** — no quiz-diagnosys o `/api/quiz/score` também grava `agent_metrics` e um evento Koinonia do `composite-scorer` depois da resposta, sem sessão nem marca, e isso em produção não se recolhe | nenhuma (anon) | e-mail `shs+data-<código>@alma-petra.test`; apagar lead e leitura ao fim; parceiro de destino **não** recebe (`nossa-base-e-a-fonte`): prévia isolada (conferida antes), ou supressão só do lead `shs` pelo marcador, se o fluxo já tiver — **nunca** desligar o envio compartilhado (lead real chegando no meio se perderia) |
-| Membro logado / área restrita | login de teste **já existente** da casa | só se já existir; nunca criar conta em sistema de terceiro | — |
+| Membro logado / área restrita | login de teste **já existente** da casa, na prévia (em produção o login grava a sessão: lá, só o público) | só se já existir; nunca criar conta em sistema de terceiro | — |
 | Codex / outra CLI lendo regra | no hub (`../Lucas-Contexto-Geral` ou um clone dele) **com os irmãos clonados ao lado dele**: `node scripts/sync-rules.mjs --check`, `bash scripts/rules-drift.sh`; sem os irmãos ao lado, vale o resultado da Action `rules-drift` do hub; num irmão esses scripts não existem — lá, `diff` do arquivo contra o do hub | — | — |
 
 ## 6. O que a SHS não faz
@@ -1440,8 +1069,8 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
   vazou), e a história do caso no histórico da regra. A persona passa a exigir "sim" do Lucas por 30 dias — o passo 1 lê
   a lista antes de rodar; a linha só sai pela data.
 
-*v1.1 · 2026-10-14 (v1.0 em 13/10) · fonte única: `Lucas-Contexto-Geral/.claude/skills/simulacao-humana-sintetica/SKILL.md`,
+*v1.2 · 2026-10-16 (decisão 1-A: o banco de produção só pela persona, e só leitura; v1.1 em 14/10, v1.0 em 13/10) · fonte única: `Lucas-Contexto-Geral/.claude/skills/simulacao-humana-sintetica/SKILL.md`,
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-14 19:57 (São Paulo) · ✍ lucasscudeler · 💬 🔥 !! 16/10 · A75 · CANON SHS → escolher teto e teste do banco (rodada 48) · #chat-4BNJMe
+🕒 2026-10-16 21:18 (São Paulo) · ✍ lucasscudeler · 💬 !! 16/10 · A75 · CANON SHS → aplicar 1-A no banco e fechar a rodada 49 · #chat-4BNJMe
