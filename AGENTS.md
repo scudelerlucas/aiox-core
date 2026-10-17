@@ -259,14 +259,14 @@ código da checagem, dito no chat antes da primeira escrita (a checagem interrom
 apagar), e apagado ao fim só por esse código, depois que termina, com sinal dela que se veja dentro do limite que a
 plataforma impõe e que a encerra (fila vazia não basta), o que o fluxo grava mais tarde (`after()`, fila, webhook), e
 com as linhas desse código reconferidas — em produção, a checagem só lê, e só pelo caminho da persona, sem SQL da
-sessão no banco (nem pelo MCP do Supabase); gravar, desfazer transação e consultar o banco direto vão a uma prévia
-comprovadamente isolada (que não alcança produção nem terceiro) ou viram fronteira (decisão 1-A do operador,
-16/10/2026). Erro classe A da própria checagem (a lista está na norma) entra nessa lista no mesmo ato, num PR do hub
-com `SHS-QUARENTENA` no título. Só sobra pedido quando a fronteira é só dele — credencial ou sessão só dele, gasto
-acima do teto, juízo humano; Meta, ação irreversível e mensagem a pessoa de fora não entram na checagem nem com o
-"sim" — ou quando o ambiente não alcança, e aí a sessão vai até a borda e pede **um passo só, com o porquê**
-(`fronteira: fiz até X; falta só Y, porque Z`). Não confundir com `!mirofish` (população sintética prevê
-**público**); SHS simula **o operador conferindo**.
+sessão no banco (nem pelo MCP do Supabase); gravar em banco, desfazer transação e consultar o banco direto não entram
+em checagem nenhuma, em banco nenhum, e viram fronteira (decisões 1-A, 16/10, e 2-A, 17/10/2026, do operador); o
+navegador só abre página da casa, e página de terceiro é fronteira (decisão 4-C). Erro classe A da própria checagem
+(a lista está na norma) entra nessa lista no mesmo ato, num PR do hub com `SHS-QUARENTENA` no título. Só sobra pedido
+quando a fronteira é só dele — credencial ou sessão só dele, gasto acima do teto, juízo humano; Meta, ação
+irreversível e mensagem a pessoa de fora não entram na checagem nem com o "sim" — ou quando o ambiente não alcança, e
+aí a sessão vai até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não
+confundir com `!mirofish` (população sintética prevê **público**); SHS simula **o operador conferindo**.
 
 **Norma completa e skill** — no hub, não neste repositório:
 [`.claude/rules/simulacao-humana-sintetica.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/simulacao-humana-sintetica.md) e
@@ -299,4 +299,4 @@ cota: para ele a skill vale só sob demanda.
 
 <!-- HUB-INVARIANTES-END -->
 
-🕒 2026-10-16 21:18 (São Paulo) · ✍ lucasscudeler · 💬 !! 16/10 · A75 · CANON SHS → aplicar 1-A no banco e fechar a rodada 49 · #chat-4BNJMe
+🕒 2026-10-17 17:48 (São Paulo) · ✍ lucasscudeler · 💬 !! 18/10 · A75 · CANON SHS → aplicar 2-A/4-AC e plano de gasto do Actions · #chat-4BNJMe
