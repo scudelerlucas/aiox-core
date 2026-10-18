@@ -99,7 +99,10 @@ outra palavra (`rode !shs na prévia`).
    desligue antes do require do Playwright`);`` — o `NODE_DEBUG=child_process` imprime, no `launch`, o ambiente
    inteiro: rodada 50, 325 linhas, com a URL do teste e a senha do proxy; com o `NODE_DEBUG` na linha, ela para antes
    do `require`), com a página testada vinda da
-   variável `ALVO_URL`, já carregada no ambiente — link assinado ou link mágico escrito no script fica no histórico —,
+   variável `ALVO_URL`, já carregada no ambiente, e os endereços da casa em `CASA_HOSTS` (decisão 4-C; a sessão monta a lista
+   de `vigia/dominios.txt` — a primeira coluna, sem o `https://` — mais o endereço da prévia do próprio PR, separados por
+   vírgula; host fora dela, ou lista vazia, e o bloco para antes de abrir o navegador, só o `127.0.0.1` e o `localhost` passam
+   sem estar nela) — link assinado ou link mágico escrito no script fica no histórico —,
    e o `SHS_AMBIENTE`, também do ambiente e sem padrão: `previa` ou `producao`, senão o bloco para; em `producao`
    (decisão 1-A), toda entrada de `PASSA` é GET ou HEAD, senão ele para antes da página, e o pedido que não é GET nem
    HEAD não sai nem estando na lista (`producao`; rodada 50: com `producao`, um POST na lista parou o bloco antes da
@@ -671,6 +674,10 @@ outra palavra (`rode !shs na prévia`).
    if (process.env.PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK)   // sem ela, o localhost sai do proxy morto e
      throw new Error('PLAYWRIGHT_DISABLE_FORCED_CHROMIUM_PROXIED_LOOPBACK: desligue');   // vai direto (medido)
    if (!SEGURO(ALVO)) throw new Error('ALVO_URL: só https:// (http só local), sem usuário antes do host');
+   const HOSTS_CASA = (process.env.CASA_HOSTS ?? '').split(',').map(h => h.trim().toLowerCase()).filter(Boolean);   // hosts da casa (decisão 4-C)
+   const HOST_ALVO = new URL(ALVO).hostname.toLowerCase();
+   if (!['127.0.0.1', 'localhost'].includes(HOST_ALVO) && !HOSTS_CASA.includes(HOST_ALVO))
+     throw new Error('ALVO_URL: página que não é da casa (CASA_HOSTS): fronteira, a página de terceiro não abre aqui');
    const N = s => { const x = new URL(s); x.hash = ''; return x.href; };   // endereço inteiro, com a query, sem o #
    const SITE = new URL(ALVO).origin, PAGINA = N(ALVO), MAX_MS = 815_000;   // o MAX do HTTP: prazo da rota + 15 s
    const ESPERA = 200;                               // o código da página (404 quando a checagem é a recusa)
@@ -685,12 +692,10 @@ outra palavra (`rode !shs na prévia`).
    // método, ou mais de um pedido no mesmo endereço, pede (u, m, c, t) => condição sobre endereço, método, corpo e tipo
    // (o mesmo POST /api/events leva o evento do analytics e o dado da página); o cortado fora daqui reprova, todo tipo
    const J = c => { try { return JSON.parse(c); } catch { return null; } };   // corpo que não é JSON não casa
-   let SESSAO = null;                                // o teste guarda aqui a sessão aberta com o e-mail shs+…
-   const PASSA = [{ m: 'POST', url: `${SITE}/api/quiz/score`,
-     corpo: c => SESSAO !== null && J(c)?.session_id === SESSAO }];
-   // m (em produção, só GET e HEAD: o POST do exemplo é de prévia) e url inteira, com a query (com token, montada do
+   const PASSA = [{ m: 'GET', url: `${SITE}/<rota-que-só-lê>`, resposta: t => J(t)?.status === 'ok' }];
+   // m (em produção, só GET e HEAD; POST, PUT e DELETE só em prévia e nunca em rota que grava em banco: decisão 2-A) e url inteira, com a query (com token, montada do
    // ambiente, como o ALVO); corpo, no que não é GET nem HEAD: a condição que liga a chamada a esta checagem (o código
-   // no corpo, a sessão que nasceu do e-mail shs+…); se preciso: vezes
+   // no corpo); se preciso: vezes
    // (padrão 1; GET que a página repete de propósito pede o número), status (padrão s => s < 400), tipo (padrão:
    // fetch, XHR ou EventSource no GET; script, imagem, folha de estilo, fonte ou página pedem o dela: tipo: 'script',
    // porque o mesmo endereço pedido por <img> não é a chamada da página), cred: 'include', no elemento de outra origem
@@ -1041,28 +1046,11 @@ outra palavra (`rode !shs na prévia`).
    `criado_por = 'shs-<código>'` · nome/tema/título com prefixo `[shs] <código>` · lead com e-mail
    `shs+AAAA-MM-DD-<código>@alma-petra.test` · UTM `utm_source=shs&utm_content=<código>`; marca sem o código (`'shs'`
    sozinho) não acha a linha desta checagem sem pegar a de outra.
-   **Nada disto vale para banco: ali não se grava (decisão 2-A).** Para o que a checagem cria fora dele, **antes de escrever, confirmar que dá para recolher tudo o que o caminho grava** — inclusive telemetria e
-   métrica interna (`agent_metrics`, eventos), que costuma ir sem a marca nem a sessão — (apagar a linha, desfazer a
-   transação), e qual sinal mostra que a gravação adiada desta checagem terminou — sinal dela, achado pelo código: a
-   linha adiada com o código gravada, o job dela concluído; fila vazia não basta, porque o job pode já ter saído da fila
-   e ainda estar rodando, ou nem ter entrado —, o limite que a plataforma impõe e que encerra a gravação que passa dele
-   (o `maxDuration` da função, que mata o `after()` junto; o prazo de vida do job que não tenta de novo) — o prazo é
-   esse limite, nunca uma estimativa, porque o lento que passa da estimativa ainda grava —, e como se vê que a gravação
-   falhou (o job com erro, o que foi para a fila de mortos) sem nova tentativa depois, e o que o próprio apagar dispara
-   (gatilho de `delete` que avisa fora do banco faz do recolhimento um envio). Não dá — log imutável, fila que se
-   consome, envio a terceiro, gravação sem como achar pelo código, número tirado de sequência, contador ou cota que a
-   chamada gasta e que não volta sozinho quando a linha sai (as vagas do dia: devolvê-las mexeria num contador que já
-   existia), gravação adiada sem sinal de término, sem limite que a encerre ou com nova tentativa depois da falha (fila
-   que reprocessa, webhook que pode chegar horas depois, job que tenta de novo depois do recolhimento) — → fronteira. Ao fim, com o navegador
-   já fechado, esperar o
-   que o fluxo grava depois da resposta (`after()`, fila, webhook — no quiz-diagnosys, o `quiz_leituras` entra depois do
-   `/api/quiz/score` responder) até o sinal de término que se viu antes — a linha adiada já gravada com o código, o job
-   desta checagem concluído (fila vazia não basta); apagar sem ele pode vir antes da última gravação; falhou, ou passou
-   o limite sem sinal — e aí a plataforma já a encerrou —, apaga-se do mesmo jeito e o veredito diz que a gravação
-   adiada não terminou; linha com o código que apareça depois disso é dado de teste sem recolher (F-SHS-2), porque o
-   limite não era o que se leu —, apagar só as linhas com o código desta checagem (o filtro do `delete` é o código,
-   nunca só a marca `shs`, que outra checagem pode estar usando agora), e reconferir todas as linhas com esse código
-   antes de dizer que recolheu.
+   **Nada disto vale para banco: ali não se grava (decisão 2-A), e por isso não há linha a apagar nem a esperar.** O
+   que a checagem cria fora do banco — arquivo temporário, captura de tela, pasta do navegador — apaga-se ao fim, pelo
+   código desta checagem, e some inteiro mesmo se ela parar no meio (o `trap` do bloco). Gravação que só o banco faria
+   (`after()`, fila, webhook, telemetria) não se testa aqui: lê-se no código e nas migrações, e o pedido ao Lucas sai
+   como fronteira, com o porquê.
 5. **Relatar na seção `🧪 Checagem sintética`** (modelo no §4) — persona · caminho · evidência · veredito · dado de
    teste recolhido · custo. A seção vem **antes** do `✅ Resumo simples`, e o `🧭 Passo a passo` perde o passo
    "confira".
@@ -1078,12 +1066,13 @@ outra palavra (`rode !shs na prévia`).
 ## 4. Modelo da seção
 ```
 ## 🧪 Checagem sintética
-- **Persona · caminho:** Lucas no painel da Casa Magna → aba Roteiros → "Gerar" (POST /api/casas/magna/roteiros), prévia
-  isolada do PR — em produção a checagem não grava (decisão 1-A), e a geração gastaria uma das 20 vagas do dia.
-- **Evidência:** 201 em 6,8 s; corpo com os 5 blocos (gancho, dor, virada, evidencia, cta); linha `casas_roteiros`
-  id `…` status `rascunho`, tema `[shs] a3f9c1 teste pós-merge #1664`; contador do dia da prévia 1/20.
-- **Veredito:** passa na prévia — a reserva atômica funciona; nenhum 503. A produção não foi provada.
-- **Dado de teste:** código `a3f9c1`; linha apagada (`delete … where tema like '[shs] a3f9c1 %'`), nenhuma sobrando; custo US$ 0,03.
+- **Persona · caminho:** Lucas no painel da Casa Magna → abre a aba Roteiros (GET /api/casas/magna/roteiros), produção,
+  só leitura pelo caminho da persona (decisões 1-A e 2-A).
+- **Evidência:** 200 em 0,4 s; a lista traz os roteiros já existentes (contagem 12, sem abrir o corpo de nenhum).
+- **Veredito:** a tela abre e lista. O botão "Gerar" grava em banco e a geração gasta uma das 20 vagas do dia: fronteira.
+- **Fronteira:** fiz até listar os roteiros; falta só o seu clique em "Gerar" e a conferência do resultado, porque a
+  geração grava em banco (decisão 2-A).
+- **Dado de teste:** nenhum criado; custo US$ 0,00.
 ```
 Falhou? A seção mostra o erro medido (status e código de erro, nunca a mensagem livre) e o diagnóstico começa na mesma resposta — a falha é da sessão
 resolver, não do Lucas reportar.
@@ -1121,4 +1110,4 @@ não "testa" com dinheiro real acima do teto sem o "sim" do Lucas para aquele va
 no hub — nos irmãos este arquivo é cópia do `scripts/sync-rules.mjs` (3º canal) e não se edita lá · deploy no claude.ai
 de cada conta Max: enviar esta pasta.*
 
-🕒 2026-10-17 17:47 (São Paulo) · ✍ lucasscudeler · 💬 !! 18/10 · A75 · CANON SHS → aplicar 2-A/4-AC e plano de gasto do Actions · #chat-4BNJMe
+🕒 2026-10-17 22:00 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !! 18/10 · A70 · CANON SHS → configurar orçamento Actions e mergear 13 PRs · #chat-4BNJMe
