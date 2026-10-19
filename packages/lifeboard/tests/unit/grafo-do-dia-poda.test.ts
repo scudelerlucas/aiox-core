@@ -69,7 +69,7 @@ describe("fiação da poda", () => {
   it("a página usa a proveniência e publica só tasksDoGrafo, mas Hoje recebe tasks", () => {
     expect(pagina).toMatch(/listConversasMaterializadas\?\.\(\)/);
     expect(pagina).toMatch(/listBranchesColadas\?\.\(\)/);
-    expect(pagina).toMatch(/montarGrafoDoDia\(tasks, edges, \{/);
+    expect(pagina).toMatch(/montarGrafoDoDia\(tasks, edges, \{\s*conversasMaterializadas,\s*branchesColadas,?\s*\}\)/);
     expect(pagina).toMatch(/buildTodayList\(tasks\)/);
     expect(pagina).toMatch(/tasks=\{tasksDoGrafo\}/);
     expect(pagina).toMatch(/grafoV3=\{grafoV3\}/);
@@ -78,7 +78,7 @@ describe("fiação da poda", () => {
   it("a rota usa a proveniência e serializa tarefas a partir de tasksDoGrafo", () => {
     expect(rota).toMatch(/listConversasMaterializadas\?\.\(\)/);
     expect(rota).toMatch(/listBranchesColadas\?\.\(\)/);
-    expect(rota).toMatch(/montarGrafoDoDia\(tasks, edges, \{/);
+    expect(rota).toMatch(/montarGrafoDoDia\(tasks, edges, \{\s*conversasMaterializadas,\s*branchesColadas,?\s*\}\)/);
     expect(rota).toMatch(/tarefas: tasksDoGrafo\.map/);
     expect(rota).toMatch(/arestas: edgesDoGrafo\.map/);
   });

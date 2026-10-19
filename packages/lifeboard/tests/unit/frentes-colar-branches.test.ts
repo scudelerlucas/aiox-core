@@ -85,6 +85,16 @@ describe("colarBranchesNaMudanca — precedência só nas listas", () => {
     expect(resultado.edges).toEqual(edges);
   });
 
+  it("tarefa sem relação com a colagem sai como entrou, mesmo com lista suja", () => {
+    const alheia = comListas("alheia", ["fantasma", "x", "x"], ["y"]);
+    const resultado = colarBranchesNaMudanca(
+      [alheia, comListas("branch", [], []), comListas("mudanca", [], [])],
+      [edge("e-solta", "alheia", "fantasma")],
+      new Map([["branch", "mudanca"]]),
+    );
+    expect(resultado.tasks[0]).toBe(alheia);
+  });
+
   it("precedência só nas listas sobrevive à colagem, remapeada para a mudança", () => {
     const resultado = colarBranchesNaMudanca(
       [comListas("conversa", [], ["branch"]), comListas("branch", ["conversa"], ["depois"]),
@@ -120,7 +130,12 @@ describe("colarBranchesNaMudanca — precedência só nas listas", () => {
 
 describe("proveniência da materialização", () => {
   it("mapeia branch com exatamente uma mudança aberta", () => {
-    expect(materializarFrentes(dadosComPrs(1), { agora: AGORA }).branchParaMudanca.size).toBe(1);
+    const { branchParaMudanca, tasks } = materializarFrentes(dadosComPrs(1), { agora: AGORA });
+    expect(branchParaMudanca.size).toBe(1);
+    const [branchId, mudancaId] = [...branchParaMudanca][0] ?? [];
+    const ref = (id: string | undefined) => tasks.find((t) => t.id === id)?.externalRef;
+    expect(ref(branchId)).toBe("o/r:feat/x");
+    expect(ref(mudancaId)).toBe("o/r#1");
   });
 
   it("não mapeia branch com duas mudanças abertas nem com mudança fechada", () => {

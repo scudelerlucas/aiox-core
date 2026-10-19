@@ -136,6 +136,11 @@ describe("unirFrentesAoGrafo (pura)", () => {
     expect(unido.branchesColadas).toEqual(new Map());
   });
 
+  it("cola na direção certa: a chave é a branch e o valor é a mudança", () => {
+    const unido = unirFrentesAoGrafo({ tasks: [], edges: [], sources: [] }, frentes(), AGORA);
+    expect(unido.branchesColadas).toEqual(new Map([[idBranch, idPr]]));
+  });
+
   it("não cola quando a mudança já está persistida pela chave", () => {
     const persistida = tarefa({
       id: "pr-persistida",
