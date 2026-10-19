@@ -89,6 +89,8 @@ export interface Materializacao {
   fontes: FonteMaterializada[];
   /** Ids cuja origem é uma conversa; proveniência, não heurística por referência. */
   idsDeConversa: Set<string>;
+  /** Branch materializada → sua única mudança aberta materializada. */
+  branchParaMudanca: Map<string, string>;
 }
 
 export interface OpcoesMaterializar {
@@ -443,10 +445,21 @@ export function materializarFrentes(
   }
   edges.sort((a, b) => a.id.localeCompare(b.id));
 
+  const branchParaMudanca = new Map<string, string>();
+  for (const [repoBranch, mudancas] of prsPorRepoBranch) {
+    if (mudancas.length !== 1) continue;
+    const branchId = idDaBranch.get(repoBranch);
+    const mudanca = mudancas[0];
+    if (!mudanca) continue;
+    const mudancaId = idDoPr.get(refDoPr(mudanca));
+    if (branchId && mudancaId) branchParaMudanca.set(branchId, mudancaId);
+  }
+
   return {
     tasks: [...tasks.values()],
     edges,
     fontes: fontesDasFrentes(dados.sync),
     idsDeConversa: new Set(idDaSessao.values()),
+    branchParaMudanca,
   };
 }

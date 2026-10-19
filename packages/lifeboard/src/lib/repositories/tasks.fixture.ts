@@ -52,6 +52,8 @@ export interface TasksRepository {
   listNotes(): Promise<TaskNote[]>;
   /** Proveniência opcional das conversas criadas só na leitura das frentes. */
   listConversasMaterializadas?(): Promise<Set<string>>;
+  /** Proveniência opcional: branch materializada → mudança materializada. */
+  listBranchesColadas?(): Promise<Map<string, string>>;
 }
 
 function makeTask(
@@ -371,5 +373,9 @@ export class FixtureTasksRepository implements TasksRepository {
 
   async listConversasMaterializadas(): Promise<Set<string>> {
     return new Set();
+  }
+
+  async listBranchesColadas(): Promise<Map<string, string>> {
+    return new Map();
   }
 }
