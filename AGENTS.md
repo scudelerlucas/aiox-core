@@ -196,9 +196,13 @@ declarada, **mesmo em PR já revisado por robô** — o Claude corrige direto; a
 achado, e responde com estas obrigações: **(1)** reproduzir antes — um teste que falhe sem a correção (nos pacotes com
 suíte SQL, um bloco novo registrado no manifesto de blocos e no teste que confere a lista); **(2)** corrigir no menor
 escopo; **(3)** rodar as checagens do repositório (lint, tipos, testes, e a suíte de banco quando houver Postgres);
-**(4)** commit em português dizendo o achado e a correção, sobre o head atual da branch do PR, e a entrega é um **PR
-publicado pela tarefa** (o ambiente do Codex não tem credencial de escrita para empurrar direto — decisão A do operador,
-26/09/2026; o Claude re-aponta a base para a branch do PR original e mescla depois de validar);
+**(4)** commit em português dizendo o achado e a correção, sobre o head atual da branch do PR, e **a entrega é o patch
+completo desse commit colado na resposta da própria thread** — `git format-patch -1 --stdout`, dentro de
+`<details><summary>patch</summary>`, em bloco ` ```diff `, inteiro (acima de 60 mil caracteres, em respostas numeradas) —
+mais o PR publicado pela tarefa quando o ambiente conseguir (ele não tem credencial de escrita para empurrar direto —
+decisão A do operador, 26/09/2026). **Resposta sem o patch é não-entrega:** o que fica só dentro da tarefa não chega ao
+repositório (ordem do operador, 14/10/2026 — 10 correções certas presas no sandbox em 3 episódios; o Claude aplica o
+patch com `git am`, valida por fora e empurra na branch do PR);
 **(5)** nunca escrever na `main`, nunca aplicar migration em produção; **(6)** dizer no PR o que rodou e o que não
 conseguiu rodar — a validação por fora é do Claude, e ela decide se a thread fecha. Modelo: GPT-6 Astra Pro, esforço
 `max`, escolhido pelo operador nas configurações do Codex. Um autor por branch enquanto a tarefa estiver aberta.
@@ -220,4 +224,83 @@ modelo, senão linha 1), com a hora **medida no mesmo turno** — `TZ=America/Sa
 retorno de subagente, "responda só OK") fica sem carimbo. Norma completa, no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
 
+## Segredo tem uma fonte só (09/10/2026, decisão 3-A do operador)
+
+Segredo guardado em dois lugares acaba com um deles mentindo. No Radar, o cron assinava com o cofre do banco e a função
+conferia contra uma cópia nos segredos das funções. As duas nunca bateram, e o cron registrava "succeeded" por ter
+enfileirado o pedido, não porque a função o aceitou. Regra, em qualquer repo: **um segredo tem uma fonte**, e quem confere
+pergunta à fonte (no Radar, a RPC `radar_cron_confere`, que devolve só verdadeiro/falso). Cópia que precisar existir é
+conferida por **sonda** com o caminho real, nunca pela tela do painel. Enquanto a cópia velha existir, ela ainda vale
+como segunda credencial: a fonte só fica única quando a cópia é apagada, depois da sonda verde. E `A || B` não é fallback quando A pode estar presente
+e quebrado: teste A, e só então escolha. Norma completa, no hub:
+[`.claude/rules/branches-de-agente.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/branches-de-agente.md) §"Segredo quebrado".
+
+## Simulação humana sintética — a checagem é da sessão, não do Lucas (13/10/2026)
+
+Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**: *"Sempre que for me pedir para checar
+algo, vc já checa antes e me tira esse trabalho."* Antes de terminar uma resposta com *confira, teste, abra e veja,
+gere um e me avise, pronto quando você…*, a sessão **vira o humano** e faz a checagem no lugar dele — assume a
+persona (ele no painel, o visitante da página, o lead do quiz), percorre o **caminho real** (HTTP na prévia ou na
+produção, navegador sem tela, rota, banco, script) com a credencial que a persona teria (nunca chave de servidor, que
+pula login e regras de acesso) e relata o **medido** numa seção `🧪 Checagem sintética` (persona · caminho · evidência
+· veredito · dado de teste recolhido · custo) — da evidência, só o campo que prova o caminho, nunca o corpo inteiro
+da resposta nem a linha de cliente da consulta, que entram inteiros no histórico da ferramenta. Com as mesmas travas
+do humano: nada irreversível (fora apagar ao fim o dado de teste que a própria checagem criou, achado pelo código
+dela), dinheiro só até US$ 0,50 por checagem e US$ 2,00 por dia em cada chat (acima, pergunta antes, com o número),
+nada na Meta, nada a pessoa de fora da casa, nada publicado, nada em conta de cliente; navegador, prévia inclusive,
+só com o contexto deixando passar, antes da primeira página, o que o caminho testado precisa e mais nada (pixel da
+Meta, analytics de terceiros e do próprio domínio, aviso de erro, gravação de sessão: tudo cortado — requisição,
+WebSocket, WebRTC, WebTransport e worker; sem como cortar um deles, como no Playwright antes do 1.48, o navegador não
+abre), e print só do elemento do teste, nunca da tela inteira; nenhum caminho (navegador ou HTTP, prévia ou produção)
+que dispare evento pelo próprio servidor (gatilho ou webhook do banco inclusive), salvo numa prévia provada sem essas
+credenciais; credencial nunca escrita no comando, que fica no histórico, nem passada como argumento, que outro
+processo lê, nem impressa pelo rastreio do shell (vem de variável já carregada no ambiente e entra pelo stdin ou por
+arquivo temporário, com o `set -x` desligado); persona com erro classe A nos últimos 30 dias (lista vigente em
+[`docs/ops/SHS-QUARENTENA.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/SHS-QUARENTENA.md),
+lida na `main` do hub no GitHub, mais os PRs do hub com `SHS-QUARENTENA` no título atualizados nos últimos 30 dias,
+de qualquer estado) pede o "sim" do Lucas antes, e sem como ler essa lista também; dado de teste marcado `shs` com o
+código da checagem, dito no chat antes da primeira escrita (a checagem interrompida deixa no histórico o código para
+apagar), e apagado ao fim só por esse código, depois que termina, com sinal dela que se veja dentro do limite que a
+plataforma impõe e que a encerra (fila vazia não basta), o que o fluxo grava mais tarde (`after()`, fila, webhook), e
+com as linhas desse código reconferidas — em produção, a checagem só lê, e só pelo caminho da persona, sem SQL da
+sessão no banco (nem pelo MCP do Supabase); gravar em banco, desfazer transação e consultar o banco direto não entram
+em checagem nenhuma, em banco nenhum, e viram fronteira (decisões 1-A, 16/10, e 2-A, 17/10/2026, do operador); o
+navegador só abre página da casa, e página de terceiro é fronteira (decisão 4-C). Erro classe A da própria checagem
+(a lista está na norma) entra nessa lista no mesmo ato, num PR do hub com `SHS-QUARENTENA` no título. Só sobra pedido
+quando a fronteira é só dele — credencial ou sessão só dele, gasto acima do teto, juízo humano; Meta, ação
+irreversível e mensagem a pessoa de fora não entram na checagem nem com o "sim" — ou quando o ambiente não alcança, e
+aí a sessão vai até a borda e pede **um passo só, com o porquê** (`fronteira: fiz até X; falta só Y, porque Z`). Não
+confundir com `!mirofish` (população sintética prevê **público**); SHS simula **o operador conferindo**.
+
+**Norma completa e skill** — no hub, não neste repositório:
+[`.claude/rules/simulacao-humana-sintetica.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/simulacao-humana-sintetica.md) e
+[`.claude/skills/simulacao-humana-sintetica/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/simulacao-humana-sintetica/SKILL.md)
+(a skill é espelhada em cada irmão pelo `sync-rules`; o hook de parada que barra a resposta sem `🧪` só existe no hub).
+
+## Handoff de cota — a sessão escreve o próprio quando a conta chega a 90% (14/10/2026)
+
+Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**: *"handoff para a nuvem, em todos os
+repositórios, de tudo o que está acontecendo nessa conta quando chegarmos em 90-95% de uso, da cota semanal, da cota do
+fable ou da cota da sessão (…) autocontido, independente, interdependente e sinérgico (…) permanente, e replicável em todas
+as minhas contas."* Ao fim de todo turno com trabalho real, a sessão lê a própria cota (`list_events` deste chat,
+`kinds: ["rate_limit_event"]`, evento mais novo — janelas `five_hour` = a "sessão" do app, `seven_day` = semana, e por
+modelo = Fable). Qualquer uma em **0,90 ou mais** → antes de qualquer outra coisa, escreve o **próprio handoff**: um arquivo
+autocontido (pedido · feito · onde parou · o que falta e de quem · decisões já tomadas · PRs e branches · prompt de
+retomada) em `docs/ops/HANDOFF-COTA/<conta>--<renovação da semana>/chats/` no hub — pela API do GitHub se o hub não
+estiver clonado; sem o hub no escopo, em `memoria/` deste repo com prefixo `handoff-cota-` —, sem segredo, token ou dado
+de cliente, e diz no título do chat o que falta na outra conta. Reescreve só se houve trabalho real desde o último; no
+máximo um por turno. Comando explícito: `!handoff`. O vigia da conta (mão 2, chat `⚙ COTA`, a cada 2 h) lê os chats por
+fora, monta o `README.md`, o `REPOS.md` (PRs abertos e branches com trabalho em **todos os repositórios**) e o
+`ROTINAS-E-CONTA.md`, gerando antes o handoff leve por script (`scripts/cota-handoff-leve.py`, segundos), e reaproveita o
+que a mão 1 gravou. Agente sem o servidor Claude Code Remote (CLI local) não lê a
+cota: para ele a skill vale só sob demanda.
+
+**Norma completa e skill** — no hub, não neste repositório:
+[`.claude/rules/cota-90-handoff.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/cota-90-handoff.md),
+[`docs/ops/COTA-90-HANDOFF.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/ops/COTA-90-HANDOFF.md) e
+[`.claude/skills/handoff-cota/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/handoff-cota/SKILL.md)
+(a skill é espelhada em cada irmão pelo `sync-rules`).
+
 <!-- HUB-INVARIANTES-END -->
+
+🕒 2026-10-17 17:48 (São Paulo) · ✍ lucasscudeler · 💬 !! 18/10 · A75 · CANON SHS → aplicar 2-A/4-AC e plano de gasto do Actions · #chat-4BNJMe

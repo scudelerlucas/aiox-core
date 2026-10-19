@@ -109,6 +109,12 @@ ser técnico é justamente quando a tradução vale mais).
   **link direto do arquivo renderizado no GitHub** (`…/blob/<branch>/<caminho>`), e o arquivo vai junto no chat
   quando o cliente permitir enviar arquivo. Link de PR ou de diff **não substitui** — ordem do operador, 21/09/2026
   (*"Sempre me traga .md fora do diff. Ponha no GitHub"*).
+  **E quando o passo é "ler um arquivo do hub", ao lado do link do GitHub vai o link que abre a nota no Obsidian:**
+  `obsidian://open?file=<caminho a partir da raiz, sem .md>` — **sem `vault=`** (omitido, o app usa o último vault
+  aberto, e por isso o mesmo link vale no Mac e no iPhone, que têm nomes de vault diferentes; fonte: ajuda oficial
+  da URI). Só resolve depois do merge e do `pull` do vault — arquivo que só existe na branch abre vazio, e a
+  resposta diz isso. Decisão **D2-A** do operador, 22/09/2026 (auditoria
+  `docs/audit/ARSENAL-AUDITORIA-uso-claude-code-com-obsidian-2026-09-22.md`).
 - `!PPL <texto>` sozinho, em qualquer repo, converte um procedimento inteiro em Passo a Passo de
   Leigo — o produto é a lista de passos. Sem alvo → 1 pergunta e para.
 - Sem preâmbulo ("Aqui está…", "Baseado em…").

@@ -1,0 +1,256 @@
+# Codex pendente — o PR fica vermelho enquanto houver pedido `@codex` sem entrega validada.
+#
+# Ordem do operador (14/10/2026): "Nunca mais o Codex pode errar dessa maneira" — o #1608 foi mergeado com 4 achados
+# delegados ao Codex em aberto; o Codex corrigiu os 4 (commits 7be2d110, ae8fcf31, a940388c, 1f81f822), mas a entrega
+# ficou só dentro da tarefa dele, nunca chegou ao GitHub, e as tarefas sumiram. Foi a 3ª vez (antes: #1133 e #1371 —
+# `docs/regras/historico/codex-corrige-claude-valida.md`). Regra, nos passos 3–4: `.claude/rules/codex-corrige-claude-valida.md`.
+#
+# O que esta checagem faz: lê as threads, os corpos das revisões e os comentários da conversa do PR. Cada comentário que menciona
+# `@codex` e não é um comando de review abre um pedido. O pedido fica PENDENTE até um comentário posterior, antes do pedido
+# seguinte, trazer `codex-validado` ou `codex-dispensado`, sempre escrito por OWNER, MEMBER ou COLLABORATOR. Resolver a thread sozinho
+# não fecha nada. Pedido pendente → vermelho, com o estado de
+# cada um: sem resposta do Codex · Codex respondeu sem o patch no thread (entrega presa no sandbox) · patch entregue,
+# falta validar. Só pedidos feitos a partir de 2026-10-14 05:00 UTC reprovam; os anteriores saem como aviso, para PR
+# antigo não ficar vermelho de surpresa. Resolver thread não dispara evento no GitHub: a resposta com `codex-validado`
+# (que a regra manda escrever antes de resolver) é o que roda a checagem de novo e a deixa verde.
+#
+# Cada evento confere diretamente e publica o resultado como commit status `Codex pendente` no head do PR; assim o mesmo
+# contexto pode ser obrigatório mesmo nos eventos de comentário, cujos checks de job não contam para rulesets. Espelhado byte
+# a byte do hub para os irmãos por scripts/sync-rules.mjs (3º canal); editar só no hub. Torná-lo obrigatório é clique do operador.
+name: Codex pendente
+
+on:
+  # Segurança: este workflow não pode ganhar checkout nem executar código do PR; se isso mudar, voltar a `pull_request`.
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created, edited, deleted]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+# Sem `concurrency` (D21-A do operador, 14/10/2026 23:2x, #chat-MjwGeg). Com grupo por PR, mesmo com
+# `cancel-in-progress: false`, o GitHub só guarda UMA execução esperando na fila: a que chega depois CANCELA a que
+# esperava. Numa rodada de revisão (10+ comentários em 1 minuto) o head ficava com várias execuções "cancelled",
+# o GitHub marcava o PR `unstable` e o merge automático (que exige `clean`) não mergeava — medido às 23:2x em #1672
+# (6 canceladas), #1728 (6), #1164 (4) e #1788 (3), já com o `false` do #1780 na main. Sem grupo, nada é cancelado:
+# cada execução lê o PR inteiro e grava o status do head. Duas execuções simultâneas podem gravar fora de ordem por
+# alguns segundos; o evento seguinte (resposta `codex-validado`, push, revisão) regrava com o estado mais novo.
+
+jobs:
+  conferir:
+    name: Pedidos @codex sem entrega validada
+    # Orçamento do Actions (17/10/2026): cada execução leva ~8 s mas é cobrada em 1 minuto cheio, e ~10.900 delas por semana vinham
+    # de comentário que não tem a ver com o Codex (bots de revisão, Vercel, respostas nossas). Job pulado não é cobrado. Só roda,
+    # nos eventos de comentário e de revisão, se o texto (ou o texto antes da edição) menciona "codex" — o que cobre `@codex`,
+    # `codex-validado` e `codex-dispensado` —, ou se quem escreveu é o próprio Codex. Os eventos do PR (abrir, atualizar, reabrir,
+    # sair do rascunho) seguem rodando sempre, e são eles que gravam o status no head novo.
+    if: >-
+      github.event_name == 'pull_request_target'
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null
+          && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')
+              || startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')))
+      || (github.event_name == 'pull_request_review_comment'
+          && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')
+              || startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')))
+      || (github.event_name == 'pull_request_review'
+          && (contains(github.event.review.body, 'codex') || contains(github.event.changes.body.from, 'codex')
+              || startsWith(github.event.review.user.login, 'chatgpt-codex-connector')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Identificar PR e head
+        id: alvo
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_EVENTO: ${{ github.event.pull_request.number }}
+          PR_ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          PR="${PR_EVENTO:-${PR_ISSUE:-}}"
+          if [[ -z "$PR" ]]; then
+            echo "::notice::O evento não corresponde a um PR aberto; não há status para publicar."
+            echo "pr=" >> "$GITHUB_OUTPUT"
+            echo "head_sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          gh api --method POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="pending" \
+            -f context="Codex pendente" \
+            -f description="conferência em andamento" \
+            -f target_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Ler as threads, revisões e a conversa do PR
+        if: steps.alvo.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.alvo.outputs.pr }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          # Falhar a leitura reprova: vigia que não lê não pode passar calado.
+          if ! gh api graphql --paginate -F owner="$OWNER" -F repo="$REPO" -F pr="$PR" -f query='
+            query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
+              repository(owner:$owner,name:$repo){ pullRequest(number:$pr){
+                reviewThreads(first:100, after:$endCursor){
+                  pageInfo{ hasNextPage endCursor }
+                  nodes{ isResolved comments(first:100){ nodes{ author{ login } authorAssociation body url createdAt } } } } } } }' \
+            --jq '.data.repository.pullRequest.reviewThreads.nodes[]' > threads.jsonl; then
+            echo "::error title=Não li as threads do PR::Sem as threads não dá para saber se há pedido @codex pendente. Rode a checagem de novo."
+            exit 1
+          fi
+          if ! gh api --paginate "repos/$OWNER/$REPO/issues/$PR/comments" \
+               --jq '.[] | {author: .user.login, authorAssociation: .author_association, body: .body, url: .html_url, createdAt: .created_at}' > conversa.jsonl; then
+            echo "::error title=Não li a conversa do PR::Rode a checagem de novo."
+            exit 1
+          fi
+          if ! gh api --paginate "repos/$OWNER/$REPO/pulls/$PR/reviews" \
+               --jq '.[] | {author: .user.login, authorAssociation: .author_association, body: (.body // ""), url: .html_url, createdAt: .submitted_at}' > revisoes.jsonl; then
+            echo "::error title=Não li as revisões do PR::Sem os corpos das revisões, pedidos @codex podem desaparecer. Rode a checagem de novo."
+            exit 1
+          fi
+          echo "threads: $(wc -l < threads.jsonl) · revisões: $(wc -l < revisoes.jsonl) · comentários na conversa: $(wc -l < conversa.jsonl)"
+
+      - name: Conferir cada pedido @codex
+        if: steps.alvo.outputs.pr != ''
+        id: resultado
+        run: |
+          set -euo pipefail
+          CORTE="2026-10-14T05:00:00Z"
+          # Corpos de revisão e comentários formam uma só conversa; ordenar preserva o intervalo entre pedidos.
+          if [[ -f revisoes.jsonl ]]; then
+            jq -s -c 'sort_by(.createdAt)[]' conversa.jsonl revisoes.jsonl > conversa-completa.jsonl
+            mv conversa-completa.jsonl conversa.jsonl
+          fi
+          # Pedido = "@codex" como palavra, fora de citação Markdown, bloco ou código inline, escrito por quem não é o Codex; comandos de review não contam.
+          # Cada pedido enxerga só as respostas até o pedido seguinte. Resolver a thread não substitui validação/dispensa explícita.
+          jq -c --arg corte "$CORTE" '
+            def eh_codex: (.author.login // "") | test("^chatgpt-codex-connector");
+            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("`[^`\\r\\n]*`"; "") | gsub("^[[:space:]]*>[^\\r\\n]*"; ""; "m");
+            def menciona: (sem_codigo | test("(^|[^A-Za-z0-9_])@codex([^A-Za-z0-9_]|$)"; "i"));
+            def comando_review: (sem_codigo | test("^[[:space:]]*@codex[[:space:]]+(security[[:space:]]+)?review\\b"; "i"));
+            def vinculado: (.authorAssociation // "") as $a | (["OWNER", "MEMBER", "COLLABORATOR"] | index($a)) != null;
+            def pedido: ((eh_codex | not) and vinculado and (.body | menciona) and (.body | comando_review | not));
+            def marca_fechamento: test("^[[:space:]]*(\\*\\*)?codex-(validado|dispensado)(\\*\\*)?([[:space:]]|$|[.:—-])"; "i");
+            . as $t | ($t.comments.nodes // []) as $c
+            | ($c | to_entries | map(select(.value | pedido))) as $pedidos
+            | $pedidos[] | .key as $i | .value as $raiz
+            | (($pedidos | map(select(.key > $i) | .key) | min) // ($c | length)) as $fim
+            | ($c[($i + 1):$fim]) as $depois
+            | ($depois | map(select(eh_codex))) as $resp
+            | {
+                url: $raiz.url,
+                criado: $raiz.createdAt,
+                antigo: ($raiz.createdAt < $corte),
+                # Na thread, a marca fecha também os pedidos anteriores da MESMA thread: devolver ao Codex ("vermelho, refaz")
+                # é um pedido novo no mesmo achado, e a validação do último reenvio fecha o achado inteiro (#1739, 15/10/2026).
+                fechada: ($c[($i + 1):] | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento))),
+                respondeu: (($resp | length) > 0),
+                patch: ($resp | any(.body | test("diff --git"))),
+              }' threads.jsonl > pedidos.jsonl
+          # A conversa do PR não tem "resolver": o pedido fecha com um comentário posterior, de quem não é o Codex, com codex-validado.
+          jq -s -c --arg corte "$CORTE" '
+            def eh_codex: (.author // "") | test("^chatgpt-codex-connector");
+            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("`[^`\\r\\n]*`"; "") | gsub("^[[:space:]]*>[^\\r\\n]*"; ""; "m");
+            def menciona: (sem_codigo | test("(^|[^A-Za-z0-9_])@codex([^A-Za-z0-9_]|$)"; "i"));
+            def comando_review: (sem_codigo | test("^[[:space:]]*@codex[[:space:]]+(security[[:space:]]+)?review\\b"; "i"));
+            def vinculado: (.authorAssociation // "") as $a | (["OWNER", "MEMBER", "COLLABORATOR"] | index($a)) != null;
+            def pedido: ((eh_codex | not) and vinculado and (.body | menciona) and (.body | comando_review | not));
+            def marca_fechamento: test("^[[:space:]]*(\\*\\*)?codex-(validado|dispensado)(\\*\\*)?([[:space:]]|$|[.:—-])"; "i");
+            . as $todos
+            | (to_entries | map(select(.value | pedido))) as $pedidos
+            | $pedidos[] | .key as $i | .value as $raiz
+            | (($pedidos | map(select(.key > $i) | .key) | min) // ($todos | length)) as $fim
+            | ($todos[($i + 1):$fim]) as $depois
+            | {
+                url: $raiz.url,
+                criado: $raiz.createdAt,
+                antigo: ($raiz.createdAt < $corte),
+                fechada: ($depois | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento))),
+                respondeu: ($depois | any(eh_codex)),
+                patch: ($depois | any((eh_codex) and (.body | test("diff --git")))),
+              }' conversa.jsonl >> pedidos.jsonl
+          total=$(wc -l < pedidos.jsonl)
+          echo "pedidos @codex encontrados: $total"
+          {
+            echo "## Codex pendente"
+            echo
+            echo "Pedidos \`@codex\` neste PR: **$total**"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          vermelho=0
+          while read -r p; do
+            [[ -z "$p" ]] && continue
+            url=$(jq -r .url <<<"$p")
+            if [[ $(jq -r .fechada <<<"$p") == "true" ]]; then
+              echo "- ✅ validado: $url" | tee -a "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            if [[ $(jq -r .patch <<<"$p") == "true" ]]; then
+              estado="o Codex entregou o patch na thread; falta o Claude validar por fora, responder com 'codex-validado' e resolver"
+            elif [[ $(jq -r .respondeu <<<"$p") == "true" ]]; then
+              estado="o Codex respondeu SEM o patch na thread — a correção está presa no sandbox dele e não existe para o repositório; pedir de novo com o bloco padrão (git format-patch na própria resposta)"
+            else
+              estado="sem resposta do Codex ainda"
+            fi
+            if [[ $(jq -r .antigo <<<"$p") == "true" ]]; then
+              echo "::warning title=Pedido @codex antigo em aberto::$url — $estado (anterior a $CORTE: não reprova)"
+              echo "- ⚠️ antigo, em aberto: $url — $estado" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error title=Pedido @codex pendente::$url — $estado"
+              echo "- ❌ pendente: $url — $estado" >> "$GITHUB_STEP_SUMMARY"
+              vermelho=$((vermelho + 1))
+            fi
+          done < pedidos.jsonl
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          echo "vermelho=$vermelho" >> "$GITHUB_OUTPUT"
+          if (( vermelho > 0 )); then
+            echo "::error title=PR com $vermelho pedido(s) @codex sem entrega validada::Mergear agora deixa achado delegado fora da main (foi o #1608, 10/10/2026). Regra completa: https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md; veja também a seção \"Codex corrige, Claude valida\" de model-routing.md/AGENTS.md."
+          else
+            echo "Nenhum pedido @codex pendente."
+          fi
+
+      - name: Publicar resultado como commit status
+        if: always() && steps.alvo.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ steps.alvo.outputs.head_sha }}
+          TOTAL: ${{ steps.resultado.outputs.total }}
+          VERMELHO: ${{ steps.resultado.outputs.vermelho }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$TOTAL" || -z "$VERMELHO" ]]; then
+            ESTADO=error
+            DESCRICAO="conferência não terminou"
+          elif (( VERMELHO > 0 )); then
+            ESTADO=failure
+            DESCRICAO="$VERMELHO de $TOTAL pedido(s) @codex pendente(s)"
+          else
+            ESTADO=success
+            DESCRICAO="0 de $TOTAL pedido(s) @codex pendente(s)"
+          fi
+          gh api --method POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$ESTADO" \
+            -f context="Codex pendente" \
+            -f description="$DESCRICAO" \
+            -f target_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Reprovar quando houver pedido pendente
+        if: steps.alvo.outputs.pr != '' && steps.resultado.outputs.vermelho != '0'
+        env:
+          VERMELHO: ${{ steps.resultado.outputs.vermelho }}
+        run: |
+          echo "::error::$VERMELHO pedido(s) @codex continuam pendentes."
+          exit 1
