@@ -7,6 +7,7 @@ export function colarBranchesNaMudanca(
   branchesColadas: ReadonlyMap<string, string>,
 ): { tasks: Task[]; edges: TaskEdge[] } {
   const ids = new Set(tasks.map((task) => task.id));
+  if (branchesColadas.size === 0) return { tasks, edges };
   const colagens = new Map(
     [...branchesColadas].filter(([branch, mudanca]) => ids.has(branch) && ids.has(mudanca)),
   );
@@ -25,23 +26,44 @@ export function colarBranchesNaMudanca(
     edgesFinais.push({ ...edge, origem, destino });
   }
 
-  const predecessores = new Map<string, Set<string>>();
-  const sucessores = new Map<string, Set<string>>();
+  // As listas de vizinhos são preservadas e remapeadas, nunca reconstruídas só das arestas:
+  // precedência que existe só na lista (sem aresta) continua valendo para o caminho crítico.
+  const remapear = (lista: readonly string[], dono: string): string[] => {
+    const vistos = new Set<string>();
+    for (const id of lista) {
+      const novo = colagens.get(id) ?? id;
+      if (novo !== dono && idsRestantes.has(novo)) vistos.add(novo);
+    }
+    return [...vistos];
+  };
+  const unir = (base: string[], extra: string[]): string[] => [...new Set([...base, ...extra])];
+
+  // Cada task colada entrega suas listas à mudança que a substitui.
+  const herdadoPred = new Map<string, string[]>();
+  const herdadoSucc = new Map<string, string[]>();
+  for (const task of tasks) {
+    const alvo = colagens.get(task.id);
+    if (!alvo) continue;
+    herdadoPred.set(alvo, [...(herdadoPred.get(alvo) ?? []), ...task.predecessorIds]);
+    herdadoSucc.set(alvo, [...(herdadoSucc.get(alvo) ?? []), ...task.successorIds]);
+  }
+
+  // O que as arestas de precedência já diziam (depois da colagem) também entra: o caminho crítico une as duas fontes.
+  const dasArestasPred = new Map<string, string[]>();
+  const dasArestasSucc = new Map<string, string[]>();
   for (const edge of edgesFinais) {
     if (edge.tipo !== "predecessor") continue;
-    const pred = predecessores.get(edge.destino) ?? new Set<string>();
-    pred.add(edge.origem);
-    predecessores.set(edge.destino, pred);
-    const succ = sucessores.get(edge.origem) ?? new Set<string>();
-    succ.add(edge.destino);
-    sucessores.set(edge.origem, succ);
+    dasArestasPred.set(edge.destino, [...(dasArestasPred.get(edge.destino) ?? []), edge.origem]);
+    dasArestasSucc.set(edge.origem, [...(dasArestasSucc.get(edge.origem) ?? []), edge.destino]);
   }
 
   return {
     tasks: restantes.map((task) => ({
       ...task,
-      predecessorIds: [...(predecessores.get(task.id) ?? [])].sort(),
-      successorIds: [...(sucessores.get(task.id) ?? [])].sort(),
+      predecessorIds: remapear(
+        unir(unir(task.predecessorIds, herdadoPred.get(task.id) ?? []), dasArestasPred.get(task.id) ?? []), task.id),
+      successorIds: remapear(
+        unir(unir(task.successorIds, herdadoSucc.get(task.id) ?? []), dasArestasSucc.get(task.id) ?? []), task.id),
     })),
     edges: edgesFinais,
   };
