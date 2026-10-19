@@ -35,14 +35,33 @@ permissions:
   pull-requests: read
   statuses: write
 
-concurrency:
-  group: codex-pendente-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
+# Sem `concurrency` (D21-A do operador, 14/10/2026 23:2x, #chat-MjwGeg). Com grupo por PR, mesmo com
+# `cancel-in-progress: false`, o GitHub só guarda UMA execução esperando na fila: a que chega depois CANCELA a que
+# esperava. Numa rodada de revisão (10+ comentários em 1 minuto) o head ficava com várias execuções "cancelled",
+# o GitHub marcava o PR `unstable` e o merge automático (que exige `clean`) não mergeava — medido às 23:2x em #1672
+# (6 canceladas), #1728 (6), #1164 (4) e #1788 (3), já com o `false` do #1780 na main. Sem grupo, nada é cancelado:
+# cada execução lê o PR inteiro e grava o status do head. Duas execuções simultâneas podem gravar fora de ordem por
+# alguns segundos; o evento seguinte (resposta `codex-validado`, push, revisão) regrava com o estado mais novo.
 
 jobs:
   conferir:
     name: Pedidos @codex sem entrega validada
-    if: github.event_name != 'issue_comment' || github.event.issue.pull_request != null
+    # Orçamento do Actions (17/10/2026): cada execução leva ~8 s mas é cobrada em 1 minuto cheio, e ~10.900 delas por semana vinham
+    # de comentário que não tem a ver com o Codex (bots de revisão, Vercel, respostas nossas). Job pulado não é cobrado. Só roda,
+    # nos eventos de comentário e de revisão, se o texto (ou o texto antes da edição) menciona "codex" — o que cobre `@codex`,
+    # `codex-validado` e `codex-dispensado` —, ou se quem escreveu é o próprio Codex. Os eventos do PR (abrir, atualizar, reabrir,
+    # sair do rascunho) seguem rodando sempre, e são eles que gravam o status no head novo.
+    if: >-
+      github.event_name == 'pull_request_target'
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null
+          && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')
+              || startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')))
+      || (github.event_name == 'pull_request_review_comment'
+          && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')
+              || startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')))
+      || (github.event_name == 'pull_request_review'
+          && (contains(github.event.review.body, 'codex') || contains(github.event.changes.body.from, 'codex')
+              || startsWith(github.event.review.user.login, 'chatgpt-codex-connector')))
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -134,7 +153,9 @@ jobs:
                 url: $raiz.url,
                 criado: $raiz.createdAt,
                 antigo: ($raiz.createdAt < $corte),
-                fechada: ($depois | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento))),
+                # Na thread, a marca fecha também os pedidos anteriores da MESMA thread: devolver ao Codex ("vermelho, refaz")
+                # é um pedido novo no mesmo achado, e a validação do último reenvio fecha o achado inteiro (#1739, 15/10/2026).
+                fechada: ($c[($i + 1):] | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento))),
                 respondeu: (($resp | length) > 0),
                 patch: ($resp | any(.body | test("diff --git"))),
               }' threads.jsonl > pedidos.jsonl
