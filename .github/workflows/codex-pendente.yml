@@ -51,17 +51,24 @@ jobs:
     # nos eventos de comentário e de revisão, se o texto (ou o texto antes da edição) menciona "codex" — o que cobre `@codex`,
     # `codex-validado` e `codex-dispensado` —, ou se quem escreveu é o próprio Codex. Os eventos do PR (abrir, atualizar, reabrir,
     # sair do rascunho) seguem rodando sempre, e são eles que gravam o status no head novo.
+    # Fase 3 (20/10/2026, decisão B do operador): comentário do PRÓPRIO bot do Codex só roda se trouxer patch (`diff --git`).
+    # Medido em 19/10: 59% das execuções cobradas vinham do bot reescrevendo o resumo da revisão e comentando linhas. Isso não
+    # muda vermelho/verde (pedido só fecha com `codex-validado` de OWNER/MEMBER/COLLABORATOR); só a descrição do status espera
+    # o próximo evento. Como `contains` não liga para maiúscula, o 'codex' dos textos do bot casava sempre — por isso o desvio.
     if: >-
       github.event_name == 'pull_request_target'
       || (github.event_name == 'issue_comment' && github.event.issue.pull_request != null
-          && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')
-              || startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')))
+          && ((!startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')
+               && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')))
+              || (startsWith(github.event.comment.user.login, 'chatgpt-codex-connector') && contains(github.event.comment.body, 'diff --git'))))
       || (github.event_name == 'pull_request_review_comment'
-          && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')
-              || startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')))
+          && ((!startsWith(github.event.comment.user.login, 'chatgpt-codex-connector')
+               && (contains(github.event.comment.body, 'codex') || contains(github.event.changes.body.from, 'codex')))
+              || (startsWith(github.event.comment.user.login, 'chatgpt-codex-connector') && contains(github.event.comment.body, 'diff --git'))))
       || (github.event_name == 'pull_request_review'
-          && (contains(github.event.review.body, 'codex') || contains(github.event.changes.body.from, 'codex')
-              || startsWith(github.event.review.user.login, 'chatgpt-codex-connector')))
+          && ((!startsWith(github.event.review.user.login, 'chatgpt-codex-connector')
+               && (contains(github.event.review.body, 'codex') || contains(github.event.changes.body.from, 'codex')))
+              || (startsWith(github.event.review.user.login, 'chatgpt-codex-connector') && contains(github.event.review.body, 'diff --git'))))
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
