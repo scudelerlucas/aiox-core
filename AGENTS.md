@@ -301,6 +301,32 @@ cota: para ele a skill vale só sob demanda.
 [`.claude/skills/handoff-cota/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/handoff-cota/SKILL.md)
 (a skill é espelhada em cada irmão pelo `sync-rules`).
 
+## Aviso automático de PR ou de ferramenta: silêncio, salvo estado novo (18/10/2026)
+
+Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**. Notificação que chega sozinha (Vercel, CodeRabbit,
+Codex, Actions, lembrete do harness) não vira resposta ao operador, a menos que **aquele evento** traga um estado novo ainda não
+relatado: ação da sessão (CI vermelho, conflito, achado a corrigir), resultado final (CI que acabou de ficar verde, merge feito,
+PR fechado) ou decisão nova que dependa dele. Sem isso, a resposta é só a linha de hora `🕒 AAAA-MM-DD HH:MM (São Paulo)`, sem
+recapitular o PR nem repetir decisões abertas. Pergunta direta do operador sempre tem resposta completa. Norma no hub:
+[`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md).
+
+## Preço sem avareza — todo preço da casa passa pela pergunta de São Bento (20/10/2026)
+
+Decisões D2-A (15/10) e D5-A (20/10/2026) do operador, válidas em **qualquer CLI, qualquer repo, qualquer conta**. Quem cria ou
+muda **preço, oferta, tabela, cupom, checkout, proposta comercial ou escada de produto** escreve, no próprio artefato (doc da
+oferta, config do checkout ou corpo do PR), uma linha `🪙 RB 57: (1) valor/mercado: … · (2) comprador sabendo tudo: … · (3) de
+quem eu amo: … → avareza: não | sim, e o que muda`, respondendo a três perguntas: (1) o preço sai do valor entregue e do mercado
+limpo (sem fraude, monopólio nem coação), não do medo de faltar; (2) o comprador, sabendo tudo o que eu sei, acharia justo;
+(3) eu cobraria o mesmo de quem eu amo. A regra **obriga a pergunta e a resposta escrita**; não decide número, não é teto nem
+fórmula — a decisão continua do operador. Fonte: *Regula Benedicti*, cap. 57 (texto latino conferido em 15/10). O santo é
+patrono, nunca argumento de venda: a pergunta fica no artefato interno; página, oferta e VSL públicas não o citam. Convive com
+`versionamento-fosso-publico` (quanto cada classe cobra e a distância pública); esta diz por quê este número.
+
+**Norma completa e história** — no hub, não neste repositório:
+[`.claude/rules/preco-sem-avareza.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/preco-sem-avareza.md) e
+[`docs/regras/historico/preco-sem-avareza.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/regras/historico/preco-sem-avareza.md)
+(no hub, o hook de parada `colegiado-santo-gate.sh` barra resposta que propõe preço em R$ sem a pergunta escrita; nos irmãos vale este bloco).
+
 <!-- HUB-INVARIANTES-END -->
 
 🕒 2026-10-17 17:48 (São Paulo) · ✍ lucasscudeler · 💬 !! 18/10 · A75 · CANON SHS → aplicar 2-A/4-AC e plano de gasto do Actions · #chat-4BNJMe
