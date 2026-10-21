@@ -301,6 +301,15 @@ cota: para ele a skill vale só sob demanda.
 [`.claude/skills/handoff-cota/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/handoff-cota/SKILL.md)
 (a skill é espelhada em cada irmão pelo `sync-rules`).
 
+## Aviso automático de PR ou de ferramenta: silêncio, salvo estado novo (18/10/2026)
+
+Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**. Notificação que chega sozinha (Vercel, CodeRabbit,
+Codex, Actions, lembrete do harness) não vira resposta ao operador, a menos que **aquele evento** traga um estado novo ainda não
+relatado: ação da sessão (CI vermelho, conflito, achado a corrigir), resultado final (CI que acabou de ficar verde, merge feito,
+PR fechado) ou decisão nova que dependa dele. Sem isso, a resposta é só a linha de hora `🕒 AAAA-MM-DD HH:MM (São Paulo)`, sem
+recapitular o PR nem repetir decisões abertas. Pergunta direta do operador sempre tem resposta completa. Norma no hub:
+[`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md).
+
 <!-- HUB-INVARIANTES-END -->
 
 🕒 2026-10-17 17:48 (São Paulo) · ✍ lucasscudeler · 💬 !! 18/10 · A75 · CANON SHS → aplicar 2-A/4-AC e plano de gasto do Actions · #chat-4BNJMe
