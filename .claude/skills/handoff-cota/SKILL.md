@@ -8,6 +8,9 @@ description: "!handoff — a sessão escreve o próprio handoff de cota: um arqu
 > Ordem do operador, 14/10/2026 02:16: *"handoff para a nuvem, em todos os repositórios, de tudo o que está acontecendo
 > nessa conta quando chegarmos em 90-95% de uso, da cota semanal, da cota do fable ou da cota da sessão (…) autocontido,
 > independente, interdependente e sinérgico (…) permanente, e replicável em todas as minhas contas."*
+>
+> **Ordem permanente** (16/10, gravada pelo operador como memória permanente em 23/10, vale em todo repositório e toda conta):
+> *"Preciso fazer um gatilho autônomo de checkpoint e handoff da conta do Claude max inteira para a nuvem, de todos os repositórios, de tudo o que está acontecendo nessa conta quando chegarmos em 90-95% de uso, da cota semanal, da cota do fable ou da cota da sessão. Esse handoff deve ser autocontido, independente, interdependente e sinérgico, e !OP3AFLIF para que eu consiga continuar sem fricção em outra conta do claude max que tenha cota disponível. Use full force do !arsenal, !4z e torne esse gatilho algo permanente, e replicável em todas as minhas contas a partir dessa implantação."*
 > O vigia da conta (mão 2, `docs/ops/COTA-90-HANDOFF.md`) passa de 2 em 2 h e lê os chats por fora. Esta skill é a mão 1:
 > **quem gastou a cota é quem melhor sabe onde parou** — e lê o número em uma chamada.
 
