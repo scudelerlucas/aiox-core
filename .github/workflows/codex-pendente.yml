@@ -78,6 +78,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_EVENTO: ${{ github.event.pull_request.number }}
           PR_ISSUE: ${{ github.event.issue.number }}
+          SHA_EVENTO: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -88,9 +89,27 @@ jobs:
             echo "head_sha=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
           echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          HEAD_SHA="${SHA_EVENTO:-}"
+          CONSULTA_OK=false
+          for tentativa in 1 2 3; do
+            if SHA_CONSULTA=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha); then
+              HEAD_SHA="$SHA_CONSULTA"
+              CONSULTA_OK=true
+              break
+            fi
+            if (( tentativa < 3 )); then sleep 5; fi
+          done
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "consulta_ok=$CONSULTA_OK" >> "$GITHUB_OUTPUT"
+          if [[ "$CONSULTA_OK" != true ]]; then
+            if [[ -z "$HEAD_SHA" ]]; then
+              echo "::error title=Não identifiquei o commit do PR::A consulta falhou três vezes e o evento não trouxe o commit; não há como substituir um status antigo com segurança."
+              exit 1
+            fi
+            echo "::error title=Não li o PR após três tentativas::O commit do evento receberá status de erro."
+            exit 0
+          fi
           gh api --method POST "repos/$REPO/statuses/$HEAD_SHA" \
             -f state="pending" \
             -f context="Codex pendente" \
@@ -98,7 +117,7 @@ jobs:
             -f target_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
 
       - name: Ler as threads, revisões e a conversa do PR
-        if: steps.alvo.outputs.pr != ''
+        if: steps.alvo.outputs.pr != '' && steps.alvo.outputs.consulta_ok == 'true' && github.event.action != 'deleted'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ steps.alvo.outputs.pr }}
@@ -130,27 +149,55 @@ jobs:
           echo "threads: $(wc -l < threads.jsonl) · revisões: $(wc -l < revisoes.jsonl) · comentários na conversa: $(wc -l < conversa.jsonl)"
 
       - name: Conferir cada pedido @codex
-        if: steps.alvo.outputs.pr != ''
+        if: steps.alvo.outputs.pr != '' && steps.alvo.outputs.consulta_ok == 'true' && github.event.action != 'deleted'
         id: resultado
+        env:
+          ACAO_EVENTO: ${{ github.event.action }}
+          URL_EVENTO: ${{ github.event.comment.html_url || github.event.review.html_url || '' }}
+          CORPO_ATUAL: ${{ github.event.comment.body || github.event.review.body || '' }}
+          CORPO_ANTERIOR: ${{ github.event.changes.body.from || '' }}
+          # A API de revisões não oferece updated_at. No evento edited, o relógio desta execução é a hora observável da edição.
+          HORA_EVENTO: ${{ github.event.comment.updated_at || github.event.review.updated_at || '' }}
         run: |
           set -euo pipefail
           CORTE="2026-10-14T05:00:00Z"
+          HORA_EVENTO="${HORA_EVENTO:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+          # A edição só muda a hora efetiva quando o corpo anterior não era pedido e o corpo novo passou a ser.
+          jq -n --arg acao "$ACAO_EVENTO" --arg url "$URL_EVENTO" --arg anterior "$CORPO_ANTERIOR" --arg atual "$CORPO_ATUAL" --arg hora "$HORA_EVENTO" '
+            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("~~~[\\s\\S]*?~~~"; "") | gsub("(^|\\r?\\n)(    |\\t)[^\\r\\n]*"; "\\n") | gsub("`[^`\\r\\n]*`"; "") | split("\n") | map(select(test("^[[:blank:]]*>") | not)) | join("\n");
+            def pedido:
+              (sem_codigo | test("(^|[^A-Za-z0-9_])@codex([^A-Za-z0-9_]|$)"; "i")) and
+              (sem_codigo | test("^[[:space:]]*@codex[[:space:]]+(security[[:space:]]+)?review\\b"; "i") | not) and
+              (sem_codigo | test("^[[:space:]]*(\\*\\*)?codex-(validado|dispensado)(\\*\\*)?([[:space:]]|$|[.:—-])"; "i") | not);
+            {edicoes: (if $acao == "edited" and ($anterior | pedido | not) and ($atual | pedido)
+              then [{url: $url, hora: $hora}]
+              else [] end),
+             removido: ($acao == "edited" and ($anterior | pedido) and ($atual | pedido | not))}' > evento-edicao.json
+          jq '.edicoes' evento-edicao.json > edicoes.json
+          if [[ $(jq -r '.removido' evento-edicao.json) == true ]]; then
+            echo "erro_remocao=true" >> "$GITHUB_OUTPUT"
+            echo "::error title=Pedido @codex removido::Conferir à mão antes de prosseguir."
+            exit 1
+          fi
           # Corpos de revisão e comentários formam uma só conversa; ordenar preserva o intervalo entre pedidos.
           if [[ -f revisoes.jsonl ]]; then
-            jq -s -c 'sort_by(.createdAt)[]' conversa.jsonl revisoes.jsonl > conversa-completa.jsonl
+            jq --slurpfile edicoes edicoes.json -s -c '
+              def hora_efetiva: .url as $url | (($edicoes[0] | map(select(.url == $url) | .hora) | first) // .createdAt);
+              sort_by(hora_efetiva)[]' conversa.jsonl revisoes.jsonl > conversa-completa.jsonl
             mv conversa-completa.jsonl conversa.jsonl
           fi
           # Pedido = "@codex" como palavra, fora de citação Markdown, bloco ou código inline, escrito por quem não é o Codex; comandos de review não contam.
           # Cada pedido enxerga só as respostas até o pedido seguinte. Resolver a thread não substitui validação/dispensa explícita.
-          jq -c --arg corte "$CORTE" '
+          jq -c --arg corte "$CORTE" --slurpfile edicoes edicoes.json '
             def eh_codex: (.author.login // "") | test("^chatgpt-codex-connector");
-            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("`[^`\\r\\n]*`"; "") | gsub("^[[:space:]]*>[^\\r\\n]*"; ""; "m");
+            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("~~~[\\s\\S]*?~~~"; "") | gsub("(^|\\r?\\n)(    |\\t)[^\\r\\n]*"; "\\n") | gsub("`[^`\\r\\n]*`"; "") | split("\n") | map(select(test("^[[:blank:]]*>") | not)) | join("\n");
             def menciona: (sem_codigo | test("(^|[^A-Za-z0-9_])@codex([^A-Za-z0-9_]|$)"; "i"));
             def comando_review: (sem_codigo | test("^[[:space:]]*@codex[[:space:]]+(security[[:space:]]+)?review\\b"; "i"));
             def vinculado: (.authorAssociation // "") as $a | (["OWNER", "MEMBER", "COLLABORATOR"] | index($a)) != null;
-            def pedido: ((eh_codex | not) and vinculado and (.body | menciona) and (.body | comando_review | not));
+            def hora_efetiva: .url as $url | (($edicoes[0] | map(select(.url == $url) | .hora) | first) // .createdAt);
             def marca_fechamento: test("^[[:space:]]*(\\*\\*)?codex-(validado|dispensado)(\\*\\*)?([[:space:]]|$|[.:—-])"; "i");
-            . as $t | ($t.comments.nodes // []) as $c
+            def pedido: ((eh_codex | not) and vinculado and (.body | menciona) and (.body | comando_review | not) and (.body | marca_fechamento | not));
+            . as $t | (($t.comments.nodes // []) | sort_by(hora_efetiva)) as $c
             | ($c | to_entries | map(select(.value | pedido))) as $pedidos
             | $pedidos[] | .key as $i | .value as $raiz
             | (($pedidos | map(select(.key > $i) | .key) | min) // ($c | length)) as $fim
@@ -158,8 +205,8 @@ jobs:
             | ($depois | map(select(eh_codex))) as $resp
             | {
                 url: $raiz.url,
-                criado: $raiz.createdAt,
-                antigo: ($raiz.createdAt < $corte),
+                criado: ($raiz | hora_efetiva),
+                antigo: (($raiz | hora_efetiva) < $corte),
                 # Na thread, a marca fecha também os pedidos anteriores da MESMA thread: devolver ao Codex ("vermelho, refaz")
                 # é um pedido novo no mesmo achado, e a validação do último reenvio fecha o achado inteiro (#1739, 15/10/2026).
                 fechada: ($c[($i + 1):] | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento))),
@@ -167,14 +214,22 @@ jobs:
                 patch: ($resp | any(.body | test("diff --git"))),
               }' threads.jsonl > pedidos.jsonl
           # A conversa do PR não tem "resolver": o pedido fecha com um comentário posterior, de quem não é o Codex, com codex-validado.
-          jq -s -c --arg corte "$CORTE" '
+          jq -s -c --arg corte "$CORTE" --slurpfile edicoes edicoes.json '
             def eh_codex: (.author // "") | test("^chatgpt-codex-connector");
-            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("`[^`\\r\\n]*`"; "") | gsub("^[[:space:]]*>[^\\r\\n]*"; ""; "m");
+            def sem_codigo: gsub("```[\\s\\S]*?```"; "") | gsub("~~~[\\s\\S]*?~~~"; "") | gsub("(^|\\r?\\n)(    |\\t)[^\\r\\n]*"; "\\n") | gsub("`[^`\\r\\n]*`"; "") | split("\n") | map(select(test("^[[:blank:]]*>") | not)) | join("\n");
             def menciona: (sem_codigo | test("(^|[^A-Za-z0-9_])@codex([^A-Za-z0-9_]|$)"; "i"));
             def comando_review: (sem_codigo | test("^[[:space:]]*@codex[[:space:]]+(security[[:space:]]+)?review\\b"; "i"));
             def vinculado: (.authorAssociation // "") as $a | (["OWNER", "MEMBER", "COLLABORATOR"] | index($a)) != null;
-            def pedido: ((eh_codex | not) and vinculado and (.body | menciona) and (.body | comando_review | not));
             def marca_fechamento: test("^[[:space:]]*(\\*\\*)?codex-(validado|dispensado)(\\*\\*)?([[:space:]]|$|[.:—-])"; "i");
+            def pedido: ((eh_codex | not) and vinculado and (.body | menciona) and (.body | comando_review | not) and (.body | marca_fechamento | not));
+            def hora_efetiva: .url as $url | (($edicoes[0] | map(select(.url == $url) | .hora) | first) // .createdAt);
+            def cita($raiz):
+              $raiz.url as $url
+              | (.body | [scan("[^[:space:]<>]+") | gsub("^[<(]"; "") | gsub("[>),.;:]+$"; "")] | index($url) != null);
+            def cita_algum($pedidos):
+              . as $marca
+              | [$pedidos[].value] as $refs
+              | any($refs[]; . as $ref | $marca | cita($ref));
             . as $todos
             | (to_entries | map(select(.value | pedido))) as $pedidos
             | $pedidos[] | .key as $i | .value as $raiz
@@ -182,11 +237,13 @@ jobs:
             | ($todos[($i + 1):$fim]) as $depois
             | {
                 url: $raiz.url,
-                criado: $raiz.createdAt,
-                antigo: ($raiz.createdAt < $corte),
-                fechada: ($depois | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento))),
-                respondeu: ($depois | any(eh_codex)),
-                patch: ($depois | any((eh_codex) and (.body | test("diff --git")))),
+                criado: ($raiz | hora_efetiva),
+                antigo: (($raiz | hora_efetiva) < $corte),
+                fechada: (($depois | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento) and (cita_algum($pedidos) | not))) or
+                  ($todos[($i + 1):] | any((eh_codex | not) and vinculado and (.body | sem_codigo | marca_fechamento) and cita($raiz)))),
+                respondeu: (($depois | any(eh_codex)) or ($todos[($i + 1):] | any(eh_codex and cita($raiz)))),
+                patch: (($depois | any((eh_codex) and (.body | test("diff --git")))) or
+                  ($todos[($i + 1):] | any(eh_codex and (.body | test("diff --git")) and cita($raiz)))),
               }' conversa.jsonl >> pedidos.jsonl
           total=$(wc -l < pedidos.jsonl)
           echo "pedidos @codex encontrados: $total"
@@ -229,16 +286,21 @@ jobs:
           fi
 
       - name: Publicar resultado como commit status
-        if: always() && steps.alvo.outputs.pr != ''
+        if: always() && steps.alvo.outputs.pr != '' && steps.alvo.outputs.head_sha != ''
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ steps.alvo.outputs.head_sha }}
           TOTAL: ${{ steps.resultado.outputs.total }}
           VERMELHO: ${{ steps.resultado.outputs.vermelho }}
+          ERRO_REMOCAO: ${{ steps.resultado.outputs.erro_remocao }}
+          ACAO_EVENTO: ${{ github.event.action }}
         run: |
           set -euo pipefail
-          if [[ -z "$TOTAL" || -z "$VERMELHO" ]]; then
+          if [[ "$ACAO_EVENTO" == "deleted" || "$ERRO_REMOCAO" == "true" ]]; then
+            ESTADO=error
+            DESCRICAO="pedido apagado ou editado para tirar @codex: conferir à mão"
+          elif [[ -z "$TOTAL" || -z "$VERMELHO" ]]; then
             ESTADO=error
             DESCRICAO="conferência não terminou"
           elif (( VERMELHO > 0 )); then
