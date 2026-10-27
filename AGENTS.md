@@ -212,6 +212,11 @@ operador, na ordem de 24/09, empurrando na branch de PR que ele mesmo mandou cor
 alcance de qualquer um deles. Contradição declarada, não escondida — mesma classe da nota sobre story obrigatória
 no `CLAUDE.md` do `aiox-core`; se a constituição for revista pelo caminho dela, esta frase cai.
 
+A Action `Codex pendente` liga uma marca solta apenas ao pedido imediatamente anterior. Para validar ou dispensar
+um pedido mais antigo através de pedidos intermediários, a marca cita o link completo do comentário daquele pedido;
+posição ou "achado N" não é identificador estável, e só uma marca com intenção fecha. Pedido apagado ou editado para
+tirar a menção falha fechado naquele evento, mas pode voltar a verde no evento seguinte porque não há histórico durável.
+
 **Norma completa** — no hub, não neste repositório:
 [`.claude/rules/codex-corrige-claude-valida.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/codex-corrige-claude-valida.md).
 
