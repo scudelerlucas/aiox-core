@@ -98,6 +98,32 @@ ser técnico é justamente quando a tradução vale mais).
 
 ---
 
+## Aviso automático de PR ou de ferramenta: silêncio, salvo se mudou algo que importa (ordem do operador, 18/10/2026)
+
+> Palavras dele: *"Essa regra precisa virar permanente em todos os repos … e em todas as contas Claude Max."*
+> Escolha anterior dele (opção A): *"só falo quando houver ação ou resultado final do PR (CI verde, achado, merge)"*.
+
+Evento que chega sozinho — notificação de PR (Vercel montando, CodeRabbit, Codex "revisando", resumo do Actions, comentário
+de bot que só reescreve a si mesmo), aviso de ferramenta, lembrete do harness — **não vira resposta ao operador**. A sessão
+lê, confere o estado e só escreve ao Lucas quando **aquele evento** trouxe um estado novo, ainda não relatado:
+1. **ação dela** (CI que ficou vermelho, conflito, achado de revisão que ela vai corrigir ou delegar ao Codex);
+2. **resultado final** (CI que **acabou de ficar** verde e pronto para merge, merge feito, PR fechado);
+3. **decisão nova que depende dele** (com as opções).
+
+Estado já relatado não se relata de novo: PR que já espera uma decisão do Lucas, ou já foi dado como verde, continua em
+silêncio nos eventos seguintes. Sem estado novo, a resposta é **só a linha de hora** `🕒 AAAA-MM-DD HH:MM (São Paulo)`
+(a mesma do §Carimbo de hora; a linha com conta, título e hashtag é de `carimbo-de-publicacao`, para o que sai do chat).
+Sem recapitular o PR, sem "sem mudança", sem repetir as decisões abertas.
+
+Vale em **todo repositório** (espelho por `sync-rules`, nos dois canais: esta regra e o bloco do `AGENTS.md`) e em **toda
+conta Claude Max** (a regra viaja no repo, não na conta). Não vale para pedido direto do Lucas: pergunta dele sempre tem
+resposta completa.
+
+Violação: resposta de vários parágrafos a notificação sem estado novo · repetir "aguardo as suas respostas" · recapitular
+decisões abertas a cada evento · loop de Stop hook respondido com texto novo a cada volta.
+
+---
+
 ## Regras de aplicação
 
 - Confirmações triviais de 1 linha podem condensar. Qualquer entrega com trabalho real

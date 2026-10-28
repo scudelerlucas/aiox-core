@@ -27,6 +27,7 @@ import { caminhoCritico } from "@/core/prioritize/caminho-critico";
 import type { ResultadoCPM } from "@/core/prioritize/tipos-v3";
 import { serializaGrafoV3 } from "@/lib/serializa-grafo-v3";
 import { podarConversasSoltas } from "@/lib/frentes/podar-soltas";
+import { colarBranchesNaMudanca } from "@/lib/frentes/colar-branches";
 import type { Task, TaskEdge } from "@/types/canonical";
 import type { GrafoV3Props } from "@/types/grafo-v3";
 
@@ -45,6 +46,7 @@ export function goalDoGrafo(tasks: readonly Task[]): string | null {
 
 export interface GrafoDoDia {
   tasksDoGrafo: Task[];
+  edgesDoGrafo: TaskEdge[];
   goalId: string | null;
   cpm: ResultadoCPM;
   grafoV3: GrafoV3Props;
@@ -54,11 +56,29 @@ export interface GrafoDoDia {
 export function montarGrafoDoDia(
   tasks: Task[],
   edges: TaskEdge[],
-  conversasMaterializadas: ReadonlySet<string>,
+  proveniencia: {
+    conversasMaterializadas: ReadonlySet<string>;
+    branchesColadas: ReadonlyMap<string, string>;
+  },
 ): GrafoDoDia {
-  const tasksDoGrafo = podarConversasSoltas(tasks, edges, conversasMaterializadas);
+  const colado = colarBranchesNaMudanca(tasks, edges, proveniencia.branchesColadas);
+  const tasksDoGrafo = podarConversasSoltas(
+    colado.tasks,
+    colado.edges,
+    proveniencia.conversasMaterializadas,
+  );
+  const ids = new Set(tasksDoGrafo.map((task) => task.id));
+  const edgesDoGrafo = colado.edges.filter(
+    (edge) => ids.has(edge.origem) && ids.has(edge.destino),
+  );
   const goalId = goalDoGrafo(tasksDoGrafo);
-  const cpm = caminhoCritico(tasksDoGrafo, edges, goalId);
-  const scores = scoreAssimetriaLote(tasksDoGrafo, edges, cpm);
-  return { tasksDoGrafo, goalId, cpm, grafoV3: serializaGrafoV3(edges, cpm, scores) };
+  const cpm = caminhoCritico(tasksDoGrafo, edgesDoGrafo, goalId);
+  const scores = scoreAssimetriaLote(tasksDoGrafo, edgesDoGrafo, cpm);
+  return {
+    tasksDoGrafo,
+    edgesDoGrafo,
+    goalId,
+    cpm,
+    grafoV3: serializaGrafoV3(edgesDoGrafo, cpm, scores),
+  };
 }

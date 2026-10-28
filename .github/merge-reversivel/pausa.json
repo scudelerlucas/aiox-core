@@ -1,0 +1,4 @@
+{
+  "merge_autonomo_pausado": "false",
+  "_nota": "Chave de pausa do robô de merge reversível (.github/workflows/merge-reversivel.yml). Só \"false\" autoriza o merge; qualquer outro valor, ou a ausência deste arquivo, pausa o robô. Quem muda: o Lucas. Pausa sem PR: variável do repositório MERGE_AUTONOMO_PAUSADO = true (Settings > Secrets and variables > Actions > Variables). Norma: Lucas-Contexto-Geral, regente/PLANO-MESTRE.md §5 e docs/ops/MERGE-AUTONOMO-13-REPOS-4-CONTAS-2026-10-15.md."
+}

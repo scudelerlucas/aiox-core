@@ -1,0 +1,118 @@
+# Carimbo de PR — confere que todo PR aberto por sessão do Claude diz QUEM o fez.
+#
+# Ordem do operador (13/10/2026): todo PR novo leva hora, conta Max (nome antes do @), título do chat,
+# hashtag única do chat (#chat- + 6 últimos caracteres do id da sessão) e de onde rodou.
+# Motivo medido no mesmo dia: o PR #1620 trazia só o link da sessão, que só abre na conta dona —
+# a conta que fez o trabalho não podia ser descoberta pelo PR. Formato e fontes de cada campo:
+# skill `.claude/skills/carimbo-pr/SKILL.md`.
+#
+# Só confere branch `claude/` (pessoa, Codex e Dependabot ficam de fora) e só PR criado a partir de
+# 2026-10-13 22:00 UTC — PR antigo não fica vermelho de surpresa. Espelhado byte a byte do hub para os
+# irmãos por scripts/sync-rules.mjs (3º canal); editar só no hub.
+#
+# Um carimbo por chat (decisão 2-A do operador, 13/10/2026): todo chat que empurrou commit no PR deixa o
+# próprio bloco. Quem empurrou se lê no trailer `Claude-Session:` dos commits (o autor do git é o mesmo
+# para todos — regra branches-de-agente). Só contam commits a partir de 2026-10-14 01:00 UTC, para PR
+# já aberto não ficar vermelho por commit anterior a esta conferência.
+name: Carimbo de PR
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  conferir:
+    name: Carimbo da sessão no corpo do PR
+    if: startsWith(github.event.pull_request.head.ref, 'claude/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ler os chats que empurraram commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          # Lista de commits do PR (a API devolve até 250). Falhar a leitura reprova: vigia que não lê não pode passar calado.
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits" \
+               --jq '.[] | select(.commit.committer.date >= "2026-10-14T01:00:00Z") | .commit.message' > mensagens.txt; then
+            echo "::error title=Não li os commits do PR::Sem a lista de commits não dá para saber quais chats precisam de carimbo. Rode a checagem de novo."
+            exit 1
+          fi
+          { grep -oE '^Claude-Session: https://claude\.ai/code/session_[0-9A-Za-z]+[[:space:]]*$' mensagens.txt || true; } \
+            | sed -E 's/.*session_([0-9A-Za-z]+).*/\1/' | sort -u > sessoes.txt
+          echo "Chats com commit neste PR: $(wc -l < sessoes.txt)"
+          cat sessoes.txt
+
+      - name: Conferir conta, chat e hora
+        run: |
+          criado=$(jq -r '.pull_request.created_at' "$GITHUB_EVENT_PATH")
+          if [[ "$criado" < "2026-10-13T22:00:00Z" ]]; then
+            echo "PR criado em $criado, antes da regra do carimbo — não conferido."
+            exit 0
+          fi
+          jq -r '.pull_request.body // ""' "$GITHUB_EVENT_PATH" | tr -d '\r' > corpo.txt
+          falta=()
+          ids_blocos=()
+          # Todo bloco v2 presente é conferido sozinho: num PR retomado por outro chat, um carimbo antigo
+          # correto não pode esconder um carimbo novo errado (achados do Codex no #1688).
+          rm -rf blocos && mkdir blocos
+          # Só conta o marcador sozinho na linha e fora de bloco de código (```): exemplo citado no texto do PR não é carimbo.
+          awk '/^[[:space:]]*```/{f=!f; next} f{next} /^<!-- carimbo-pr v2 -->[[:space:]]*$/{n++; d=1} d{print > ("blocos/" n)} /^<!-- \/carimbo-pr -->[[:space:]]*$/{d=0}' corpo.txt
+          n=$(ls blocos | wc -l)
+          for i in $(seq 1 "$n"); do
+            b=$(cat "blocos/$i")
+            grep -q '<!-- /carimbo-pr -->' <<<"$b" || falta+=("bloco $i: sem o fecho <!-- /carimbo-pr -->")
+            hora=$(sed -nE 's/^- Hora: ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}) \(São Paulo\)[[:space:]]*$/\1/p' <<<"$b" | head -1 || true)
+            if [[ -n "$hora" ]]; then
+              [[ "$(date -d "$hora" '+%Y-%m-%d %H:%M' 2>/dev/null)" == "$hora" ]] || falta+=("bloco $i: a '- Hora:' $hora não é uma data e hora válidas")
+            elif ! grep -qE '^- Hora: sem relógio nesta sessão[[:space:]]*$' <<<"$b"; then
+              falta+=("bloco $i: a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)' (ou 'sem relógio nesta sessão')")
+            fi
+            grep -qE '^- Conta: ([^@[:space:]]+|não informada pelo ambiente)[[:space:]]*$' <<<"$b" || falta+=("bloco $i: a linha '- Conta:' só com o nome antes do @")
+            grep -qE '^- Onde: .*[^[:space:]]' <<<"$b" || falta+=("bloco $i: a linha '- Onde:' (de onde a sessão rodou)")
+            # Só vale o link canônico do claude.ai, com fronteira antes e depois do id.
+            grep -qE '^- Chat: .*[^[:space:]].* · https://claude\.ai/code/session_' <<<"$b" || falta+=("bloco $i: a linha '- Chat: <título> · <link>' (título não vazio; sem título → 'sem título')")
+            sess=$(grep -E '^- Chat: ' <<<"$b" | grep -oE '(^|[[:space:]])https://claude\.ai/code/session_[0-9A-Za-z]+([[:space:]]|$)' | head -1 | sed -E 's/.*session_([0-9A-Za-z]+).*/\1/' || true)
+            # Hashtag = "#chat-" + os 6 ÚLTIMOS caracteres do id (a parte aleatória). Os primeiros são a hora
+            # de criação do chat e se repetem entre chats abertos no mesmo minuto. Mesma hashtag da regra
+            # carimbo-de-publicacao, para uma busca só achar tudo o que o chat publicou.
+            ids_blocos+=("$sess")
+            if [[ ${#sess} -lt 8 ]]; then
+              falta+=("bloco $i: a linha '- Chat:' com o link completo https://claude.ai/code/session_… (id com 8 ou mais caracteres)")
+            elif ! grep -qE "^- Busca: #chat-${sess: -6}[[:space:]]*$" <<<"$b"; then
+              falta+=("bloco $i: a linha '- Busca: #chat-${sess: -6}' (os 6 últimos caracteres do id da sessão do link do Chat, e nada depois)")
+            fi
+          done
+          # v1 só é aceito em PR aberto antes de 13/10/2026 23:00 UTC; daí em diante, ao menos um bloco v2.
+          if (( n == 0 )); then
+            if [[ "$criado" < "2026-10-13T23:00:00Z" ]] && grep -q '<!-- carimbo-pr v1 -->' corpo.txt; then
+              b=$(awk 'index($0,"<!-- carimbo-pr v1 -->"){d=1} d{print} /<!-- \/carimbo-pr -->/{d=0}' corpo.txt)
+              grep -qE '^- Hora: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} \(São Paulo\)|^- Hora: sem relógio' <<<"$b" || falta+=("a linha '- Hora: AAAA-MM-DD HH:MM (São Paulo)'")
+              grep -qE '^- Conta: .*[^[:space:]]' <<<"$b" || falta+=("a linha '- Conta:'")
+              grep -qE '^- Chat: .*https://claude\.ai/code/session_[0-9A-Za-z]{8}' <<<"$b" || falta+=("a linha '- Chat:' com o link da sessão")
+            else
+              falta+=("o bloco <!-- carimbo-pr v2 --> … <!-- /carimbo-pr -->")
+            fi
+          fi
+          # Um bloco por chat que empurrou commit: o trailer Claude-Session do commit tem de aparecer como link de um bloco v2.
+          if [[ -s sessoes.txt ]]; then
+            while read -r s; do
+              [[ -z "$s" ]] && continue
+              achou=0
+              for x in "${ids_blocos[@]}"; do [[ "$x" == "$s" ]] && achou=1; done
+              (( achou )) || falta+=("um bloco v2 do chat https://claude.ai/code/session_$s, que empurrou commit neste PR (- Busca: #chat-${s: -6})")
+            done < sessoes.txt
+          fi
+          bloco="$(cat blocos/* 2>/dev/null || true)"
+          if (( ${#falta[@]} )); then
+            echo "::error title=PR sem carimbo da sessão::Falta no corpo do PR: $(IFS='; '; echo "${falta[*]}"). Formato: skill .claude/skills/carimbo-pr/SKILL.md. Corrige-se editando o corpo do PR."
+            exit 1
+          fi
+          echo "Carimbo presente:"
+          echo "$bloco"
+
+# 🕒 2026-10-13 22:45 (São Paulo) · ✍ almapetra.ltda · 💬 !! 15/10 · A70 · CARIMBO POR CHAT → mergear o PR do trailer · #chat-CGszhT
