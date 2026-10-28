@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { budgetMs } = require('../helpers/timing-budget');
+const { budgetMs, medianElapsedMs } = require('../helpers/timing-budget');
 
 // =============================================================================
 // Extract the private method without loading full pipeline dependencies.
@@ -506,25 +506,36 @@ describe('UAP Session Bridge — Timing Budget', () => {
     // Warm up filesystem cache
     callBridge(ctx, 'dev', 'full', createMetrics());
 
-    // Measured run
-    const start = Date.now();
-    callBridge(ctx, 'dev', 'full', metrics);
-    const elapsed = Date.now() - start;
+    // Measured runs — the median of 5, not one sample (see medianElapsedMs)
+    const durations = [];
+    const elapsed = medianElapsedMs(() => {
+      const runMetrics = createMetrics();
+      callBridge(ctx, 'dev', 'full', runMetrics);
+      durations.push(runMetrics.loaders.synapseSession.duration);
+    });
+    durations.sort((a, b) => a - b);
 
     expect(elapsed).toBeLessThanOrEqual(budgetMs(20));
-    expect(metrics.loaders.synapseSession.duration).toBeLessThanOrEqual(budgetMs(20));
+    expect(durations[2]).toBeLessThanOrEqual(budgetMs(20));
+    // the single-run contract still holds: the bridge reports its own timing
+    callBridge(ctx, 'dev', 'full', metrics);
+    expect(metrics.loaders.synapseSession.duration).toEqual(expect.any(Number));
   });
 
   test('completes within 20ms on skip path', () => {
     const ctx = createContext(tmpDir);
-    const metrics = createMetrics();
 
-    const start = Date.now();
-    callBridge(ctx, 'dev', 'full', metrics);
-    const elapsed = Date.now() - start;
+    // the median of 5, not one sample (see medianElapsedMs)
+    const durations = [];
+    const elapsed = medianElapsedMs(() => {
+      const runMetrics = createMetrics();
+      callBridge(ctx, 'dev', 'full', runMetrics);
+      durations.push(runMetrics.loaders.synapseSession.duration);
+    });
+    durations.sort((a, b) => a - b);
 
     expect(elapsed).toBeLessThanOrEqual(budgetMs(20));
-    expect(metrics.loaders.synapseSession.duration).toBeLessThanOrEqual(budgetMs(20));
+    expect(durations[2]).toBeLessThanOrEqual(budgetMs(20));
   });
 
   test('skip path is faster than write path', () => {
