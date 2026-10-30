@@ -306,6 +306,21 @@ cota: para ele a skill vale só sob demanda.
 [`.claude/skills/handoff-cota/SKILL.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/skills/handoff-cota/SKILL.md)
 (a skill é espelhada em cada irmão pelo `sync-rules`).
 
+## Handoff diário — toda tarefa do Codex termina com bloco HANDOFF (29/10/2026)
+
+Ordem do operador: *"Ao final do dia TODO CHAT ATIVO DEVE MIGRAR UM HANDOFF PARA O GITHUB (…) 5 contas (4 claude e 1 gpt)."*
+A conta GPT não tem horário que escreva no GitHub; o que ela deixa é o rastro no PR. Por isso **toda resposta final de
+tarefa do Codex** (na thread do PR ou no corpo do PR dele) termina com:
+
+```
+HANDOFF · <tema em 3 palavras> · <AAAA-MM-DD>
+Pedido: … | Feito: … | Onde parou: … | Falta (e de quem): … | Links: PR/branch/commit
+Prompt de retomada: <um parágrafo que outra IA, sem esta tarefa, consiga executar>
+```
+
+Sem segredo e sem nome de cliente (iniciais). O disparo diário da conta `arborcactus` copia esses blocos para
+`docs/ops/HANDOFF-COTA/DIARIO/gpt-pro/` (procedimento `docs/ops/HANDOFF-DIARIO.md` §3.7; norma `.claude/rules/handoff-diario.md`).
+
 ## Aviso automático de PR ou de ferramenta: silêncio, salvo estado novo (18/10/2026)
 
 Ordem do operador, válida em **qualquer CLI, qualquer repo, qualquer conta**. Notificação que chega sozinha (Vercel, CodeRabbit,
@@ -315,6 +330,12 @@ PR fechado) ou decisão nova que dependa dele. Sem isso, a resposta é só a lin
 recapitular o PR nem repetir decisões abertas. Pergunta direta do operador sempre tem resposta completa. Norma no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md).
 
+## Ensaio de palestras com subtexto (30/10/2026)
+
+Quando o operador pedir leitura acompanhada, memorização ou ensaio de palestra, aula ou apresentação, carregue o protocolo completo em `docs/protocolos/ensaio-palestras-com-subtexto-v1.md` deste repositório. Fonte única e fallback autenticado: [protocolo no hub](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/protocolos/ensaio-palestras-com-subtexto-v1.md). Compreender a lógica, encontrar a intenção e falar com palavras próprias: um bloco e uma pergunta de subtexto por vez; preservar a sequência, acompanhar pendências e avançar sem pedir permissão a cada slide. Ao dirigir, somente interação oral. Não inventar acesso ao material, eficácia científica, tempo restante ou ajuste da voz. Não ativa durante mera edição de slides nem substitui comandos do Arsenal que exigem invocação explícita.
+
 <!-- HUB-INVARIANTES-END -->
 
 🕒 2026-10-17 17:48 (São Paulo) · ✍ lucasscudeler · 💬 !! 18/10 · A75 · CANON SHS → aplicar 2-A/4-AC e plano de gasto do Actions · #chat-4BNJMe
+
+🕒 2026-10-30 17:06 (São Paulo) · ✍ ChatGPT/Codex (conta não disponibilizada) · 💬 ensaio de palestras com subtexto (descrição do tema; título e id do chat não disponibilizados)
