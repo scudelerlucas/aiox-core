@@ -154,7 +154,7 @@ hub, com as 7 colunas do arquivo: data, tese (1 linha), modo, as armas que ferir
 caracteres do id da sessão) e, quando se souber, o destino da tese depois (sobreviveu
 ou caiu em campo, com data). Arma sem acerto registrado em 90 dias entra em **(suspenso)**, pelo mesmo selo de disparo do
 arsenal. Fora do hub, a linha vai no corpo da resposta, marcada para o hub. A tese gravada deve ser resumida e não conter
-dados pessoais ou sigilosos; se contiver, redija-os antes de gravar.
+dados pessoais ou sigilosos; se contiver, remova ou anonimize esses dados antes de gravar.
 
 ---
 
