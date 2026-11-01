@@ -153,7 +153,8 @@ registro de resto no documento dono, a resposta diz isso em 1 linha.
 hub, com as 7 colunas do arquivo: data, tese (1 linha), modo, as armas que feriram, o veredito, o chat (`#chat-` + 6 últimos
 caracteres do id da sessão) e, quando se souber, o destino da tese depois (sobreviveu
 ou caiu em campo, com data). Arma sem acerto registrado em 90 dias entra em **(suspenso)**, pelo mesmo selo de disparo do
-arsenal. Fora do hub, a linha vai no corpo da resposta, marcada para o hub.
+arsenal. Fora do hub, a linha vai no corpo da resposta, marcada para o hub. A tese gravada deve ser resumida e não conter
+dados pessoais ou sigilosos; se contiver, redija-os antes de gravar.
 
 ---
 
@@ -178,4 +179,4 @@ A régua externa (Q12) e a escada (D1-D7) são o par construtivo deste arsenal d
 `TNF-REGUA-EXTERNA-Q12-ESCADA-v1.0.md`, é citado aqui desde a v1.0, mas não foi achado em nenhum repositório
 da casa em 16/10/2026. Antes de usá-lo, procure-o no hub: https://github.com/scudelerlucas/Lucas-Contexto-Geral
 
-*ELENCHOS v1.0 · 2026-07-26 · ecossistema Pandora · portável para qualquer LLM via `ELENCHOS-v1.0-arsenal-de-refutacao.md` (citado desde a v1.0; não achado em nenhum repositório da casa em 16/10/2026) · v1.0.1 (16/10/2026): lastro de Met. Γ.4 na Retorsão, decisão D10-A do operador; skill espelhada aos irmãos pelo `sync-rules` (3º canal) desde essa data · **v1.1 (21/10/2026), "sim" do operador às sete subidas da fila do arsenal (linha 2):** rajada V0 (estatuto e lastro) · teste de estrutura na Retorsão · as 13 falácias das* Refutações Sofísticas *(§F) · modo `!elenchos-cruzado` · placar de rajadas · saída para o registro de resto · lastro citável por arma, com nível (quase todos D: conferir na fonte antes de ir a público)*
+*ELENCHOS v1.0 · 2026-07-26 · ecossistema Pandora · portável para qualquer LLM via `ELENCHOS-v1.0-arsenal-de-refutacao.md` (citado desde a v1.0; não achado em nenhum repositório da casa em 16/10/2026) · v1.0.1 (16/10/2026): lastro de Met. Γ.4 na Retorsão, decisão D10-A do operador; skill espelhada aos irmãos pelo `sync-rules` (3º canal) desde essa data · **v1.1 (21/10/2026), "sim" do operador às sete subidas da fila do arsenal (linha 2):** rajada V0 (estatuto e lastro) · teste de estrutura na Retorsão · as 13 falácias das *Refutações Sofísticas* (§F) · modo `!elenchos-cruzado` · placar de rajadas · saída para o registro de resto · lastro citável por arma, com nível (quase todos D: conferir na fonte antes de ir a público)*
