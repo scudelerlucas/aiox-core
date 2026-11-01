@@ -270,7 +270,7 @@ plataforma impõe e que a encerra (fila vazia não basta), o que o fluxo grava m
 com as linhas desse código reconferidas — em produção, a checagem só lê, e só pelo caminho da persona, sem SQL da
 sessão no banco (nem pelo MCP do Supabase); gravar em banco, desfazer transação e consultar o banco direto não entram
 em checagem nenhuma, em banco nenhum, e viram fronteira (decisões 1-A, 16/10, e 2-A, 17/10/2026, do operador); o
-navegador só abre página da casa, e página de terceiro é fronteira (decisão 4-C). Erro classe A da própria checagem
+navegador sem tela é o caminho padrão da checagem de página, inclusive em página de terceiro conhecida do funil (checkout, upsell), só leitura, sem formulário, login ou compra, com os cortes de rede, e no máximo uma visita por dia a página de checkout (emenda de 31/10/2026 do operador, que revogou a decisão 4-C); página adversária ou de origem desconhecida continua fronteira. Erro classe A da própria checagem
 (a lista está na norma) entra nessa lista no mesmo ato, num PR do hub com `SHS-QUARENTENA` no título. Só sobra pedido
 quando a fronteira é só dele — credencial ou sessão só dele, gasto acima do teto, juízo humano; Meta, ação
 irreversível e mensagem a pessoa de fora não entram na checagem nem com o "sim" — ou quando o ambiente não alcança, e

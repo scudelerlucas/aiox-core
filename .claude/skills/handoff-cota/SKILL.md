@@ -1,6 +1,6 @@
 ---
 name: handoff-cota
-description: "!handoff — a sessão escreve o próprio handoff de cota: um arquivo autocontido (pedido · feito · onde parou · o que falta e de quem · decisões já tomadas · PRs e branches · prompt de retomada) no diretório da renovação semanal do hub, para o Lucas continuar sem fricção em outra conta Claude Max. Dispara sozinha quando a cota da conta (janela de 5 h = 'sessão', semana ou por modelo/Fable) está em 0,90 ou mais — lida por `list_events` deste chat, `rate_limit_event`; e sob demanda com `!handoff`. Vale em todo repositório e toda conta (mão 1 da regra `cota-90-handoff`). Ativar em: !handoff, 'handoff de cota', 'cota a 90', 'migrar de conta', 'passar para outra conta', 'limite de uso', 'rate limit', 'sessão quase no limite'."
+description: "!handoff — a sessão escreve o próprio handoff de cota: um arquivo autocontido (pedido · feito · onde parou · o que falta e de quem · decisões já tomadas · PRs e branches · prompt de retomada) no diretório da renovação semanal do hub, para o Lucas continuar sem fricção em outra conta Claude Max. Dispara sozinha quando a cota da conta (janela de 5 h = 'sessão', semana ou por modelo/Fable) está em 0,90 ou mais — lida por `list_events` deste chat, `rate_limit_event`; e sob demanda com `!handoff`. Vale em todo repositório e toda conta (mão 1 da regra `cota-90-handoff`). Ativar em: !handoff, !reidratar, 'handoff de cota', 'cota a 90', 'migrar de conta', 'passar para outra conta', 'limite de uso', 'rate limit', 'sessão quase no limite'."
 ---
 
 # !handoff — o handoff que a própria sessão escreve (mão 1 da regra `cota-90-handoff`, 14/10/2026)
@@ -59,14 +59,22 @@ Régua: o Lucas-leigo lê uma vez e retoma sem reler o chat. Links de PR com rep
 é o deste turno — "conferir no GitHub antes de agir".
 
 ## 4. Onde escrever — três caminhos, nesta ordem
-1. **Hub clonado** (`Lucas-Contexto-Geral` na sessão): `git fetch origin`; branch da renovação = a mais nova
-   `claude/handoff-cota-<conta>-*` que já tenha o diretório desta renovação; não existindo, criar
-   `claude/handoff-cota-<conta>-<renovação>` a partir da `main`. Escrever, `git add` só este arquivo, commit, `git pull
-   --rebase` e `push`. Nunca `--force`. Sem PR aberto para a branch → abrir **em rascunho** no hub, com o bloco
-   `carimbo-pr`; PR já aberto por outro chat → acrescentar o próprio bloco `carimbo-pr` ao corpo (a Action exige um por
-   chat que empurrou).
-2. **Hub não clonado, mas no escopo** (todo chat das contas da casa): `create_or_update_file` (GitHub MCP) no hub, na
-   mesma branch (se não existir: `create_branch` a partir da `main`), com a mensagem `handoff-cota: <conta> <id8>`.
+1. **Hub clonado** (`Lucas-Contexto-Geral` na sessão): `git fetch origin main`; **branch própria deste chat, sempre nova a
+   partir da `main`**: `claude/handoff-cota-<conta>-<id8>`. Nela entra **só o arquivo deste chat** (`git add` do caminho, nada
+   mais). Commit, `push`, **PR pronto (nunca rascunho)** com o bloco `carimbo-pr`, e **merge pela própria sessão como classe 4**
+   (`git-main-protegida`; pré-condição 0 lida na `main`, CI verde no head, título `[classe 4][<conta>]`, comando de volta no PR).
+   O handoff só existe quando está na `main`: PR aberto e não mergeado é entrega pela metade.
+   **Segundo handoff do mesmo chat** (`!handoff` de novo, ou cota ainda alta depois de mais trabalho): a branch com esse nome
+   **já existe** → (a) PR ainda aberto: reutiliza a branch — `git merge origin/main` (nunca rebase), substitui o arquivo, commit, push,
+   mesmo PR; (b) PR já mergeado: branch **nova** com sufixo de checkpoint `claude/handoff-cota-<conta>-<id8>-<AAAAMMDD-HHMM>`, a
+   partir da `main`, e o arquivo (mesmo nome) é substituído — a `main` guarda a versão mais nova, o histórico guarda as anteriores.
+   Só muda o nome entre checkpoints do mesmo chat; **nunca** entra branch de outro chat.
+   **Nunca reaproveitar a branch de outro chat** (v1 desta seção mandava usar "a branch da renovação", compartilhada; medido em
+   31/10/2026 no PR #2238: 4 chats, 16 commits, 23 arquivos num PR só, conflito contra a `main` e merge devolvido ao operador —
+   `docs/audit/FULLFORCE-trava-handoff-branch-compartilhada-2026-10-31.md`). Nunca `--force`.
+2. **Hub não clonado, mas no escopo** (todo chat das contas da casa): `create_branch` `claude/handoff-cota-<conta>-<id8>` a
+   partir da `main` + `create_or_update_file` (GitHub MCP) com a mensagem `handoff-cota: <conta> <id8>`; PR pronto e merge
+   classe 4 como no caminho 1.
 3. **Hub fora do escopo:** `memoria/<AAAA-MM-DD>--<repo>--handoff-cota-<id8>.md` no repositório atual, mesma forma, na
    branch da sessão. A camada `REPOS.md` do vigia lista a branch; a memória compartilhada também o lê.
 
@@ -88,3 +96,18 @@ o título do chat `⚙ COTA` da conta destino — cada conta só lê a própria 
 `docs/ops/COTA-90-HANDOFF.md`. Skill espelhada em todo repositório pelo `scripts/sync-rules.mjs` (3º canal).*
 
 🕒 2026-10-14 02:26 (São Paulo) · ✍ lucasscudeler · 💬 ✋ !!! 16/10 · A85 · COTA HANDOFF v2 → mergear hub e ligar vigia nas 3 contas · #chat-GEXx7x
+
+
+## 7. Write-ahead e `!reidratar` (v3 do handoff diário, 29/10/2026 — `docs/ops/HANDOFF-DIARIO.md` §15)
+- **Write-ahead (não só a 90%):** ao fim de todo turno que **muda o próximo passo** (os gatilhos do título, `titulo-de-chat`), grave o
+  arquivo deste chat — o mesmo formato do §3, ~2 mil tokens — em `docs/ops/HANDOFF-COTA/DIARIO/<conta>/chats/<8 últimos do id>.md`, **na
+  branch `claude/handoff-diario-<conta>`, pela API do GitHub** (`create_or_update_file`; branch inexistente → `create_branch` a partir da `main`),
+  sem clonar. Abra com a linha de foto `🕒 hora SP · ✍ conta · 🧠 modelo · ⛽ livre: 5 h NN% · semana NN% · <modelo> NN% · contexto do chat NNN mil`,
+  repita o título e termine com o prompt de retomada, que **nomeia o repositório a abrir** (só ele; o hub só se o trabalho é dele) e fecha com
+  `Primeiro ato: renomeie este chat para «<título>».` Mesmas travas do §5 (sem segredo; pessoas em iniciais). O disparo noturno só aponta para o seu arquivo.
+  **Guarda da branch fixa (31/10):** nessa branch entra **só** `docs/ops/HANDOFF-COTA/DIARIO/<conta>/**` — nunca commit de trabalho,
+  nunca merge de outra branch, nunca arquivo fora da pasta. É isso que a mantém mergeável contra a `main` sem conflito; a branch
+  compartilhada da cota (§4 v1) quebrou justamente porque recebia commits de fora (PR #2238).
+- **`!reidratar #chat-xxxxxx`:** `scripts/handoff-achar.sh '#chat-xxxxxx'` (no hub clonado; sem ele, `get_file_contents` no caminho que
+  `--caminho` indicar) imprime só o arquivo daquele chat. Leia-o, renomeie este chat com o título dele (trocando só o símbolo de vez se
+  mudou) e siga o prompt de retomada. Nunca reidratar a partir de `.parcial.md` sem conferir o chat de origem.
