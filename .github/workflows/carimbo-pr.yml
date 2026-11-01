@@ -37,8 +37,9 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           # Lista de commits do PR (a API devolve até 250). Falhar a leitura reprova: vigia que não lê não pode passar calado.
+          # Cada commit sai precedido de uma linha "@@COMMIT <sha> <data>", para o modelo e o chat ficarem pareados por commit.
           if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/commits" \
-               --jq '.[] | select(.commit.committer.date >= "2026-10-14T01:00:00Z") | .commit.message' > mensagens.txt; then
+               --jq '.[] | select(.commit.committer.date >= "2026-10-14T01:00:00Z") | "@@COMMIT " + .sha + " " + .commit.committer.date + "\n" + .commit.message' > mensagens.txt; then
             echo "::error title=Não li os commits do PR::Sem a lista de commits não dá para saber quais chats precisam de carimbo. Rode a checagem de novo."
             exit 1
           fi
@@ -46,6 +47,39 @@ jobs:
             | sed -E 's/.*session_([0-9A-Za-z]+).*/\1/' | sort -u > sessoes.txt
           echo "Chats com commit neste PR: $(wc -l < sessoes.txt)"
           cat sessoes.txt
+
+          # Modelo (ordem do operador, 25/10/2026): vem do trailer `Co-Authored-By: Claude <modelo> <noreply@anthropic.com>`
+          # que o ambiente escreve em todo commit de sessão, a partir do modelo que serviu o turno — a sessão não o escreve
+          # à mão (ela não sabe com certeza qual modelo a serve). Uma linha por commit de sessão: sha, data, chat, modelo.
+          awk '
+            function emitir() { if (sess != "") print sha "\t" data "\t" sess "\t" (modelo == "" ? "-" : modelo) }
+            /^@@COMMIT /         { if (sha != "") emitir(); sha = $2; data = $3; sess = ""; modelo = ""; next }
+            /^Claude-Session: https:\/\/claude\.ai\/code\/session_[0-9A-Za-z]+[[:space:]]*$/ {
+                                   s = $2; sub(/.*session_/, "", s); sub(/[[:space:]]+$/, "", s); sess = s }
+            /^Co-Authored-By: Claude [^<]+<noreply@anthropic\.com>[[:space:]]*$/ {
+                                   m = $0; sub(/^Co-Authored-By: /, "", m); sub(/[[:space:]]*<noreply@anthropic\.com>.*$/, "", m); modelo = m }
+            END                  { if (sha != "") emitir() }
+          ' mensagens.txt > commits.tsv
+
+          {
+            echo "### Carimbo — quem empurrou commit neste PR"
+            echo
+            if [[ -s commits.tsv ]]; then
+              echo "| Chat | Modelo | Commits |"
+              echo "|---|---|---|"
+              awk -F'\t' '{ k = $3 "\t" $4; n[k]++ } END { for (k in n) { split(k, a, "\t"); print "| #chat-" substr(a[1], length(a[1]) - 5) " | " a[2] " | " n[k] " |" } }' commits.tsv | sort
+            else
+              echo "_Nenhum commit de sessão (com trailer Claude-Session) desde 14/10/2026 01:00 UTC._"
+            fi
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Commit de sessão sem o modelo, de 26/10/2026 00:00 UTC em diante, reprova: é commit montado fora do caminho normal.
+          sem_modelo=$(awk -F'\t' '$2 >= "2026-10-26T00:00:00Z" && $4 == "-" { print substr($1, 1, 7) }' commits.tsv | tr '\n' ' ')
+          if [[ -n "${sem_modelo// /}" ]]; then
+            echo "::error title=Commit de sessão sem o modelo::Os commits $sem_modelo têm trailer Claude-Session mas não têm o trailer 'Co-Authored-By: Claude <modelo> <noreply@anthropic.com>', que o ambiente escreve e a regra exige (skill .claude/skills/carimbo-pr/SKILL.md, seção Modelo). Branch própria: refaça a mensagem do commit; branch alheia: diga no PR qual commit é e por quê."
+            exit 1
+          fi
 
       - name: Conferir conta, chat e hora
         run: |
@@ -116,3 +150,4 @@ jobs:
           echo "$bloco"
 
 # 🕒 2026-10-13 22:45 (São Paulo) · ✍ almapetra.ltda · 💬 !! 15/10 · A70 · CARIMBO POR CHAT → mergear o PR do trailer · #chat-CGszhT
+# 🕒 2026-10-25 14:52 (São Paulo) · ✍ lucasscudeler · 💬 !! 27/10 · A70 · CARIMBO MODELO → mergear PR do modelo no carimbo · #chat-PoZoAa
