@@ -31,7 +31,7 @@ description: "!pilha — empilhar, cruzar e encadear armas do arsenal numa sequ�
 | `!pessoa` | `!compasso → !tipologia + !colegiado-santo` | Fable |
 | `!produto` | `!humanos → ui-ux → !shs → !estressar³` | Fable |
 
-**Nota — o script do `!publicar` vive só no hub.** `scripts/sinais-de-ia-pt.py` não existe neste repositório se ele não for o hub. Fora do hub, baixe-o de `scudelerlucas/lucas-contexto-geral` (GitHub, caminho `scripts/sinais-de-ia-pt.py`) para um arquivo temporário e rode `python3 -I <script> <arquivo-com-o-texto>`. Sem acesso ao hub, o último passo sai como **"dose não medida"**, dito no placar: nunca se inventa a dose.
+**Nota — o script do `!publicar` vive só no hub.** `scripts/sinais-de-ia-pt.py` não existe neste repositório se ele não for o hub. Fora do hub, baixe-o de `scudelerlucas/lucas-contexto-geral` (GitHub, caminho `scripts/sinais-de-ia-pt.py`) para um arquivo temporário e rode `python3 -I <script> "texto=<arquivo-com-o-texto>"` (o argumento é `nome=caminho`, com o `=`). Sem acesso ao hub, o último passo sai como **"dose não medida"**, dito no placar: nunca se inventa a dose.
 
 ## Travas (herdadas, não novas)
 - **Explícito-only:** o comando `!` tem de estar escrito. `!estressar³`, `!forja`, `!validar`, `!pentar`, `!comprimir` só entram na `!pilha` livre se escritos nela.
