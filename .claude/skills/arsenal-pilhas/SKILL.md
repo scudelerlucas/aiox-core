@@ -3,7 +3,7 @@ name: arsenal-pilhas
 description: "!pilha — empilhar, cruzar e encadear armas do arsenal numa sequência só (→ encadear · × cruzar · + empilhar), com sete pilhas nomeadas: !investigar, !tribunal, !publicar, !criativos, !caixa, !pessoa, !produto (e !fullforce, a mais antiga). Ativar em: !pilha <arma> <op> <arma> <alvo> ou em qualquer pilha nomeada escrita com '!'. Explícito-only: assunto nunca dispara pilha. Fonte única no hub, §🧱 EMPILHAMENTOS de .claude/skills/arsenal/SKILL.md; esta página é o espelho fino para os repositórios irmãos."
 ---
 
-# !pilha — empilhamentos do arsenal (v1.0 · 02/11/2026)
+# !pilha — empilhamentos do arsenal (v1.1 · 02/11/2026)
 
 > Ordem do operador (01/11/2026, `#chat-8T82by`): *"aumentemos a potência do comando arsenal em todo o ecossistema, com cruzamentos e encadeamentos
 > de cada skill e comando, e principalmente EMPILHAMENTOS."* Fonte única: `Lucas-Contexto-Geral/.claude/skills/arsenal/SKILL.md` §🧱 (no hub, o hook
@@ -25,11 +25,13 @@ description: "!pilha — empilhar, cruzar e encadear armas do arsenal numa sequ�
 | `!fullforce` | `!atom v2 → !estressar³ → !elenchos → !4z → lint da lei central` | Fable |
 | `!investigar` | `!sherlock → !elenchos + !moat` | Fable |
 | `!tribunal` | `!atom v2 → !forja → !LDL` (não é `!decidir`, que é o núcleo N2) | Fable |
-| `!publicar` | `!slop + humanizer (lente) → scripts/sinais-de-ia-pt.py` | Sonnet |
+| `!publicar` | `!slop + humanizer (lente) → sinais-de-ia-pt.py` (script do hub; ver nota) | Sonnet |
 | `!criativos` | `!mulati → !maxxima × !surreal-casa → !humanos` | Opus |
 | `!caixa` | `!GARGALO → !atom v2 → !tarefas` | Fable |
 | `!pessoa` | `!compasso → !tipologia + !colegiado-santo` | Fable |
 | `!produto` | `!humanos → ui-ux → !shs → !estressar³` | Fable |
+
+**Nota — o script do `!publicar` vive só no hub.** `scripts/sinais-de-ia-pt.py` não existe neste repositório se ele não for o hub. Fora do hub, baixe-o de `scudelerlucas/lucas-contexto-geral` (GitHub, caminho `scripts/sinais-de-ia-pt.py`) para um arquivo temporário e rode `python3 -I <script> <arquivo-com-o-texto>`. Sem acesso ao hub, o último passo sai como **"dose não medida"**, dito no placar: nunca se inventa a dose.
 
 ## Travas (herdadas, não novas)
 - **Explícito-only:** o comando `!` tem de estar escrito. `!estressar³`, `!forja`, `!validar`, `!pentar`, `!comprimir` só entram na `!pilha` livre se escritos nela.
