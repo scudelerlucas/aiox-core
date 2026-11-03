@@ -62,4 +62,33 @@ function budgetMs(targetMs) {
   return IS_CI ? targetMs * CI_BUDGET_FACTOR : targetMs;
 }
 
-module.exports = { budgetMs, CI_BUDGET_FACTOR, IS_CI };
+/**
+ * Median of `runs` wall-clock measurements of `fn` (Date.now, in ms).
+ *
+ * Why (27/10/2026, PR #71 of this repo): one warm-path run of the UAP session
+ * bridge measured 46, 80 and 111 ms against a 40 ms CI budget on three
+ * consecutive heads that never touched `.aiox-core/core/synapse/`. A single
+ * sample is at the mercy of one scheduler hiccup on the shared runner; the
+ * median of 5 is not, and it still fails when the code itself gets slower
+ * (a real regression moves every sample, not one). The budget and the
+ * CI factor stay exactly as they were.
+ *
+ * @param {() => void} fn The call to time.
+ * @param {number} [runs=5] Odd number of samples.
+ * @returns {number} The median elapsed time in milliseconds.
+ */
+function medianElapsedMs(fn, runs = 5) {
+  if (!Number.isInteger(runs) || runs < 1 || runs % 2 === 0) {
+    throw new Error(`medianElapsedMs expects a positive odd number of runs, got: ${runs}`);
+  }
+  const samples = [];
+  for (let i = 0; i < runs; i++) {
+    const start = Date.now();
+    fn();
+    samples.push(Date.now() - start);
+  }
+  samples.sort((a, b) => a - b);
+  return samples[(runs - 1) / 2];
+}
+
+module.exports = { budgetMs, medianElapsedMs, CI_BUDGET_FACTOR, IS_CI };
