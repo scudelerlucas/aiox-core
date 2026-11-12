@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   criar:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.RUNNER_ALVO || '"ubuntu-latest"') }}
     steps:
       - name: Clonar o repositório inteiro (a tag pode apontar para commit antigo)
         uses: actions/checkout@v4

@@ -78,6 +78,24 @@ o PR: é sinal de commit escrito fora do caminho normal (mensagem montada à mã
 refazendo a mensagem do commit **só se a branch for da própria sessão** (`branches-de-agente`); branch alheia não se reescreve —
 aí a sessão diz no PR qual commit é e por quê, e o operador decide.
 
+## Rodapé de cota — em todo PR, logo abaixo do bloco (ordem do operador, 04/11/2026)
+
+Palavras dele: *"Cada conta lê a cota de Fable disponível sempre que postar um PR e coloca um rodapé com a cota semanal e a do Fable em todo PR com a assinatura da conta e time stamp."* Motivo: o roteamento entre contas (`cota-90-handoff`, `handoff-diario` §10) hoje decide sem o número do Fable — todo handoff diz "Fable sem leitura". Cada PR passa a deixar uma leitura datada.
+
+**Fora dos marcadores** do `carimbo-pr v2` (a Action não muda), uma linha só:
+
+```
+🔋 Cota · semana <N>% usada (renova DD/MM HH:MM) · Fable <N>% usada | Fable sem leitura (<motivo>) · ✍ <conta antes do @> · 🕒 <AAAA-MM-DD HH:MM> (São Paulo)
+```
+
+| Campo | Fonte (lida no mesmo turno, antes de criar ou editar o PR) | Se não houver |
+|---|---|---|
+| Semana | `list_events` deste chat, `kinds: ["rate_limit_event"]`, evento mais novo: `seven_day.utilization` (0,30 → 30%) e `resetsAt` (epoch) convertido para São Paulo | `semana sem leitura` — nunca número de memória |
+| Fable | a janela por modelo do mesmo evento (`seven_day_<modelo>`, `model_scoped`), se vier | `Fable sem leitura` + motivo em 3 palavras (`evento só traz seven_day`; ou `429 do Fable em DD/MM` se o chat levou 429). Número digitado pelo Lucas só entra como `Fable N% (E · digitado por Lucas, DD/MM)` |
+| Conta e hora | as mesmas do bloco acima | as mesmas formas de ausência |
+
+Regras: **ler a cota é parte de abrir o PR** (uma chamada barata); PR retomado e editado ganha uma linha nova, a antiga fica. O número vale como `E · do servidor` (`procedencia-numero-com-selo`); sessão que não conseguir ler escreve "sem leitura", e **inventar ou copiar o número do PR anterior é erro classe A**. Fable continua sem leitura enquanto o evento não trouxer a janela por modelo — o rodapé torna isso visível em cada PR e acumula a série para o dia em que trouxer.
+
 ## O que não entra
 Nome do modelo escrito pela sessão (ver acima), token, segredo, dado de cliente.
 

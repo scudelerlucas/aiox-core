@@ -229,6 +229,13 @@ modelo, senão linha 1), com a hora **medida no mesmo turno** — `TZ=America/Sa
 retorno de subagente, "responda só OK") fica sem carimbo. Norma completa, no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Carimbo de hora".
 
+## Modelo da próxima resposta na última linha (08/11/2026)
+
+Ordem do operador: *"Sempre coloque ao final das mensagens o modelo necessário para a próxima resposta. Torne isso universal no
+ecossistema."* Toda resposta ao operador termina com `🎚️ Próxima resposta: <modelo> — <por quê>`, pela tabela de `model-routing`
+aplicada ao próximo passo provável (no Codex, o modelo da casa que o passo pede). Mesmo escopo do carimbo de hora. Norma completa:
+[`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md) §"Modelo da próxima resposta".
+
 ## Segredo tem uma fonte só (09/10/2026, decisão 3-A do operador)
 
 Segredo guardado em dois lugares acaba com um deles mentindo. No Radar, o cron assinava com o cofre do banco e a função
@@ -318,7 +325,7 @@ Pedido: … | Feito: … | Onde parou: … | Falta (e de quem): … | Links: PR/
 Prompt de retomada: <um parágrafo que outra IA, sem esta tarefa, consiga executar>
 ```
 
-Sem segredo e sem nome de cliente (iniciais). O disparo diário da conta `arborcactus` copia esses blocos para
+Sem segredo e sem contato pessoal (telefone, e-mail pessoal, documento). Equipe e clientes vão **pelo nome** (ordem do operador, 02/11/2026: *"tire anonimização da equipe e clientes nos repos e painéis"*); só pessoa em caso sensível — saúde, mentoria, casal, criança, sonho — continua em iniciais. O disparo diário da conta `arborcactus` copia esses blocos para
 `docs/ops/HANDOFF-COTA/DIARIO/gpt-pro/` (procedimento `docs/ops/HANDOFF-DIARIO.md` §3.7; norma `.claude/rules/handoff-diario.md`).
 
 ## Aviso automático de PR ou de ferramenta: silêncio, salvo estado novo (18/10/2026)
@@ -329,6 +336,47 @@ relatado: ação da sessão (CI vermelho, conflito, achado a corrigir), resultad
 PR fechado) ou decisão nova que dependa dele. Sem isso, a resposta é só a linha de hora `🕒 AAAA-MM-DD HH:MM (São Paulo)`, sem
 recapitular o PR nem repetir decisões abertas. Pergunta direta do operador sempre tem resposta completa. Norma no hub:
 [`.claude/rules/response-protocol.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/response-protocol.md).
+
+## Preço sem avareza — todo preço da casa passa pela pergunta de São Bento (20/10/2026)
+
+Decisões D2-A (15/10) e D5-A (20/10/2026) do operador, válidas em **qualquer CLI, qualquer repo, qualquer conta**. Quem cria ou
+muda **preço, oferta, tabela, cupom, checkout, proposta comercial ou escada de produto** escreve, no próprio artefato (doc da
+oferta, config do checkout ou corpo do PR), uma linha `🪙 RB 57: (1) valor/mercado: … · (2) comprador sabendo tudo: … · (3) de
+quem eu amo: … → avareza: não | sim, e o que muda`, respondendo a três perguntas: (1) o preço sai do valor entregue e do mercado
+limpo (sem fraude, monopólio nem coação), não do medo de faltar; (2) o comprador, sabendo tudo o que eu sei, acharia justo;
+(3) eu cobraria o mesmo de quem eu amo. A regra **obriga a pergunta e a resposta escrita**; não decide número, não é teto nem
+fórmula — a decisão continua do operador. Fonte: *Regula Benedicti*, cap. 57 (texto latino conferido em 15/10). O santo é
+patrono, nunca argumento de venda: a pergunta fica no artefato interno; página, oferta e VSL públicas não o citam. Convive com
+`versionamento-fosso-publico` (quanto cada classe cobra e a distância pública); esta diz por quê este número.
+
+**Norma completa e história** — no hub, não neste repositório:
+[`.claude/rules/preco-sem-avareza.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/preco-sem-avareza.md) e
+[`docs/regras/historico/preco-sem-avareza.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/docs/regras/historico/preco-sem-avareza.md)
+(no hub, o hook de parada `colegiado-santo-gate.sh` barra resposta que propõe preço em R$ sem a pergunta escrita; nos irmãos vale este bloco).
+
+## Vídeo só se gera a partir de um storyboard por segundo (30/10/2026)
+
+Ordem do operador, válida em **qualquer repo e qualquer conta**: nenhum crédito de vídeo (Higgsfield, Seedance, Kling, preset) sai sem um
+**storyboard por segundo** aprovado — roteiro → edit sheet → `docs/<tema>/storyboards/ss-AAAA-MM-DD-NNN.json` (contrato
+`vsl-studio/schema/storyboard-segundo.schema.json`, validado por `scripts/storyboard-segundo-validar.py`) → cotação → gate → disparo, com
+todo prompt começando pela etiqueta `[ss-AAAA-MM-DD-NNN s<de>-<ate>]`. Pilha fixa: voz sintética = ElevenLabs v4; rosto sintético e
+lipsync = HeyGen Avatar V sobre a gravação do Lucas; **Seedance 2.5 só em segundo `essencial: true`**, com o porquê; prova = só real.
+Emenda de 09/11 (D3, em prova até o bake-off): cena falada = ElevenLabs v4 → HeyGen Avatar V → acabamento Seedance sobre a saída do
+HeyGen, lipsync medido de novo depois (falhou → volta a saída do HeyGen); peça com acabamento é sempre sim do Lucas, peça a peça.
+Teto por peça: anúncio 60 cr · reels 20 · short 20 · VSL 250. Ilimitado não se automatiza (MCP/CLI/API sempre descontam; robô no site é
+proibido). Norma no hub: [`.claude/rules/video-storyboard-por-segundo.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/video-storyboard-por-segundo.md);
+procedimento: `docs/os-meta-ads/PADRAO-VIDEO-storyboard-por-segundo-v1_0.md`.
+
+## Quem espera dorme surdo — leis 1, 2 e 3 do token (11/11/2026)
+
+Decisão P1-A do operador, válida em **qualquer repo e qualquer conta**: (1) tarefa ou turno que termina esperando o Lucas, um terceiro
+ou um robô sai sem assinatura de PR, sem lembrete e sem horário apontado para si; o pendente vai escrito no handoff, com hora ("CI
+pendente em #N"). Exceção: chat de rotina `⚙`. (2) Modelo caro (Fable, Opus) nunca é alvo de rotina, lembrete, conferência de PR ou SSR
+por omissão — nem em chat `⚙`. (3) Teto de contexto **acima do prefixo de nascimento**: Fable +150 mil · Opus +300 mil · Sonnet +400 mil;
+passou, grava o handoff e encerra; chat parado há mais de 1 h acima de 200 mil não recebe resposta nova, vai por execução nova. Quem
+age quando o chat dorme: o Regente sinaliza PR vermelho; a ronda da conta abre execução nova. Norma no hub:
+[`.claude/rules/quem-espera-dorme-surdo.md`](https://github.com/scudelerlucas/Lucas-Contexto-Geral/blob/main/.claude/rules/quem-espera-dorme-surdo.md)
+(no hub, o hook de parada `dorme-surdo-check.sh` barra; nos irmãos vale este bloco).
 
 ## Ensaio de palestras com subtexto (30/10/2026)
 

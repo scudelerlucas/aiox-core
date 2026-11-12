@@ -32,6 +32,12 @@ classificar_arquivos() { # lista de caminhos → define texto_medido
       # de raiz ignora docs/**, então um .md quebrado ali não seria pego antes do merge
       # autônomo. Excluído por inteiro, antes do resto.
       docs/ferramentas/radar-produtos/*) fora=1; break;;
+      # Decisão 2-B do operador (01/11/2026, `#chat-Y6cPJz`): o #2427 (emenda 7.2-a, sobre onde a chave
+      # `gestor-claude` fica guardada) foi mergeado sozinho como classe 1 e deixou de fora o último commit.
+      # Documento que fixa quem pode usar a chave da Meta e em que conta ela escreve é regra de acesso,
+      # não prosa passiva (PLANO-MESTRE §5, lista "Fica com o operador": Meta, papel, credencial). Fica
+      # fora: a Constituição Meta Ads, o checklist de conexões das 4 contas e a história da regra da chave.
+      docs/ops/CONSTITUICAO-META-ADS-*|docs/ops/CHECKLIST-CONEXOES-*|docs/regras/historico/chave-meta-acesso-total.md) fora=1; break;;
       # Achado de 22/09 (PR #963, rodada 11): nem todo `.md` é texto passivo. Os documentos que
       # governam o próprio comportamento autônomo do Regente (mudar um deles sem revisão é
       # mudar a regra que decide se revisão é preciso) e os `.md` que o `offerforge` carrega em

@@ -1,9 +1,9 @@
 ---
 name: arsenal-pilhas
-description: "!pilha — empilhar, cruzar e encadear armas do arsenal numa sequência só (→ encadear · × cruzar · + empilhar), com sete pilhas nomeadas: !investigar, !tribunal, !publicar, !criativos, !caixa, !pessoa, !produto (e !fullforce, a mais antiga). Ativar em: !pilha <arma> <op> <arma> <alvo> ou em qualquer pilha nomeada escrita com '!'. Explícito-only: assunto nunca dispara pilha. Fonte única no hub, §🧱 EMPILHAMENTOS de .claude/skills/arsenal/SKILL.md; esta página é o espelho fino para os repositórios irmãos."
+description: "!pilha — empilhar, cruzar e encadear armas do arsenal numa sequência só (→ encadear · × cruzar · + empilhar), com nove pilhas nomeadas: !investigar, !tribunal, !publicar, !criativos, !caixa, !pessoa, !produto, !SOTAD, !fechar (e !fullforce, a mais antiga). Ativar em: !pilha <arma> <op> <arma> <alvo> ou em qualquer pilha nomeada escrita com '!'. Explícito-only: assunto nunca dispara pilha. Fonte única no hub, §🧱 EMPILHAMENTOS de .claude/skills/arsenal/SKILL.md; esta página é o espelho fino para os repositórios irmãos."
 ---
 
-# !pilha — empilhamentos do arsenal (v1.1 · 02/11/2026)
+# !pilha — empilhamentos do arsenal (v1.3 · 02/11/2026)
 
 > Ordem do operador (01/11/2026, `#chat-8T82by`): *"aumentemos a potência do comando arsenal em todo o ecossistema, com cruzamentos e encadeamentos
 > de cada skill e comando, e principalmente EMPILHAMENTOS."* Fonte única: `Lucas-Contexto-Geral/.claude/skills/arsenal/SKILL.md` §🧱 (no hub, o hook
@@ -30,11 +30,13 @@ description: "!pilha — empilhar, cruzar e encadear armas do arsenal numa sequ�
 | `!caixa` | `!GARGALO → !atom v2 → !tarefas` | Fable |
 | `!pessoa` | `!compasso → !tipologia + !colegiado-santo` | Fable |
 | `!produto` | `!humanos → ui-ux → !shs → !estressar³` | Fable |
+| `!SOTAD` | `frontend-design → ui-ux + !SOTAMG → !shs → !estressar³` (State Of The Art Design; skill `sotad`) | Fable |
+| `!fechar` | `ciclo-padrão (inventário dos PRs deste chat → checklist da classe 4 → merge · espera · fronteira) → !handoff → título` — fecha um chat cujo trabalho acabou: mergeia por classe 4 só o PR deste chat que cumpre a lista inteira (lida na `main` do hub no ato, pelos três `sed` escritos na receita do catálogo — PLANO-MESTRE §5, lista da D15-A e "Pasta do produto" do `VERSOES-E-FOSSO`; faltou uma sentinela → nenhum merge), devolve ao operador só o que a lista reserva, grava o write-ahead e deixa o título verdadeiro (`ARQUIVAR` só sem pendência). Nunca arquiva, nunca cria PR, nunca força. Receita inteira: §🧱 do catálogo, no hub | Sonnet |
 
 **Nota — o script do `!publicar` vive só no hub.** `scripts/sinais-de-ia-pt.py` não existe neste repositório se ele não for o hub. Fora do hub, baixe-o de `scudelerlucas/lucas-contexto-geral` (GitHub, caminho `scripts/sinais-de-ia-pt.py`) para um arquivo temporário e rode `python3 -I <script> "texto=<arquivo-com-o-texto>"` (o argumento é `nome=caminho`, com o `=`). Sem acesso ao hub, o último passo sai como **"dose não medida"**, dito no placar: nunca se inventa a dose.
 
 ## Travas (herdadas, não novas)
-- **Explícito-only:** o comando `!` tem de estar escrito. `!estressar³`, `!forja`, `!validar`, `!pentar`, `!comprimir` só entram na `!pilha` livre se escritos nela.
+- **Explícito-only:** o comando `!` tem de estar escrito. `!estressar³`, `!forja`, `!validar`, `!pentar`, `!comprimir` só entram na `!pilha` livre se escritos nela. `!estresse³` é apelido permanente de `!estressar³` (ordem do operador, 02/11/2026): escrito numa pilha, vale como o comando; no hub o roteador reescreve a grafia, fora dele a sessão lê a tabela de apelidos da skill `arsenal` (§⚡) e executa igual.
 - **Tier da pilha = o mais alto entre os membros** (`model-routing`); sessão abaixo dele pede a troca em vez de executar.
 - **Teto:** a pilha conta como **um** domínio; além dela, no máximo duas armas por turno.
 - **Nenhuma pilha destrava** Meta, dinheiro, pessoa de fora, chave, apagar dado, merge de governança ou instrumento que amarre terceiro (`ssr`, `chave-meta-acesso-total`, `formalizacao-tardia-como-teste`).

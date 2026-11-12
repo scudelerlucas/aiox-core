@@ -23,6 +23,17 @@ quem chama (retorno de subagente, JSON, "responda só OK", corpo de commit/PR, a
 o contrato. Isso não é brecha de tamanho: resposta curta ao operador continua com carimbo (achado P2 do Codex, vsl-mastery#39).
 Na resposta de troca de modelo (`model-routing`, gate errado), as linhas são duas: o pedido de troca e o carimbo (achado P2 do Codex, TEMPLO-FE#15).
 
+## 🎚️ Modelo da próxima resposta — última linha de toda resposta ao operador (ordem do operador, 08/11/2026)
+
+Palavras dele (`#chat-5FhEQo`): *"Sempre coloque ao final das mensagens o modelo necessário para a próxima resposta. Torne isso
+universal no ecossistema."* **Toda resposta ao Lucas termina com uma linha** `🎚️ Próxima resposta: <Fable|Opus|Sonnet|Haiku> —
+<o que vem e por quê, em poucas palavras>`, escolhida pela tabela de `model-routing` aplicada ao **próximo passo provável**: o que a
+sessão fará depois da resposta dele, ou o que a resposta dele deve pedir. É a outra ponta do gate: a linha 1 julga o modelo de agora;
+a última linha avisa antes, para ele trocar o modelo **antes** de mandar, e não depois de o gate barrar. Próximo passo incerto → o tier
+mais alto entre os prováveis, dito assim. **Escopo:** o mesmo do carimbo de hora (resposta ao operador no chat); a resposta de
+silêncio a aviso automático (só a linha de hora) e a resposta de troca de modelo do gate não levam a linha. Violação: resposta ao
+operador sem a linha · modelo fora da tabela · linha que repete o modelo atual sem olhar o próximo passo.
+
 Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:
 
