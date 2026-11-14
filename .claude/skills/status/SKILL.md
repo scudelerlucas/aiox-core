@@ -151,7 +151,7 @@ Ajuste para tarefas parecidas: PR que toca `.claude/rules/**` nasce com espera d
   regras deles (`chave-meta-acesso-total`, `git-main-protegida`, `ssr-siga-sua-recomendacao` item 3).
 
 ## Fechamento
-Depois do painel, o fecho da casa (`response-protocol`), curto e já no formato do `!status`:
+Depois do painel, o fechamento da casa (`response-protocol`), curto e já no formato do `!status`:
 - **✅ Resumo simples** = *o que mudou desde o último painel deste chat*, inclusive previsão revista e por quê (sem painel anterior →
   "primeiro painel"; nada mudou → dizer isso, sem inflar);
 - **🔀 Decisões** = só as que são mesmo do Lucas; **👉 Recomendação** e **⚠️ Riscos** em 1 linha cada, quando houver decisão;

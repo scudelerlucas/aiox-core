@@ -28,7 +28,7 @@ jobs:
   conferir:
     name: Carimbo da sessão no corpo do PR
     if: startsWith(github.event.pull_request.head.ref, 'claude/')
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.RUNNER_ALVO || '"ubuntu-latest"') }}
     timeout-minutes: 2
     steps:
       - name: Ler os chats que empurraram commit

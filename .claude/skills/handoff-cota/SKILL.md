@@ -49,6 +49,7 @@ dos 71 de 09/10, que a outra conta já retomou):
 ## O que foi feito
 ## Onde parou
 ## O que falta — e de quem   (`[Lucas]`, `[Claude]`, `[nome]`; item sem dono é achado, não tarefa)
+   Item [Lucas] leva a pergunta + as opções A:/B: + a linha literal 👉 rec: X — é o que a caixa única (§14.3) e o !decisoes leem; sem isso a decisão sai como "abrir o chat" (medido 02/11: 11 de 40 arquivos tinham opções, 4 de 48 linhas da caixa tinham recomendação).
 ## Decisões do Lucas já tomadas (não reabrir)
 ## Prompt de retomada (colar num chat novo da outra conta, com o hub aberto)
 > <autocontido: contexto em 3 linhas, o que ler primeiro (caminho na main ou na branch), o que fazer agora,
@@ -79,7 +80,7 @@ Régua: o Lucas-leigo lê uma vez e retoma sem reler o chat. Links de PR com rep
    branch da sessão. A camada `REPOS.md` do vigia lista a branch; a memória compartilhada também o lê.
 
 ## 5. Travas
-- **Nunca** segredo, token, senha, chave, nem dado de cliente: pessoa que não é o Lucas (cliente, membro, equipe) vira **iniciais** no arquivo inteiro, título incluído. Antes do commit:
+- **Nunca** segredo, token, senha, chave, nem contato pessoal (telefone, e-mail pessoal, documento) ou dado sensível de pessoa. Equipe e clientes vão **pelo nome** (ordem do operador, 02/11/2026); só pessoa em caso sensível (saúde, mentoria, casal, criança, sonho) vira **iniciais**, título incluído. Antes do commit:
   `grep -nE '(sk-|eyJ[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{12,}|-----BEGIN|password=|senha:)' <arquivo>` tem de voltar vazio.
 - O handoff descreve; não executa nada: não mergeia, não arquiva, não interrompe, não mexe na Meta, não manda mensagem
   a pessoa de fora.
@@ -104,10 +105,35 @@ o título do chat `⚙ COTA` da conta destino — cada conta só lê a própria 
   branch `claude/handoff-diario-<conta>`, pela API do GitHub** (`create_or_update_file`; branch inexistente → `create_branch` a partir da `main`),
   sem clonar. Abra com a linha de foto `🕒 hora SP · ✍ conta · 🧠 modelo · ⛽ livre: 5 h NN% · semana NN% · <modelo> NN% · contexto do chat NNN mil`,
   repita o título e termine com o prompt de retomada, que **nomeia o repositório a abrir** (só ele; o hub só se o trabalho é dele) e fecha com
-  `Primeiro ato: renomeie este chat para «<título>».` Mesmas travas do §5 (sem segredo; pessoas em iniciais). O disparo noturno só aponta para o seu arquivo.
+  `Primeiro ato: renomeie este chat para «<título>».` Mesmas travas do §5 (sem segredo nem contato pessoal; equipe e clientes pelo nome, caso sensível em iniciais). O disparo noturno só aponta para o seu arquivo.
   **Guarda da branch fixa (31/10):** nessa branch entra **só** `docs/ops/HANDOFF-COTA/DIARIO/<conta>/**` — nunca commit de trabalho,
   nunca merge de outra branch, nunca arquivo fora da pasta. É isso que a mantém mergeável contra a `main` sem conflito; a branch
   compartilhada da cota (§4 v1) quebrou justamente porque recebia commits de fora (PR #2238).
+- **Relógios (12/11/2026, `HANDOFF-DIARIO.md` §17.1):** chat que termina o turno com decisão reversível marcada `SSR-auto` (e sem `send_later`, lei 1) grava no arquivo, na seção
+  `## Relógios`, a linha `SSR-auto vence às AAAA-MM-DD hh:mm · recomendação: <o que a sessão fará> · classe: reversível`; o `vence` vem de
+  `python3 -I scripts/ronda-destrava.py vence "AAAA-MM-DD HH:MM"` (2 h de relógio na janela 08–22 h). É o que a ronda lê para aplicar por execução nova.
 - **`!reidratar #chat-xxxxxx`:** `scripts/handoff-achar.sh '#chat-xxxxxx'` (no hub clonado; sem ele, `get_file_contents` no caminho que
   `--caminho` indicar) imprime só o arquivo daquele chat. Leia-o, renomeie este chat com o título dele (trocando só o símbolo de vez se
   mudou) e siga o prompt de retomada. Nunca reidratar a partir de `.parcial.md` sem conferir o chat de origem.
+
+## 8. Handoff endereçado + primer — parar ou redirecionar chats de OUTRA conta (padrão desde 02/11/2026, ordem do operador)
+Palavras dele (02/11, `#chat-n5Ljid`): *"Faz um handoff específico desse chat endereçando diretamente para os 4 chats com ordem de
+parada, que eu reidrato com um primor que vc me gera aqui também em um chat novo lá na conta. Isso deve ser o padrão sempre que me
+requisitar algo similar."* Por quê: **`send_message` não cruza contas** (medido em 02/11: `the requested resource was not found`) e
+`update_trigger` só alcança os horários da própria conta. A ordem tem de nascer dentro da conta dos chats-alvo.
+
+Sempre que o Lucas pedir para avisar, parar, aposentar ou redirecionar chats de outra conta, a sessão entrega **duas peças, no mesmo turno**:
+1. **O handoff endereçado** — o arquivo deste chat (§3, mesmo caminho do §4) com uma seção a mais, «Ordem — endereçada»: tabela
+   *chat-alvo (hashtag e id) · chat que assumiu · gatilho agendado a desligar*, o **texto exato da ordem** (citando a decisão do Lucas,
+   com hora e chat em que foi dada) e a lista dos alvos **parados** (só renomear, sem mensagem, para não gastar a cota de lá) e dos que
+   **ficam** (não tocar).
+2. **O primer** — prompt autocontido, no fim do arquivo **e** num bloco de código na resposta, que o Lucas cola num **chat novo da
+   conta-alvo, com o hub**. Ele manda: ler o arquivo; desligar os gatilhos dos alvos com `update_trigger(enabled=false)` (**nunca**
+   `delete_trigger`, que apaga a sessão junto); `send_message` aos vivos com prioridade `next` (**nunca** `interrupt_session`, que
+   corta merge no meio); `set_session_title` nos parados (`ARQUIVAR · TEMA — migrado para <conta> (🧳 #chat-novo)`), tratando como vivo
+   o que estiver `RUNNING`; conferir a entrega com `list_events` ~10 min depois; responder uma tabela *chat · gatilho · ordem entregue ·
+   confirmou · renomeado · pendência*. **Não arquiva** (ato do Lucas), não apaga, não mergeia, não toca Meta, dinheiro, pessoa de fora ou chave.
+   O título do chat do primer leva 🧳 (veio de handoff) e não leva ⭐.
+
+Antes de escrever a ordem, a sessão **mede o estado atual** (PRs, branches, lista de chats): ordem escrita sobre handoff velho repete o
+erro que ela existe para evitar.

@@ -23,6 +23,17 @@ quem chama (retorno de subagente, JSON, "responda só OK", corpo de commit/PR, a
 o contrato. Isso não é brecha de tamanho: resposta curta ao operador continua com carimbo (achado P2 do Codex, vsl-mastery#39).
 Na resposta de troca de modelo (`model-routing`, gate errado), as linhas são duas: o pedido de troca e o carimbo (achado P2 do Codex, TEMPLO-FE#15).
 
+## 🎚️ Modelo da próxima resposta — última linha de toda resposta ao operador (ordem do operador, 08/11/2026)
+
+Palavras dele (`#chat-5FhEQo`): *"Sempre coloque ao final das mensagens o modelo necessário para a próxima resposta. Torne isso
+universal no ecossistema."* **Toda resposta ao Lucas termina com uma linha** `🎚️ Próxima resposta: <Fable|Opus|Sonnet|Haiku> —
+<o que vem e por quê, em poucas palavras>`, escolhida pela tabela de `model-routing` aplicada ao **próximo passo provável**: o que a
+sessão fará depois da resposta dele, ou o que a resposta dele deve pedir. É a outra ponta do gate: a linha 1 julga o modelo de agora;
+a última linha avisa antes, para ele trocar o modelo **antes** de mandar, e não depois de o gate barrar. Próximo passo incerto → o tier
+mais alto entre os prováveis, dito assim. **Escopo:** o mesmo do carimbo de hora (resposta ao operador no chat); a resposta de
+silêncio a aviso automático (só a linha de hora) e a resposta de troca de modelo do gate não levam a linha. Violação: resposta ao
+operador sem a linha · modelo fora da tabela · linha que repete o modelo atual sem olhar o próximo passo.
+
 Toda resposta com trabalho real **termina** com estas seções, nesta ordem, em
 **palavras simples** (sem jargão) — não pular nenhuma:
 
@@ -52,7 +63,7 @@ dissonância cognitiva** — nunca ensinar a clicar. As regras:
 1. **Se ele faz toda semana pela interface, é um passo** — sem cor, sem posição de botão, sem "você vê".
 2. **Um passo = um objetivo que ele já sabe executar**, começando pelo verbo. Clique só vira passo em
    tela que ele nunca viu.
-3. **Link direto no passo**, sempre que existe.
+3. **Todo passo leva link direto** (ordem do operador, 14/11/2026: *"todo comando PPL deve vir com links em cada passo"*). Passo sem link possível escreve `sem link:` e o porquê em poucas palavras. Passo sem link e sem esse aviso é violação.
 4. **Traduz só o que é novo ou interno** (sha, ref, webhook), entre parênteses, uma vez. PR, merge,
    branch, deploy, build, skill **não** se traduzem — ele usa todo dia.
 5. **"Como se sabe que deu certo" só quando não é óbvio ou pode falhar em silêncio** — o normal é um
@@ -84,6 +95,7 @@ A regra sempre disse "palavras simples" no **Resumo** e no **Passo a passo**. Pa
 | **Nome de arquivo, comando, ID** | pode aparecer, porque é endereço — mas sempre acompanhado do que ele **faz** em português |
 | **Adendo técnico** | permitido **quando for estritamente necessário**, e sempre **depois** da versão simples, marcado como tal (*"Detalhe técnico:"*). Nunca no lugar dela |
 | **Se o Lucas pedir técnico** | aí sim, direto no técnico — o pedido dele vence o padrão |
+| **Português neutro de São Paulo** | (ordem do operador, 14/11/2026: *"sempre português neutro de SP"*): "você" e "a gente"; nunca "tu", "teu", "tua" nem formas de Portugal ou regionalismo ("escreveste", "ficheiro", "ecrã"); frase natural de quem escreve em São Paulo, sem gíria. Em documento, "para"; "pra" só em conversa. Vale no chat e em todo documento, inclusive o que vai a terceiro |
 
 **Vale também para o que a casa escreve sem ele na frente:** relatório do Regente
 (`regente/plantao.md`), corpo de PR, resumo de `memoria/`, issue aberta por Action. A regra nasceu
@@ -94,7 +106,7 @@ de um relatório do Regente que estava certo e ilegível — *"`mergeable` unkno
 **Violação:** sigla sem tradução na primeira aparição · passo a passo que exige saber git para ser
 executado · adendo técnico **no lugar** da versão simples, não depois dela · relatório de agente em
 jargão porque "é só para a máquina ler" · responder em técnico porque o assunto é técnico (o assunto
-ser técnico é justamente quando a tradução vale mais).
+ser técnico é justamente quando a tradução vale mais) · "tu", "teu", "tua" ou forma de Portugal em resposta ou documento · PPL com passo sem link e sem `sem link:`.
 
 ---
 
@@ -144,3 +156,5 @@ decisões abertas a cada evento · loop de Stop hook respondido com texto novo a
 - `!PPL <texto>` sozinho, em qualquer repo, converte um procedimento inteiro em Passo a Passo de
   Leigo — o produto é a lista de passos. Sem alvo → 1 pergunta e para.
 - Sem preâmbulo ("Aqui está…", "Baseado em…").
+
+🕒 2026-11-14 11:07 (São Paulo) · ✍ almapetra.ltda · 💬 🟡🔧S !! 16/11 · A70 · HUB REGRA PPL → mergear PR: link em todo passo + português SP · #chat-SuqD9e

@@ -69,7 +69,7 @@ jobs:
           && ((!startsWith(github.event.review.user.login, 'chatgpt-codex-connector')
                && (contains(github.event.review.body, 'codex') || contains(github.event.changes.body.from, 'codex')))
               || (startsWith(github.event.review.user.login, 'chatgpt-codex-connector') && contains(github.event.review.body, 'diff --git'))))
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.RUNNER_ALVO || '"ubuntu-latest"') }}
     timeout-minutes: 3
     steps:
       - name: Identificar PR e head

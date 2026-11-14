@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "STORYBOARD POR SEGUNDO — contrato de geração de vídeo v1.0 (30/10/2026)",
+  "description": "Um bloco por segundo (ou por faixa de segundos iguais) de qualquer vídeo da casa — anúncio, reels, short, VSL, boas-vindas, aula, teaser. É a arquitetura e a engenharia de cada segundo, escrita antes de gastar um crédito: o que se vê, o que se ouve, a fala, a camada, a fonte (gravado · real · HeyGen · Seedance · imagem · render local), a unidade de compra da MATRIZ (R4/M4/F4/S4/S6/H6/E4/IMG) e o porquê do motor. Regras mecânicas: Seedance 2.5 só em segundo `essencial: true`, com `porque` escrito; camada `prova` só com fonte `real`; voz sintética só `elevenlabs-v4`; rosto sintético só `heygen-avatar-v`. As faixas cobrem 0..duracao_s sem buraco nem sobreposição (conferido por scripts/storyboard-segundo-validar.py). Irmão de editsheet.schema.json (o que editar, batida a batida) e de storyboard.schema.json (card gráfico por frase): o EDIT SHEET diz o corte; este diz o que GERAR e com qual motor. Padrão: docs/os-meta-ads/PADRAO-VIDEO-storyboard-por-segundo-v1_0.md; regra: .claude/rules/video-storyboard-por-segundo.md.",
+  "type": "object",
+  "required": ["versao", "id", "formato", "aspecto", "duracao_s", "pilha", "segundos", "totais", "gate"],
+  "additionalProperties": false,
+  "properties": {
+    "versao": { "const": "1.0" },
+    "id": {
+      "type": "string",
+      "pattern": "^ss-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}$",
+      "description": "ex.: ss-2026-10-30-001. É a etiqueta que todo disparo no Higgsfield carrega no prompt: [ss-2026-10-30-001 s0-4]"
+    },
+    "titulo": { "type": "string" },
+    "pauta_id": { "type": "string", "pattern": "^pauta-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}$" },
+    "editsheet_id": { "type": "string", "pattern": "^es-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}$" },
+    "roteiro": {
+      "type": "string",
+      "description": "caminho do roteiro word-by-word que originou o storyboard (o roteiro manda: é ele que diz qual segundo precisa de motor caro)"
+    },
+    "formato": { "enum": ["anuncio", "reels", "short", "vsl", "boas-vindas", "aula", "teaser", "stories", "follow-up", "outro"] },
+    "aspecto": { "enum": ["9:16", "16:9", "1:1", "4:5"] },
+    "duracao_s": { "type": "integer", "minimum": 1 },
+    "pilha": {
+      "type": "object",
+      "description": "a pilha declarada pelo operador em 23/10 e 30/10/2026 — fixa; mudar é ato dele",
+      "required": ["voz", "rosto"],
+      "additionalProperties": false,
+      "properties": {
+        "voz": { "enum": ["elevenlabs-v4", "gravada-pelo-lucas"] },
+        "rosto": { "enum": ["gravado-pelo-lucas", "heygen-avatar-v", "sem-rosto"] },
+        "lipsync_fonte": { "type": "string", "description": "caminho do vídeo bruto gravado pelo Lucas que o HeyGen usa para manter a consistência (obrigatório quando rosto = heygen-avatar-v)" },
+        "render": { "enum": ["vsl-studio-local", "hyperframes", "capcut"], "default": "vsl-studio-local" }
+      },
+      "if": { "properties": { "rosto": { "const": "heygen-avatar-v" } } },
+      "then": { "required": ["lipsync_fonte"] }
+    },
+    "segundos": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["de", "ate", "ve", "ouve", "camada", "fonte", "essencial", "porque"],
+        "additionalProperties": false,
+        "properties": {
+          "de": { "type": "integer", "minimum": 0, "description": "segundo inicial, inclusivo" },
+          "ate": { "type": "integer", "minimum": 1, "description": "segundo final, exclusivo — a faixa [de, ate) tem ate−de segundos; faixa de 1 segundo = de+1" },
+          "fala": { "type": "string", "description": "as palavras ditas nesses segundos, copiadas do roteiro (vazio quando não há fala)" },
+          "ve": { "type": "string", "minLength": 3, "description": "o que está na tela, em uma frase: plano, sujeito, ação, luz" },
+          "ouve": { "enum": ["voz", "voz+musica", "musica", "sfx", "silencio", "som-ambiente"] },
+          "camada": { "enum": ["gancho", "rosto", "b-roll-cena", "b-roll-fundo", "prova", "tela", "texto", "cta", "transicao"] },
+          "fonte": {
+            "enum": ["gravado", "real", "heygen-avatar-v", "seedance-2.5", "seedance-2.0-standard", "seedance-2.0-fast", "seedance-2.0-mini", "imagem-animada", "biblioteca", "render-local"],
+            "description": "biblioteca = plano já gerado e guardado (docs/os-meta-ads/MATRIZ… §7-bis); reusar é 0 crédito"
+          },
+          "essencial": { "type": "boolean", "description": "true só quando a cena carrega a venda e nenhum motor mais barato entrega (gancho que é cena, abertura de VSL para tela grande, cena-âncora da virada). É o único caminho para o Seedance 2.5." },
+          "unidade": { "enum": ["R4", "M4", "F4", "S4", "S6", "H6", "E4", "IMG", "X25-720", "X25-1080", "0"], "description": "unidade de compra da MATRIZ §3; X25-720 = 2.5 720p 4 s (28 cr) · X25-1080 = 2.5 1080p 4 s (64 cr) · 0 = não gasta" },
+          "creditos": { "type": "number", "minimum": 0, "description": "créditos estimados desta faixa, pela tabela da MATRIZ §1.1 (cotação get_cost antes de disparar)" },
+          "prompt": { "type": "string", "description": "o prompt literal do motor, quando a fonte é gerada; começa pela etiqueta [<id> s<de>-<ate>]" },
+          "biblioteca_id": { "type": "string", "description": "job id do plano reusado, quando fonte = biblioteca" },
+          "acabamento": {
+            "type": "object",
+            "description": "OPCIONAL (emenda de 09/11/2026, em prova até o bake-off). Passo extra DEPOIS do lipsync: o Seedance edita o vídeo que saiu do HeyGen. Só vale em faixa falada com fonte `heygen-avatar-v` (voz ElevenLabs v4 → lipsync HeyGen → acabamento). O crédito entra no total da peça; qualquer acabamento exige gate.teto_autorizado e aprovação do Lucas, peça a peça. Seedance 2.5 é permitido aqui com esse sim, mesmo em faixa não essencial (a regra de 2.5 só em `essencial` vale para a geração da faixa).",
+            "required": ["motor", "creditos", "prompt", "porque"],
+            "additionalProperties": false,
+            "properties": {
+              "motor": { "enum": ["seedance-2.0-standard", "seedance-2.0-fast", "seedance-2.0-mini", "seedance-2.5"], "description": "só Seedance; a versão fica explícita" },
+              "creditos": { "type": "number", "minimum": 0, "description": "créditos do acabamento desta faixa; somados ao total da peça" },
+              "prompt": { "type": "string", "description": "prompt literal do acabamento; começa pela mesma etiqueta [<id> s<de>-<ate>]" },
+              "porque": { "type": "string", "minLength": 8, "description": "uma linha: o que o acabamento melhora que o HeyGen sozinho não entrega" },
+              "gate_pos": {
+                "type": "object",
+                "description": "medida refeita DEPOIS do acabamento. Boca fora do tempo ou rosto que mudou: aquele trecho volta para a saída do HeyGen. Opcional antes do disparo; preenchido depois.",
+                "required": ["medido_em", "boca_no_tempo", "rosto_igual"],
+                "additionalProperties": false,
+                "properties": {
+                  "medido_em": { "type": "string", "description": "AAAA-MM-DD HH:MM (São Paulo), hora medida" },
+                  "boca_no_tempo": { "type": "boolean" },
+                  "rosto_igual": { "type": "boolean" }
+                }
+              }
+            }
+          },
+          "movimento": { "type": "string", "description": "corte, zoom, pan, split — o que o edit sheet manda para esta faixa" },
+          "legenda": { "type": "string" },
+          "porque": { "type": "string", "minLength": 8, "description": "uma linha: por que esta fonte e não a mais barata abaixo dela" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "fonte": { "const": "seedance-2.5" } } },
+            "then": { "properties": { "essencial": { "const": true }, "unidade": { "enum": ["X25-720", "X25-1080", "E4", "R4"] } }, "required": ["prompt", "creditos"] }
+          },
+          {
+            "if": { "properties": { "camada": { "const": "prova" } } },
+            "then": { "properties": { "fonte": { "enum": ["real", "gravado"] } } }
+          },
+          {
+            "if": { "properties": { "fonte": { "enum": ["seedance-2.0-standard", "seedance-2.0-fast", "seedance-2.0-mini", "imagem-animada"] } } },
+            "then": { "required": ["prompt", "unidade", "creditos"] }
+          },
+          {
+            "if": { "required": ["acabamento"] },
+            "then": { "properties": { "fonte": { "const": "heygen-avatar-v" }, "ouve": { "enum": ["voz", "voz+musica"] } } }
+          },
+          {
+            "if": { "properties": { "fonte": { "const": "biblioteca" } } },
+            "then": { "required": ["biblioteca_id"] }
+          }
+        ]
+      }
+    },
+    "totais": {
+      "type": "object",
+      "required": ["creditos", "usd", "segundos_essenciais", "teto_do_formato"],
+      "additionalProperties": false,
+      "properties": {
+        "creditos": { "type": "number", "minimum": 0 },
+        "usd": { "type": "number", "minimum": 0, "description": "créditos × preço do crédito do plano vigente (MATRIZ §1.1)" },
+        "segundos_essenciais": { "type": "integer", "minimum": 0 },
+        "teto_do_formato": { "type": "number", "minimum": 0, "description": "teto da tabela do PADRÃO §4: anúncio 60 · reels 20 · short 20 · VSL 250 · boas-vindas 20 · aula 10 · teaser 60. Acima do teto, o storyboard não é aprovado." },
+        "heygen_min": { "type": "number", "minimum": 0, "description": "minutos de avatar, quando rosto = heygen-avatar-v" },
+        "elevenlabs_chars": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "description": "nenhum crédito sai sem isto preenchido. Quem aprova é o operador (ou a sessão, dentro do teto do formato, com a cotação colada)",
+      "required": ["cotado_em", "cotado_por", "aprovado"],
+      "additionalProperties": false,
+      "properties": {
+        "cotado_em": { "type": "string", "description": "AAAA-MM-DD HH:MM (São Paulo), hora medida" },
+        "cotado_por": { "type": "string", "description": "get_cost · tabela da MATRIZ · job real" },
+        "aprovado": { "type": "boolean" },
+        "aprovado_por": { "enum": ["lucas", "sessao-dentro-do-teto"] },
+        "aprovado_em": { "type": "string" },
+        "teto_autorizado": {
+          "type": "object",
+          "description": "autorização explícita do operador para exceder o teto ordinário do formato",
+          "required": ["por", "em", "teto"],
+          "additionalProperties": false,
+          "properties": {
+            "por": { "const": "lucas" },
+            "em": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$" },
+            "teto": { "type": "number", "minimum": 0 }
+          }
+        },
+        "chat": { "type": "string", "pattern": "^#chat-[A-Za-z0-9]{6}$" }
+      },
+      "if": { "properties": { "aprovado": { "const": true } } },
+      "then": { "required": ["aprovado_por", "aprovado_em", "chat"] }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "segundos": {
+            "contains": {
+              "type": "object",
+              "properties": { "fonte": { "const": "seedance-2.5" } },
+              "required": ["fonte"]
+            }
+          },
+          "gate": {
+            "type": "object",
+            "properties": { "aprovado": { "const": true } },
+            "required": ["aprovado"]
+          }
+        },
+        "required": ["segundos", "gate"]
+      },
+      "then": {
+        "properties": {
+          "gate": {
+            "properties": { "aprovado_por": { "const": "lucas" } },
+            "required": ["aprovado_por"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "segundos": { "contains": { "type": "object", "required": ["acabamento"] } } },
+        "required": ["segundos"]
+      },
+      "then": {
+        "properties": {
+          "gate": { "required": ["teto_autorizado"] }
+        },
+        "required": ["gate"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "segundos": { "contains": { "type": "object", "required": ["acabamento"] } },
+          "gate": {
+            "type": "object",
+            "properties": { "aprovado": { "const": true } },
+            "required": ["aprovado"]
+          }
+        },
+        "required": ["segundos", "gate"]
+      },
+      "then": {
+        "properties": {
+          "gate": {
+            "properties": { "aprovado_por": { "const": "lucas" } },
+            "required": ["aprovado_por"]
+          }
+        }
+      }
+    }
+  ]
+}
