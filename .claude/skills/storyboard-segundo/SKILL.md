@@ -44,13 +44,14 @@ Fonte única do procedimento: `docs/os-meta-ads/PADRAO-VIDEO-storyboard-por-segu
 6. **Gravar** `docs/<tema>/storyboards/ss-AAAA-MM-DD-NNN.json` + `.md` ao lado (tabela: faixa · fala · vê · fonte · cr · porquê)
    + **lista de disparo manual** (faixas em que o ilimitado do site vale: imagem; Seedance 720p ≤ 8 s nos dias de ilimitado).
 7. **Validar:** `python3 scripts/storyboard-segundo-validar.py <arquivo>` tem de passar.
-8. **Gate.** Dentro do teto e sem 2.5 → `gate.aprovado_por: sessao-dentro-do-teto`, hora medida, `#chat-`. Acima do teto ou com
-   2.5 → o sim do Lucas, com a frase *"X créditos, Y s em 2.5, porque Z — sim?"*. Só então disparar, na ordem barata.
+8. **Gate.** Dentro do teto, sem 2.5 e sem `acabamento` → `gate.aprovado_por: sessao-dentro-do-teto`, hora medida, `#chat-`.
+   Acima do teto, com 2.5 ou com qualquer `acabamento` → o sim do Lucas, com a frase *"X créditos, Y s em 2.5, porque Z — sim?"*.
+   Só então disparar, na ordem barata.
 
 ## Saída
 - O JSON validado e a tabela `.md` (link do GitHub, fora do diff).
 - 3 números na resposta: créditos totais · segundos essenciais · créditos poupados pela biblioteca.
-- Decisão ao Lucas só quando houver 2.5 ou teto estourado.
+- Decisão ao Lucas quando houver `acabamento`, 2.5 ou teto estourado.
 
 ## Nunca
 - Disparar sem o arquivo gravado e validado. Gerar prova. Rosto de pessoa real sem pedido. Robô no site da Higgsfield.

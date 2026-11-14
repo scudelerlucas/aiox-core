@@ -190,6 +190,27 @@
         },
         "required": ["gate"]
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "segundos": { "contains": { "type": "object", "required": ["acabamento"] } },
+          "gate": {
+            "type": "object",
+            "properties": { "aprovado": { "const": true } },
+            "required": ["aprovado"]
+          }
+        },
+        "required": ["segundos", "gate"]
+      },
+      "then": {
+        "properties": {
+          "gate": {
+            "properties": { "aprovado_por": { "const": "lucas" } },
+            "required": ["aprovado_por"]
+          }
+        }
+      }
     }
   ]
 }

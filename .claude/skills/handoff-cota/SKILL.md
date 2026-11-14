@@ -109,6 +109,9 @@ o título do chat `⚙ COTA` da conta destino — cada conta só lê a própria 
   **Guarda da branch fixa (31/10):** nessa branch entra **só** `docs/ops/HANDOFF-COTA/DIARIO/<conta>/**` — nunca commit de trabalho,
   nunca merge de outra branch, nunca arquivo fora da pasta. É isso que a mantém mergeável contra a `main` sem conflito; a branch
   compartilhada da cota (§4 v1) quebrou justamente porque recebia commits de fora (PR #2238).
+- **Relógios (12/11/2026, `HANDOFF-DIARIO.md` §17.1):** chat que termina o turno com decisão reversível marcada `SSR-auto` (e sem `send_later`, lei 1) grava no arquivo, na seção
+  `## Relógios`, a linha `SSR-auto vence às AAAA-MM-DD hh:mm · recomendação: <o que a sessão fará> · classe: reversível`; o `vence` vem de
+  `python3 -I scripts/ronda-destrava.py vence "AAAA-MM-DD HH:MM"` (2 h de relógio na janela 08–22 h). É o que a ronda lê para aplicar por execução nova.
 - **`!reidratar #chat-xxxxxx`:** `scripts/handoff-achar.sh '#chat-xxxxxx'` (no hub clonado; sem ele, `get_file_contents` no caminho que
   `--caminho` indicar) imprime só o arquivo daquele chat. Leia-o, renomeie este chat com o título dele (trocando só o símbolo de vez se
   mudou) e siga o prompt de retomada. Nunca reidratar a partir de `.parcial.md` sem conferir o chat de origem.

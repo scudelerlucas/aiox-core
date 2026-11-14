@@ -17,6 +17,7 @@ Além do schema (quando `jsonschema` está instalado), confere o que o schema n�
 Sai 0 quando passa; 1 com a lista do que falhou. Sem rede, sem crédito.
 """
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -38,6 +39,8 @@ def main() -> int:
         teto_arg = float(sys.argv[sys.argv.index("--teto") + 1])
     sb = json.loads(caminho.read_text(encoding="utf-8"))
     erros: list[str] = []
+    if teto_arg is not None and (not math.isfinite(teto_arg) or teto_arg < 0):
+        erros.append("--teto precisa ser um número finito e não negativo")
 
     schema_path = Path(__file__).resolve().parent.parent / "vsl-studio" / "schema" / "storyboard-segundo.schema.json"
     try:
@@ -47,6 +50,9 @@ def main() -> int:
             erros.append(f"schema: {'/'.join(str(p) for p in e.path) or '<raiz>'}: {e.message}")
     except ImportError:
         print("aviso: `jsonschema` não instalado — o schema completo não foi conferido; as conferências obrigatórias próprias rodaram (pip install jsonschema)")
+        for campo in ("formato", "segundos", "gate"):
+            if campo not in sb:
+                erros.append(f"{campo} é obrigatório quando o schema completo não está disponível")
 
     pilha = sb.get("pilha", {})
     if pilha.get("voz") not in VOZES:
@@ -82,6 +88,14 @@ def main() -> int:
             for campo in ("prompt", "unidade", "creditos"):
                 if campo not in f:
                     erros.append(f"faixa {de}-{ate}: `{campo}` é obrigatório para fonte gerada")
+        credito = f.get("creditos", 0)
+        if (
+            not isinstance(credito, (int, float))
+            or isinstance(credito, bool)
+            or not math.isfinite(credito)
+            or credito < 0
+        ):
+            erros.append(f"faixa {de}-{ate}: `creditos` precisa ser um número finito e não negativo")
         ac = f.get("acabamento")
         if ac is not None:
             ref = f"faixa {de}-{ate}: acabamento"
@@ -91,8 +105,14 @@ def main() -> int:
                 erros.append(f"{ref} só vale em cena falada (`ouve` = voz ou voz+musica)")
             if ac.get("motor") not in MOTORES_ACABAMENTO:
                 erros.append(f"{ref}: motor {ac.get('motor')!r} não é Seedance (use um de {sorted(MOTORES_ACABAMENTO)})")
-            if not isinstance(ac.get("creditos"), (int, float)) or ac.get("creditos") < 0:
-                erros.append(f"{ref}: `creditos` é obrigatório e não pode ser negativo")
+            credito_acabamento = ac.get("creditos")
+            if (
+                not isinstance(credito_acabamento, (int, float))
+                or isinstance(credito_acabamento, bool)
+                or not math.isfinite(credito_acabamento)
+                or credito_acabamento < 0
+            ):
+                erros.append(f"{ref}: `creditos` precisa ser um número finito e não negativo")
             if not isinstance(ac.get("porque"), str) or len(ac["porque"]) < 8:
                 erros.append(f"{ref}: `porque` precisa ter ao menos 8 caracteres")
             etiqueta = f"[{sb.get('id')} s{de}-{ate}]"
@@ -112,30 +132,65 @@ def main() -> int:
     soma = sum(float(f.get("creditos", 0) or 0) + float((f.get("acabamento") or {}).get("creditos", 0) or 0) for f in faixas)
     tem_acabamento = any(f.get("acabamento") is not None for f in faixas)
     tot = sb.get("totais", {})
-    if abs(soma - float(tot.get("creditos", -1))) > 0.01:
+    total_creditos = tot.get("creditos", -1)
+    total_creditos_numerico = (
+        isinstance(total_creditos, (int, float))
+        and not isinstance(total_creditos, bool)
+        and math.isfinite(total_creditos)
+        and total_creditos >= 0
+    )
+    if not total_creditos_numerico:
+        erros.append("totais.creditos precisa ser um número finito e não negativo")
+    elif not math.isfinite(soma) or abs(soma - total_creditos) > 0.01:
         erros.append(f"totais.creditos = {tot.get('creditos')} ≠ soma das faixas = {soma:g}")
     teto_ordinario = float(TETOS.get(sb.get("formato", "outro"), 60))
-    teto_declarado = float(tot.get("teto_do_formato", teto_ordinario))
+    teto_declarado_bruto = tot.get("teto_do_formato", teto_ordinario)
+    teto_declarado_numerico = (
+        isinstance(teto_declarado_bruto, (int, float))
+        and not isinstance(teto_declarado_bruto, bool)
+        and math.isfinite(teto_declarado_bruto)
+        and teto_declarado_bruto >= 0
+    )
+    if not teto_declarado_numerico:
+        erros.append("totais.teto_do_formato precisa ser um número finito e não negativo")
+        teto_declarado = teto_ordinario
+    else:
+        teto_declarado = float(teto_declarado_bruto)
     autorizacao = sb.get("gate", {}).get("teto_autorizado")
     teto_autorizado = autorizacao.get("teto") if isinstance(autorizacao, dict) else None
-    teto_autorizado_numerico = isinstance(teto_autorizado, (int, float)) and not isinstance(teto_autorizado, bool)
+    teto_autorizado_numerico = (
+        isinstance(teto_autorizado, (int, float))
+        and not isinstance(teto_autorizado, bool)
+        and math.isfinite(teto_autorizado)
+        and teto_autorizado >= 0
+    )
     teto = teto_arg if teto_arg is not None else teto_ordinario
+    if autorizacao is not None and not isinstance(autorizacao, dict):
+        erros.append("gate.teto_autorizado deve ser um objeto")
+    if isinstance(autorizacao, dict):
+        if not teto_autorizado_numerico:
+            erros.append("gate.teto_autorizado.teto precisa ser um número finito e não negativo")
+        else:
+            if teto_arg is None:
+                teto = float(teto_autorizado)
+            # `teto_do_formato` é o valor da tabela do formato; a autorização explícita levanta o teto sozinha.
+            # A igualdade só se exige quando o teto do formato já foi declarado ACIMA do ordinário.
+            if teto_declarado_numerico and teto_declarado > teto_ordinario and float(teto_autorizado) != teto_declarado:
+                erros.append(
+                    f"gate.teto_autorizado.teto = {float(teto_autorizado):g} ≠ "
+                    f"totais.teto_do_formato = {teto_declarado:g}"
+                )
+            if teto_autorizado > teto_ordinario:
+                if autorizacao.get("por") != "lucas":
+                    erros.append("aumento de teto exige gate.teto_autorizado.por = lucas")
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", str(autorizacao.get("em", ""))):
+                    erros.append("aumento de teto exige gate.teto_autorizado.em no formato AAAA-MM-DD HH:MM")
     if teto_arg is None and teto_declarado > teto_ordinario:
-        if not autorizacao:
+        if not isinstance(autorizacao, dict):
             erros.append(
                 f"totais.teto_do_formato = {teto_declarado:g} supera o teto ordinário "
                 f"de {sb.get('formato')} ({teto_ordinario:g}) sem gate.teto_autorizado"
             )
-        else:
-            if not teto_autorizado_numerico:
-                erros.append("gate.teto_autorizado.teto deve ser numérico quando autoriza teto acima do formato")
-            else:
-                teto = float(teto_autorizado)
-            if teto_autorizado_numerico and teto != teto_declarado:
-                erros.append(
-                    f"gate.teto_autorizado.teto = {teto:g} ≠ "
-                    f"totais.teto_do_formato = {teto_declarado:g}"
-                )
     if tem_acabamento:
         if not isinstance(autorizacao, dict) or not autorizacao:
             erros.append("peça com acabamento precisa de gate.teto_autorizado (o teto que o Lucas autorizou para esta peça, com `por`, `em` e `teto`); sem ele não dispara")
